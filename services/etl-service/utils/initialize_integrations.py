@@ -61,24 +61,32 @@ else:
 sys.path.insert(0, str(etl_service_dir))
 
 def setup_logging(debug: bool = False):
-    """Setup logging configuration."""
+    """Setup logging configuration using the main app's colored logging."""
     import logging
-    
-    level = logging.DEBUG if debug else logging.INFO
-    
-    # Create logs directory if it doesn't exist
-    logs_dir = etl_service_dir / 'logs'
-    logs_dir.mkdir(exist_ok=True)
-    
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(logs_dir / 'initialize_integrations.log')
-        ]
-    )
-    
+
+    try:
+        # Import and use the main app's colored logging configuration
+        from app.core.logging_config import setup_logging as app_setup_logging
+        app_setup_logging()
+        print("✅ Using colored logging configuration")
+    except ImportError:
+        # Fallback to basic logging if app modules aren't available
+        level = logging.DEBUG if debug else logging.INFO
+
+        # Create logs directory if it doesn't exist
+        logs_dir = etl_service_dir / 'logs'
+        logs_dir.mkdir(exist_ok=True)
+
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler(logs_dir / 'initialize_integrations.log')
+            ]
+        )
+        print("⚠️  Using basic logging configuration (colored logging not available)")
+
     # Reduce noise from external libraries
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
