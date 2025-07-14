@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./services/frontend-app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./services/frontend-app:/app
+      - /app/node_modules
+    command: npm run dev
+
+  backend:
+    build:
+      context: ./services/backend-service
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./services/backend-service:/app
+      - /app/node_modules
+    env_file:
+      - ./services/backend-service/.env
+
+  etl:
+    build:
+      context: ./services/etl-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/etl-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - ./services/etl-service/.env
+
+  ai:
+    build:
+      context: ./services/ai-service
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/ai-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    env_file:
+      - ./services/ai-service/.env

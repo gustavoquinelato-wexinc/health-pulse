@@ -1,0 +1,570 @@
+"""
+Unified data models for ETL Service.
+Based on existing snowflake_db_manager.py model with additions for development data.
+"""
+
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean
+from sqlalchemy.orm import declarative_base, relationship
+from typing import Dict, Any
+
+Base = declarative_base()
+
+
+class Client(Base):
+    """Clients table to manage different client organizations."""
+    __tablename__ = 'clients'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    name = Column(String, nullable=False, quote=False, name="name")
+    website = Column(String, nullable=True, quote=False, name="website")
+    active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
+    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+    # Relationships - allows easy navigation to related data
+    integrations = relationship("Integration", back_populates="client")
+    projects = relationship("Project", back_populates="client")
+    issuetypes = relationship("Issuetype", back_populates="client")
+    statuses = relationship("Status", back_populates="client")
+    status_mappings = relationship("StatusMapping", back_populates="client")
+    flow_steps = relationship("FlowStep", back_populates="client")
+    issues = relationship("Issue", back_populates="client")
+    changelogs = relationship("IssueChangelog", back_populates="client")
+    repositories = relationship("Repository", back_populates="client")
+    pull_requests = relationship("PullRequest", back_populates="client")
+    pull_request_reviews = relationship("PullRequestReview")
+    pull_request_commits = relationship("PullRequestCommit")
+    pull_request_comments = relationship("PullRequestComment")
+
+
+class BaseEntity:
+    """Base class with audit fields for all entities."""
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, quote=False, name="client_id")
+    active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
+    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+
+class Integration(Base, BaseEntity):
+    """Integrations table (Jira, GitHub, Azure DevOps, etc.)"""
+    __tablename__ = 'integrations'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    name = Column(String, quote=False, name="name")
+    url = Column(String, quote=False, name="url")
+    username = Column(String, quote=False, name="username")
+    password = Column(String, quote=False, name="password")
+    last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
+
+    # Relationships
+    client = relationship("Client", back_populates="integrations")
+    projects = relationship("Project", back_populates="integration")
+    issuetypes = relationship("Issuetype", back_populates="integration")
+    statuses = relationship("Status", back_populates="integration")
+    issues = relationship("Issue", back_populates="integration")
+
+
+
+class Project(Base, BaseEntity):
+    """Projects table"""
+    __tablename__ = 'projects'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
+    external_id = Column(String, quote=False, name="external_id")
+    key = Column(String, quote=False, unique=True, nullable=False, name="key")
+    name = Column(String, quote=False, nullable=False, name="name")
+    project_type = Column(String, quote=False, name="project_type")
+
+    # Relationships
+    client = relationship("Client", back_populates="projects")
+    integration = relationship("Integration", back_populates="projects")
+    issuetypes = relationship("Issuetype", secondary="projects_issuetypes", back_populates="projects")
+    statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
+    issues = relationship("Issue", back_populates="project")
+
+
+class ProjectsIssuetypes(Base):
+    """Relationship table between projects and issue types"""
+    __tablename__ = 'projects_issuetypes'
+    __table_args__ = (PrimaryKeyConstraint('project_id', 'issuetype_id'), {'quote': False})
+
+    project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
+    issuetype_id = Column(Integer, ForeignKey('issuetypes.id'), primary_key=True, quote=False, name="issuetype_id")
+
+
+class ProjectsStatuses(Base):
+    """Relationship table between projects and statuses"""
+    __tablename__ = 'projects_statuses'
+    __table_args__ = (PrimaryKeyConstraint('project_id', 'status_id'), {'quote': False})
+
+    project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
+    status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
+
+
+class Issuetype(Base, BaseEntity):
+    """Issue types table"""
+    __tablename__ = 'issuetypes'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
+    external_id = Column(String, quote=False, name="external_id")
+    original_name = Column(String, quote=False, nullable=False, name="original_name")
+    mapped_name = Column(String, quote=False, nullable=False, name="mapped_name")
+    description = Column(String, quote=False, name="description")
+    hierarchy_level = Column(Integer, quote=False, nullable=False, name="hierarchy_level")
+    active = Column(Boolean, quote=False, nullable=False, default=True, name="active")
+
+    # Relationships
+    client = relationship("Client", back_populates="issuetypes")
+    integration = relationship("Integration", back_populates="issuetypes")
+    projects = relationship("Project", secondary="projects_issuetypes", back_populates="issuetypes")
+    issues = relationship("Issue", back_populates="issuetype")
+
+
+class StatusMapping(Base, BaseEntity):
+    """Status Mapping table - maps raw status names to standardized flow steps"""
+    __tablename__ = 'status_mappings'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    status_from = Column(String, quote=False, nullable=False, name="status_from")
+    status_to = Column(String, quote=False, nullable=False, name="status_to")
+    status_category = Column(String, quote=False, nullable=False, name="status_category")
+
+    # Relationships
+    client = relationship("Client", back_populates="status_mappings")
+
+
+class FlowStep(Base, BaseEntity):
+    """Flow Steps table - client-specific workflow steps"""
+    __tablename__ = 'flow_steps'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    mapped_name = Column(String, quote=False, nullable=False, name="mapped_name")
+    step_category = Column(String, quote=False, nullable=False, name="step_category")
+
+    # Relationships
+    client = relationship("Client", back_populates="flow_steps")
+    statuses = relationship("Status", back_populates="flow_step")
+
+
+class Status(Base, BaseEntity):
+    """Statuses table"""
+    __tablename__ = 'statuses'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
+    external_id = Column(String, quote=False, name="external_id")
+    original_name = Column(String, quote=False, nullable=False, name="original_name")
+    flow_step_id = Column(Integer, ForeignKey('flow_steps.id'), quote=False, nullable=True, name="flow_step_id")
+    category = Column(String, quote=False, nullable=False, name="category")
+    description = Column(String, quote=False, name="description")
+    active = Column(Boolean, quote=False, nullable=False, default=True, name="active")
+
+    # Relationships
+    client = relationship("Client", back_populates="statuses")
+    integration = relationship("Integration", back_populates="statuses")
+    projects = relationship("Project", secondary="projects_statuses", back_populates="statuses")
+    flow_step = relationship("FlowStep", back_populates="statuses")
+    issues = relationship("Issue", back_populates="status")
+
+
+class Issue(Base, BaseEntity):
+    """Main issues table"""
+    __tablename__ = 'issues'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
+    external_id = Column(String, quote=False, name="external_id")
+    key = Column(String, quote=False, name="key")
+    project_id = Column(Integer, ForeignKey('projects.id'), quote=False, name="project_id")
+    team = Column(String, quote=False, name="team")
+    summary = Column(String, quote=False, name="summary")
+    issuetype_id = Column(Integer, ForeignKey('issuetypes.id'), quote=False, name="issuetype_id")
+    status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
+    resolution = Column(String, quote=False, name="resolution")
+    story_points = Column(Integer, quote=False, name="story_points")
+    assignee = Column(String, quote=False, name="assignee")
+    labels = Column(String, quote=False, name="labels")
+    created = Column(DateTime, quote=False, name="created")
+    updated = Column(DateTime, quote=False, name="updated")
+
+    # Legacy columns (keep temporarily for validation)
+    started = Column(DateTime, quote=False, name="started")
+    completed = Column(DateTime, quote=False, name="completed")
+
+    # Enhanced workflow timing columns
+    work_first_committed_at = Column(DateTime, quote=False, name="work_first_committed_at")
+    work_first_started_at = Column(DateTime, quote=False, name="work_first_started_at")
+    work_last_started_at = Column(DateTime, quote=False, name="work_last_started_at")
+    work_first_completed_at = Column(DateTime, quote=False, name="work_first_completed_at")
+    work_last_completed_at = Column(DateTime, quote=False, name="work_last_completed_at")
+    priority = Column(String, quote=False, name="priority")
+    parent_external_id = Column(String, quote=False, name="parent_external_id")  # Changed to external_id reference
+    code_changed = Column(Boolean, quote=False, name="code_changed")
+
+    # Enhanced workflow counter columns
+    total_work_starts = Column(Integer, quote=False, name="total_work_starts", default=0)
+    total_completions = Column(Integer, quote=False, name="total_completions", default=0)
+    total_backlog_returns = Column(Integer, quote=False, name="total_backlog_returns", default=0)
+
+    # Enhanced workflow time analysis columns
+    total_work_time_seconds = Column(Float, quote=False, name="total_work_time_seconds", default=0.0)
+    total_review_time_seconds = Column(Float, quote=False, name="total_review_time_seconds", default=0.0)
+    total_cycle_time_seconds = Column(Float, quote=False, name="total_cycle_time_seconds", default=0.0)
+    total_lead_time_seconds = Column(Float, quote=False, name="total_lead_time_seconds", default=0.0)
+
+    # Enhanced workflow pattern analysis columns
+    workflow_complexity_score = Column(Integer, quote=False, name="workflow_complexity_score", default=0)
+    rework_indicator = Column(Boolean, quote=False, name="rework_indicator", default=False)
+    direct_completion = Column(Boolean, quote=False, name="direct_completion", default=False)
+
+    # Custom fields for flexible data storage
+    custom_field_01 = Column(String, quote=False, name="custom_field_01")
+    custom_field_02 = Column(String, quote=False, name="custom_field_02")
+    custom_field_03 = Column(String, quote=False, name="custom_field_03")
+    custom_field_04 = Column(String, quote=False, name="custom_field_04")
+    custom_field_05 = Column(String, quote=False, name="custom_field_05")
+    custom_field_06 = Column(String, quote=False, name="custom_field_06")
+    custom_field_07 = Column(String, quote=False, name="custom_field_07")
+    custom_field_08 = Column(String, quote=False, name="custom_field_08")
+    custom_field_09 = Column(String, quote=False, name="custom_field_09")
+    custom_field_10 = Column(String, quote=False, name="custom_field_10")
+    custom_field_11 = Column(String, quote=False, name="custom_field_11")
+    custom_field_12 = Column(String, quote=False, name="custom_field_12")
+    custom_field_13 = Column(String, quote=False, name="custom_field_13")
+    custom_field_14 = Column(String, quote=False, name="custom_field_14")
+    custom_field_15 = Column(String, quote=False, name="custom_field_15")
+    custom_field_16 = Column(String, quote=False, name="custom_field_16")
+    custom_field_17 = Column(String, quote=False, name="custom_field_17")
+    custom_field_18 = Column(String, quote=False, name="custom_field_18")
+    custom_field_19 = Column(String, quote=False, name="custom_field_19")
+    custom_field_20 = Column(String, quote=False, name="custom_field_20")
+
+    # Relationships
+    client = relationship("Client", back_populates="issues")
+    project = relationship("Project", back_populates="issues")
+    issuetype = relationship("Issuetype", back_populates="issues")
+    status = relationship("Status", back_populates="issues")
+    integration = relationship("Integration", back_populates="issues")
+
+    # Note: Parent-child relationships now use external_id instead of foreign key
+    # This provides better data integrity and simpler import logic
+
+    # New relationships for development data
+    pull_requests = relationship("PullRequest", back_populates="issue")
+    changelogs = relationship("IssueChangelog", back_populates="issue")
+    dev_details_staging = relationship("JiraDevDetailsStaging", back_populates="issue")
+
+
+class IssueChangelog(Base, BaseEntity):
+    """Issue status change history table"""
+    __tablename__ = 'issue_changelogs'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
+    issue_id = Column(Integer, ForeignKey('issues.id'), quote=False, nullable=False, name="issue_id")
+    external_id = Column(String, quote=False, name="external_id")  # e.g., "BEX-123-456"
+
+    # Status transition information
+    from_status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="from_status_id")
+    to_status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="to_status_id")
+
+    # Timing information
+    transition_start_date = Column(DateTime, quote=False, name="transition_start_date")
+    transition_change_date = Column(DateTime, quote=False, name="transition_change_date")
+    time_in_status_seconds = Column(Float, quote=False, name="time_in_status_seconds")
+
+    # Change metadata
+    changed_by = Column(String, quote=False, name="changed_by")
+
+    # Relationships
+    client = relationship("Client", back_populates="changelogs")
+    integration = relationship("Integration")
+    issue = relationship("Issue", back_populates="changelogs")
+    from_status = relationship("Status", foreign_keys=[from_status_id])
+    to_status = relationship("Status", foreign_keys=[to_status_id])
+
+
+# NEW TABLES FOR GITHUB INTEGRATION
+class Repository(Base, BaseEntity):
+    """Repositories table"""
+    __tablename__ = 'repositories'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    external_id = Column(String, quote=False, name="external_id")
+    name = Column(String, quote=False, name="name")
+    full_name = Column(String, quote=False, name="full_name")
+    description = Column(Text, quote=False, name="description")
+    url = Column(String, quote=False, name="url")
+    is_private = Column(Boolean, quote=False, name="is_private")
+    repo_created_at = Column(DateTime, quote=False, name="repo_created_at")
+    repo_updated_at = Column(DateTime, quote=False, name="repo_updated_at")
+    pushed_at = Column(DateTime, quote=False, name="pushed_at")
+    language = Column(String, quote=False, name="language")
+    default_branch = Column(String, quote=False, name="default_branch")
+    archived = Column(Boolean, quote=False, name="archived")
+
+    # Relationships
+    client = relationship("Client", back_populates="repositories")
+    pull_requests = relationship("PullRequest", back_populates="repository")
+
+
+class PullRequest(Base, BaseEntity):
+    """Pull Requests table - can be updated by both Jira and GitHub integrations"""
+    __tablename__ = 'pull_requests'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    external_id = Column(String, quote=False, name="external_id")
+    repository_id = Column(Integer, ForeignKey('repositories.id'), nullable=False, quote=False, name="repository_id")
+    issue_id = Column(Integer, ForeignKey('issues.id'), nullable=True, quote=False, name="issue_id")
+    number = Column(Integer, quote=False, name="number")
+    name = Column(String, quote=False, name="name")
+    user_name = Column(String, quote=False, name="user_name")
+    body = Column(Text, quote=False, name="body")
+    discussion_comment_count = Column(Integer, quote=False, name="discussion_comment_count")
+    review_comment_count = Column(Integer, quote=False, name="review_comment_count")
+    source = Column(String, quote=False, name="source")
+    destination = Column(String, quote=False, name="destination")
+    reviewers = Column(Integer, quote=False, name="reviewers")
+    status = Column(String, quote=False, name="status")
+    url = Column(String, quote=False, name="url")
+    pr_created_at = Column(DateTime, quote=False, name="pr_created_at")
+    pr_updated_at = Column(DateTime, quote=False, name="pr_updated_at")
+    closed_at = Column(DateTime, quote=False, name="closed_at")
+    merged_at = Column(DateTime, quote=False, name="merged_at")
+    merged_by = Column(String, quote=False, name="merged_by")
+    commit_count = Column(Integer, quote=False, name="commit_count")
+    additions = Column(Integer, quote=False, name="additions")
+    deletions = Column(Integer, quote=False, name="deletions")
+    changed_files = Column(Integer, quote=False, name="changed_files")
+    first_review_at = Column(DateTime, quote=False, name="first_review_at")
+    rework_commit_count = Column(Integer, quote=False, name="rework_commit_count")
+    review_cycles = Column(Integer, quote=False, name="review_cycles")
+
+    # Relationships
+    repository = relationship("Repository", back_populates="pull_requests")
+    issue = relationship("Issue", back_populates="pull_requests")
+    client = relationship("Client", back_populates="pull_requests")
+
+    # New relationships for detailed PR conversation tracking
+    reviews = relationship("PullRequestReview", back_populates="pull_request")
+    commits = relationship("PullRequestCommit", back_populates="pull_request")
+    comments = relationship("PullRequestComment", back_populates="pull_request")
+
+
+class PullRequestReview(Base, BaseEntity):
+    """Pull Request Reviews table - stores each formal review submission"""
+    __tablename__ = 'pull_request_reviews'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    external_id = Column(String, quote=False, name="external_id")  # GitHub review ID
+    pull_request_id = Column(Integer, ForeignKey('pull_requests.id'), nullable=False, quote=False, name="pull_request_id")
+    author_login = Column(String, quote=False, name="author_login")  # Reviewer's GitHub username
+    state = Column(String, quote=False, name="state")  # APPROVED, CHANGES_REQUESTED, COMMENTED
+    body = Column(Text, quote=False, name="body")  # Review comment text
+    submitted_at = Column(DateTime, quote=False, name="submitted_at")  # Review submission timestamp
+
+    # Relationships
+    pull_request = relationship("PullRequest", back_populates="reviews")
+    client = relationship("Client")
+
+
+class PullRequestCommit(Base, BaseEntity):
+    """Pull Request Commits table - stores each individual commit associated with a PR"""
+    __tablename__ = 'pull_request_commits'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    external_id = Column(String, quote=False, name="external_id")  # SHA, the commit hash
+    pull_request_id = Column(Integer, ForeignKey('pull_requests.id'), nullable=False, quote=False, name="pull_request_id")
+    author_name = Column(String, quote=False, name="author_name")  # Commit author name
+    author_email = Column(String, quote=False, name="author_email")  # Commit author email
+    committer_name = Column(String, quote=False, name="committer_name")  # Committer name
+    committer_email = Column(String, quote=False, name="committer_email")  # Committer email
+    message = Column(Text, quote=False, name="message")  # Commit message
+    authored_date = Column(DateTime, quote=False, name="authored_date")  # Commit timestamp
+    committed_date = Column(DateTime, quote=False, name="committed_date")  # Committed timestamp
+
+    # Relationships
+    pull_request = relationship("PullRequest", back_populates="commits")
+    client = relationship("Client")
+
+
+class PullRequestComment(Base, BaseEntity):
+    """Pull Request Comments table - stores all comments made on the PR's main thread and on specific lines of code"""
+    __tablename__ = 'pull_request_comments'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    external_id = Column(String, quote=False, name="external_id")  # GitHub comment ID
+    pull_request_id = Column(Integer, ForeignKey('pull_requests.id'), nullable=False, quote=False, name="pull_request_id")
+    author_login = Column(String, quote=False, name="author_login")  # Comment author's GitHub username
+    body = Column(Text, quote=False, name="body")  # Comment text
+    comment_type = Column(String, quote=False, name="comment_type")  # 'issue' (main thread) or 'review' (line-specific)
+    path = Column(String, quote=False, name="path")  # File path for line-specific comments
+    position = Column(Integer, quote=False, name="position")  # Line position for line-specific comments
+    line = Column(Integer, quote=False, name="line")  # Line number for line-specific comments
+    created_at_github = Column(DateTime, quote=False, name="created_at_github")  # GitHub timestamp
+    updated_at_github = Column(DateTime, quote=False, name="updated_at_github")  # GitHub update timestamp
+
+    # Relationships
+    pull_request = relationship("PullRequest", back_populates="comments")
+    client = relationship("Client")
+
+
+class JobSchedule(Base, BaseEntity):
+    """
+    Orchestration table for managing ETL job execution with state management.
+
+    Implements Active/Passive Job Model:
+    - Active Job (Orchestrator): Checks for PENDING jobs and triggers them
+    - Passive Jobs (Workers): Do the actual ETL work and manage their own state
+    """
+
+    __tablename__ = 'job_schedules'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Job identification
+    job_name = Column(String, unique=True, nullable=False, quote=False, name="job_name")  # 'jira_sync', 'github_sync'
+    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED'
+
+    # Checkpoint management for graceful failure recovery
+    last_repo_sync_checkpoint = Column(DateTime, nullable=True, quote=False, name="last_repo_sync_checkpoint")
+
+    # GraphQL cursor-based pagination checkpoints
+    current_repo_id = Column(String, nullable=True, quote=False, name="current_repo_id")
+    last_pr_cursor = Column(String, nullable=True, quote=False, name="last_pr_cursor")
+    current_pr_node_id = Column(String, nullable=True, quote=False, name="current_pr_node_id")
+    last_commit_cursor = Column(String, nullable=True, quote=False, name="last_commit_cursor")
+    last_review_cursor = Column(String, nullable=True, quote=False, name="last_review_cursor")
+    last_comment_cursor = Column(String, nullable=True, quote=False, name="last_comment_cursor")
+    last_review_thread_cursor = Column(String, nullable=True, quote=False, name="last_review_thread_cursor")
+
+    # Execution tracking
+    last_run_started_at = Column(DateTime, nullable=True, quote=False, name="last_run_started_at")
+    last_success_at = Column(DateTime, nullable=True, quote=False, name="last_success_at")
+    error_message = Column(Text, nullable=True, quote=False, name="error_message")
+    retry_count = Column(Integer, default=0, quote=False, name="retry_count")
+
+    def clear_checkpoints(self):
+        """Clear checkpoint data after successful completion."""
+        self.last_repo_sync_checkpoint = None
+        self.current_repo_id = None
+        self.last_pr_cursor = None
+        self.current_pr_node_id = None
+        self.last_commit_cursor = None
+        self.last_review_cursor = None
+        self.last_comment_cursor = None
+        self.last_review_thread_cursor = None
+        self.error_message = None
+        self.retry_count = 0
+
+    def set_running(self):
+        """Mark job as running."""
+        from app.core.utils import DateTimeHelper
+        self.status = 'RUNNING'
+        self.last_run_started_at = DateTimeHelper.now_utc()
+
+    def set_finished(self):
+        """Mark job as finished and clear checkpoints."""
+        from app.core.utils import DateTimeHelper
+        self.status = 'FINISHED'
+        self.last_success_at = DateTimeHelper.now_utc()
+        self.clear_checkpoints()
+
+    def set_pending_with_checkpoint(self, error_message: str, repo_checkpoint: DateTime = None,
+                                   current_repo_id: str = None, last_pr_cursor: str = None,
+                                   current_pr_node_id: str = None, last_commit_cursor: str = None,
+                                   last_review_cursor: str = None, last_comment_cursor: str = None,
+                                   last_review_thread_cursor: str = None):
+        """Mark job as pending with checkpoint data for recovery."""
+        self.status = 'PENDING'
+        self.error_message = error_message
+        self.retry_count += 1
+        if repo_checkpoint:
+            self.last_repo_sync_checkpoint = repo_checkpoint
+        if current_repo_id:
+            self.current_repo_id = current_repo_id
+        if last_pr_cursor:
+            self.last_pr_cursor = last_pr_cursor
+        if current_pr_node_id:
+            self.current_pr_node_id = current_pr_node_id
+        if last_commit_cursor:
+            self.last_commit_cursor = last_commit_cursor
+        if last_review_cursor:
+            self.last_review_cursor = last_review_cursor
+        if last_comment_cursor:
+            self.last_comment_cursor = last_comment_cursor
+        if last_review_thread_cursor:
+            self.last_review_thread_cursor = last_review_thread_cursor
+
+    def is_recovery_run(self) -> bool:
+        """Check if this is a recovery run (has cursor checkpoints)."""
+        return self.current_repo_id is not None
+
+    def get_checkpoint_state(self) -> Dict[str, Any]:
+        """Get current checkpoint state for recovery."""
+        return {
+            'current_repo_id': self.current_repo_id,
+            'last_pr_cursor': self.last_pr_cursor,
+            'current_pr_node_id': self.current_pr_node_id,
+            'last_commit_cursor': self.last_commit_cursor,
+            'last_review_cursor': self.last_review_cursor,
+            'last_comment_cursor': self.last_comment_cursor,
+            'last_review_thread_cursor': self.last_review_thread_cursor
+        }
+
+
+class JiraDevDetailsStaging(Base, BaseEntity):
+    """
+    Staging table for passing dev_status data between Jira and GitHub jobs.
+
+    This table temporarily stores raw Jira dev_status responses to decouple
+    the Jira extraction job from the GitHub enrichment job.
+    """
+
+    __tablename__ = 'jira_dev_details_staging'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Foreign keys
+    issue_id = Column(Integer, ForeignKey('issues.id'), nullable=False, quote=False, name="issue_id")
+
+    # Data payload
+    dev_status_payload = Column(Text, nullable=False, quote=False, name="dev_status_payload")  # JSON as text for PostgreSQL compatibility
+    processed = Column(Boolean, default=False, quote=False, name="processed")
+
+    # Relationships
+    issue = relationship("Issue", back_populates="dev_details_staging")
+
+    def get_dev_status_data(self) -> Dict:
+        """Get dev_status data as a dictionary."""
+        if not self.dev_status_payload:
+            return {}
+
+        import json
+        try:
+            return json.loads(self.dev_status_payload) if isinstance(self.dev_status_payload, str) else self.dev_status_payload
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_dev_status_data(self, data: Dict):
+        """Set dev_status data from a dictionary."""
+        import json
+        self.dev_status_payload = json.dumps(data)

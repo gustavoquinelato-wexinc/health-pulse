@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+psycopg2-binary
+sqlalchemy
+jira>=3.8.0
+APScheduler
+redis
