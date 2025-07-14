@@ -58,15 +58,34 @@ if sys.platform == "win32":
         pass
 
 def setup_logging(debug=False):
-    """Setup logging configuration."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    """Setup logging configuration using the main app's colored logging."""
+    try:
+        # Import and use the main app's colored logging configuration
+        from app.core.logging_config import setup_logging as app_setup_logging
+        app_setup_logging(force_reconfigure=True)  # Force reconfiguration
+        print("✅ Using colored logging configuration")
+    except ImportError as e:
+        # Fallback to basic logging if app modules aren't available
+        level = logging.DEBUG if debug else logging.INFO
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        print(f"⚠️  Using basic logging configuration (colored logging not available: {e})")
+    except Exception as e:
+        print(f"⚠️  Error setting up colored logging: {e}")
+        # Fallback to basic logging
+        level = logging.DEBUG if debug else logging.INFO
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
 
     # Disable SQLAlchemy logging for cleaner output
     logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
@@ -219,6 +238,9 @@ def manual_debug():
     """Interactive manual debugging mode with unified menu."""
     print("🐛 Manual Debugging Mode")
     print("=" * 60)
+
+    # Setup colored logging BEFORE importing any app modules
+    setup_logging(debug=True)
 
     try:
         from app.core.database import get_database
@@ -548,16 +570,19 @@ Examples:
 # GitHub Manual Operation Functions
 
 def extract_repositories_manual(session, github_integration, github_token, logger):
-    """Manually extract repositories using GitHub Search API."""
+    """Manually extract repositories combining GitHub Search API and Jira dev_status data."""
     try:
         from app.jobs.github import GitHubClient
-        from app.models.unified_models import Repository
+        from app.models.unified_models import Repository, JiraDevDetailsStaging
         from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 
         from datetime import datetime
         import os
 
         print("🔍 Starting repository extraction...")
+        print("📋 Combining repositories from:")
+        print("   • GitHub Search API (with 'health-' filter)")
+        print("   • Jira dev_status staging data")
 
         # Setup GitHub client
         github_client = GitHubClient(github_token)
@@ -566,7 +591,32 @@ def extract_repositories_manual(session, github_integration, github_token, logge
         org = os.getenv('GITHUB_ORG', 'wexinc')
         name_filter = os.getenv('GITHUB_REPO_FILTER', 'health-')
 
-        print(f"📋 Searching for repositories in org: {org}")
+        # Step 1: Get repositories from Jira dev_status staging data
+        print("\n🔍 Step 1: Extracting repositories from Jira dev_status staging data...")
+
+        staged_data = session.query(JiraDevDetailsStaging).filter(
+            JiraDevDetailsStaging.processed == False
+        ).all()
+
+        print(f"📋 Found {len(staged_data)} staged dev_status items")
+
+        repo_names_from_jira = set()
+        for staging_record in staged_data:
+            dev_data = staging_record.get_dev_status_data()
+            detail = dev_data.get('detail', [])
+            for detail_item in detail:
+                pull_requests = detail_item.get('pullRequests', [])
+                for pr_data in pull_requests:
+                    repo_name = pr_data.get('repositoryName')
+                    if repo_name:
+                        repo_names_from_jira.add(repo_name)
+
+        print(f"📁 Found {len(repo_names_from_jira)} unique repositories in Jira dev_status data")
+        if repo_names_from_jira:
+            print(f"   • Repository names: {', '.join(sorted(repo_names_from_jira))}")
+
+        # Step 2: Get repositories from GitHub Search API
+        print(f"\n🔍 Step 2: Searching GitHub API for repositories in org: {org}")
         if name_filter:
             print(f"📋 Filtering by name: {name_filter}")
 
@@ -587,14 +637,66 @@ def extract_repositories_manual(session, github_integration, github_token, logge
 
         # Search repositories with rate limit warning
         print("Note: GitHub Search API has a rate limit of 30 requests per minute")
-        repos = github_client.search_repositories(org, start_date, end_date, name_filter)
-        print(f"📁 Found {len(repos)} repositories")
+        repos_from_search = github_client.search_repositories(org, start_date, end_date, name_filter)
+        print(f"📁 Found {len(repos_from_search)} repositories from GitHub Search API")
 
-        if not repos:
-            print("⚠️  No repositories found")
+        # Step 3: Combine both sources
+        print(f"\n🔗 Step 3: Combining repositories from both sources...")
+
+        # Create a set of all repository names to fetch
+        all_repo_names = set()
+
+        # Add repositories from GitHub Search API
+        for repo in repos_from_search:
+            all_repo_names.add(repo['full_name'])
+
+        # Add repositories from Jira dev_status (need to construct full names)
+        for repo_name in repo_names_from_jira:
+            # Assume they're in the same org if not already full name
+            if '/' not in repo_name:
+                full_name = f"{org}/{repo_name}"
+            else:
+                full_name = repo_name
+            all_repo_names.add(full_name)
+
+        print(f"📊 Total unique repositories to process: {len(all_repo_names)}")
+
+        # Step 4: Fetch detailed repository data for all repositories
+        print(f"\n📥 Step 4: Fetching detailed repository data...")
+
+        all_repos = []
+
+        # Add repos from search (already have detailed data)
+        all_repos.extend(repos_from_search)
+
+        # For repos from Jira that weren't found in search, fetch them individually
+        search_repo_names = {repo['full_name'] for repo in repos_from_search}
+        missing_repo_names = all_repo_names - search_repo_names
+
+        if missing_repo_names:
+            print(f"📋 Fetching {len(missing_repo_names)} additional repositories from Jira dev_status...")
+            for full_name in missing_repo_names:
+                try:
+                    owner, repo_name = full_name.split('/', 1)
+                    # Use the GitHub client's _make_request method to fetch individual repo
+                    endpoint = f"repos/{owner}/{repo_name}"
+                    repo_data = github_client._make_request(endpoint)
+                    if repo_data:
+                        all_repos.append(repo_data)
+                        print(f"   ✅ Fetched: {full_name}")
+                    else:
+                        print(f"   ❌ Not found: {full_name}")
+                except Exception as e:
+                    print(f"   ❌ Error fetching {full_name}: {e}")
+
+        print(f"📁 Total repositories to process: {len(all_repos)}")
+
+        if not all_repos:
+            print("⚠️  No repositories found from either source")
             return
 
-        # Process repositories using bulk operations
+        # Step 5: Process repositories using bulk operations
+        print(f"\n🔄 Step 5: Processing repositories for database insertion...")
         processor = GitHubGraphQLProcessor(github_integration, None)
 
         # Get existing repositories to avoid duplicates
@@ -607,10 +709,10 @@ def extract_repositories_manual(session, github_integration, github_token, logge
         repos_to_insert = []
         repos_skipped = 0
 
-        print(f"🔄 Processing {len(repos)} repositories...")
-        for repo_index, repo_data in enumerate(repos, 1):
+        print(f"🔄 Processing {len(all_repos)} repositories...")
+        for repo_index, repo_data in enumerate(all_repos, 1):
             try:
-                print(f"📁 Processing repository {repo_index}/{len(repos)}: {repo_data.get('full_name', 'unknown')}")
+                print(f"📁 Processing repository {repo_index}/{len(all_repos)}: {repo_data.get('full_name', 'unknown')}")
 
                 # Check if repository already exists
                 external_id = str(repo_data['id'])
@@ -711,9 +813,22 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
                 print(f"❌ Error processing repository {repository.full_name}: {e}")
                 continue
 
-        print(f"\n🎉 Pull request extraction completed!")
+        # Step 2: Link pull requests with Jira issues using staging data
+        print(f"\n🔗 Linking pull requests with Jira issues...")
+
+        from app.jobs.github.github_job import link_pull_requests_with_jira_issues
+        linking_result = link_pull_requests_with_jira_issues(session, github_integration)
+
+        if linking_result['success']:
+            print(f"✅ Successfully linked {linking_result['links_created']} pull requests with Jira issues")
+        else:
+            print(f"⚠️  PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
+            print(f"   • Links created: {linking_result.get('links_created', 0)}")
+
+        print(f"\n🎉 Pull request extraction and linking completed!")
         print(f"   • Total PRs processed: {total_prs_processed}")
         print(f"   • Repositories processed: {repo_index}")
+        print(f"   • PR-Issue links created: {linking_result.get('links_created', 0)}")
 
     except Exception as e:
         print(f"❌ Error in pull request extraction: {e}")
@@ -767,9 +882,23 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
 
                 # Commit the data
                 session.commit()
-                print(f"\n🎉 Pull request extraction completed!")
+
+                # Step 2: Link pull requests with Jira issues using staging data
+                print(f"\n🔗 Linking pull requests with Jira issues...")
+
+                from app.jobs.github.github_job import link_pull_requests_with_jira_issues
+                linking_result = link_pull_requests_with_jira_issues(session, github_integration)
+
+                if linking_result['success']:
+                    print(f"✅ Successfully linked {linking_result['links_created']} pull requests with Jira issues")
+                else:
+                    print(f"⚠️  PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
+                    print(f"   • Links created: {linking_result.get('links_created', 0)}")
+
+                print(f"\n🎉 Pull request extraction and linking completed!")
                 print(f"   • PRs processed: {prs_processed}")
                 print(f"   • Repository: {repo_full_name}")
+                print(f"   • PR-Issue links created: {linking_result.get('links_created', 0)}")
                 print(f"   • Data committed to database")
             else:
                 print(f"❌ Failed to process PRs: {result['error']}")
@@ -812,9 +941,16 @@ def run_full_github_extraction_manual(session, github_integration, github_token,
             Repository.active == True
         ).count()
 
+        linked_pr_count = session.query(PullRequest).join(Repository).filter(
+            Repository.client_id == github_integration.client_id,
+            Repository.active == True,
+            PullRequest.issue_id.isnot(None)
+        ).count()
+
         print(f"📊 Final Summary:")
         print(f"   • Total repositories: {repo_count}")
         print(f"   • Total pull requests: {pr_count}")
+        print(f"   • Pull requests linked to Jira issues: {linked_pr_count}")
 
     except Exception as e:
         print(f"❌ Error in full GitHub extraction: {e}")
