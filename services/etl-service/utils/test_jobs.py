@@ -31,6 +31,21 @@ from datetime import datetime, timedelta
 parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
+# Setup logging early to suppress SQLAlchemy logs before any imports
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+# Disable SQLAlchemy logging for cleaner output
+logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
+
+# Override DEBUG setting to disable SQLAlchemy echo for test_jobs
+import os
+os.environ['DEBUG'] = 'false'
+
 # Fix Unicode encoding issues on Windows console
 if sys.platform == "win32":
     try:
@@ -52,6 +67,11 @@ def setup_logging(debug=False):
             logging.StreamHandler(sys.stdout)
         ]
     )
+
+    # Disable SQLAlchemy logging for cleaner output
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
 
 def test_connection():
     """Test API connections for all integrations."""
@@ -386,9 +406,9 @@ def run_github_operation(session, github_integration, choice):
 
         elif choice == '7':
             print("\n🔄 Extracting Pull Requests (Single Repository)...")
-            repo_name = input("Enter repository name (owner/repo): ").strip()
-            if repo_name:
-                extract_single_repo_pull_requests_manual(session, github_integration, github_token, repo_name, logger)
+            repo_full_name = input("Enter repository full name (owner/repo): ").strip()
+            if repo_full_name:
+                extract_single_repo_pull_requests_manual(session, github_integration, github_token, repo_full_name, logger)
             else:
                 print("❌ Repository name required")
 
@@ -662,10 +682,10 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
 
         total_prs_processed = 0
 
-        for repo_index, repository in enumerate(repositories[:5], 1):  # Limit to first 5 for testing
+        for repo_index, repository in enumerate(repositories, 1):  # Process all repositories
             try:
                 owner, repo_name = repository.full_name.split('/', 1)
-                print(f"\n🔄 Processing repository {repo_index}/{min(5, len(repositories))}: {owner}/{repo_name}")
+                print(f"\n🔄 Processing repository {repo_index}/{len(repositories)}: {owner}/{repo_name}")
 
                 # Process PRs for this repository
                 result = process_repository_prs_with_graphql(
@@ -676,14 +696,16 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
                 if result['success']:
                     prs_processed = result['prs_processed']
                     total_prs_processed += prs_processed
-                    print(f"✅ Processed {prs_processed} PRs for {owner}/{repo_name}")
+
+                    # Commit the data for this repository
+                    session.commit()
+                    print(f"✅ Processed {prs_processed} PRs for {owner}/{repo_name} - Data committed to database")
                 else:
                     print(f"❌ Failed to process PRs for {owner}/{repo_name}: {result['error']}")
 
-                # Check rate limit
+                # Check rate limit and warn but continue
                 if graphql_client.should_stop_for_rate_limit():
-                    print("⚠️  Rate limit threshold reached, stopping extraction")
-                    break
+                    print("⚠️  Rate limit threshold reached, but continuing extraction")
 
             except Exception as e:
                 print(f"❌ Error processing repository {repository.full_name}: {e}")
@@ -691,31 +713,31 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
 
         print(f"\n🎉 Pull request extraction completed!")
         print(f"   • Total PRs processed: {total_prs_processed}")
-        print(f"   • Repositories processed: {min(repo_index, len(repositories))}")
+        print(f"   • Repositories processed: {repo_index}")
 
     except Exception as e:
         print(f"❌ Error in pull request extraction: {e}")
         raise
 
 
-def extract_single_repo_pull_requests_manual(session, github_integration, github_token, repo_name, logger):
+def extract_single_repo_pull_requests_manual(session, github_integration, github_token, repo_full_name, logger):
     """Manually extract pull requests for a single repository using GraphQL."""
     try:
         from app.jobs.github.github_graphql_client import GitHubGraphQLClient
         from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
         from app.models.unified_models import Repository
 
-        print(f"🔄 Starting pull request extraction for repository: {repo_name}")
+        print(f"🔄 Starting pull request extraction for repository: {repo_full_name}")
 
         # Find the repository
         repository = session.query(Repository).filter(
-            Repository.full_name == repo_name,
+            Repository.full_name == repo_full_name,
             Repository.client_id == github_integration.client_id,
             Repository.active == True
         ).first()
 
         if not repository:
-            print(f"❌ Repository '{repo_name}' not found in database.")
+            print(f"❌ Repository '{repo_full_name}' not found in database.")
             print("   Run option 5 first to extract repositories, or check the repository name.")
             return
 
@@ -731,7 +753,7 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
         })()
 
         try:
-            owner, repo_name_only = repo_name.split('/', 1)
+            owner, repo_name_only = repo_full_name.split('/', 1)
             print(f"🔄 Processing PRs for {owner}/{repo_name_only}...")
 
             # Process PRs for this repository
@@ -742,14 +764,18 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
 
             if result['success']:
                 prs_processed = result['prs_processed']
+
+                # Commit the data
+                session.commit()
                 print(f"\n🎉 Pull request extraction completed!")
                 print(f"   • PRs processed: {prs_processed}")
-                print(f"   • Repository: {repo_name}")
+                print(f"   • Repository: {repo_full_name}")
+                print(f"   • Data committed to database")
             else:
                 print(f"❌ Failed to process PRs: {result['error']}")
 
         except ValueError:
-            print(f"❌ Invalid repository name format. Expected 'owner/repo', got '{repo_name}'")
+            print(f"❌ Invalid repository name format. Expected 'owner/repo', got '{repo_full_name}'")
 
     except Exception as e:
         print(f"❌ Error in single repository PR extraction: {e}")
