@@ -29,46 +29,46 @@ def paginate_commits(session: Session, graphql_client: GitHubGraphQLClient, pr_n
         Dictionary with pagination results
     """
     try:
-        logger.debug(f"🔄 Paginating commits for PR {pr_node_id}")
-        
+        logger.debug(f"Paginating commits for PR {pr_node_id}")
+
         while cursor:
             # Check rate limit
             if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during commit pagination")
+                logger.warning("Rate limit threshold reached during commit pagination")
                 return {
                     'success': False,
                     'error': 'Rate limit threshold reached',
                     'last_cursor': cursor
                 }
-            
+
             # Fetch next page of commits
             response = graphql_client.get_more_commits_for_pr(pr_node_id, cursor)
-            
+
             if not response or 'data' not in response:
-                logger.error(f"❌ Failed to fetch additional commits for PR {pr_node_id}")
+                logger.error(f"Failed to fetch additional commits for PR {pr_node_id}")
                 return {
                     'success': False,
                     'error': 'Failed to fetch additional commits',
                     'last_cursor': cursor
                 }
-            
+
             node_data = response['data']['node']
             if not node_data or 'commits' not in node_data:
-                logger.warning(f"⚠️ No commit data found for PR {pr_node_id}")
+                logger.warning(f"No commit data found for PR {pr_node_id}")
                 break
-            
+
             commits_data = node_data['commits']
             commit_nodes = commits_data.get('nodes', [])
-            
+
             if commit_nodes:
                 commits = processor.process_commit_nodes(commit_nodes, pull_request_id)
                 session.add_all(commits)
-                logger.debug(f"📝 Added {len(commits)} commits")
-            
+                logger.debug(f"Added {len(commits)} commits")
+
             # Check if there are more pages
             page_info = commits_data.get('pageInfo', {})
             if not page_info.get('hasNextPage'):
-                logger.debug(f"✅ Completed commit pagination for PR {pr_node_id}")
+                logger.debug(f"Completed commit pagination for PR {pr_node_id}")
                 break
             
             cursor = page_info.get('endCursor')
@@ -405,8 +405,9 @@ def resume_pr_nested_pagination(session: Session, graphql_client: GitHubGraphQLC
                     }
                 }
         
-        session.commit()
-        logger.info(f"✅ Successfully resumed nested pagination for PR {pr_node_id}")
+        # Note: session.commit() is now handled at the repository level
+        # session.commit()
+        logger.info(f"Successfully resumed nested pagination for PR {pr_node_id}")
         
         return {
             'success': True

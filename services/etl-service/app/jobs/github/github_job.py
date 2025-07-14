@@ -226,6 +226,10 @@ def process_github_data_with_graphql(session: Session, integration: Integration,
 
                 total_prs_processed += pr_result['prs_processed']
 
+                # Commit the data for this repository
+                session.commit()
+                logger.info(f"✅ Committed data for repository {owner}/{repo_name}")
+
                 # Check rate limit after each repository
                 if graphql_client.should_stop_for_rate_limit():
                     logger.warning("⚠️ Rate limit threshold reached, stopping gracefully")

@@ -36,7 +36,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         Dictionary with processing results
     """
     try:
-        logger.info(f"📋 Processing PRs for {owner}/{repo_name} using GraphQL")
+        logger.info(f"Processing PRs for {owner}/{repo_name} using GraphQL")
         
         processor = GitHubGraphQLProcessor(integration, repository.id)
         prs_processed = 0
@@ -44,23 +44,15 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         
         # Outer loop: Paginate through pull requests
         while True:
-            # Check rate limit before making request
+            # Check rate limit before making request and warn but continue
             if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during PR processing")
-                return {
-                    'success': False,
-                    'error': 'Rate limit threshold reached',
-                    'prs_processed': prs_processed,
-                    'checkpoint_data': {
-                        'last_pr_cursor': pr_cursor
-                    }
-                }
+                logger.warning("Rate limit threshold reached during PR processing, but continuing")
             
             # Fetch batch of PRs with nested data
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
             
             if not response or 'data' not in response:
-                logger.error(f"❌ Failed to fetch PR data for {owner}/{repo_name}")
+                logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
                 return {
                     'success': False,
                     'error': 'Failed to fetch PR data from GraphQL',
@@ -70,17 +62,17 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
             
             repository_data = response['data']['repository']
             if not repository_data:
-                logger.warning(f"⚠️ Repository {owner}/{repo_name} not found or not accessible")
+                logger.warning(f"Repository {owner}/{repo_name} not found or not accessible")
                 break
             
             pull_requests = repository_data['pullRequests']
             pr_nodes = pull_requests['nodes']
             
             if not pr_nodes:
-                logger.info(f"✅ No more PRs to process for {owner}/{repo_name}")
+                logger.info(f"No more PRs to process for {owner}/{repo_name}")
                 break
             
-            logger.info(f"📄 Processing batch of {len(pr_nodes)} PRs")
+            logger.info(f"Processing batch of {len(pr_nodes)} PRs")
             
             # Process each PR in the batch
             for pr_node in pr_nodes:
@@ -106,29 +98,29 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                     
                     # Log progress every 10 PRs
                     if prs_processed % 10 == 0:
-                        logger.info(f"📊 Processed {prs_processed} PRs so far...")
-                    
+                        logger.info(f"Processed {prs_processed} PRs so far...")
+
                 except Exception as e:
-                    logger.error(f"❌ Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
+                    logger.error(f"Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
                     continue
-            
+
             # Check if there are more pages
             page_info = pull_requests['pageInfo']
             if not page_info['hasNextPage']:
-                logger.info(f"✅ Completed processing all PRs for {owner}/{repo_name}")
+                logger.info(f"Completed processing all PRs for {owner}/{repo_name}")
                 break
-            
+
             pr_cursor = page_info['endCursor']
-            logger.debug(f"🔄 Moving to next page with cursor: {pr_cursor}")
-        
-        logger.info(f"✅ Repository {owner}/{repo_name} completed: {prs_processed} PRs processed")
+            logger.debug(f"Moving to next page with cursor: {pr_cursor}")
+
+        logger.info(f"Repository {owner}/{repo_name} completed: {prs_processed} PRs processed")
         return {
             'success': True,
             'prs_processed': prs_processed
         }
         
     except Exception as e:
-        logger.error(f"❌ Error processing repository {owner}/{repo_name}: {e}")
+        logger.error(f"Error processing repository {owner}/{repo_name}: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -156,20 +148,20 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
         Dictionary with processing results
     """
     try:
-        logger.info(f"🔄 Processing PRs for {owner}/{repo_name} using GraphQL (RECOVERY MODE)")
-        
+        logger.info(f"Processing PRs for {owner}/{repo_name} using GraphQL (RECOVERY MODE)")
+
         processor = GitHubGraphQLProcessor(integration, repository.id)
         checkpoint_state = job_schedule.get_checkpoint_state()
-        
+
         prs_processed = 0
         pr_cursor = checkpoint_state['last_pr_cursor']
         current_pr_node_id = checkpoint_state['current_pr_node_id']
-        
-        logger.info(f"📍 Resuming from PR cursor: {pr_cursor}, current PR: {current_pr_node_id}")
-        
+
+        logger.info(f"Resuming from PR cursor: {pr_cursor}, current PR: {current_pr_node_id}")
+
         # If we have a current PR being processed, resume its nested pagination
         if current_pr_node_id:
-            logger.info(f"🔄 Resuming nested pagination for PR: {current_pr_node_id}")
+            logger.info(f"Resuming nested pagination for PR: {current_pr_node_id}")
             
             # Resume processing the specific PR that was interrupted
             resume_result = resume_pr_nested_pagination(
@@ -189,47 +181,39 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
                 }
             
             prs_processed += 1
-            logger.info(f"✅ Resumed PR {current_pr_node_id} completed")
-        
+            logger.info(f"Resumed PR {current_pr_node_id} completed")
+
         # Continue with normal processing from the saved cursor
         while True:
-            # Check rate limit before making request
+            # Check rate limit before making request and warn but continue
             if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during recovery")
-                return {
-                    'success': False,
-                    'error': 'Rate limit threshold reached',
-                    'prs_processed': prs_processed,
-                    'checkpoint_data': {
-                        'last_pr_cursor': pr_cursor
-                    }
-                }
+                logger.warning("Rate limit threshold reached during recovery, but continuing")
             
             # Fetch batch of PRs with nested data
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
             
             if not response or 'data' not in response:
-                logger.error(f"❌ Failed to fetch PR data for {owner}/{repo_name}")
+                logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
                 return {
                     'success': False,
                     'error': 'Failed to fetch PR data from GraphQL',
                     'prs_processed': prs_processed,
                     'checkpoint_data': {}
                 }
-            
+
             repository_data = response['data']['repository']
             if not repository_data:
-                logger.warning(f"⚠️ Repository {owner}/{repo_name} not found or not accessible")
+                logger.warning(f"Repository {owner}/{repo_name} not found or not accessible")
                 break
-            
+
             pull_requests = repository_data['pullRequests']
             pr_nodes = pull_requests['nodes']
-            
+
             if not pr_nodes:
-                logger.info(f"✅ No more PRs to process for {owner}/{repo_name}")
+                logger.info(f"No more PRs to process for {owner}/{repo_name}")
                 break
-            
-            logger.info(f"📄 Processing batch of {len(pr_nodes)} PRs (recovery mode)")
+
+            logger.info(f"Processing batch of {len(pr_nodes)} PRs (recovery mode)")
             
             # Process each PR in the batch
             for pr_node in pr_nodes:
@@ -259,25 +243,25 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
                     prs_processed += 1
                     
                 except Exception as e:
-                    logger.error(f"❌ Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
+                    logger.error(f"Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
                     continue
-            
+
             # Check if there are more pages
             page_info = pull_requests['pageInfo']
             if not page_info['hasNextPage']:
-                logger.info(f"✅ Completed recovery processing for {owner}/{repo_name}")
+                logger.info(f"Completed recovery processing for {owner}/{repo_name}")
                 break
-            
+
             pr_cursor = page_info['endCursor']
-        
-        logger.info(f"✅ Repository {owner}/{repo_name} recovery completed: {prs_processed} PRs processed")
+
+        logger.info(f"Repository {owner}/{repo_name} recovery completed: {prs_processed} PRs processed")
         return {
             'success': True,
             'prs_processed': prs_processed
         }
         
     except Exception as e:
-        logger.error(f"❌ Error in recovery processing for {owner}/{repo_name}: {e}")
+        logger.error(f"Error in recovery processing for {owner}/{repo_name}: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -307,7 +291,7 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         pr_number = pr_node.get('number')
         pr_node_id = pr_node.get('id')
 
-        logger.debug(f"🔄 Processing PR #{pr_number} (ID: {pr_node_id})")
+        logger.debug(f"Processing PR #{pr_number} (ID: {pr_node_id})")
 
         # Process main PR data
         pr_data = processor.process_pull_request_node(pr_node)
@@ -349,15 +333,16 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
                 'checkpoint_data': nested_result.get('checkpoint_data', {})
             }
 
-        session.commit()
+        # Note: session.commit() is now handled at the repository level
+        # session.commit()
 
-        logger.debug(f"✅ PR #{pr_number} processed successfully")
+        logger.debug(f"PR #{pr_number} processed successfully")
         return {
             'success': True
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
+        logger.error(f"Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
         session.rollback()
         return {
             'success': False,
@@ -475,7 +460,7 @@ def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing nested data for PR {pr_node.get('number', 'unknown')}: {e}")
+        logger.error(f"Error processing nested data for PR {pr_node.get('number', 'unknown')}: {e}")
         return {
             'success': False,
             'error': str(e),

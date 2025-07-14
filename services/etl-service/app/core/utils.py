@@ -148,6 +148,37 @@ class DateTimeHelper:
         return None
 
     @staticmethod
+    def parse_iso_datetime(datetime_str: str) -> Optional[datetime]:
+        """
+        Parse ISO format datetime string (GitHub GraphQL format).
+
+        Args:
+            datetime_str: ISO datetime string (e.g., '2023-01-01T12:00:00Z')
+
+        Returns:
+            Parsed datetime object or None if parsing fails
+        """
+        if not datetime_str:
+            return None
+
+        try:
+            # Handle GitHub's ISO format with 'Z' suffix
+            if datetime_str.endswith('Z'):
+                datetime_str = datetime_str[:-1] + '+00:00'
+
+            # Parse ISO format and convert to timezone-naive UTC
+            dt = datetime.fromisoformat(datetime_str)
+            if dt.tzinfo is not None:
+                # Convert to UTC and make timezone-naive
+                dt = dt.utctimetuple()
+                return datetime(*dt[:6])
+            return dt
+
+        except Exception as e:
+            logger.warning(f"Failed to parse ISO datetime '{datetime_str}': {e}")
+            return None
+
+    @staticmethod
     def parse_jira_datetime_preserve_local(datetime_str: str) -> Optional[datetime]:
         """
         Parse Jira datetime string preserving the local time (ignoring timezone).
