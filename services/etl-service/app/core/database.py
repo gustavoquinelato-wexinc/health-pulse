@@ -37,7 +37,7 @@ class PostgreSQLDatabase:
                 pool_timeout=settings.DB_POOL_TIMEOUT,
                 pool_recycle=settings.DB_POOL_RECYCLE,
                 pool_pre_ping=True,
-                echo=settings.DEBUG
+                echo=False  # Disable SQLAlchemy logging completely
             )
 
             # Create sessionmaker

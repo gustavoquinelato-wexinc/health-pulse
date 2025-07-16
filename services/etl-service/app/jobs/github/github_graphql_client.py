@@ -105,11 +105,29 @@ class GitHubGraphQLClient:
                 return response_data
                 
             except requests.exceptions.RequestException as e:
-                logger.warning(f"GraphQL request failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                # Check if this is a server error that might be temporary
+                is_server_error = (
+                    hasattr(e, 'response') and e.response is not None and
+                    e.response.status_code in [502, 503, 504]  # Bad Gateway, Service Unavailable, Gateway Timeout
+                )
+
+                if is_server_error:
+                    logger.warning(f"GitHub server error (attempt {attempt + 1}/{max_retries}): {e}")
+                    logger.warning("This appears to be a temporary GitHub API server issue")
                 else:
-                    logger.error(f"Failed to make GraphQL request after {max_retries} attempts")
+                    logger.warning(f"GraphQL request failed (attempt {attempt + 1}/{max_retries}): {e}")
+
+                if attempt < max_retries - 1:
+                    # Use longer backoff for server errors
+                    backoff_time = (2 ** attempt) * (3 if is_server_error else 1)
+                    logger.info(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                else:
+                    if is_server_error:
+                        logger.error(f"GitHub API servers appear to be experiencing issues after {max_retries} attempts")
+                        logger.error("This is likely a temporary GitHub service outage. Please try again later.")
+                    else:
+                        logger.error(f"Failed to make GraphQL request after {max_retries} attempts")
                     return None
         
         return None

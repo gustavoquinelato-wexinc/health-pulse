@@ -15,8 +15,8 @@ from app.core.logging_config import get_logger
 from app.core.cache import get_cache_manager
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import (
-    Integration, Project, Issue, Issuetype, Status, 
-    Commit, PullRequest, ProjectsIssuetypes, ProjectsStatuses
+    Integration, Project, Issue, Issuetype, Status,
+    PullRequestCommit, PullRequest, ProjectsIssuetypes, ProjectsStatuses
 )
 from app.schemas.api_schemas import (
     DatabaseStatsResponse, ErrorResponse, IntegrationInfo
@@ -37,13 +37,13 @@ async def get_database_stats(db: Session = Depends(get_db_session)):
         
         # Record count per table
         tables_counts = {
-            "integrations": db.query(func.count(Integration.integration_id)).scalar() or 0,
-            "projects": db.query(func.count(Project.project_id)).scalar() or 0,
-            "issues": db.query(func.count(Issue.issue_id)).scalar() or 0,
-            "issuetypes": db.query(func.count(Issuetype.issuetype_id)).scalar() or 0,
-            "statuses": db.query(func.count(Status.status_id)).scalar() or 0,
-            "commits": db.query(func.count(Commit.sha)).scalar() or 0,
-            "pull_requests": db.query(func.count(PullRequest.pull_request_id)).scalar() or 0,
+            "integrations": db.query(func.count(Integration.id)).scalar() or 0,
+            "projects": db.query(func.count(Project.id)).scalar() or 0,
+            "issues": db.query(func.count(Issue.id)).scalar() or 0,
+            "issuetypes": db.query(func.count(Issuetype.id)).scalar() or 0,
+            "statuses": db.query(func.count(Status.id)).scalar() or 0,
+            "commits": db.query(func.count(PullRequestCommit.id)).scalar() or 0,
+            "pull_requests": db.query(func.count(PullRequest.id)).scalar() or 0,
             "projects_issuetypes": db.query(func.count(ProjectsIssuetypes.project_id)).scalar() or 0,
             "projects_statuses": db.query(func.count(ProjectsStatuses.project_id)).scalar() or 0,
         }
@@ -196,8 +196,7 @@ async def get_system_info():
                 "warehouse": settings.SNOWFLAKE_WAREHOUSE
             },
             "scheduler": {
-                "timezone": settings.SCHEDULER_TIMEZONE,
-                "jira_interval_hours": settings.JIRA_JOB_INTERVAL_HOURS
+                "timezone": settings.SCHEDULER_TIMEZONE
             },
             "timestamp": DateTimeHelper.now_utc_iso()
         }

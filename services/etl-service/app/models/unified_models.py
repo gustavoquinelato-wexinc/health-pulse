@@ -37,14 +37,12 @@ class Client(Base):
     pull_request_commits = relationship("PullRequestCommit")
     pull_request_comments = relationship("PullRequestComment")
 
-
 class BaseEntity:
     """Base class with audit fields for all entities."""
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, quote=False, name="client_id")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
-
 
 class Integration(Base, BaseEntity):
     """Integrations table (Jira, GitHub, Azure DevOps, etc.)"""
@@ -65,8 +63,6 @@ class Integration(Base, BaseEntity):
     statuses = relationship("Status", back_populates="integration")
     issues = relationship("Issue", back_populates="integration")
 
-
-
 class Project(Base, BaseEntity):
     """Projects table"""
     __tablename__ = 'projects'
@@ -86,7 +82,6 @@ class Project(Base, BaseEntity):
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     issues = relationship("Issue", back_populates="project")
 
-
 class ProjectsIssuetypes(Base):
     """Relationship table between projects and issue types"""
     __tablename__ = 'projects_issuetypes'
@@ -95,7 +90,6 @@ class ProjectsIssuetypes(Base):
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
     issuetype_id = Column(Integer, ForeignKey('issuetypes.id'), primary_key=True, quote=False, name="issuetype_id")
 
-
 class ProjectsStatuses(Base):
     """Relationship table between projects and statuses"""
     __tablename__ = 'projects_statuses'
@@ -103,7 +97,6 @@ class ProjectsStatuses(Base):
 
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
-
 
 class Issuetype(Base, BaseEntity):
     """Issue types table"""
@@ -125,7 +118,6 @@ class Issuetype(Base, BaseEntity):
     projects = relationship("Project", secondary="projects_issuetypes", back_populates="issuetypes")
     issues = relationship("Issue", back_populates="issuetype")
 
-
 class StatusMapping(Base, BaseEntity):
     """Status Mapping table - maps raw status names to standardized flow steps"""
     __tablename__ = 'status_mappings'
@@ -139,7 +131,6 @@ class StatusMapping(Base, BaseEntity):
     # Relationships
     client = relationship("Client", back_populates="status_mappings")
 
-
 class FlowStep(Base, BaseEntity):
     """Flow Steps table - client-specific workflow steps"""
     __tablename__ = 'flow_steps'
@@ -152,7 +143,6 @@ class FlowStep(Base, BaseEntity):
     # Relationships
     client = relationship("Client", back_populates="flow_steps")
     statuses = relationship("Status", back_populates="flow_step")
-
 
 class Status(Base, BaseEntity):
     """Statuses table"""
@@ -174,7 +164,6 @@ class Status(Base, BaseEntity):
     projects = relationship("Project", secondary="projects_statuses", back_populates="statuses")
     flow_step = relationship("FlowStep", back_populates="statuses")
     issues = relationship("Issue", back_populates="status")
-
 
 class Issue(Base, BaseEntity):
     """Main issues table"""
@@ -264,7 +253,6 @@ class Issue(Base, BaseEntity):
     changelogs = relationship("IssueChangelog", back_populates="issue")
     dev_details_staging = relationship("JiraDevDetailsStaging", back_populates="issue")
 
-
 class IssueChangelog(Base, BaseEntity):
     """Issue status change history table"""
     __tablename__ = 'issue_changelogs'
@@ -294,8 +282,6 @@ class IssueChangelog(Base, BaseEntity):
     from_status = relationship("Status", foreign_keys=[from_status_id])
     to_status = relationship("Status", foreign_keys=[to_status_id])
 
-
-# NEW TABLES FOR GITHUB INTEGRATION
 class Repository(Base, BaseEntity):
     """Repositories table"""
     __tablename__ = 'repositories'
@@ -318,7 +304,6 @@ class Repository(Base, BaseEntity):
     # Relationships
     client = relationship("Client", back_populates="repositories")
     pull_requests = relationship("PullRequest", back_populates="repository")
-
 
 class PullRequest(Base, BaseEntity):
     """Pull Requests table - can be updated by both Jira and GitHub integrations"""
@@ -363,7 +348,6 @@ class PullRequest(Base, BaseEntity):
     commits = relationship("PullRequestCommit", back_populates="pull_request")
     comments = relationship("PullRequestComment", back_populates="pull_request")
 
-
 class PullRequestReview(Base, BaseEntity):
     """Pull Request Reviews table - stores each formal review submission"""
     __tablename__ = 'pull_request_reviews'
@@ -380,7 +364,6 @@ class PullRequestReview(Base, BaseEntity):
     # Relationships
     pull_request = relationship("PullRequest", back_populates="reviews")
     client = relationship("Client")
-
 
 class PullRequestCommit(Base, BaseEntity):
     """Pull Request Commits table - stores each individual commit associated with a PR"""
@@ -401,7 +384,6 @@ class PullRequestCommit(Base, BaseEntity):
     # Relationships
     pull_request = relationship("PullRequest", back_populates="commits")
     client = relationship("Client")
-
 
 class PullRequestComment(Base, BaseEntity):
     """Pull Request Comments table - stores all comments made on the PR's main thread and on specific lines of code"""
@@ -424,6 +406,54 @@ class PullRequestComment(Base, BaseEntity):
     pull_request = relationship("PullRequest", back_populates="comments")
     client = relationship("Client")
 
+class SystemSettings(Base):
+    """
+    System-wide configuration settings stored in database.
+
+    This table stores configurable system settings that can be modified
+    through the UI without requiring code changes or server restarts.
+    """
+
+    __tablename__ = 'system_settings'
+    __table_args__ = {'quote': False}
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Setting identification
+    setting_key = Column(String, unique=True, nullable=False, quote=False, name="setting_key")
+    setting_value = Column(String, nullable=False, quote=False, name="setting_value")
+    setting_type = Column(String, nullable=False, default='string', quote=False, name="setting_type")  # 'string', 'integer', 'boolean', 'json'
+    description = Column(String, nullable=True, quote=False, name="description")
+
+    # Audit fields
+    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+    def get_typed_value(self):
+        """Returns the setting value converted to its proper type."""
+        if self.setting_type == 'integer':
+            return int(self.setting_value)
+        elif self.setting_type == 'boolean':
+            return self.setting_value.lower() in ('true', '1', 'yes', 'on')
+        elif self.setting_type == 'json':
+            import json
+            return json.loads(self.setting_value)
+        else:
+            return self.setting_value
+
+    def set_typed_value(self, value):
+        """Sets the setting value from a typed value."""
+        if self.setting_type == 'integer':
+            self.setting_value = str(int(value))
+        elif self.setting_type == 'boolean':
+            self.setting_value = str(bool(value)).lower()
+        elif self.setting_type == 'json':
+            import json
+            self.setting_value = json.dumps(value)
+        else:
+            self.setting_value = str(value)
+
 
 class JobSchedule(Base, BaseEntity):
     """
@@ -441,13 +471,15 @@ class JobSchedule(Base, BaseEntity):
 
     # Job identification
     job_name = Column(String, unique=True, nullable=False, quote=False, name="job_name")  # 'jira_sync', 'github_sync'
-    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED'
+    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED', 'PAUSED'
 
     # Checkpoint management for graceful failure recovery
     last_repo_sync_checkpoint = Column(DateTime, nullable=True, quote=False, name="last_repo_sync_checkpoint")
 
+    # Repository processing queue (JSONB array of repo objects)
+    repo_processing_queue = Column(Text, nullable=True, quote=False, name="repo_processing_queue")  # JSON string for compatibility
+
     # GraphQL cursor-based pagination checkpoints
-    current_repo_id = Column(String, nullable=True, quote=False, name="current_repo_id")
     last_pr_cursor = Column(String, nullable=True, quote=False, name="last_pr_cursor")
     current_pr_node_id = Column(String, nullable=True, quote=False, name="current_pr_node_id")
     last_commit_cursor = Column(String, nullable=True, quote=False, name="last_commit_cursor")
@@ -464,7 +496,7 @@ class JobSchedule(Base, BaseEntity):
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
         self.last_repo_sync_checkpoint = None
-        self.current_repo_id = None
+        self.repo_processing_queue = None
         self.last_pr_cursor = None
         self.current_pr_node_id = None
         self.last_commit_cursor = None
@@ -487,8 +519,24 @@ class JobSchedule(Base, BaseEntity):
         self.last_success_at = DateTimeHelper.now_utc()
         self.clear_checkpoints()
 
+    def set_paused(self):
+        """Mark job as paused."""
+        self.status = 'PAUSED'
+
+    def set_unpaused(self, other_job_status: str):
+        """
+        Mark job as unpaused with logic based on other job status.
+
+        Args:
+            other_job_status: Status of the other job ('PENDING', 'RUNNING', 'FINISHED', 'PAUSED')
+        """
+        if other_job_status in ['PENDING', 'RUNNING']:
+            self.status = 'FINISHED'
+        else:  # other job is 'FINISHED' or 'PAUSED'
+            self.status = 'PENDING'
+
     def set_pending_with_checkpoint(self, error_message: str, repo_checkpoint: DateTime = None,
-                                   current_repo_id: str = None, last_pr_cursor: str = None,
+                                   repo_queue: list = None, last_pr_cursor: str = None,
                                    current_pr_node_id: str = None, last_commit_cursor: str = None,
                                    last_review_cursor: str = None, last_comment_cursor: str = None,
                                    last_review_thread_cursor: str = None):
@@ -498,8 +546,9 @@ class JobSchedule(Base, BaseEntity):
         self.retry_count += 1
         if repo_checkpoint:
             self.last_repo_sync_checkpoint = repo_checkpoint
-        if current_repo_id:
-            self.current_repo_id = current_repo_id
+        if repo_queue is not None:
+            import json
+            self.repo_processing_queue = json.dumps(repo_queue)
         if last_pr_cursor:
             self.last_pr_cursor = last_pr_cursor
         if current_pr_node_id:
@@ -514,13 +563,18 @@ class JobSchedule(Base, BaseEntity):
             self.last_review_thread_cursor = last_review_thread_cursor
 
     def is_recovery_run(self) -> bool:
-        """Check if this is a recovery run (has cursor checkpoints)."""
-        return self.current_repo_id is not None
+        """Check if this is a recovery run (has repo queue or cursor checkpoints)."""
+        return self.repo_processing_queue is not None or self.last_pr_cursor is not None
 
     def get_checkpoint_state(self) -> Dict[str, Any]:
         """Get current checkpoint state for recovery."""
+        repo_queue = None
+        if self.repo_processing_queue:
+            import json
+            repo_queue = json.loads(self.repo_processing_queue)
+
         return {
-            'current_repo_id': self.current_repo_id,
+            'repo_processing_queue': repo_queue,
             'last_pr_cursor': self.last_pr_cursor,
             'current_pr_node_id': self.current_pr_node_id,
             'last_commit_cursor': self.last_commit_cursor,
@@ -528,6 +582,104 @@ class JobSchedule(Base, BaseEntity):
             'last_comment_cursor': self.last_comment_cursor,
             'last_review_thread_cursor': self.last_review_thread_cursor
         }
+
+    def update_checkpoint(self, checkpoint_data: Dict[str, Any]):
+        """Update checkpoint data for recovery."""
+        if 'repo_processing_queue' in checkpoint_data:
+            import json
+            self.repo_processing_queue = json.dumps(checkpoint_data['repo_processing_queue'])
+        if 'last_pr_cursor' in checkpoint_data:
+            self.last_pr_cursor = checkpoint_data['last_pr_cursor']
+        if 'current_pr_node_id' in checkpoint_data:
+            self.current_pr_node_id = checkpoint_data['current_pr_node_id']
+        if 'last_commit_cursor' in checkpoint_data:
+            self.last_commit_cursor = checkpoint_data['last_commit_cursor']
+        if 'last_review_cursor' in checkpoint_data:
+            self.last_review_cursor = checkpoint_data['last_review_cursor']
+        if 'last_comment_cursor' in checkpoint_data:
+            self.last_comment_cursor = checkpoint_data['last_comment_cursor']
+        if 'last_review_thread_cursor' in checkpoint_data:
+            self.last_review_thread_cursor = checkpoint_data['last_review_thread_cursor']
+
+    def initialize_repo_queue(self, repositories):
+        """Initialize processing queue for normal run."""
+        import json
+        queue = [
+            {
+                "repo_id": repo.external_id,
+                "full_name": repo.full_name,
+                "finished": False
+            }
+            for repo in repositories
+        ]
+        self.repo_processing_queue = json.dumps(queue)
+
+    def mark_repo_finished(self, repo_id: str):
+        """Mark repository as completed in the queue."""
+        if not self.repo_processing_queue:
+            return
+
+        import json
+        queue = json.loads(self.repo_processing_queue)
+        repo_found = False
+        for repo in queue:
+            if repo["repo_id"] == repo_id:
+                repo["finished"] = True
+                repo_found = True
+                break
+
+        if repo_found:
+            self.repo_processing_queue = json.dumps(queue)
+            # Mark the object as modified for SQLAlchemy
+            from sqlalchemy.orm import object_session
+            session = object_session(self)
+            if session:
+                session.add(self)  # Ensure SQLAlchemy tracks the change
+
+            # Debug logging
+            from app.core.logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.debug(f"Marked repository {repo_id} as finished in queue")
+        else:
+            # Log warning if repo not found in queue
+            from app.core.logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.warning(f"Repository {repo_id} not found in processing queue")
+
+    def cleanup_finished_repos(self):
+        """Keep all repos in queue for analysis, just return remaining count."""
+        if not self.repo_processing_queue:
+            return 0
+
+        import json
+        queue = json.loads(self.repo_processing_queue)
+        remaining_repos = [repo for repo in queue if not repo.get("finished", False)]
+
+        if len(remaining_repos) == 0:
+            # All repos finished - clear everything
+            self.clear_checkpoints()
+            return 0
+        else:
+            # Keep the full queue with finished=true entries for analysis
+            # Just return count of remaining work
+            return len(remaining_repos)
+
+    def get_repo_queue(self):
+        """Get the current repository queue (all entries for analysis)."""
+        if not self.repo_processing_queue:
+            return []
+
+        import json
+        return json.loads(self.repo_processing_queue)
+
+    def get_unfinished_repos(self):
+        """Get only unfinished repositories for recovery processing."""
+        if not self.repo_processing_queue:
+            return []
+
+        import json
+        queue = json.loads(self.repo_processing_queue)
+        return [repo for repo in queue if not repo.get("finished", False)]
 
 
 class JiraDevDetailsStaging(Base, BaseEntity):

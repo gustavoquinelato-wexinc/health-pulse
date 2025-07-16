@@ -36,35 +36,36 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
         job_schedule: JobSchedule record for this job
     """
     try:
-        logger.info(f"🐙 Starting GitHub sync job (ID: {job_schedule.id})")
-        
+        logger.info(f"Starting GitHub sync job (ID: {job_schedule.id})")
+
         # Get GitHub integration
         github_integration = session.query(Integration).filter(
             Integration.name == "GitHub"
         ).first()
-        
+
         if not github_integration:
             error_msg = "No GitHub integration found. Please run initialize_integrations.py first."
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"ERROR: {error_msg}")
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
             return
-        
+
         # Setup GitHub token
         key = AppConfig.load_key()
         github_token = AppConfig.decrypt_token(github_integration.password, key)
-        
-        # Check if this is a recovery run
+
+        # Process GitHub data with unified queue-based recovery
         if job_schedule.is_recovery_run():
-            logger.info("🔄 Recovery run detected - resuming from checkpoint")
-            result = process_github_data_with_graphql_recovery(session, github_integration, github_token, job_schedule)
+            logger.info("Recovery run detected - resuming from checkpoint")
         else:
-            logger.info("🆕 Normal run - starting fresh")
-            result = process_github_data_with_graphql(session, github_integration, github_token, job_schedule)
+            logger.info("Normal run - starting fresh")
+
+        result = process_github_data_with_graphql(session, github_integration, github_token, job_schedule)
         
         if result['success']:
             # Step 3: Link pull requests with Jira issues using staging data
-            logger.info("🔗 Step 3: Linking pull requests with Jira issues...")
+            # This should happen even on partial success/rate limit to link the PRs that were processed
+            logger.info("Step 3: Linking pull requests with Jira issues...")
             linking_result = link_pull_requests_with_jira_issues(session, github_integration)
 
             if linking_result['success']:
@@ -74,22 +75,52 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
                 logger.warning(f"PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
                 result['pr_links_created'] = linking_result.get('links_created', 0)
 
-            # Success: Truncate staging table, set Jira job to PENDING, this job to FINISHED
-            session.query(JiraDevDetailsStaging).delete()
+            # Check if this was a complete success (not partial or rate limited)
+            is_complete_success = (
+                not result.get('rate_limit_reached', False) and
+                not result.get('partial_success', False)
+            )
 
-            jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
-            if jira_job:
-                jira_job.status = 'PENDING'
+            if is_complete_success:
+                # Complete Success: Clean up checkpoint, truncate staging table, set jobs status
+                logger.info("Complete success - cleaning up and finishing")
 
-            job_schedule.set_finished()
-            session.commit()
-            
-            logger.info(f"✅ GitHub sync completed successfully")
-            logger.info(f"   • Repositories processed: {result['repos_processed']}")
-            logger.info(f"   • Pull requests processed: {result['prs_processed']}")
-            logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
-            logger.info(f"   • Staging table cleared")
-            logger.info(f"   • Jira job set to PENDING (cycle complete)")
+                # Clear checkpoint data
+                job_schedule.clear_checkpoints()
+
+                # Truncate staging table
+                session.query(JiraDevDetailsStaging).delete()
+                logger.info("Staging table truncated")
+
+                # Set Jira job to PENDING and this job to FINISHED
+                jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+                if jira_job:
+                    jira_job.status = 'PENDING'
+
+                job_schedule.set_finished()
+                session.commit()
+
+                logger.info("GitHub sync completed successfully")
+                logger.info(f"   • Repositories processed: {result['repos_processed']}")
+                logger.info(f"   • Pull requests processed: {result['prs_processed']}")
+                logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                logger.info(f"   • Staging table cleared")
+                logger.info(f"   • Jira job set to PENDING (cycle complete)")
+
+            else:
+                # Partial Success or Rate Limit: Keep staging data, keep job PENDING
+                logger.info("Partial success or rate limit reached - preserving state")
+
+                # Keep GitHub job as PENDING for next run
+                job_schedule.status = 'PENDING'
+                session.commit()
+
+                logger.info("GitHub sync partially completed")
+                logger.info(f"   • Repositories processed: {result['repos_processed']}")
+                logger.info(f"   • Pull requests processed: {result['prs_processed']}")
+                logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                logger.info(f"   • Staging data preserved for next run")
+                logger.info(f"   • GitHub job remains PENDING")
             
         else:
             # Failure: Set this job back to PENDING with checkpoint
@@ -99,7 +130,7 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
             job_schedule.set_pending_with_checkpoint(
                 error_msg,
                 repo_checkpoint=checkpoint_data.get('repo_checkpoint'),
-                current_repo_id=checkpoint_data.get('current_repo_id'),
+                repo_queue=checkpoint_data.get('repo_queue'),
                 last_pr_cursor=checkpoint_data.get('last_pr_cursor'),
                 current_pr_node_id=checkpoint_data.get('current_pr_node_id'),
                 last_commit_cursor=checkpoint_data.get('last_commit_cursor'),
@@ -109,11 +140,11 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
             )
             session.commit()
 
-            logger.error(f"❌ GitHub sync failed: {error_msg}")
+            logger.error(f"GitHub sync failed: {error_msg}")
             logger.info(f"   • Checkpoint data saved for recovery")
-            
+
     except Exception as e:
-        logger.error(f"❌ GitHub sync job error: {e}")
+        logger.error(f"GitHub sync job error: {e}")
         import traceback
         traceback.print_exc()
         
@@ -137,23 +168,27 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
     try:
         from app.jobs.github import GitHubClient
         from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
+        from app.models.unified_models import Repository, JiraDevDetailsStaging
         from datetime import datetime
         import os
 
-        logger.info("🔍 Discovering repositories from combined sources...")
-        logger.info("📋 Combining repositories from:")
+        logger.info("Discovering repositories from combined sources...")
+        logger.info("Combining repositories from:")
         logger.info("   • GitHub Search API (with 'health-' filter)")
         logger.info("   • Jira dev_status staging data")
 
         # Setup GitHub client
-        github_client = GitHubClient(integration.encrypted_token)
+        from app.core.config import AppConfig
+        key = AppConfig.load_key()
+        github_token = AppConfig.decrypt_token(integration.password, key)
+        github_client = GitHubClient(github_token)
 
         # Get organization from environment
         org = os.getenv('GITHUB_ORG', 'wexinc')
         name_filter = os.getenv('GITHUB_REPO_FILTER', 'health-')
 
         # Step 1: Get repositories from Jira dev_status staging data
-        logger.info("🔍 Step 1: Extracting repositories from Jira dev_status staging data...")
+        logger.info("Step 1: Extracting repositories from Jira dev_status staging data...")
 
         staged_data = session.query(JiraDevDetailsStaging).filter(
             JiraDevDetailsStaging.processed == False
@@ -177,15 +212,23 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
             logger.info(f"Repository names: {', '.join(sorted(list(repo_names_from_jira)[:10]))}{'...' if len(repo_names_from_jira) > 10 else ''}")
 
         # Step 2: Get repositories from GitHub Search API
-        logger.info(f"🔍 Step 2: Searching GitHub API for repositories in org: {org}")
+        logger.info(f"Step 2: Searching GitHub API for repositories in org: {org}")
         if name_filter:
             logger.info(f"Filtering by name: {name_filter}")
 
-        # Use integration's last_sync_at as start date, today as end date
-        if integration.last_sync_at and integration.last_sync_at.year >= 2020:
+        # Determine start date based on job state
+        if job_schedule.last_repo_sync_checkpoint:
+            # Recovery run - use checkpoint date
+            start_date = job_schedule.last_repo_sync_checkpoint.strftime('%Y-%m-%d')
+            logger.info(f"Recovery run detected - using checkpoint date: {start_date}")
+        elif integration.last_sync_at:
+            # Normal run - use integration's last sync date
             start_date = integration.last_sync_at.strftime('%Y-%m-%d')
+            logger.info(f"Using integration last sync date: {start_date}")
         else:
-            start_date = "2024-01-01"  # Default to recent date if last_sync_at is None or too old
+            # Fallback - should not happen if integration is properly initialized
+            start_date = "1900-01-01"
+            logger.warning("No last_sync_at found, using fallback date")
 
         end_date = datetime.today().strftime('%Y-%m-%d')
 
@@ -200,7 +243,7 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
         logger.info(f"Found {len(repos_from_search)} repositories from GitHub Search API")
 
         # Step 3: Combine both sources
-        logger.info("🔗 Step 3: Combining repositories from both sources...")
+        logger.info("Step 3: Combining repositories from both sources...")
 
         # Create a set of all repository names to fetch
         all_repo_names = set()
@@ -221,7 +264,7 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
         logger.info(f"Total unique repositories to process: {len(all_repo_names)}")
 
         # Step 4: Fetch detailed repository data for all repositories
-        logger.info("📥 Step 4: Fetching detailed repository data...")
+        logger.info("Step 4: Fetching detailed repository data...")
 
         all_repos = []
 
@@ -259,8 +302,7 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
             }
 
         # Step 5: Process repositories using bulk operations
-        logger.info("🔄 Step 5: Processing repositories for database insertion...")
-        processor = GitHubGraphQLProcessor(integration, job_schedule)
+        logger.info("Step 5: Processing repositories for database insertion...")
 
         # Get existing repositories to avoid duplicates
         existing_repos = {
@@ -273,6 +315,9 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
         repos_updated = 0
         repos_skipped = 0
 
+        # Create a temporary processor for repository data processing
+        temp_processor = GitHubGraphQLProcessor(integration, 0)  # repository_id not needed for data processing
+
         logger.info(f"Processing {len(all_repos)} repositories...")
         for repo_index, repo_data in enumerate(all_repos, 1):
             try:
@@ -281,18 +326,13 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
                 # Check if repository already exists
                 external_id = str(repo_data['id'])
                 if external_id in existing_repos:
-                    # Update existing repository
-                    existing_repo = existing_repos[external_id]
-                    updated = processor.update_repository_from_data(existing_repo, repo_data)
-                    if updated:
-                        repos_updated += 1
-                    else:
-                        repos_skipped += 1
+                    # For existing repositories, just skip for now (could implement updates later)
+                    repos_skipped += 1
                 else:
-                    # Create new repository
-                    new_repo = processor.create_repository_from_data(repo_data)
-                    if new_repo:
-                        repos_to_insert.append(new_repo)
+                    # Process repository data using the processor
+                    repo_processed = temp_processor.process_repository_data(repo_data)
+                    if repo_processed:
+                        repos_to_insert.append(repo_processed)
 
             except Exception as e:
                 logger.error(f"Error processing repository {repo_data.get('full_name', 'unknown')}: {e}")
@@ -301,16 +341,16 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
         # Bulk insert new repositories
         if repos_to_insert:
             logger.info(f"Performing bulk insert of {len(repos_to_insert)} repositories...")
-            session.bulk_save_objects(repos_to_insert)
+            from app.models.unified_models import Repository
+            session.bulk_insert_mappings(Repository, repos_to_insert)
             session.commit()
             logger.info(f"Successfully inserted {len(repos_to_insert)} repositories")
 
-        total_processed = len(repos_to_insert) + repos_updated + repos_skipped
+        total_processed = len(repos_to_insert) + repos_skipped
         logger.info(f"Repository discovery completed!")
         logger.info(f"   • Repositories processed: {total_processed}")
         logger.info(f"   • New repositories inserted: {len(repos_to_insert)}")
-        logger.info(f"   • Existing repositories updated: {repos_updated}")
-        logger.info(f"   • Repositories skipped (no changes): {repos_skipped}")
+        logger.info(f"   • Repositories skipped (already exist): {repos_skipped}")
 
         # Get all repositories for return
         repositories = session.query(Repository).filter(
@@ -323,7 +363,6 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
             'repositories': repositories,
             'repos_processed': total_processed,
             'repos_inserted': len(repos_to_insert),
-            'repos_updated': repos_updated,
             'repos_skipped': repos_skipped
         }
 
@@ -341,8 +380,10 @@ def link_pull_requests_with_jira_issues(session: Session, github_integration: In
     """
     Link pull requests with Jira issues using data from jira_dev_details_staging.
 
-    This function processes the staging data to connect pull requests with their
-    corresponding Jira issues using repository name and PR number matching.
+    The staging table already contains the issue_id, so we only need to:
+    1. Parse JSON to get repositoryName and pullRequestNumber
+    2. Find matching PullRequest records
+    3. Link them directly to the staging_record.issue_id
 
     Args:
         session: Database session
@@ -354,7 +395,7 @@ def link_pull_requests_with_jira_issues(session: Session, github_integration: In
     try:
         from app.models.unified_models import PullRequest, Repository, JiraDevDetailsStaging, Issue
 
-        logger.info("🔗 Starting PR-Issue linking process...")
+        logger.info("Starting PR-Issue linking process...")
 
         # Get all unprocessed staging records
         staging_records = session.query(JiraDevDetailsStaging).filter(
@@ -502,7 +543,7 @@ def link_pull_requests_with_jira_issues(session: Session, github_integration: In
 
 def process_github_data_with_graphql(session: Session, integration: Integration, github_token: str, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
-    Process GitHub data using GraphQL API for efficient data fetching.
+    Process GitHub data using GraphQL API for efficient data fetching with queue-based recovery.
 
     Args:
         session: Database session
@@ -514,18 +555,45 @@ def process_github_data_with_graphql(session: Session, integration: Integration,
         Dictionary with processing results
     """
     try:
-        logger.info("🚀 Starting GraphQL-based GitHub data processing")
+        logger.info("Starting GraphQL-based GitHub data processing")
 
         # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=500)
+        from app.core.config import get_settings
+        settings = get_settings()
+        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=settings.GITHUB_RATE_LIMIT_THRESHOLD)
 
-        # Step 1: Discover repositories (keep existing logic for now)
-        repos_result = discover_repositories_from_staging(session, integration, job_schedule)
-        if not repos_result['success']:
-            return repos_result
+        # Determine processing mode and get repositories
+        full_queue = job_schedule.get_repo_queue()
 
-        repositories = repos_result['repositories']
-        logger.info(f"📁 Found {len(repositories)} repositories to process")
+        if full_queue:
+            # Recovery mode: Use unfinished repositories from queue
+            unfinished_repos = [repo for repo in full_queue if not repo.get("finished", False)]
+            logger.info(f"Recovery mode: Processing {len(unfinished_repos)} unfinished repositories")
+            logger.info(f"Full queue contains {len(full_queue)} total repositories (for analysis)")
+
+            repositories = []
+            for repo_data in unfinished_repos:
+                # Get repository from database using external_id
+                repo = session.query(Repository).filter(
+                    Repository.external_id == repo_data["repo_id"],
+                    Repository.client_id == integration.client_id
+                ).first()
+                if repo:
+                    repositories.append(repo)
+                else:
+                    logger.warning(f"Repository {repo_data['full_name']} not found in database")
+        else:
+            # Normal mode: Discover repositories
+            logger.info("Normal mode: Discovering repositories")
+            repos_result = discover_repositories_from_staging(session, integration, job_schedule)
+            if not repos_result['success']:
+                return repos_result
+
+            repositories = repos_result['repositories']
+            logger.info(f"Found {len(repositories)} repositories to process")
+
+            # Initialize queue for normal run
+            job_schedule.initialize_repo_queue(repositories)
 
         # Step 2: Process pull requests using GraphQL
         total_prs_processed = 0
@@ -533,177 +601,149 @@ def process_github_data_with_graphql(session: Session, integration: Integration,
         for repo_index, repository in enumerate(repositories, 1):
             try:
                 owner, repo_name = repository.full_name.split('/', 1)
-                logger.info(f"🔄 Processing repository {repo_index}/{len(repositories)}: {owner}/{repo_name}")
+                logger.info(f"Processing repository {repo_index}/{len(repositories)}: {owner}/{repo_name}")
 
                 # Process PRs for this repository using GraphQL
                 pr_result = process_repository_prs_with_graphql(
                     session, graphql_client, repository, owner, repo_name, integration, job_schedule
                 )
 
+                # Check if rate limit was reached during PR processing BEFORE marking as finished
+                if pr_result.get('rate_limit_reached', False):
+                    logger.warning("Rate limit threshold reached during PR processing, stopping gracefully")
+
+                    # Cleanup finished repos and save remaining work
+                    remaining_count = job_schedule.cleanup_finished_repos()
+                    full_queue = job_schedule.get_repo_queue()
+                    finished_count = len(full_queue) - remaining_count
+                    session.commit()
+
+                    if remaining_count > 0:
+                        logger.info(f"Rate limit reached - {remaining_count} repositories remaining for next run")
+                        logger.info(f"Queue analysis: {finished_count} finished, {remaining_count} pending")
+
+                        # Debug: Show some finished repos
+                        finished_repos = [repo for repo in full_queue if repo.get("finished", False)]
+                        if finished_repos:
+                            logger.debug(f"Sample finished repos: {[repo['full_name'] for repo in finished_repos[:5]]}")
+                    else:
+                        logger.info("Rate limit reached but all repositories completed")
+                        logger.info(f"Queue analysis: {finished_count} repositories completed")
+
+                    return {
+                        'success': True,  # Partial success
+                        'rate_limit_reached': True,
+                        'partial_success': True,
+                        'error': 'Rate limit threshold reached during PR processing',
+                        'repos_processed': repo_index - 1,  # Don't count current repo as processed since it hit rate limit
+                        'prs_processed': total_prs_processed
+                    }
+
                 if not pr_result['success']:
-                    # Save checkpoint and return failure
+                    # Failure during PR processing - cleanup finished repos and save state
+                    remaining_count = job_schedule.cleanup_finished_repos()
+                    full_queue = job_schedule.get_repo_queue()
+                    finished_count = len(full_queue) - remaining_count
+                    session.commit()
+
+                    logger.error(f"PR processing failed for {owner}/{repo_name}")
+                    logger.info(f"Queue analysis: {finished_count} finished, {remaining_count} repositories remaining")
+
+                    # Get current queue state for checkpoint (full queue for analysis)
+                    checkpoint_data = pr_result.get('checkpoint_data', {})
+                    checkpoint_data['repo_queue'] = job_schedule.get_repo_queue()  # Full queue with finished=true entries
+
                     return {
                         'success': False,
                         'error': pr_result['error'],
                         'repos_processed': repo_index - 1,
                         'prs_processed': total_prs_processed,
-                        'checkpoint_data': {
-                            'repo_checkpoint': repository.repo_updated_at,
-                            'current_repo_id': repository.external_id,
-                            **pr_result.get('checkpoint_data', {})
-                        }
+                        'checkpoint_data': checkpoint_data
                     }
 
+                # Mark this repository as finished in the queue
+                job_schedule.mark_repo_finished(repository.external_id)
                 total_prs_processed += pr_result['prs_processed']
 
                 # Commit the data for this repository
                 session.commit()
-                logger.info(f"✅ Committed data for repository {owner}/{repo_name}")
+                logger.info(f"Committed data for repository {owner}/{repo_name}")
+                logger.debug(f"Marked repository {repository.external_id} as finished in queue")
 
                 # Check rate limit after each repository
                 if graphql_client.should_stop_for_rate_limit():
-                    logger.warning("⚠️ Rate limit threshold reached, stopping gracefully")
+                    logger.warning("Rate limit threshold reached, stopping gracefully")
+
+                    # Cleanup finished repos and save remaining work
+                    remaining_count = job_schedule.cleanup_finished_repos()
+                    full_queue = job_schedule.get_repo_queue()
+                    finished_count = len(full_queue) - remaining_count
+                    session.commit()
+
+                    if remaining_count > 0:
+                        logger.info(f"Rate limit reached - {remaining_count} repositories remaining for next run")
+                        logger.info(f"Queue analysis: {finished_count} finished, {remaining_count} pending")
+
+                        # Debug: Show some finished repos
+                        finished_repos = [repo for repo in full_queue if repo.get("finished", False)]
+                        if finished_repos:
+                            logger.debug(f"Sample finished repos: {[repo['full_name'] for repo in finished_repos[:5]]}")
+                    else:
+                        logger.info("Rate limit reached but all repositories completed")
+                        logger.info(f"Queue analysis: {finished_count} repositories completed")
+
                     return {
-                        'success': False,
+                        'success': True,  # Partial success
+                        'rate_limit_reached': True,
+                        'partial_success': True,
                         'error': 'Rate limit threshold reached',
                         'repos_processed': repo_index,
-                        'prs_processed': total_prs_processed,
-                        'checkpoint_data': {
-                            'repo_checkpoint': repository.repo_updated_at,
-                            'current_repo_id': None  # Completed this repo
-                        }
+                        'prs_processed': total_prs_processed
                     }
 
             except Exception as e:
-                logger.error(f"❌ Error processing repository {repository.full_name}: {e}")
-                continue
+                logger.error(f"Error processing repository {repository.full_name}: {e}")
 
-        logger.info(f"✅ GraphQL processing completed successfully")
+                # Cleanup finished repos and save state
+                remaining_count = job_schedule.cleanup_finished_repos()
+                full_queue = job_schedule.get_repo_queue()
+                finished_count = len(full_queue) - remaining_count
+                session.commit()
+
+                logger.info(f"Queue analysis: {finished_count} finished, {remaining_count} repositories remaining")
+
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'repos_processed': repo_index - 1,
+                    'prs_processed': total_prs_processed,
+                    'checkpoint_data': {
+                        'repo_queue': job_schedule.get_repo_queue()  # Full queue for analysis
+                    }
+                }
+
+        # All repositories and PRs processed successfully - cleanup will clear all checkpoints
+        remaining_count = job_schedule.cleanup_finished_repos()
+        if remaining_count == 0:
+            logger.info("All repositories completed - all checkpoints cleared")
+        else:
+            logger.warning(f"Unexpected: {remaining_count} repositories still in queue after completion")
+
+        logger.info(f"GraphQL processing completed successfully")
         return {
             'success': True,
+            'rate_limit_reached': False,
+            'partial_success': False,  # Complete success - all repositories processed
             'repos_processed': len(repositories),
             'prs_processed': total_prs_processed
         }
 
     except Exception as e:
-        logger.error(f"❌ Error in GraphQL processing: {e}")
+        logger.error(f"Error in GraphQL processing: {e}")
         return {
             'success': False,
-            'error': str(e),
-            'repos_processed': 0,
-            'prs_processed': 0,
-            'checkpoint_data': {}
-        }
-
-def process_github_data_with_graphql_recovery(session: Session, integration: Integration, github_token: str, job_schedule: JobSchedule) -> Dict[str, Any]:
-    """
-    Process GitHub data using GraphQL API in recovery mode.
-
-    Args:
-        session: Database session
-        integration: GitHub integration object
-        github_token: Decrypted GitHub token
-        job_schedule: Job schedule with checkpoint data
-
-    Returns:
-        Dictionary with processing results
-    """
-    try:
-        logger.info("🔄 Starting GraphQL-based GitHub data processing (RECOVERY MODE)")
-
-        # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=500)
-
-        # Get checkpoint state
-        checkpoint_state = job_schedule.get_checkpoint_state()
-        current_repo_id = checkpoint_state['current_repo_id']
-
-        logger.info(f"📍 Resuming from repository ID: {current_repo_id}")
-
-        # Find the repository to resume from
-        repository = session.query(Repository).filter(
-            Repository.external_id == current_repo_id,
-            Repository.client_id == integration.client_id
-        ).first()
-
-        if not repository:
-            logger.error(f"❌ Repository with ID {current_repo_id} not found")
-            return {
-                'success': False,
-                'error': f'Repository with ID {current_repo_id} not found',
-                'repos_processed': 0,
-                'prs_processed': 0,
-                'checkpoint_data': {}
-            }
-
-        owner, repo_name = repository.full_name.split('/', 1)
-        logger.info(f"🔄 Resuming processing for repository: {owner}/{repo_name}")
-
-        # Process PRs for this repository using GraphQL with recovery
-        pr_result = process_repository_prs_with_graphql_recovery(
-            session, graphql_client, repository, owner, repo_name, integration, job_schedule
-        )
-
-        if not pr_result['success']:
-            return {
-                'success': False,
-                'error': pr_result['error'],
-                'repos_processed': 0,
-                'prs_processed': 0,
-                'checkpoint_data': {
-                    'current_repo_id': current_repo_id,
-                    **pr_result.get('checkpoint_data', {})
-                }
-            }
-
-        # After successful recovery, continue with remaining repositories if any
-        remaining_repos = session.query(Repository).filter(
-            Repository.repo_updated_at > repository.repo_updated_at,
-            Repository.client_id == integration.client_id
-        ).order_by(Repository.repo_updated_at).all()
-
-        total_prs_processed = pr_result['prs_processed']
-
-        for repo_index, next_repository in enumerate(remaining_repos, 1):
-            try:
-                next_owner, next_repo_name = next_repository.full_name.split('/', 1)
-                logger.info(f"🔄 Processing remaining repository {repo_index}/{len(remaining_repos)}: {next_owner}/{next_repo_name}")
-
-                # Process PRs for this repository using GraphQL
-                next_pr_result = process_repository_prs_with_graphql(
-                    session, graphql_client, next_repository, next_owner, next_repo_name, integration, job_schedule
-                )
-
-                if not next_pr_result['success']:
-                    return {
-                        'success': False,
-                        'error': next_pr_result['error'],
-                        'repos_processed': repo_index,
-                        'prs_processed': total_prs_processed,
-                        'checkpoint_data': {
-                            'repo_checkpoint': next_repository.repo_updated_at,
-                            'current_repo_id': next_repository.external_id,
-                            **next_pr_result.get('checkpoint_data', {})
-                        }
-                    }
-
-                total_prs_processed += next_pr_result['prs_processed']
-
-            except Exception as e:
-                logger.error(f"❌ Error processing repository {next_repository.full_name}: {e}")
-                continue
-
-        logger.info(f"✅ GraphQL recovery processing completed successfully")
-        return {
-            'success': True,
-            'repos_processed': 1 + len(remaining_repos),
-            'prs_processed': total_prs_processed
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Error in GraphQL recovery processing: {e}")
-        return {
-            'success': False,
+            'rate_limit_reached': False,
+            'partial_success': False,
             'error': str(e),
             'repos_processed': 0,
             'prs_processed': 0,

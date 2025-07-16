@@ -19,6 +19,25 @@ colorama.init(autoreset=True)
 
 from app.core.config import get_settings
 
+# Global reference to live log capture function (will be set by web_routes)
+_live_log_capture_func = None
+
+def set_live_log_capture(capture_func):
+    """Set the live log capture function"""
+    global _live_log_capture_func
+    _live_log_capture_func = capture_func
+
+class LiveLogHandler(logging.Handler):
+    """Custom log handler that captures logs for live dashboard display"""
+
+    def emit(self, record):
+        if _live_log_capture_func:
+            try:
+                message = self.format(record)
+                _live_log_capture_func(record.levelname.lower(), message)
+            except Exception:
+                pass  # Don't let log capture errors break the application
+
 
 class ColoredConsoleRenderer:
     """Custom colored console renderer that works better with Windows terminals."""
@@ -217,6 +236,14 @@ def setup_logging(force_reconfigure=False):
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
 
+    # Add live log handler for dashboard (only if not already added)
+    if not any(isinstance(h, LiveLogHandler) for h in root_logger.handlers):
+        live_handler = LiveLogHandler()
+        live_handler.setLevel(logging.INFO)
+        live_formatter = logging.Formatter('%(message)s')
+        live_handler.setFormatter(live_formatter)
+        root_logger.addHandler(live_handler)
+
     # Mark logging as configured
     _logging_configured = True
 
@@ -228,7 +255,10 @@ def _configure_third_party_loggers():
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("snowflake").setLevel(logging.WARNING)
-    logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy").setLevel(logging.CRITICAL)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.CRITICAL)
+    logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.CRITICAL)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
     logging.getLogger("apscheduler").setLevel(logging.INFO)
     
     # Configure specific logs if needed

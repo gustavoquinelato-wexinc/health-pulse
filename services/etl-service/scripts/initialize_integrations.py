@@ -9,20 +9,20 @@ in the database with encrypted tokens. It can be used for:
 - Adding new integrations to existing database
 
 Usage:
-    python utils/initialize_integrations.py [options]
+    python scripts/initialize_integrations.py [options]
 
 Examples:
     # Initialize all configured integrations
-    python utils/initialize_integrations.py
+    python scripts/initialize_integrations.py
 
     # Force re-initialize (overwrite existing)
-    python utils/initialize_integrations.py --force
+    python scripts/initialize_integrations.py --force
 
     # Initialize specific integration only
-    python utils/initialize_integrations.py --integration jira
+    python scripts/initialize_integrations.py --integration jira
 
     # Dry run (show what would be done)
-    python utils/initialize_integrations.py --dry-run
+    python scripts/initialize_integrations.py --dry-run
 """
 
 import sys

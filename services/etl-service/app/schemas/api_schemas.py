@@ -21,10 +21,11 @@ class JobStatus(str, Enum):
 class HealthResponse(BaseModel):
     """Response for health check."""
     status: str = "healthy"
-    timestamp: datetime = Field(default_factory=datetime.now)
+    message: str = "ETL Service is running"
+    database_status: str
+    database_message: str
     version: str
-    database_connected: bool
-    
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -92,35 +93,8 @@ class JobStatusResponse(BaseModel):
         }
 
 
-class JobScheduleRequest(BaseModel):
-    """Request to schedule job."""
-    interval_hours: int = Field(
-        default=24,
-        ge=1,
-        le=168,  # Maximum 1 week
-        description="Interval in hours between executions"
-    )
-    enabled: bool = Field(
-        default=True,
-        description="Whether scheduling is active"
-    )
-    force_full_sync: Optional[bool] = Field(
-        default=False,
-        description="Whether to force complete sync on each execution"
-    )
-
-
-class JobScheduleResponse(BaseModel):
-    """Response for job scheduling."""
-    scheduled: bool
-    interval_hours: int
-    next_run: Optional[datetime] = None
-    message: str
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+# Note: Individual job scheduling schemas removed
+# Only the orchestrator is scheduled - individual jobs are triggered by the orchestrator
 
 
 class IntegrationInfo(BaseModel):

@@ -10,6 +10,13 @@ The orchestrator runs on a schedule and:
 2. Updates status to 'RUNNING' (locking mechanism)
 3. Triggers the appropriate passive job asynchronously
 4. Exits (passive job manages its own completion)
+
+Job Status Flow:
+- NOT_STARTED: Job has never run (ignored by orchestrator)
+- PENDING: Job is ready to run (picked up by orchestrator)
+- RUNNING: Job is currently executing (locked)
+- FINISHED: Job completed successfully
+- On completion: Current job sets itself to FINISHED and next job to PENDING
 """
 
 from sqlalchemy.orm import Session
@@ -220,23 +227,23 @@ def initialize_job_schedules():
             # Create initial job schedules
             jira_job = JobSchedule(
                 job_name='jira_sync',
-                status='PENDING',
+                status='PENDING',  # Start with Jira ready to run
                 client_id=client.id
             )
 
             github_job = JobSchedule(
                 job_name='github_sync',
-                status='FINISHED',  # Start with GitHub finished so Jira runs first
+                status='NOT_STARTED',  # Start with GitHub not started (prevents wrong execution)
                 client_id=client.id
             )
-            
+
             session.add(jira_job)
             session.add(github_job)
             session.commit()
-            
+
             logger.info("SUCCESS: Job schedules initialized successfully")
-            logger.info("   - jira_sync: PENDING (will run first)")
-            logger.info("   - github_sync: FINISHED (will run after Jira)")
+            logger.info("   - jira_sync: PENDING (ready to run first)")
+            logger.info("   - github_sync: NOT_STARTED (will be set to PENDING when Jira finishes)")
             
             return True
             
@@ -265,8 +272,7 @@ def get_job_status():
                     'last_success_at': job.last_success_at.isoformat() if job.last_success_at else None,
                     'error_message': job.error_message,
                     'retry_count': job.retry_count,
-                    'last_repo_sync_checkpoint': job.last_repo_sync_checkpoint.isoformat() if job.last_repo_sync_checkpoint else None,
-                    'last_pr_sync_checkpoint': job.last_pr_sync_checkpoint.isoformat() if job.last_pr_sync_checkpoint else None
+                    'last_repo_sync_checkpoint': job.last_repo_sync_checkpoint.isoformat() if job.last_repo_sync_checkpoint else None
                 }
             
             return status
