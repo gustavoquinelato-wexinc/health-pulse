@@ -1,6 +1,6 @@
 /**
  * Backend Service - Server Entry Point
- * Backend for Frontend (BFF) for Kairus Platform
+ * Backend for Frontend (BFF) for Pulse Platform
  */
 
 import dotenv from 'dotenv';

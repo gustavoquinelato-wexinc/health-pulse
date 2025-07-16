@@ -95,7 +95,7 @@ backend-service/
 
 1. **From the monorepo root**:
 ```bash
-cd kairus-platform
+cd pulse-platform
 docker-compose up backend-service
 ```
 
@@ -160,7 +160,7 @@ PORT=3000
 API_PREFIX=/api
 
 # Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/kairus
+DATABASE_URL=postgresql://user:password@localhost:5432/pulse
 DB_POOL_SIZE=10
 
 # Redis Configuration
@@ -248,10 +248,10 @@ npm start
 ### Docker Deployment
 
 ```bash
-docker build -t kairus-backend .
-docker run -p 3000:3000 kairus-backend
+docker build -t pulse-backend .
+docker run -p 3000:3000 pulse-backend
 ```
 
 ---
 
-**Part of the Kairus Platform - Software Engineering Intelligence**
+**Part of the Pulse Platform - Software Engineering Intelligence**

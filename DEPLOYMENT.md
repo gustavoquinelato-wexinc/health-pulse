@@ -1,6 +1,6 @@
-# Kairus Platform - Deployment Guide
+# Pulse Platform - Deployment Guide
 
-This guide provides step-by-step instructions for deploying the complete Kairus Platform monorepo.
+This guide provides step-by-step instructions for deploying the complete Pulse Platform monorepo.
 
 ## 🏗️ Complete Architecture
 
@@ -34,7 +34,7 @@ This guide provides step-by-step instructions for deploying the complete Kairus 
 ## 📁 Complete Directory Structure
 
 ```
-kairus-platform/
+pulse-platform/
 ├── README.md                          # Main project documentation
 ├── docker-compose.yml                 # Orchestration configuration
 ├── .env.example                       # Environment template
@@ -101,7 +101,7 @@ kairus-platform/
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd kairus-platform
+cd pulse-platform
 
 # Copy environment template
 cp .env.example .env
@@ -368,4 +368,4 @@ docker-compose down && docker-compose up -d
 
 ---
 
-**🎉 Congratulations! Your Kairus Platform is now deployed and ready for software engineering intelligence!**
+**🎉 Congratulations! Your Pulse Platform is now deployed and ready for software engineering intelligence!**
