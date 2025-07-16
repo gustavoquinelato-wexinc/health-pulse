@@ -5,18 +5,18 @@ ETL Service - Jobs Testing & Debugging Tool
 This script helps you test connections and debug job execution for all integrations.
 
 Usage:
-    python utils/test_jobs.py [options]
+    python scripts/test_jobs.py [options]
 
 Examples:
     # 🔗 CONNECTION TESTING:
-    python utils/test_jobs.py --test-connection # Test API connections
-    python utils/test_jobs.py --test-scheduler  # Test scheduler configuration
+    python scripts/test_jobs.py --test-connection # Test API connections
+    python scripts/test_jobs.py --test-scheduler  # Test scheduler configuration
 
     # 🐛 JOB DEBUGGING:
-    python utils/test_jobs.py --manual          # Interactive manual debugging
-    python utils/test_jobs.py --auto            # Full job with monitoring
-    python utils/test_jobs.py --auto --debug    # Full job with verbose logging
-    python utils/test_jobs.py --breakpoint      # Run with Python debugger breakpoint
+    python scripts/test_jobs.py --manual          # Interactive manual debugging
+    python scripts/test_jobs.py --auto            # Full job with monitoring
+    python scripts/test_jobs.py --auto --debug    # Full job with verbose logging
+    python scripts/test_jobs.py --breakpoint      # Run with Python debugger breakpoint
 """
 
 import sys
@@ -290,7 +290,7 @@ def manual_debug():
                     print("   5. Extract Repositories")
                     print("   6. Extract Pull Requests (All Repositories)")
                     print("   7. Extract Pull Requests (Single Repository)")
-                    print("   8. Run Full GitHub Extraction")
+                    print("   8. Run Full GitHub Job (Real Job Simulation)")
 
                 """
                 # Other integrations
@@ -435,7 +435,7 @@ def run_github_operation(session, github_integration, choice):
                 print("❌ Repository name required")
 
         elif choice == '8':
-            print("\n🔄 Running Full GitHub Extraction...")
+            print("\n� Running Full GitHub Job (Real Job Simulation)...")
             run_full_github_extraction_manual(session, github_integration, github_token, logger)
 
     except Exception as e:
@@ -525,6 +525,8 @@ Examples:
                        help='Run with Python debugger breakpoint')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug logging')
+    parser.add_argument('--check-checkpoint', action='store_true',
+                       help='Check checkpoint data in database')
 
     args = parser.parse_args()
 
@@ -551,6 +553,9 @@ Examples:
         if args.breakpoint:
             success &= breakpoint_debug()
 
+        if args.check_checkpoint:
+            check_checkpoint_data()
+
         if success:
             print("\n🎉 All operations completed successfully!")
         else:
@@ -565,6 +570,63 @@ Examples:
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+def check_checkpoint_data():
+    """Check the current checkpoint data in the database."""
+    try:
+        # Setup environment and imports
+        import sys
+        import os
+        sys.path.insert(0, os.path.abspath('.'))
+
+        from app.core.database import get_database
+        from app.models.unified_models import JobSchedule
+        import json
+
+        database = get_database()
+        with database.get_session_context() as session:
+            github_job = session.query(JobSchedule).filter_by(job_name='github_sync').first()
+
+            if github_job:
+                print('=== GITHUB JOB CHECKPOINT DATA ===')
+                print(f'Job Status: {github_job.status}')
+                print(f'Error Message: {github_job.error_message}')
+                print(f'Retry Count: {github_job.retry_count}')
+                print(f'Last Repo Sync Checkpoint: {github_job.last_repo_sync_checkpoint}')
+                print(f'Last PR Cursor: {github_job.last_pr_cursor}')
+                print(f'Current PR Node ID: {github_job.current_pr_node_id}')
+                print(f'Last Commit Cursor: {github_job.last_commit_cursor}')
+                print(f'Last Review Cursor: {github_job.last_review_cursor}')
+                print(f'Last Comment Cursor: {github_job.last_comment_cursor}')
+                print(f'Last Review Thread Cursor: {github_job.last_review_thread_cursor}')
+
+                print('\n=== REPO PROCESSING QUEUE ===')
+                if github_job.repo_processing_queue:
+                    queue = json.loads(github_job.repo_processing_queue)
+                    print(f'Total repositories in queue: {len(queue)}')
+
+                    finished_repos = [repo for repo in queue if repo.get("finished", False)]
+                    pending_repos = [repo for repo in queue if not repo.get("finished", False)]
+
+                    print(f'Finished repositories: {len(finished_repos)}')
+                    print(f'Pending repositories: {len(pending_repos)}')
+
+                    print('\nFirst 5 finished repositories:')
+                    for repo in finished_repos[:5]:
+                        print(f'  - {repo.get("full_name", "N/A")} (finished: {repo.get("finished", False)})')
+
+                    print('\nFirst 5 pending repositories:')
+                    for repo in pending_repos[:5]:
+                        print(f'  - {repo.get("full_name", "N/A")} (finished: {repo.get("finished", False)})')
+                else:
+                    print('No repo processing queue found')
+
+            else:
+                print('No GitHub job found in database')
+
+    except Exception as e:
+        print(f"Error checking checkpoint data: {e}")
 
 
 # GitHub Manual Operation Functions
@@ -774,12 +836,15 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
         print(f"📁 Found {len(repositories)} repositories")
 
         # Setup GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=500)
+        from app.core.config import get_settings
+        settings = get_settings()
+        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=settings.GITHUB_RATE_LIMIT_THRESHOLD)
 
         # Create a mock job schedule for testing
         mock_job_schedule = type('MockJobSchedule', (), {
-            'is_recovery_run': lambda: False,
-            'get_checkpoint_state': lambda: {}
+            'is_recovery_run': lambda self: False,
+            'get_checkpoint_state': lambda self: {},
+            'update_checkpoint': lambda self, checkpoint_data: None
         })()
 
         total_prs_processed = 0
@@ -795,6 +860,13 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
                     github_integration, mock_job_schedule
                 )
 
+                # Check if rate limit was reached during PR processing BEFORE marking as finished
+                if result.get('rate_limit_reached', False):
+                    print("⚠️  Rate limit threshold reached during PR processing, stopping gracefully")
+                    print(f"📊 Processed {repo_index - 1} repositories before hitting rate limit")
+                    print(f"📊 Total PRs processed: {total_prs_processed}")
+                    break
+
                 if result['success']:
                     prs_processed = result['prs_processed']
                     total_prs_processed += prs_processed
@@ -805,7 +877,7 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
                 else:
                     print(f"❌ Failed to process PRs for {owner}/{repo_name}: {result['error']}")
 
-                # Check rate limit and warn but continue
+                # Check rate limit after processing and warn but continue
                 if graphql_client.should_stop_for_rate_limit():
                     print("⚠️  Rate limit threshold reached, but continuing extraction")
 
@@ -814,7 +886,7 @@ def extract_all_pull_requests_manual(session, github_integration, github_token, 
                 continue
 
         # Step 2: Link pull requests with Jira issues using staging data
-        print(f"\n🔗 Linking pull requests with Jira issues...")
+        print(f"\nLinking pull requests with Jira issues...")
 
         from app.jobs.github.github_job import link_pull_requests_with_jira_issues
         linking_result = link_pull_requests_with_jira_issues(session, github_integration)
@@ -859,12 +931,15 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
         print(f"📁 Found repository: {repository.full_name} (ID: {repository.id})")
 
         # Setup GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=500)
+        from app.core.config import get_settings
+        settings = get_settings()
+        graphql_client = GitHubGraphQLClient(github_token, rate_limit_threshold=settings.GITHUB_RATE_LIMIT_THRESHOLD)
 
         # Create a mock job schedule for testing
         mock_job_schedule = type('MockJobSchedule', (), {
-            'is_recovery_run': lambda: False,
-            'get_checkpoint_state': lambda: {}
+            'is_recovery_run': lambda self: False,
+            'get_checkpoint_state': lambda self: {},
+            'update_checkpoint': lambda self, checkpoint_data: None
         })()
 
         try:
@@ -884,7 +959,7 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
                 session.commit()
 
                 # Step 2: Link pull requests with Jira issues using staging data
-                print(f"\n🔗 Linking pull requests with Jira issues...")
+                print(f"\nLinking pull requests with Jira issues...")
 
                 from app.jobs.github.github_job import link_pull_requests_with_jira_issues
                 linking_result = link_pull_requests_with_jira_issues(session, github_integration)
@@ -911,24 +986,155 @@ def extract_single_repo_pull_requests_manual(session, github_integration, github
         raise
 
 
-def run_full_github_extraction_manual(session, github_integration, github_token, logger):
-    """Run full GitHub extraction (repositories + pull requests) manually."""
+def run_full_github_extraction_manual(session, github_integration, github_token, logger=None):
+    """
+    Run full GitHub extraction simulating the real job behavior.
+
+    This function:
+    1. Extracts repositories and pull requests
+    2. Links PRs with Jira issues using staging data
+    3. On complete success: truncates staging table, updates integration last_sync_at
+    4. On failure/rate limit: saves checkpoint state to JobSchedule
+    5. Updates JobSchedule status appropriately
+    """
     try:
-        print("🚀 Starting full GitHub extraction...")
+        print("🚀 Starting full GitHub extraction (REAL JOB SIMULATION)...")
+        print("=" * 60)
+        print("This will behave like the real GitHub job:")
+        print("• Extract repositories and pull requests")
+        print("• Link with Jira staging data")
+        print("• Update JobSchedule and Integration on success")
+        print("• Truncate staging table on complete success")
+        print("• Save checkpoints on failure/rate limit")
         print("=" * 60)
 
-        # Step 1: Extract repositories
-        print("\n📋 Step 1: Extracting repositories...")
-        extract_repositories_manual(session, github_integration, github_token, logger)
+        # Get or create JobSchedule for github_sync
+        from app.models.unified_models import JobSchedule, JiraDevDetailsStaging
+        from app.core.utils import DateTimeHelper
 
-        # Step 2: Extract pull requests for all repositories
-        print("\n📋 Step 2: Extracting pull requests...")
-        extract_all_pull_requests_manual(session, github_integration, github_token, logger)
+        github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+        if not github_job:
+            print("⚠️  No github_sync JobSchedule found, creating one...")
+            github_job = JobSchedule(
+                job_name='github_sync',
+                status='PENDING',
+                client_id=github_integration.client_id
+            )
+            session.add(github_job)
+            session.commit()
+            print("✅ Created github_sync JobSchedule")
 
-        print("\n🎉 Full GitHub extraction completed!")
-        print("=" * 60)
+        # Set job to RUNNING
+        github_job.set_running()
+        session.commit()
+        print(f"📊 GitHub job status: {github_job.status}")
 
-        # Show summary
+        # Step 1: Extract repositories and pull requests using the REAL GitHub job logic
+        print("\n📋 Step 1: Running real GitHub job logic (repositories + pull requests)...")
+        print("This includes:")
+        print("   • Repository discovery from GitHub Search API ('health-' filter)")
+        print("   • Repository discovery from Jira dev_status staging data")
+        print("   • Fetching missing repositories individually")
+        print("   • Pull request extraction using GraphQL")
+
+        from app.jobs.github.github_job import process_github_data_with_graphql
+        result = process_github_data_with_graphql(session, github_integration, github_token, github_job)
+
+        if result['success']:
+            # Step 2: Link pull requests with Jira issues using staging data
+            print("\n📋 Step 2: Linking pull requests with Jira issues...")
+            from app.jobs.github.github_job import link_pull_requests_with_jira_issues
+            linking_result = link_pull_requests_with_jira_issues(session, github_integration)
+
+            if linking_result['success']:
+                result['pr_links_created'] = linking_result['links_created']
+                print(f"✅ Successfully linked {linking_result['links_created']} pull requests with Jira issues")
+            else:
+                print(f"⚠️  PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
+                result['pr_links_created'] = linking_result.get('links_created', 0)
+
+            # Check if this was a complete success (not partial or rate limited)
+            is_complete_success = (
+                not result.get('rate_limit_reached', False) and
+                not result.get('partial_success', False)
+            )
+
+            if is_complete_success:
+                # Complete Success: Clean up and finish like real job
+                print("\n🎉 COMPLETE SUCCESS - Cleaning up and finishing...")
+
+                # Clear checkpoint data
+                github_job.clear_checkpoints()
+
+                # Truncate staging table
+                staging_count = session.query(JiraDevDetailsStaging).count()
+                if staging_count > 0:
+                    session.query(JiraDevDetailsStaging).delete()
+                    print(f"🗑️  Truncated {staging_count} staging table records")
+                else:
+                    print("ℹ️  No staging records to truncate")
+
+                # Update integration last_sync_at
+                github_integration.last_sync_at = DateTimeHelper.now_utc()
+                print(f"🕒 Updated GitHub integration last_sync_at: {github_integration.last_sync_at}")
+
+                # Set job to FINISHED
+                github_job.set_finished()
+                session.commit()
+
+                print("✅ GitHub extraction completed successfully (REAL JOB BEHAVIOR)")
+                print(f"   • Repositories processed: {result['repos_processed']}")
+                print(f"   • Pull requests processed: {result['prs_processed']}")
+                print(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                print(f"   • Staging table cleared: {staging_count} records")
+                print(f"   • Integration timestamp updated")
+                print(f"   • Job status: FINISHED")
+
+            else:
+                # Partial Success or Rate Limit: Keep staging data, keep job PENDING
+                print("\n⚠️  PARTIAL SUCCESS OR RATE LIMIT - Preserving state...")
+
+                # Keep GitHub job as PENDING for next run
+                github_job.status = 'PENDING'
+                session.commit()
+
+                print("📊 GitHub extraction partially completed (REAL JOB BEHAVIOR)")
+                print(f"   • Repositories processed: {result['repos_processed']}")
+                print(f"   • Pull requests processed: {result['prs_processed']}")
+                print(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                print(f"   • Staging data preserved for next run")
+                print(f"   • Job status: PENDING (will resume)")
+                if result.get('rate_limit_reached'):
+                    print(f"   • Rate limit reached - checkpoints saved")
+
+        else:
+            # Failure: Set job back to PENDING with checkpoint
+            print("\n❌ EXTRACTION FAILED - Saving checkpoint...")
+            error_msg = result.get('error', 'Unknown error')
+            checkpoint_data = result.get('checkpoint_data', {})
+
+            github_job.set_pending_with_checkpoint(
+                error_msg,
+                repo_checkpoint=checkpoint_data.get('repo_checkpoint'),
+                repo_queue=checkpoint_data.get('repo_queue'),  # Updated parameter name
+                last_pr_cursor=checkpoint_data.get('last_pr_cursor'),
+                current_pr_node_id=checkpoint_data.get('current_pr_node_id'),
+                last_commit_cursor=checkpoint_data.get('last_commit_cursor'),
+                last_review_cursor=checkpoint_data.get('last_review_cursor'),
+                last_comment_cursor=checkpoint_data.get('last_comment_cursor'),
+                last_review_thread_cursor=checkpoint_data.get('last_review_thread_cursor')
+            )
+            session.commit()
+
+            print(f"💾 GitHub extraction failed (REAL JOB BEHAVIOR)")
+            print(f"   • Error: {error_msg}")
+            print(f"   • Checkpoint data saved for recovery")
+            print(f"   • Job status: PENDING (will retry)")
+
+        # Show final summary
+        print("\n" + "=" * 60)
+        print("📊 FINAL SUMMARY:")
+
         from app.models.unified_models import Repository, PullRequest
 
         repo_count = session.query(Repository).filter(
@@ -947,13 +1153,29 @@ def run_full_github_extraction_manual(session, github_integration, github_token,
             PullRequest.issue_id.isnot(None)
         ).count()
 
-        print(f"📊 Final Summary:")
+        staging_count = session.query(JiraDevDetailsStaging).count()
+
         print(f"   • Total repositories: {repo_count}")
         print(f"   • Total pull requests: {pr_count}")
         print(f"   • Pull requests linked to Jira issues: {linked_pr_count}")
+        print(f"   • Staging records remaining: {staging_count}")
+        print(f"   • Job status: {github_job.status}")
+        print(f"   • Integration last_sync_at: {github_integration.last_sync_at}")
+        print("=" * 60)
 
     except Exception as e:
         print(f"❌ Error in full GitHub extraction: {e}")
+
+        # Set job back to PENDING on unexpected error
+        try:
+            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+            if github_job:
+                github_job.set_pending_with_checkpoint(str(e))
+                session.commit()
+                print(f"💾 Job set to PENDING due to unexpected error")
+        except:
+            pass
+
         raise
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ This guide covers the testing tools and utilities available for the ETL service,
 
 ## Testing Scripts
 
-### 1. Jira Jobs Testing (`utils/test_jira_jobs.py`)
+### 1. Jira Jobs Testing (`scripts/test_jobs.py`)
 
 A comprehensive debugging tool for Jira job execution with database reset capabilities.
 
@@ -22,12 +22,12 @@ A comprehensive debugging tool for Jira job execution with database reset capabi
 #### Usage Examples
 
 ```bash
-# 🚀 COMPLETE TEST:
-python utils/test_jira_jobs.py --all             # ⚠️  Reset DB + run full job execution
-
 # 🔗 CONNECTION TESTING:
-python utils/test_jira_jobs.py --test-connection # Test Jira API connection
-python utils/test_jira_jobs.py --test-scheduler  # Test scheduler configuration
+python scripts/test_jobs.py --test-connection # Test API connections
+python scripts/test_jobs.py --test-scheduler  # Test scheduler configuration
+
+# 🐛 JOB DEBUGGING:
+python scripts/test_jobs.py --manual          # Interactive manual debugging
 
 # 🐛 JOB DEBUGGING:
 python utils/test_jira_jobs.py --step-by-step    # Interactive step-by-step debugging

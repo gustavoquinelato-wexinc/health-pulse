@@ -1,36 +1,74 @@
-# ETL Service - Jira to Snowflake Data Pipeline
+# ETL Service - Pulse Platform Data Engine
 
-The ETL Service is the primary component of the Kairus Platform, responsible for extracting data from Jira (including the dev_status endpoint) and loading it into a Snowflake Data Warehouse.
+A comprehensive FastAPI-based ETL service for extracting, transforming, and loading data from multiple sources including Jira, GitHub, Aha!, and Azure DevOps with intelligent job orchestration and checkpoint recovery.
 
-## 🎯 Features
+## 🎯 Overview
 
-### Core Functionality
-- **Deep Jira Data Extraction**: Complete extraction including dev_status endpoint
-- **Snowflake Integration**: Direct loading into Snowflake Data Warehouse
-- **Scheduled Jobs**: Automated ETL processes with APScheduler
-- **Real-time Processing**: On-demand ETL job execution
-- **Data Validation**: Comprehensive data quality checks
+The ETL Service is the core data processing engine of the Pulse Platform, designed for:
 
-### Technical Features
-- **FastAPI Framework**: High-performance async API
-- **SQLAlchemy ORM**: Database abstraction and migrations
-- **Caching System**: Redis/In-memory caching for performance
-- **Security Middleware**: Authentication, rate limiting, input validation
-- **Monitoring**: Health checks, structured logging, metrics
-- **Error Handling**: Comprehensive error tracking and recovery
+- **Multi-source Integration**: Jira, GitHub, Aha!, Azure DevOps
+- **Intelligent Job Orchestration**: Active/Passive model with smart scheduling
+- **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
+- **Rate Limit Handling**: Graceful API rate limit management
+- **Real-time Monitoring**: Live dashboard with job control capabilities
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│      Jira       │    │   ETL Service   │    │   Snowflake     │
-│                 │───►│                 │───►│                 │
-│  - Issues       │    │  - Extraction   │    │  - Issues       │
-│  - Projects     │    │  - Transform    │    │  - Projects     │
-│  - Dev Status   │    │  - Validation   │    │  - Dev Data     │
-│  - Users        │    │  - Loading      │    │  - Users        │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    ETL Service                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────┐  │
+│  │   Web API       │    │  Job Engine     │    │  Data   │  │
+│  │   (FastAPI)     │◄──►│  (Orchestrator) │◄──►│ Layer   │  │
+│  │                 │    │                 │    │         │  │
+│  │  • Dashboard    │    │  • Scheduling   │    │ • ORM   │  │
+│  │  • REST APIs    │    │  • Execution    │    │ • Cache │  │
+│  │  • Auth         │    │  • Recovery     │    │ • DB    │  │
+│  └─────────────────┘    └─────────────────┘    └─────────┘  │
+│                                │                            │
+│                                ▼                            │
+│                    ┌─────────────────────┐                  │
+│                    │    Integrations     │                  │
+│                    │                     │                  │
+│                    │  ┌─────┐  ┌─────┐   │                  │
+│                    │  │Jira │  │GitHub│   │                  │
+│                    │  │ API │  │ API │   │                  │
+│                    │  └─────┘  └─────┘   │                  │
+│                    └─────────────────────┘                  │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │   PostgreSQL    │
+                       │   Database      │
+                       │   Port: 5432    │
+                       └─────────────────┘
 ```
+
+## 🚀 Features
+
+### **Core ETL Capabilities**
+- ✅ **Jira Integration**: Complete data extraction including dev_status
+- ✅ **GitHub Integration**: GraphQL-based PR, commit, and review extraction
+- ✅ **PostgreSQL Storage**: Unified data model with relationship mapping
+- ✅ **Bulk Operations**: Efficient batch processing for large datasets
+- ✅ **Data Validation**: Comprehensive data quality checks
+
+### **Job Management**
+- ✅ **Active/Passive Orchestration**: Single job execution with smart coordination
+- ✅ **Checkpoint Recovery**: Precise failure recovery with state preservation
+- ✅ **Manual Controls**: Force start, stop, pause, and resume capabilities
+- ✅ **Status Management**: Real-time job status tracking and transitions
+- ✅ **Rate Limit Handling**: Graceful API rate limit detection and recovery
+
+### **Monitoring & Control**
+- ✅ **Real-time Dashboard**: Live job monitoring with control interface
+- ✅ **Structured Logging**: Colored console logs with detailed execution tracking
+- ✅ **Health Monitoring**: Service health checks and status reporting
+- ✅ **Error Tracking**: Comprehensive error logging and recovery metrics
+- ✅ **Performance Metrics**: Job execution timing and throughput monitoring
 
 ## 📁 Project Structure
 
@@ -38,83 +76,137 @@ The ETL Service is the primary component of the Kairus Platform, responsible for
 etl-service/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # FastAPI application
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── etl_routes.py       # ETL job endpoints
-│   │   └── admin_routes.py     # Admin endpoints
+│   ├── main.py                 # FastAPI application entry point
+│   ├── api/                    # Modular API endpoints
+│   │   ├── health.py           # Health check endpoints
+│   │   ├── jobs.py             # Job management endpoints
+│   │   ├── data.py             # Data access endpoints
+│   │   ├── dashboard.py        # HTML dashboard endpoints
+│   │   ├── logs.py             # Log management endpoints
+│   │   ├── debug.py            # Debug endpoints
+│   │   ├── scheduler.py        # Scheduler control endpoints
+│   │   ├── admin_routes.py     # Legacy admin routes
+│   │   └── web_routes.py       # Legacy web routes
 │   ├── core/
 │   │   ├── __init__.py
-│   │   ├── config.py           # Configuration management
-│   │   ├── database.py         # Database connections
-│   │   ├── logging_config.py   # Logging setup
-│   │   ├── middleware.py       # Security middleware
-│   │   ├── security.py         # Security utilities
-│   │   ├── cache.py           # Caching system
-│   │   └── utils.py           # Utility functions
+│   │   ├── config.py           # Configuration management (consolidated)
+│   │   ├── database.py         # Database connections and session management
+│   │   ├── cache.py            # Redis caching layer
+│   │   └── settings_manager.py # Dynamic settings management
 │   ├── jobs/
 │   │   ├── __init__.py
-│   │   └── jira_job.py        # Jira extraction jobs
+│   │   ├── orchestrator.py     # Job orchestration engine
+│   │   ├── jira/
+│   │   │   ├── jira_job.py     # Jira ETL job implementation
+│   │   │   └── jira_extractor.py # Jira API data extraction
+│   │   └── github/
+│   │       ├── github_job.py   # GitHub ETL job implementation
+│   │       ├── github_graphql_extractor.py # GitHub GraphQL extraction
+│   │       └── github_graphql_client.py    # GraphQL client
 │   ├── models/
 │   │   ├── __init__.py
-│   │   └── unified_models.py   # Database models
-│   └── schemas/
+│   │   └── unified_models.py   # Unified database models (PostgreSQL)
+│   ├── templates/
+│   │   └── dashboard.html      # Real-time ETL dashboard
+│   └── utils/
 │       ├── __init__.py
-│       └── api_schemas.py      # Pydantic schemas
-├── tests/
-│   ├── __init__.py
-│   ├── test_api/
-│   ├── test_jobs/
-│   └── test_models/
-├── scripts/
-│   └── init_db.py             # Database initialization
-├── logs/                      # Application logs
+│       ├── datetime_helper.py  # DateTime utilities
+│       └── logging_utils.py    # Logging utilities
+├── scripts/                    # Executable utilities (moved from utils)
+│   ├── reset_database.py      # Database reset and initialization
+│   ├── initialize_integrations.py # Integration setup
+│   ├── generate_secret_key.py # Security key generation
+│   └── test_jobs.py           # Job testing and debugging
+├── logs/                      # Application logs (auto-created)
 ├── Dockerfile
 ├── requirements.txt
-├── pytest.ini
-├── .env.example
+├── .env.example              # Environment configuration template
 └── README.md
 ```
 
 ## 🚀 Quick Start
 
-### Using Docker (Recommended)
+### Prerequisites
+- Python 3.11+
+- PostgreSQL 12+
+- Git
+- API tokens (Jira, GitHub)
 
-1. **From the monorepo root**:
+### 1. Installation
 ```bash
-cd kairus-platform
-docker-compose up etl-service
-```
+# Clone repository
+git clone <repository-url>
+cd pulse-platform/services/etl-service
 
-2. **Access the service**:
-- API Documentation: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
-- Admin Interface: http://localhost:8000/admin
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-### Local Development
-
-1. **Install dependencies**:
-```bash
-cd services/etl-service
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-2. **Configure environment**:
+### 2. Configuration
 ```bash
+# Copy environment template
 cp .env.example .env
-# Edit .env with your Jira and Snowflake credentials
+
+# Edit configuration with your settings
+nano .env
 ```
 
-3. **Run the service**:
+**Required Environment Variables:**
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/pulse_db
+
+# Jira Integration
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_EMAIL=your-email@company.com
+JIRA_API_TOKEN=your-jira-api-token
+
+# GitHub Integration
+GITHUB_TOKEN=your-github-personal-access-token
+
+# Optional: Redis Cache
+REDIS_URL=redis://localhost:6379/0
 ```
+
+### 3. Database Setup
+```bash
+# Reset and initialize database
+python scripts/reset_database.py
+
+# Verify database connection
+python -c "from app.core.database import get_database; print('Database connected!')"
+```
+
+### 4. Start Service
+```bash
+# Development mode (recommended)
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Production mode
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 5. Access Applications
+- **ETL Dashboard**: http://localhost:8000 (Login: gustavo.quinelato@wexinc.com / pulse)
+- **API Documentation**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+
+## 📊 Supported Integrations
+
+| Integration | Status | Features | Recovery Strategy |
+|-------------|--------|----------|-------------------|
+| **Jira** | ✅ Active | Issues, Projects, Users, Custom Fields, Dev Status | Checkpoint-based restart |
+| **GitHub** | ✅ Active | Repositories, Pull Requests, Commits, Reviews, Comments | Cursor-based resume |
+| **Aha!** | 🔄 Planned | Features, Releases, Ideas, Goals | TBD |
+| **Azure DevOps** | 🔄 Planned | Work Items, Repositories, Pipelines, Builds | TBD |
 
 ## ⚙️ Configuration
 
-### Environment Variables
-
-Create a `.env` file with the following variables:
+### Complete Environment Configuration
 
 ```bash
 # Application Settings
@@ -122,121 +214,304 @@ DEBUG=true
 LOG_LEVEL=INFO
 HOST=0.0.0.0
 PORT=8000
-SECRET_KEY=your-secret-key
+
+# Database Configuration (PostgreSQL)
+DATABASE_URL=postgresql://user:password@localhost:5432/pulse_db
+
+# Jira Integration
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_EMAIL=your-email@company.com
+JIRA_API_TOKEN=your-jira-api-token
+
+# GitHub Integration
+GITHUB_TOKEN=your-github-personal-access-token
+
+# Aha! Integration (Planned)
+AHA_DOMAIN=your-domain.aha.io
+AHA_API_KEY=your-aha-api-key
+
+# Azure DevOps Integration (Planned)
+AZURE_DEVOPS_ORG=https://dev.azure.com/your-org
+AZURE_DEVOPS_TOKEN=your-azure-devops-token
+
+# Optional: Redis Cache
+REDIS_URL=redis://localhost:6379/0
+
+# Security
+SECRET_KEY=your-secret-key-for-jwt
 ENCRYPTION_KEY=your-32-byte-encryption-key
 
-# Snowflake Configuration
-SNOWFLAKE_ACCOUNT=your_account
-SNOWFLAKE_USER=your_user
-SNOWFLAKE_PASSWORD=your_password
-SNOWFLAKE_DATABASE=your_database
-SNOWFLAKE_SCHEMA=your_schema
-SNOWFLAKE_WAREHOUSE=your_warehouse
-
-# Jira Configuration
-JIRA_URL=https://your-domain.atlassian.net
-JIRA_USERNAME=your_email@domain.com
-JIRA_TOKEN=your_api_token
-
 # Job Configuration
-JIRA_JOB_INTERVAL_HOURS=24
+ORCHESTRATOR_INTERVAL_MINUTES=60
 ```
 
-### Jira API Token Setup
+### API Token Setup
 
+#### **Jira API Token**
 1. Go to https://id.atlassian.com/manage-profile/security/api-tokens
 2. Create a new API token
 3. Use your email as username and the token as password
 
+#### **GitHub Personal Access Token**
+1. Go to https://github.com/settings/tokens
+2. Generate new token with `repo` and `read:org` scopes
+3. Copy the token to your environment configuration
+
+#### **Aha! API Key** (Planned)
+1. Go to your Aha! account settings
+2. Generate API key with read permissions
+3. Add to environment configuration
+
 ## 📊 API Endpoints
 
-### ETL Operations
-- `POST /api/v1/etl/jira/extract` - Start Jira extraction
-- `GET /api/v1/etl/jobs/{job_id}` - Get job status
-- `GET /api/v1/etl/jobs` - List all jobs
+### **Dashboard & Authentication**
+- `GET /` - ETL Dashboard (redirects to login)
+- `GET /login` - Login page
+- `POST /auth/login` - User authentication
+- `GET /dashboard` - Main ETL dashboard
 
-### Administration
-- `GET /api/v1/admin/integrations` - List integrations
-- `POST /api/v1/admin/integrations` - Create integration
-- `GET /api/v1/admin/health` - Detailed health check
+### **Job Management**
+- `GET /api/v1/jobs/status` - Get all job statuses
+- `POST /api/v1/jobs/{job_name}/start` - Force start specific job
+- `POST /api/v1/jobs/{job_name}/stop` - Force stop specific job
+- `POST /api/v1/jobs/{job_name}/pause` - Pause specific job
+- `POST /api/v1/jobs/{job_name}/unpause` - Unpause specific job
 
-### Monitoring
-- `GET /health` - Basic health check
-- `GET /docs` - API documentation
-- `GET /redoc` - Alternative documentation
+### **Orchestrator Control**
+- `GET /api/v1/orchestrator/status` - Get orchestrator status
+- `POST /api/v1/orchestrator/start` - Force start orchestrator
+- `POST /api/v1/orchestrator/pause` - Pause orchestrator
+- `POST /api/v1/orchestrator/resume` - Resume orchestrator
+
+### **Monitoring & Logs**
+- `GET /api/v1/logs/live` - Get live job logs
+- `GET /health` - Service health check
+- `GET /docs` - Interactive API documentation (Swagger UI)
+- `GET /redoc` - Alternative API documentation
 
 ## 🔄 ETL Process Flow
 
-1. **Authentication**: Validate Jira credentials
+### **Jira ETL Process**
+1. **Authentication**: Validate Jira API credentials
 2. **Project Discovery**: List available Jira projects
-3. **Issue Extraction**: Extract issues with all fields
-4. **Dev Status Extraction**: Get development status data
-5. **Data Transformation**: Clean and normalize data
-6. **Data Validation**: Ensure data quality
-7. **Snowflake Loading**: Load data into warehouse
-8. **Job Completion**: Update job status and logs
+3. **Issue Extraction**: Extract issues with all fields and custom fields
+4. **Dev Status Extraction**: Get development status data from dev_status endpoint
+5. **User Extraction**: Extract user information and relationships
+6. **Data Transformation**: Clean, normalize, and validate data
+7. **PostgreSQL Loading**: Bulk insert into unified database schema
+8. **Checkpoint Save**: Save progress for recovery
+9. **Job Completion**: Update job status and execution metrics
+
+### **GitHub ETL Process**
+1. **Authentication**: Validate GitHub API token
+2. **Repository Discovery**: Find repositories from Jira dev_status + pattern search
+3. **GraphQL Extraction**: Extract PRs, commits, reviews, and comments using GraphQL
+4. **Cursor Management**: Save pagination cursors for precise recovery
+5. **Rate Limit Handling**: Graceful handling of API rate limits
+6. **Data Transformation**: Normalize GitHub data to unified schema
+7. **Issue Linking**: Link pull requests with Jira issues
+8. **Bulk Loading**: Efficient batch insert operations
+9. **Recovery State**: Save checkpoint for resumable processing
 
 ## 🧪 Testing
 
-Run the test suite:
-
+### **Unit Tests**
 ```bash
-# All tests
-python -m pytest
+# Run all tests
+python -m pytest tests/ -v
 
-# Specific test categories
-python -m pytest tests/test_api/
-python -m pytest tests/test_jobs/
-python -m pytest tests/test_models/
+# Run specific test categories
+python -m pytest tests/unit/ -v
+python -m pytest tests/integration/ -v
 
-# With coverage
-python -m pytest --cov=app
+# With coverage report
+python -m pytest tests/ --cov=app --cov-report=html
 ```
 
-## 📈 Monitoring
+### **Integration Tests**
+```bash
+# Test database operations
+python -m pytest tests/integration/test_database.py -v
 
-### Health Checks
-- Application health: `/health`
-- Database connectivity: Included in health response
-- Jira connectivity: Validated during job execution
+# Test API endpoints
+python -m pytest tests/integration/test_api.py -v
 
-### Logging
-- Structured JSON logging
-- Log levels: DEBUG, INFO, WARNING, ERROR
-- Request/response logging
-- Job execution tracking
+# Test job execution
+python -m pytest tests/integration/test_jobs.py -v
+```
 
-### Metrics
-- Job execution times
-- Success/failure rates
-- Data volume processed
-- API response times
+### **Manual Testing**
+```bash
+# Test ETL dashboard
+curl http://localhost:8000/
+
+# Test job status API
+curl http://localhost:8000/api/v1/jobs/status
+
+# Test health endpoint
+curl http://localhost:8000/health
+```
+
+## 📈 Monitoring & Observability
+
+### **Real-time Dashboard**
+- **Live Job Status**: Real-time job monitoring with status updates
+- **Progress Tracking**: Repository processing progress and completion rates
+- **Error Monitoring**: Live error tracking and recovery status
+- **Control Interface**: Manual job control (start, stop, pause, resume)
+
+### **Health Checks**
+- **Application Health**: `/health` endpoint with comprehensive status
+- **Database Connectivity**: PostgreSQL connection and query testing
+- **External API Health**: Jira and GitHub API connectivity validation
+- **Job Status Health**: Orchestrator and job execution status
+
+### **Logging System**
+- **Structured Logging**: JSON-formatted logs with correlation IDs
+- **Colored Console**: Development-friendly colored console output
+- **Log Levels**: DEBUG, INFO, WARNING, ERROR with appropriate filtering
+- **Request Tracking**: Complete request/response logging for debugging
+- **Job Execution Logs**: Detailed ETL job execution tracking
+
+### **Performance Metrics**
+- **Job Execution Times**: Complete job duration and phase timing
+- **Success/Failure Rates**: Job completion statistics and error rates
+- **Data Volume Metrics**: Records processed, API calls made, data transferred
+- **API Response Times**: External API performance monitoring
+- **Recovery Metrics**: Checkpoint frequency and recovery success rates
 
 ## 🔐 Security
 
-- JWT token authentication
-- API rate limiting
-- Input validation and sanitization
-- SQL injection prevention
-- CORS configuration
-- Security headers
+### **Authentication & Authorization**
+- **Hardcoded Login**: Simple authentication (gustavo.quinelato@wexinc.com/pulse)
+- **JWT Tokens**: Secure session management with token-based auth
+- **Internal API Keys**: Service-to-service authentication (planned)
+- **Role-Based Access**: User permission system (planned)
+
+### **Data Protection**
+- **Encrypted Tokens**: Secure storage of API tokens and credentials
+- **Input Validation**: Comprehensive request validation and sanitization
+- **SQL Injection Prevention**: Parameterized queries and ORM protection
+- **Rate Limiting**: API request throttling and abuse prevention
+
+### **Network Security**
+- **CORS Configuration**: Cross-origin request security
+- **Security Headers**: HTTP security headers for web dashboard
+- **HTTPS Support**: SSL/TLS encryption for production deployments
+- **Database Security**: Connection encryption and access control
+
+## 🎯 Key Features Summary
+
+### **✅ Implemented Features**
+- **Multi-source ETL**: Jira and GitHub integration with unified data model
+- **Job Orchestration**: Active/Passive model with intelligent scheduling
+- **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
+- **Rate Limit Handling**: Graceful API rate limit detection and recovery
+- **Real-time Dashboard**: Live job monitoring with manual control capabilities
+- **Bulk Operations**: Efficient batch processing for large datasets
+- **Data Validation**: Comprehensive data quality checks and error handling
+
+### **🔄 Planned Features**
+- **Additional Integrations**: Aha! and Azure DevOps support
+- **Enhanced Security**: Full RBAC and service-to-service authentication
+- **Advanced Analytics**: Data insights and trend analysis
+- **Webhook Support**: Real-time event processing
+- **API Gateway Integration**: Unified API access through backend service
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+### **Common Issues**
 
-1. **Snowflake Connection Failed**
-   - Verify credentials in `.env`
-   - Check network connectivity
-   - Ensure warehouse is running
+#### **1. Database Connection Failed**
+```bash
+# Check PostgreSQL connection
+python -c "from app.core.database import get_database; get_database().test_connection()"
 
-2. **Jira Authentication Failed**
-   - Verify API token is valid
-   - Check username format (email)
-   - Ensure Jira URL is correct
+# Reset database if needed
+python scripts/reset_database.py
+```
 
-3. **Job Stuck in Running State**
-   - Check application logs
+#### **2. Jira Authentication Failed**
+- Verify API token is valid and not expired
+- Check email format in JIRA_EMAIL (must be exact Jira account email)
+- Ensure JIRA_BASE_URL includes https:// and correct domain
+- Test connection: `curl -u email:token https://domain.atlassian.net/rest/api/2/myself`
+
+#### **3. GitHub Rate Limit Exceeded**
+- Check rate limit status: `curl -H "Authorization: token YOUR_TOKEN" https://api.github.com/rate_limit`
+- Wait for rate limit reset (usually 1 hour)
+- Consider using multiple tokens for higher limits
+
+#### **4. Job Stuck in RUNNING State**
+- Check application logs for errors
+- Use Force Stop button in dashboard
+- Restart service if necessary
+- Check for database connection issues
+
+#### **5. Dashboard Login Issues**
+- Use hardcoded credentials: `gustavo.quinelato@wexinc.com` / `pulse`
+- Clear browser cache and cookies
+- Check browser console for JavaScript errors
+- Verify service is running on correct port (8000)
+
+### **Debug Commands**
+
+```bash
+# Check service status
+curl http://localhost:8000/health
+
+# Check job status
+curl http://localhost:8000/api/v1/jobs/status
+
+# View live logs
+tail -f logs/app.log
+
+# Test database connection
+python -c "from app.core.database import get_database; print('DB OK')"
+
+# Reset everything
+python scripts/reset_database.py
+```
+
+### **Performance Optimization**
+
+#### **Database Performance**
+- Ensure PostgreSQL has sufficient memory allocation
+- Monitor connection pool usage
+- Use bulk operations for large datasets
+- Regular database maintenance and vacuuming
+
+#### **API Rate Limits**
+- Monitor API usage in dashboard
+- Implement exponential backoff for retries
+- Use GraphQL for GitHub to reduce API calls
+- Cache frequently accessed data
+
+## 📚 Additional Documentation
+
+- **[System Architecture](../../docs/architecture/overview.md)** - Overall system design
+- **[Recovery Strategy](../../docs/etl/recovery-strategy.md)** - Failure recovery rules and patterns
+- **[Job Orchestration](../../docs/etl/job-orchestration.md)** - Job management and scheduling
+- **[Checkpoint System](../../docs/etl/checkpoint-system.md)** - Checkpoint and recovery design
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes with comprehensive tests
+4. Ensure all tests pass (`python -m pytest`)
+5. Update documentation as needed
+6. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+
+---
+
+**🚀 Built with ❤️ for Software Engineering Intelligence and ETL Excellence**
    - Restart the service
    - Clear job cache if needed
 

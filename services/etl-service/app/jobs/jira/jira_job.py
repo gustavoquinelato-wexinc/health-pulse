@@ -30,7 +30,7 @@ def run_jira_sync(session: Session, job_schedule: JobSchedule):
         job_schedule: JobSchedule record for this job
     """
     try:
-        logger.info(f"📊 Starting Jira sync job (ID: {job_schedule.id})")
+        logger.info(f"Starting Jira sync job (ID: {job_schedule.id})")
         
         # Get Jira integration
         jira_integration = session.query(Integration).filter(
@@ -39,7 +39,7 @@ def run_jira_sync(session: Session, job_schedule: JobSchedule):
         
         if not jira_integration:
             error_msg = "No Jira integration found. Please run initialize_integrations.py first."
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"ERROR: {error_msg}")
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
             return
@@ -67,7 +67,7 @@ def run_jira_sync(session: Session, job_schedule: JobSchedule):
             job_schedule.set_finished()
             session.commit()
             
-            logger.info(f"✅ Jira sync completed successfully")
+            logger.info(f"Jira sync completed successfully")
             logger.info(f"   • Issues processed: {result['issues_processed']}")
             logger.info(f"   • Dev status items staged: {result['dev_status_staged']}")
             logger.info(f"   • GitHub job set to PENDING")
@@ -80,12 +80,12 @@ def run_jira_sync(session: Session, job_schedule: JobSchedule):
             job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
             session.commit()
             
-            logger.error(f"❌ Jira sync failed: {error_msg}")
+            logger.error(f"Jira sync failed: {error_msg}")
             if checkpoint:
                 logger.info(f"   • Checkpoint saved: {checkpoint}")
             
     except Exception as e:
-        logger.error(f"❌ Jira sync job error: {e}")
+        logger.error(f"Jira sync job error: {e}")
         import traceback
         traceback.print_exc()
         
@@ -173,7 +173,8 @@ def extract_jira_issues_and_dev_status(session: Session, integration: Integratio
                     staging_record = JiraDevDetailsStaging(
                         issue_id=issue.id,
                         dev_status_payload=dev_details,
-                        processed=False
+                        processed=False,
+                        client_id=integration.client_id  # Fix: Add missing client_id
                     )
                     staging_record.set_dev_status_data(dev_details)
                     session.add(staging_record)
@@ -193,7 +194,7 @@ def extract_jira_issues_and_dev_status(session: Session, integration: Integratio
         # Final commit
         session.commit()
         
-        logger.info(f"✅ Jira extraction completed")
+        logger.info(f"Jira extraction completed")
         logger.info(f"   • Issues processed: {issues_processed}")
         logger.info(f"   • Dev status items staged: {dev_status_staged}")
         

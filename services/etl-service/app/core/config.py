@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     
     # GitHub Configuration (for dev status)
     GITHUB_TOKEN: Optional[str] = None
+    GITHUB_RATE_LIMIT_THRESHOLD: int = 10
 
     # Azure DevOps Configuration
     AZDO_URL: Optional[str] = None
@@ -68,7 +69,6 @@ class Settings(BaseSettings):
     
     # Job Scheduling Configuration
     SCHEDULER_TIMEZONE: str = "UTC"
-    JIRA_JOB_INTERVAL_HOURS: int = 24
     
     # Security Configuration
     SECRET_KEY: str = "your-secret-key-change-this-in-production"
@@ -77,6 +77,67 @@ class Settings(BaseSettings):
     # Cache Configuration
     REDIS_URL: Optional[str] = "redis://localhost:6379/0"
     CACHE_TTL_SECONDS: int = 3600
+
+    # Status Mapping Configuration (moved from config/status_mapping.py)
+    @property
+    def STATUS_MAPPINGS(self) -> List[dict]:
+        """Get Jira status to flow step mappings."""
+        return [
+            # BACKLOG
+            {"status_from": "--creation--", "status_to": "Backlog", "status_category": "To Do"},
+            {"status_from": "backlog", "status_to": "Backlog", "status_category": "To Do"},
+            {"status_from": "new", "status_to": "Backlog", "status_category": "To Do"},
+            {"status_from": "open", "status_to": "Backlog", "status_category": "To Do"},
+            {"status_from": "created", "status_to": "Backlog", "status_category": "To Do"},
+
+            # REFINEMENT
+            {"status_from": "analysis", "status_to": "Refinement", "status_category": "To Do"},
+            {"status_from": "design", "status_to": "Refinement", "status_category": "To Do"},
+            {"status_from": "refinement", "status_to": "Refinement", "status_category": "To Do"},
+
+            # READY TO WORK
+            {"status_from": "approved", "status_to": "Ready to Work", "status_category": "To Do"},
+            {"status_from": "ready", "status_to": "Ready to Work", "status_category": "To Do"},
+            {"status_from": "ready for development", "status_to": "Ready to Work", "status_category": "To Do"},
+
+            # TO DO
+            {"status_from": "committed", "status_to": "To Do", "status_category": "To Do"},
+            {"status_from": "planned", "status_to": "To Do", "status_category": "To Do"},
+            {"status_from": "to do", "status_to": "To Do", "status_category": "To Do"},
+
+            # IN PROGRESS
+            {"status_from": "active", "status_to": "In Progress", "status_category": "In Progress"},
+            {"status_from": "in progress", "status_to": "In Progress", "status_category": "In Progress"},
+            {"status_from": "development", "status_to": "In Progress", "status_category": "In Progress"},
+            {"status_from": "code review", "status_to": "In Progress", "status_category": "In Progress"},
+
+            # TESTING
+            {"status_from": "ready for qa", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
+            {"status_from": "testing", "status_to": "Story Testing", "status_category": "In Progress"},
+            {"status_from": "qa", "status_to": "Story Testing", "status_category": "In Progress"},
+
+            # DONE
+            {"status_from": "done", "status_to": "Done", "status_category": "Done"},
+            {"status_from": "closed", "status_to": "Done", "status_category": "Done"},
+            {"status_from": "released", "status_to": "Done", "status_category": "Done"},
+
+            # DISCARDED
+            {"status_from": "cancelled", "status_to": "Discarded", "status_category": "Discarded"},
+            {"status_from": "rejected", "status_to": "Discarded", "status_category": "Discarded"},
+        ]
+
+    def find_flow_step_for_status(self, status_name: str) -> Optional[dict]:
+        """Find the flow step mapping for a given status name."""
+        status_lower = status_name.lower().strip()
+
+        for mapping in self.STATUS_MAPPINGS:
+            if mapping["status_from"].lower() == status_lower:
+                return {
+                    "flow_step_name": mapping["status_to"],
+                    "step_category": mapping["status_category"]
+                }
+
+        return None
     
     @property
     def postgres_connection_string(self) -> str:

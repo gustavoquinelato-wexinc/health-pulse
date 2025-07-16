@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 try:
@@ -27,9 +28,41 @@ from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
-from app.api.etl_routes import router as etl_router
+# Import new modular API routers
+from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
+from app.api.data import router as data_router
+from app.api.dashboard import router as dashboard_router
+from app.api.logs import router as logs_router
+from app.api.debug import router as debug_router
+from app.api.scheduler import router as scheduler_router
+
+# Import legacy routers (to be deprecated)
 from app.api.admin_routes import router as admin_router
-# REMOVED: Old job_manager import - now using new orchestration system
+from app.api.web_routes import router as web_router
+# from app.api.etl_routes import router as etl_router  # DEPRECATED: Split into modular routers
+
+# Suppress ALL noisy logs immediately to reduce terminal noise
+import logging
+
+# Disable SQLAlchemy logging completely
+logging.getLogger("sqlalchemy").setLevel(logging.CRITICAL)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.CRITICAL)
+logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.CRITICAL)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
+logging.getLogger("sqlalchemy.dialects").setLevel(logging.CRITICAL)
+logging.getLogger("sqlalchemy.orm").setLevel(logging.CRITICAL)
+logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
+logging.getLogger("uvicorn").setLevel(logging.WARNING)
+
+# Disable SQLAlchemy logging at the root level
+logging.getLogger("sqlalchemy").disabled = True
+logging.getLogger("sqlalchemy.engine").disabled = True
+logging.getLogger("sqlalchemy.engine.Engine").disabled = True
+
+# Also disable SQLAlchemy echo completely
+import sqlalchemy
+sqlalchemy.engine.Engine.echo = False
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -155,19 +188,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routes
-app.include_router(
-    etl_router,
-    prefix=settings.API_V1_STR,
-    tags=["ETL Operations"]
-)
+# Include new modular API routes
+app.include_router(health_router, tags=["Health"])
+app.include_router(jobs_router, tags=["Jobs"])
+app.include_router(data_router, tags=["Data"])
+app.include_router(logs_router, tags=["Logs"])
+app.include_router(debug_router, tags=["Debug"])
+app.include_router(scheduler_router, tags=["Scheduler"])
 
-# Include administration routes
+# Include dashboard routes (no prefix for web pages)
+app.include_router(dashboard_router, tags=["Dashboard"])
+
+# Include legacy routes (to be deprecated)
 app.include_router(
     admin_router,
     prefix=f"{settings.API_V1_STR}/admin",
     tags=["Administration"]
 )
+
+# Include web interface routes (no prefix for web pages)
+app.include_router(
+    web_router,
+    tags=["Web Interface"]
+)
+
+# Mount static files (if directory exists)
+import os
+from pathlib import Path
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
 @app.get("/")
@@ -324,7 +374,7 @@ async def insert_initial_data():
 
 
 async def initialize_scheduler():
-    """Initializes the job scheduler."""
+    """Initializes the job scheduler with database-driven configuration."""
     if not SCHEDULER_AVAILABLE:
         logger.warning("APScheduler not available, jobs will not be scheduled automatically")
         return
@@ -334,21 +384,33 @@ async def initialize_scheduler():
         return
 
     try:
+        # Initialize default settings in database
+        from app.core.settings_manager import SettingsManager, get_orchestrator_interval, is_orchestrator_enabled
+        SettingsManager.initialize_default_settings()
+
         # Set timezone
         scheduler.configure(timezone=settings.SCHEDULER_TIMEZONE)
 
-        # Add Jira job if configured
-        if settings.JIRA_JOB_INTERVAL_HOURS > 0:
+        # Get orchestrator interval from database
+        interval_minutes = get_orchestrator_interval()
+        orchestrator_enabled = is_orchestrator_enabled()
+
+        if orchestrator_enabled:
+            # Add orchestrator job with database-configured interval
             scheduler.add_job(
-                func=scheduled_jira_job,
-                trigger=IntervalTrigger(hours=settings.JIRA_JOB_INTERVAL_HOURS),
-                id="jira_extraction_job",
-                name="Jira Deep Extraction Job",
+                func=scheduled_orchestrator,
+                trigger=IntervalTrigger(minutes=interval_minutes),
+                id="etl_orchestrator",
+                name="ETL Job Orchestrator",
                 replace_existing=True,
                 max_instances=1  # Prevents simultaneous executions
             )
+            logger.info(f"ETL Orchestrator scheduled to run every {interval_minutes} minutes")
+        else:
+            logger.info("ETL Orchestrator is disabled in settings")
 
-            logger.info("Jira job scheduled", interval_hours=settings.JIRA_JOB_INTERVAL_HOURS)
+        # Note: Individual jobs (Jira, GitHub) are NOT scheduled independently
+        # They are only triggered by the orchestrator or manual Force Start
 
         # Start scheduler
         scheduler.start()
@@ -359,26 +421,68 @@ async def initialize_scheduler():
         logger.warning("Continuing without scheduler - jobs can still be triggered manually")
 
 
-async def scheduled_jira_job():
-    """Scheduled job for Jira extraction using new orchestration system."""
+async def scheduled_orchestrator():
+    """Scheduled orchestrator that checks for PENDING jobs every minute."""
     try:
-        logger.info("Starting scheduled Jira extraction job via orchestration system")
-
-        from app.jobs.orchestrator import trigger_jira_sync
-        result = await trigger_jira_sync()
-
-        if result['status'] == 'success':
-            logger.info(f"Scheduled Jira job completed successfully: {result}")
-        else:
-            logger.error(f"Scheduled Jira job failed: {result}")
-
+        from app.jobs.orchestrator import run_orchestrator
+        await run_orchestrator()
     except Exception as e:
-        logger.error(f"Scheduled Jira job error: {e}")
+        logger.error(f"Scheduled orchestrator error: {e}")
+
+
+# Note: scheduled_jira_job function removed - jobs are only triggered by orchestrator or manual Force Start
 
 
 def get_scheduler():
     """Returns the scheduler instance."""
     return scheduler
+
+
+async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = True):
+    """
+    Updates the orchestrator schedule dynamically without restarting the server.
+
+    Args:
+        interval_minutes: New interval in minutes
+        enabled: Whether the orchestrator should be enabled
+    """
+    if not SCHEDULER_AVAILABLE or not scheduler:
+        logger.warning("Scheduler not available for schedule update")
+        return False
+
+    try:
+        from app.core.settings_manager import set_orchestrator_interval, set_orchestrator_enabled
+
+        # Update database settings
+        set_orchestrator_interval(interval_minutes)
+        set_orchestrator_enabled(enabled)
+
+        # Remove existing orchestrator job if it exists
+        try:
+            scheduler.remove_job('etl_orchestrator')
+            logger.info("Removed existing orchestrator job")
+        except:
+            pass  # Job might not exist
+
+        if enabled:
+            # Add new orchestrator job with updated interval
+            scheduler.add_job(
+                func=scheduled_orchestrator,
+                trigger=IntervalTrigger(minutes=interval_minutes),
+                id="etl_orchestrator",
+                name="ETL Job Orchestrator",
+                replace_existing=True,
+                max_instances=1
+            )
+            logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes")
+        else:
+            logger.info("Orchestrator disabled")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to update orchestrator schedule: {e}")
+        return False
 
 
 if __name__ == "__main__":

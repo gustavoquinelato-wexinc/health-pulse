@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse ETL - Dashboard v2</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .status-running {
+            @apply bg-blue-500 text-white;
+        }
+
+        .status-pending {
+            @apply bg-yellow-500 text-white;
+        }
+
+        .status-finished {
+            @apply bg-green-500 text-white;
+        }
+
+        .status-paused {
+            @apply bg-amber-600 text-white;
+        }
+
+        .status-not-started {
+            @apply bg-gray-500 text-white;
+        }
+
+        .status-error {
+            @apply bg-red-500 text-white;
+        }
+
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            padding: 2px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .log-info {
+            @apply text-blue-300;
+        }
+
+        .log-warning {
+            @apply text-yellow-300;
+        }
+
+        .log-error {
+            @apply text-red-300;
+        }
+
+        .log-success {
+            @apply text-green-300;
+        }
+    </style>
+</head>
+
+<body class="gradient-bg min-h-screen">
+    <!-- Header -->
+    <header class="glass-effect border-b border-white border-opacity-20">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div
+                        class="inline-flex items-center justify-center w-10 h-10 bg-white bg-opacity-20 rounded-full mr-4">
+                        <i class="fas fa-database text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Pulse ETL Dashboard</h1>
+                        <p class="text-white text-opacity-70 text-sm">Data Pipeline Management</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="text-white text-opacity-80 text-sm">
+                        <i class="fas fa-user mr-2"></i>gustavo.quinelato@wexinc.com
+                    </div>
+                    <button onclick="logout()"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-300">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- Auto-refresh controls -->
+        <div class="glass-effect rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h2 class="text-xl font-semibold text-white">
+                        <i class="fas fa-sync-alt mr-2"></i>Job Status Monitor
+                    </h2>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-white text-sm">Auto-refresh:</label>
+                        <select id="refreshInterval"
+                            class="bg-white bg-opacity-20 text-white rounded px-3 py-1 text-sm">
+                            <option value="0">Off</option>
+                            <option value="5000">5s</option>
+                            <option value="10000">10s</option>
+                            <option value="30000" selected>30s</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span id="lastUpdate" class="text-white text-opacity-70 text-sm"></span>
+                    <button onclick="refreshData()"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-300">
+                        <i class="fas fa-refresh mr-2"></i>Refresh Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orchestrator Controls -->
+        <div class="glass-effect rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h3 class="text-lg font-semibold text-white">
+                        <i class="fas fa-cogs mr-2"></i>Orchestrator Controls
+                    </h3>
+                    <div id="orchestratorStatus" class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-white text-opacity-70 text-sm">Status:</span>
+                            <span id="orchestratorStatusBadge" class="px-2 py-1 rounded text-xs font-medium">
+                                Loading...
+                            </span>
+                        </div>
+                        <div id="orchestratorCountdown" class="flex items-center space-x-2">
+                            <span class="text-white text-opacity-70 text-sm">Next run in:</span>
+                            <span id="countdownTimer"
+                                class="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium">
+                                --:--:--
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn"
+                        class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-play mr-1"></i>Force Start
+                    </button>
+                    <button onclick="pauseOrchestrator()" id="pauseOrchestratorBtn"
+                        class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-pause mr-1"></i>Pause
+                    </button>
+                    <button onclick="resumeOrchestrator()" id="resumeOrchestratorBtn"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium hidden">
+                        <i class="fas fa-play mr-1"></i>Resume
+                    </button>
+                    <button onclick="showOrchestratorSettings()"
+                        class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-cog mr-1"></i>Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orchestrator Settings Modal -->
+        <div id="orchestratorSettingsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">
+                            <i class="fas fa-cog mr-2"></i>Orchestrator Settings
+                        </h3>
+                    </div>
+                    <div class="px-6 py-4">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Run Interval
+                                </label>
+                                <select id="orchestratorInterval"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="60" selected>Every 1 hour</option>
+                                    <option value="120">Every 2 hours</option>
+                                    <option value="240">Every 4 hours</option>
+                                    <option value="480">Every 8 hours</option>
+                                    <option value="720">Every 12 hours</option>
+                                    <option value="1440">Every 24 hours</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="orchestratorEnabled" checked
+                                        class="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                                    <span class="text-sm font-medium text-gray-700">Enable Orchestrator</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+                        <button onclick="hideOrchestratorSettings()"
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">
+                            Cancel
+                        </button>
+                        <button onclick="saveOrchestratorSettings()"
+                            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md">
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Cards Container -->
+        <div id="jobsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Job cards will be dynamically inserted here -->
+        </div>
+
+        <!-- Live Logs Section -->
+        <div class="glass-effect rounded-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-semibold text-white">
+                    <i class="fas fa-terminal mr-2"></i>Live Logs
+                </h3>
+                <div class="flex items-center space-x-2">
+                    <button onclick="clearLogs()"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded text-sm">
+                        <i class="fas fa-trash mr-1"></i>Clear
+                    </button>
+                    <button onclick="toggleAutoScroll()" id="autoScrollBtn"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded text-sm">
+                        <i class="fas fa-arrow-down mr-1"></i>Auto-scroll: ON
+                    </button>
+                </div>
+            </div>
+            <div id="logsContainer" class="log-container bg-black bg-opacity-50 rounded-lg p-4 text-white">
+                <div class="log-entry text-gray-400">
+                    <span class="text-gray-500">[System]</span> Log monitoring started...
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let refreshTimer = null;
+        let autoScroll = true;
+        let lastLogId = 0;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function () {
+            checkAuth();
+            refreshData();
+            setupAutoRefresh();
+            startLogMonitoring();
+            refreshOrchestratorStatus();
+        });
+
+        function checkAuth() {
+            const token = localStorage.getItem('pulse_token');
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('pulse_token');
+            window.location.href = '/login';
+        }
+
+        async function refreshData() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/jobs/status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+
+                const data = await response.json();
+                updateJobCards(data.jobs || data);
+                updateLastRefreshTime();
+
+                // Also fetch live logs when auto-refresh is enabled
+                await fetchLiveLogs();
+
+                // Note: Orchestrator status refreshed separately via countdown timer
+            } catch (error) {
+                console.error('Error fetching job status:', error);
+                addLogEntry('error', 'Failed to fetch job status: ' + error.message);
+            }
+        }
+
+        function updateJobCards(jobsData) {
+            const container = document.getElementById('jobsContainer');
+            container.innerHTML = '';
+
+            Object.entries(jobsData).forEach(([jobName, jobData]) => {
+                const card = createJobCard(jobName, jobData, jobsData);
+                container.appendChild(card);
+            });
+
+            // Update orchestrator button state based on job status
+            updateOrchestratorButtonState(jobsData);
+        }
+
+        function updateOrchestratorButtonState(jobsData) {
+            const orchestratorBtn = document.getElementById('forceStartOrchestratorBtn');
+            if (!orchestratorBtn) return;
+
+            // Check if any job is running
+            const anyJobRunning = Object.values(jobsData).some(jobData => jobData.status === 'RUNNING');
+
+            if (anyJobRunning) {
+                orchestratorBtn.disabled = true;
+                orchestratorBtn.className = 'bg-gray-500 cursor-not-allowed text-white px-3 py-1 rounded text-sm font-medium';
+                orchestratorBtn.title = 'Cannot start orchestrator while jobs are running';
+            } else {
+                orchestratorBtn.disabled = false;
+                orchestratorBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium';
+                orchestratorBtn.title = '';
+            }
+        }
+
+        function setupAutoRefresh() {
+            const select = document.getElementById('refreshInterval');
+            select.addEventListener('change', function () {
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                    refreshTimer = null;
+                }
+
+                const interval = parseInt(this.value);
+                if (interval > 0) {
+                    refreshTimer = setInterval(refreshData, interval);
+                }
+            });
+
+            // Start with default 30s refresh
+            const defaultInterval = parseInt(select.value);
+            if (defaultInterval > 0) {
+                refreshTimer = setInterval(refreshData, defaultInterval);
+            }
+        }
+
+        function updateLastRefreshTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent =
+                `Last updated: ${now.toLocaleTimeString()}`;
+        }
+
+        function createJobCard(jobName, jobData, allJobsData) {
+            const card = document.createElement('div');
+            card.className = 'glass-effect rounded-lg p-6';
+
+            const statusClass = getStatusClass(jobData.status);
+            const statusIcon = getStatusIcon(jobData.status);
+
+            card.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold text-white capitalize">
+                        <i class="fas fa-${jobName === 'jira_sync' ? 'ticket-alt' : 'code-branch'} mr-2"></i>
+                        ${jobName.replace('_', ' ')}
+                    </h3>
+                    <span class="px-3 py-1 rounded-full text-sm font-medium ${statusClass}">
+                        <i class="fas fa-${statusIcon} mr-1"></i>${jobData.status}
+                    </span>
+                </div>
+
+                ${createJobDetails(jobName, jobData)}
+
+                <div class="mt-4 flex flex-wrap gap-2">
+                    ${createActionButtons(jobName, jobData, allJobsData)}
+                </div>
+            `;
+
+            return card;
+        }
+
+        function createJobDetails(jobName, jobData) {
+            let details = `
+                <div class="space-y-3 text-white text-opacity-80 text-sm">
+                    <div class="flex justify-between">
+                        <span>Last Run:</span>
+                        <span>${jobData.last_run_started_at ? new Date(jobData.last_run_started_at).toLocaleString() : 'Never'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Last Success:</span>
+                        <span>${jobData.last_success_at ? new Date(jobData.last_success_at).toLocaleString() : 'Never'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Retry Count:</span>
+                        <span>${jobData.retry_count || 0}</span>
+                    </div>
+            `;
+
+            // Add recovery details for PENDING jobs
+            if (jobData.status === 'PENDING' && jobData.checkpoint_data) {
+                details += createRecoveryDetails(jobData.checkpoint_data);
+            }
+
+            // Add error message if exists
+            if (jobData.error_message) {
+                details += `
+                    <div class="mt-3 p-3 bg-red-500 bg-opacity-20 rounded-lg border border-red-500 border-opacity-50">
+                        <div class="text-red-200 text-xs font-medium mb-1">Error Message:</div>
+                        <div class="text-red-100 text-xs">${jobData.error_message}</div>
+                    </div>
+                `;
+            }
+
+            details += '</div>';
+            return details;
+        }
+
+        function createRecoveryDetails(checkpointData) {
+            if (!checkpointData) return '';
+
+            let recoveryHtml = `
+                <div class="mt-3 p-3 bg-yellow-500 bg-opacity-20 rounded-lg border border-yellow-500 border-opacity-50">
+                    <div class="text-yellow-200 text-xs font-medium mb-2">
+                        <i class="fas fa-redo mr-1"></i>Recovery Information:
+                    </div>
+            `;
+
+            // Repository queue information
+            if (checkpointData.repo_processing_queue) {
+                // Handle both string and object formats
+                let queue;
+                if (typeof checkpointData.repo_processing_queue === 'string') {
+                    queue = JSON.parse(checkpointData.repo_processing_queue);
+                } else {
+                    queue = checkpointData.repo_processing_queue;
+                }
+
+                const finished = queue.filter(r => r.finished).length;
+                const total = queue.length;
+                const remaining = total - finished;
+
+                recoveryHtml += `
+                    <div class="text-yellow-100 text-xs mb-1">
+                        Repositories: ${finished}/${total} completed (${remaining} remaining)
+                    </div>
+                `;
+            }
+
+            // Cursor information
+            const cursors = ['last_pr_cursor', 'current_pr_node_id', 'last_commit_cursor', 'last_review_cursor', 'last_comment_cursor'];
+            cursors.forEach(cursor => {
+                if (checkpointData[cursor]) {
+                    recoveryHtml += `
+                        <div class="text-yellow-100 text-xs mb-1">
+                            ${cursor.replace(/_/g, ' ')}: ${checkpointData[cursor].substring(0, 20)}...
+                        </div>
+                    `;
+                }
+            });
+
+            recoveryHtml += '</div>';
+            return recoveryHtml;
+        }
+
+        function createActionButtons(jobName, jobData, allJobsData) {
+            const canStart = ['PENDING', 'FINISHED', 'NOT_STARTED'].includes(jobData.status);
+            const canStop = jobData.status === 'RUNNING';
+            const canPause = ['PENDING', 'FINISHED'].includes(jobData.status);
+            const canUnpause = jobData.status === 'PAUSED';
+
+            // Check if any other job is running to disable Force Start
+            const otherJobRunning = Object.entries(allJobsData).some(([name, data]) =>
+                name !== jobName && data.status === 'RUNNING'
+            );
+
+            // Disable Force Start if other job is running
+            const canStartSafe = canStart && !otherJobRunning;
+
+            // Disable Pause if this job is running
+            const canPauseSafe = canPause && jobData.status !== 'RUNNING';
+
+            return `
+                <button onclick="forceStart('${jobName}')"
+                        ${!canStartSafe ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${canStartSafe ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
+                        title="${!canStartSafe && otherJobRunning ? 'Cannot start while another job is running' : ''}">
+                    <i class="fas fa-play mr-1"></i>Force Start
+                </button>
+                <button onclick="forceStop('${jobName}')"
+                        ${!canStop ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${canStop ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300">
+                    <i class="fas fa-stop mr-1"></i>Force Stop
+                </button>
+                <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
+                        ${!(canPauseSafe || canUnpause) ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${(canPauseSafe || canUnpause) ? (canUnpause ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-amber-500 hover:bg-amber-600') : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
+                        title="${!canPauseSafe && jobData.status === 'RUNNING' ? 'Cannot pause while job is running' : ''}">
+                    <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Unpause' : 'Pause'}
+                </button>
+                <button onclick="showJobDetails('${jobName}')"
+                        class="px-3 py-1 rounded text-sm bg-purple-500 hover:bg-purple-600 text-white transition duration-300">
+                    <i class="fas fa-info-circle mr-1"></i>Details
+                </button>
+            `;
+        }
+
+        function getStatusClass(status) {
+            switch (status) {
+                case 'RUNNING': return 'status-running';
+                case 'PENDING': return 'status-pending';
+                case 'FINISHED': return 'status-finished';
+                case 'PAUSED': return 'status-paused';
+                case 'NOT_STARTED': return 'status-not-started';
+                default: return 'status-error';
+            }
+        }
+
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'RUNNING': return 'spinner fa-spin';
+                case 'PENDING': return 'clock';
+                case 'FINISHED': return 'check-circle';
+                case 'PAUSED': return 'pause-circle';
+                case 'NOT_STARTED': return 'circle';
+                default: return 'exclamation-triangle';
+            }
+        }
+
+        function startLogMonitoring() {
+            addLogEntry('info', 'Dashboard initialized successfully');
+
+            // Live logs will be fetched by the main auto-refresh mechanism
+            fetchLiveLogs(); // Initial fetch only
+        }
+
+        async function fetchLiveLogs() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/logs/live', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateLiveLogs(data.logs);
+                }
+            } catch (error) {
+                console.error('Error fetching live logs:', error);
+            }
+        }
+
+        let lastLogCount = 0;
+        function updateLiveLogs(logs) {
+            // Only add new logs to prevent duplicates
+            if (logs.length > lastLogCount) {
+                const newLogs = logs.slice(lastLogCount);
+                newLogs.forEach(log => {
+                    // Format timestamp for display
+                    let displayTime;
+                    try {
+                        if (log.timestamp !== 'Unknown' && log.timestamp !== 'N/A') {
+                            const date = new Date(log.timestamp);
+                            displayTime = date.toLocaleTimeString();
+                        } else {
+                            displayTime = new Date().toLocaleTimeString();
+                        }
+                    } catch {
+                        displayTime = new Date().toLocaleTimeString();
+                    }
+
+                    // Backend already filters most noise, just add the log
+                    addLogEntry(log.level, log.message, displayTime);
+                });
+                lastLogCount = logs.length;
+            }
+        }
+
+        function addLogEntry(level, message, customTimestamp = null) {
+            const container = document.getElementById('logsContainer');
+            const timestamp = customTimestamp || new Date().toLocaleTimeString();
+
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${level}`;
+            logEntry.innerHTML = `<span class="text-gray-500">[${timestamp}]</span> ${message}`;
+
+            container.appendChild(logEntry);
+
+            // Auto-scroll to bottom if enabled
+            if (autoScroll) {
+                container.scrollTop = container.scrollHeight;
+            }
+
+            // Limit log entries to prevent memory issues
+            const entries = container.children;
+            if (entries.length > 1000) {
+                container.removeChild(entries[0]);
+            }
+        }
+
+        function clearLogs() {
+            const container = document.getElementById('logsContainer');
+            container.innerHTML = '<div class="log-entry text-gray-400"><span class="text-gray-500">[System]</span> Logs cleared</div>';
+        }
+
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            const btn = document.getElementById('autoScrollBtn');
+            btn.innerHTML = `<i class="fas fa-arrow-down mr-1"></i>Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+            btn.className = autoScroll ?
+                'bg-green-500 bg-opacity-50 hover:bg-opacity-70 text-white px-3 py-1 rounded text-sm' :
+                'bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded text-sm';
+        }
+
+        // Job action functions
+        async function forceStart(jobName) {
+            if (!confirm(`Are you sure you want to force start ${jobName}?`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', `${jobName} started successfully`);
+                    refreshData();
+                } else {
+                    addLogEntry('error', `Failed to start ${jobName}: ${result.detail}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error starting ${jobName}: ${error.message}`);
+            }
+        }
+
+        async function forceStop(jobName) {
+            if (!confirm(`Are you sure you want to force stop ${jobName}?`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/stop`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', `${jobName} stopped successfully`);
+                    refreshData();
+                } else {
+                    addLogEntry('error', `Failed to stop ${jobName}: ${result.detail}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error stopping ${jobName}: ${error.message}`);
+            }
+        }
+
+
+
+        function showJobDetails(jobName) {
+            // TODO: Implement job details modal
+            addLogEntry('info', `Showing details for ${jobName} (feature coming soon)`);
+        }
+
+        async function pauseJob(jobName) {
+            if (!confirm(`Are you sure you want to pause ${jobName}?`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', `${jobName} paused successfully`);
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    addLogEntry('error', `Failed to pause ${jobName}: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error pausing ${jobName}: ${error.message}`);
+            }
+        }
+
+        async function unpauseJob(jobName) {
+            if (!confirm(`Are you sure you want to unpause ${jobName}?`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', `${jobName} unpaused successfully - new status: ${result.status}`);
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    addLogEntry('error', `Failed to unpause ${jobName}: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error unpausing ${jobName}: ${error.message}`);
+            }
+        }
+
+        // Orchestrator Control Functions
+        async function forceStartOrchestrator() {
+            const button = event.target.closest('button');
+
+            // Check if button is disabled
+            if (button.disabled) {
+                addLogEntry('warning', 'Cannot start orchestrator while jobs are running');
+                return;
+            }
+
+            const originalText = button.innerHTML;
+
+            try {
+                // Show loading state
+                button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Starting...';
+                button.disabled = true;
+
+                addLogEntry('info', 'Force starting orchestrator... (this may take a few seconds)');
+
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/start', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', 'Orchestrator started successfully');
+                    // Refresh status after a short delay to allow scheduler to update
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                } else {
+                    addLogEntry('error', `Failed to start orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error starting orchestrator: ${error.message}`);
+            } finally {
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+
+        async function pauseOrchestrator() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/pause', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('warning', 'Orchestrator paused');
+                    setTimeout(refreshOrchestratorStatus, 500);
+                } else {
+                    addLogEntry('error', `Failed to pause orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error pausing orchestrator: ${error.message}`);
+            }
+        }
+
+        async function resumeOrchestrator() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/resume', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    addLogEntry('success', 'Orchestrator resumed');
+                    setTimeout(refreshOrchestratorStatus, 500);
+                } else {
+                    addLogEntry('error', `Failed to resume orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                addLogEntry('error', `Error resuming orchestrator: ${error.message}`);
+            }
+        }
+
+        async function refreshOrchestratorStatus() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const status = await response.json();
+                    updateOrchestratorUI(status);
+                }
+            } catch (error) {
+                console.error('Error fetching orchestrator status:', error);
+            }
+        }
+
+        let countdownInterval = null;
+
+        function updateOrchestratorUI(status) {
+            const statusBadge = document.getElementById('orchestratorStatusBadge');
+            const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+            const resumeBtn = document.getElementById('resumeOrchestratorBtn');
+
+            // Update status badge
+            statusBadge.textContent = status.status;
+            statusBadge.className = 'px-2 py-1 rounded text-xs font-medium ';
+
+            if (status.status === 'running') {
+                statusBadge.className += 'bg-green-600 text-white';
+                pauseBtn.classList.remove('hidden');
+                resumeBtn.classList.add('hidden');
+
+                // Start countdown timer
+                startCountdownTimer(status.next_run);
+            } else if (status.status === 'paused') {
+                statusBadge.className += 'bg-yellow-600 text-white';
+                pauseBtn.classList.add('hidden');
+                resumeBtn.classList.remove('hidden');
+
+                // Stop countdown timer when paused
+                stopCountdownTimer();
+            } else {
+                statusBadge.className += 'bg-gray-600 text-white';
+                pauseBtn.classList.add('hidden');
+                resumeBtn.classList.add('hidden');
+
+                // Stop countdown timer when not running
+                stopCountdownTimer();
+            }
+        }
+
+        function startCountdownTimer(nextRunTime) {
+            // Clear any existing timer
+            stopCountdownTimer();
+
+            if (!nextRunTime) {
+                document.getElementById('countdownTimer').textContent = '--:--:--';
+                return;
+            }
+
+            const nextRun = new Date(nextRunTime);
+
+            countdownInterval = setInterval(() => {
+                const now = new Date();
+                const timeDiff = nextRun - now;
+
+                if (timeDiff <= 0) {
+                    document.getElementById('countdownTimer').textContent = '00:00:00';
+                    // Refresh orchestrator status when countdown reaches zero
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                    return;
+                }
+
+                const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+                const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
+
+                const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                document.getElementById('countdownTimer').textContent = timeString;
+            }, 1000);
+        }
+
+        function stopCountdownTimer() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            document.getElementById('countdownTimer').textContent = '--:--:--';
+        }
+
+        // Orchestrator Settings Functions
+        async function showOrchestratorSettings() {
+            try {
+                // Load current settings
+                const response = await fetch('/api/v1/settings', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const settings = data.settings;
+
+                    // Update modal with current values
+                    const intervalSelect = document.getElementById('orchestratorInterval');
+                    const enabledCheckbox = document.getElementById('orchestratorEnabled');
+
+                    if (settings.orchestrator_interval_minutes) {
+                        intervalSelect.value = settings.orchestrator_interval_minutes.value;
+                    }
+
+                    if (settings.orchestrator_enabled) {
+                        enabledCheckbox.checked = settings.orchestrator_enabled.value;
+                    }
+                }
+
+                // Show modal
+                document.getElementById('orchestratorSettingsModal').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Failed to load orchestrator settings:', error);
+                addLogEntry('error', 'Failed to load orchestrator settings');
+            }
+        }
+
+        function hideOrchestratorSettings() {
+            document.getElementById('orchestratorSettingsModal').classList.add('hidden');
+        }
+
+        async function saveOrchestratorSettings() {
+            try {
+                const intervalSelect = document.getElementById('orchestratorInterval');
+                const enabledCheckbox = document.getElementById('orchestratorEnabled');
+
+                const intervalMinutes = parseInt(intervalSelect.value);
+                const enabled = enabledCheckbox.checked;
+
+                const response = await fetch('/api/v1/orchestrator/schedule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    },
+                    body: JSON.stringify({
+                        interval_minutes: intervalMinutes,
+                        enabled: enabled
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    addLogEntry('success', `Orchestrator schedule updated: ${intervalMinutes} minutes, enabled: ${enabled}`);
+                    hideOrchestratorSettings();
+
+                    // Refresh orchestrator status to show new schedule
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                } else {
+                    addLogEntry('error', `Failed to update orchestrator schedule: ${result.detail}`);
+                }
+
+            } catch (error) {
+                console.error('Failed to save orchestrator settings:', error);
+                addLogEntry('error', 'Failed to save orchestrator settings');
+            }
+        }
+    </script>
+</body>
+
+</html>

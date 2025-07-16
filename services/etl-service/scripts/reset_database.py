@@ -7,32 +7,62 @@ This script will DROP ALL tables from your PostgreSQL database.
 Use this only when you want to start completely fresh.
 
 Usage:
-    python utils/reset_database.py [options]
+    python scripts/reset_database.py [options]
 
 Examples:
     # Interactive mode (default)
-    python utils/reset_database.py
+    python scripts/reset_database.py
 
     # Complete reset with all options (non-interactive)
-    python utils/reset_database.py --all
+    python scripts/reset_database.py --all
 
     # Just drop tables (non-interactive)
-    python utils/reset_database.py --drop-only
+    python scripts/reset_database.py --drop-only
 
     # Drop and recreate tables (non-interactive)
-    python utils/reset_database.py --recreate-tables
+    python scripts/reset_database.py --recreate-tables
 """
 
 import sys
 import argparse
+import logging
 from pathlib import Path
 
 # Add parent directory to Python path for imports
 parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
+# Setup basic logging early to suppress SQLAlchemy logs before any imports
+# Use simple format to avoid conflicts with app's structured logging
+logging.basicConfig(
+    level=logging.WARNING,  # Only show warnings and errors from libraries
+    format='%(message)s',   # Simple format for cleaner output
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Disable SQLAlchemy logging completely for cleaner output
+logging.getLogger('sqlalchemy').setLevel(logging.ERROR)  # Only show errors
+logging.getLogger('sqlalchemy.engine').setLevel(logging.ERROR)
+logging.getLogger('sqlalchemy.pool').setLevel(logging.ERROR)
+logging.getLogger('sqlalchemy.dialects').setLevel(logging.ERROR)
+logging.getLogger('sqlalchemy.orm').setLevel(logging.ERROR)
+
+# Suppress SQLAlchemy warnings completely
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='sqlalchemy')
+warnings.filterwarnings('ignore', message='.*relationship.*will copy column.*')
+warnings.filterwarnings('ignore', message='.*overlaps.*')
+
+# Override DEBUG setting to disable SQLAlchemy echo for reset_database
+import os
+os.environ['DEBUG'] = 'false'
+
 from app.core.database import get_database
 from app.core.config import get_settings
+
+# Suppress app's database logging after import
+logging.getLogger('app.core.database').setLevel(logging.ERROR)
+logging.getLogger('app.jobs.orchestrator').setLevel(logging.ERROR)
 
 def confirm_reset():
     """Ask for user confirmation before proceeding."""
@@ -518,7 +548,7 @@ def initialize_integrations_non_interactive():
                     url="https://api.github.com",
                     username=None,
                     password=AppConfig.encrypt_token(settings.GITHUB_TOKEN, key),
-                    last_sync_at=datetime(1900, 1, 1),
+                    last_sync_at=datetime(2000, 1, 1),
                     client_id=default_client.id,
                     active=True,
                     created_at=DateTimeHelper.now_utc(),
@@ -568,6 +598,34 @@ def initialize_integrations_non_interactive():
         return True
     except Exception as e:
         print(f"❌ Failed to initialize integrations: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def initialize_system_settings_non_interactive():
+    """Initialize system settings without user confirmation."""
+    try:
+        from app.core.settings_manager import SettingsManager
+
+        print("🔄 Initializing system settings...")
+
+        # Initialize default settings in database
+        success = SettingsManager.initialize_default_settings()
+
+        if success:
+            print("✅ System settings initialized successfully")
+            print("   • Orchestrator interval: 60 minutes")
+            print("   • Orchestrator enabled: True")
+            print("   • Max concurrent jobs: 1")
+            print("   • Job timeout: 120 minutes")
+        else:
+            print("❌ Failed to initialize system settings")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Failed to initialize system settings: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -671,7 +729,11 @@ def main():
         from app.jobs.orchestrator import initialize_job_schedules
         job_schedules_success = initialize_job_schedules()
 
-        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success)
+        # Initialize system settings for orchestrator configuration
+        print("🔧 Initializing system settings...")
+        system_settings_success = initialize_system_settings_non_interactive()
+
+        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success)
 
     elif args.drop_only:
         print("🗑️  Running drop-only mode (non-interactive)")
@@ -732,7 +794,12 @@ def main():
                 print("🔧 Initializing job schedules...")
                 from app.jobs.orchestrator import initialize_job_schedules
                 job_schedules_success = initialize_job_schedules()
-                integration_success = integration_success and job_schedules_success
+
+                # Initialize system settings for orchestrator configuration
+                print("🔧 Initializing system settings...")
+                system_settings_success = initialize_system_settings_non_interactive()
+
+                integration_success = integration_success and job_schedules_success and system_settings_success
 
             print_final_summary(success, recreate_success, integration_success)
         else:
