@@ -3,23 +3,23 @@
  * Configures middleware, routes, and error handling
  */
 
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
 import compression from 'compression';
+import cors from 'cors';
+import express from 'express';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 
-import { logger } from './utils/logger';
-import { errorHandler } from './middleware/error.middleware';
 import { authMiddleware } from './middleware/auth.middleware';
+import { errorHandler } from './middleware/error.middleware';
+import { logger } from './utils/logger';
 
 // Import routes
-import authRoutes from './routes/auth.routes';
-import etlRoutes from './routes/etl.routes';
 import aiRoutes from './routes/ai.routes';
+import authRoutes from './routes/auth.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import etlRoutes from './routes/etl.routes';
 
 const app = express();
 
@@ -73,12 +73,12 @@ const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Kairus Backend Service API',
+      title: 'Pulse Backend Service API',
       version: '1.0.0',
-      description: 'Backend for Frontend (BFF) API for Kairus Platform',
+      description: 'Backend for Frontend (BFF) API for Pulse Platform',
       contact: {
-        name: 'Kairus Platform Team',
-        email: 'support@kairus.com'
+        name: 'Pulse Platform Team',
+        email: 'support@pulse.com'
       }
     },
     servers: [

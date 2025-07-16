@@ -1,6 +1,6 @@
-# Frontend App - Kairus Platform Dashboard
+# Frontend App - Pulse Platform Dashboard
 
-The Frontend App is a modern React/Next.js application that provides the user interface for the Kairus Platform. It offers dashboards, analytics, and management interfaces for software engineering intelligence.
+The Frontend App is a modern React/Next.js application that provides the user interface for the Pulse Platform. It offers dashboards, analytics, and management interfaces for software engineering intelligence.
 
 ## 🎯 Features
 
@@ -92,7 +92,7 @@ frontend-app/
 
 1. **From the monorepo root**:
 ```bash
-cd kairus-platform
+cd pulse-platform
 docker-compose up frontend-app
 ```
 
@@ -179,7 +179,7 @@ NEXT_PUBLIC_AI_SERVICE_URL=http://localhost:8001
 
 # Authentication
 NEXT_PUBLIC_AUTH_ENABLED=true
-NEXT_PUBLIC_JWT_STORAGE_KEY=kairus_token
+NEXT_PUBLIC_JWT_STORAGE_KEY=pulse_token
 
 # Features
 NEXT_PUBLIC_ENABLE_ANALYTICS=true
@@ -266,8 +266,8 @@ npm start
 ### Docker Deployment
 
 ```bash
-docker build -t kairus-frontend .
-docker run -p 3001:3001 kairus-frontend
+docker build -t pulse-frontend .
+docker run -p 3001:3001 pulse-frontend
 ```
 
 ### Static Export (Optional)
@@ -295,4 +295,4 @@ npm run export
 
 ---
 
-**Part of the Kairus Platform - Software Engineering Intelligence**
+**Part of the Pulse Platform - Software Engineering Intelligence**

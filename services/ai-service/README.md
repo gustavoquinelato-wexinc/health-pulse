@@ -76,7 +76,7 @@ ai-service/
 
 1. **From the monorepo root**:
 ```bash
-cd kairus-platform
+cd pulse-platform
 docker-compose up ai-service
 ```
 

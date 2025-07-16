@@ -129,7 +129,7 @@ start_service() {
 
 # Function to stop services
 stop_services() {
-    print_header "🛑 Stopping Kairus Platform"
+    print_header "🛑 Stopping Pulse Platform"
     docker-compose down
     print_status "All services stopped"
 }
@@ -193,7 +193,7 @@ show_status() {
 
 # Function to show help
 show_help() {
-    print_header "Kairus Platform Management Script"
+    print_header "Pulse Platform Management Script"
     echo ""
     echo "Usage: $0 [COMMAND] [SERVICE]"
     echo ""
