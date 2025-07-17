@@ -9,3 +9,5 @@ redis
 jinja2
 python-multipart
 psutil
+bcrypt
+PyJWT

@@ -37,12 +37,74 @@ class Client(Base):
     pull_request_commits = relationship("PullRequestCommit")
     pull_request_comments = relationship("PullRequestComment")
 
+
 class BaseEntity:
     """Base class with audit fields for all entities."""
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, quote=False, name="client_id")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+
+# Authentication and User Management Tables
+# These tables inherit from BaseEntity and are tied to specific clients
+
+class User(Base, BaseEntity):
+    """Users table for authentication and authorization."""
+    __tablename__ = 'users'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    email = Column(String(255), unique=True, nullable=False, quote=False, name="email")
+    first_name = Column(String(100), quote=False, name="first_name")
+    last_name = Column(String(100), quote=False, name="last_name")
+    role = Column(String(50), nullable=False, default='user', quote=False, name="role")  # 'admin', 'user', 'viewer'
+    is_admin = Column(Boolean, default=False, quote=False, name="is_admin")
+
+    # Authentication fields
+    auth_provider = Column(String(50), nullable=False, default='local', quote=False, name="auth_provider")  # 'local', 'okta'
+    okta_user_id = Column(String(255), unique=True, quote=False, name="okta_user_id")  # OKTA's user ID
+    password_hash = Column(String(255), quote=False, name="password_hash")  # Only for local auth
+
+    # Metadata
+    last_login_at = Column(DateTime, quote=False, name="last_login_at")
+
+    # Relationships
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSession(Base, BaseEntity):
+    """User sessions table for JWT management."""
+    __tablename__ = 'user_sessions'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, quote=False, name="user_id")
+    token_hash = Column(String(255), nullable=False, quote=False, name="token_hash")  # Hashed JWT for revocation
+    expires_at = Column(DateTime, nullable=False, quote=False, name="expires_at")
+    ip_address = Column(String(45), quote=False, name="ip_address")  # IPv6 compatible
+    user_agent = Column(Text, quote=False, name="user_agent")
+
+    # Relationships
+    user = relationship("User", back_populates="sessions")
+
+
+class UserPermission(Base, BaseEntity):
+    """User permissions table for fine-grained access control."""
+    __tablename__ = 'user_permissions'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, quote=False, name="user_id")
+    resource = Column(String(100), nullable=False, quote=False, name="resource")  # 'etl_jobs', 'dashboards', 'settings'
+    action = Column(String(50), nullable=False, quote=False, name="action")  # 'read', 'write', 'execute', 'admin'
+
+    # Relationships
+    user = relationship("User", back_populates="permissions")
+
+
+
 
 class Integration(Base, BaseEntity):
     """Integrations table (Jira, GitHub, Azure DevOps, etc.)"""

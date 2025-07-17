@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +11,7 @@
         .gradient-bg {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
+
         .glass-effect {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
@@ -17,6 +19,7 @@
         }
     </style>
 </head>
+
 <body class="gradient-bg min-h-screen flex items-center justify-center">
     <div class="glass-effect rounded-2xl p-8 w-full max-w-md shadow-2xl">
         <!-- Logo and Title -->
@@ -32,49 +35,49 @@
         <form id="loginForm" class="space-y-6">
             <div>
                 <label for="email" class="block text-sm font-medium text-white mb-2">
-                    <i class="fas fa-envelope mr-2"></i>Email
+                    <i class="fas fa-user mr-2"></i>Username
                 </label>
-                <input 
-                    type="email" 
-                    id="email" 
-                    name="email"
-                    value="gustavo.quinelato@wexinc.com"
+                <input type="text" id="email" name="email"
                     class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter your email"
-                    required
-                >
+                    placeholder="Enter username (admin, gustavo_user, or gustavo_view)" required>
             </div>
 
             <div>
                 <label for="password" class="block text-sm font-medium text-white mb-2">
                     <i class="fas fa-lock mr-2"></i>Password
                 </label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password"
+                <input type="password" id="password" name="password"
                     class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter your password"
-                    required
-                >
+                    placeholder="Enter your password" required>
             </div>
 
             <!-- Error Message -->
-            <div id="errorMessage" class="hidden bg-red-500 bg-opacity-20 border border-red-500 border-opacity-50 text-red-100 px-4 py-3 rounded-lg">
+            <div id="errorMessage"
+                class="hidden bg-red-500 bg-opacity-20 border border-red-500 border-opacity-50 text-red-100 px-4 py-3 rounded-lg">
                 <i class="fas fa-exclamation-triangle mr-2"></i>
                 <span id="errorText">Invalid credentials. Please try again.</span>
             </div>
 
             <!-- Login Button -->
-            <button 
-                type="submit" 
-                id="loginButton"
-                class="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50"
-            >
+            <button type="submit" id="loginButton"
+                class="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50">
                 <i class="fas fa-sign-in-alt mr-2"></i>
                 <span id="loginButtonText">Sign In</span>
             </button>
         </form>
+
+        <!-- Available Users Info -->
+        <div class="mt-6 p-4 bg-white bg-opacity-10 rounded-lg border border-white border-opacity-20">
+            <h3 class="text-white text-sm font-medium mb-2">
+                <i class="fas fa-info-circle mr-2"></i>Available Test Users
+            </h3>
+            <div class="text-white text-opacity-80 text-xs space-y-1">
+                <div><strong>admin</strong> - Full admin access</div>
+                <div><strong>gustavo_user</strong> - Standard user access</div>
+                <div><strong>gustavo_view</strong> - View-only access</div>
+                <div class="mt-2 text-white text-opacity-60">Password for all users: <strong>pulse</strong></div>
+            </div>
+        </div>
 
         <!-- Footer -->
         <div class="text-center mt-8 text-white text-opacity-60 text-sm">
@@ -84,20 +87,20 @@
     </div>
 
     <script>
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        document.getElementById('loginForm').addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const errorDiv = document.getElementById('errorMessage');
             const loginButton = document.getElementById('loginButton');
             const loginButtonText = document.getElementById('loginButtonText');
-            
+
             // Show loading state
             loginButton.disabled = true;
             loginButtonText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing In...';
             errorDiv.classList.add('hidden');
-            
+
             try {
                 const response = await fetch('/auth/login', {
                     method: 'POST',
@@ -106,9 +109,9 @@
                     },
                     body: JSON.stringify({ email, password })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     // Store token and redirect
                     localStorage.setItem('pulse_token', data.token);
@@ -129,8 +132,9 @@
             }
         });
 
-        // Auto-focus password field since email is pre-filled
-        document.getElementById('password').focus();
+        // Auto-focus username field
+        document.getElementById('email').focus();
     </script>
 </body>
+
 </html>
