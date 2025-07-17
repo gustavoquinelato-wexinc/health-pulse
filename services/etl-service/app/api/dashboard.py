@@ -119,25 +119,4 @@ async def job_status_page():
     return HTMLResponse(content=html_content)
 
 
-@router.get("/", response_class=HTMLResponse)
-async def dashboard_home():
-    """
-    Serve the main dashboard home page.
-    
-    Returns:
-        HTMLResponse: Main dashboard HTML page
-    """
-    # Redirect to status page for now
-    return HTMLResponse(content="""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Pulse ETL Service</title>
-        <meta http-equiv="refresh" content="0; url=/status">
-    </head>
-    <body>
-        <p>Redirecting to dashboard...</p>
-        <p>If you are not redirected, <a href="/status">click here</a>.</p>
-    </body>
-    </html>
-    """)
+# Root route is handled by web_router for proper login flow

@@ -25,6 +25,46 @@ from .jira_bulk_operations import perform_bulk_insert
 logger = get_logger(__name__)
 
 
+def has_useful_dev_status_data(dev_details: Dict) -> bool:
+    """
+    Check if dev_status response contains useful data (repositories, PRs, or branches).
+
+    Args:
+        dev_details: The dev_status response from Jira API
+
+    Returns:
+        True if the response contains repositories, pull requests, or branches
+    """
+    try:
+        if not isinstance(dev_details, dict) or 'detail' not in dev_details:
+            return False
+
+        for detail in dev_details['detail']:
+            if not isinstance(detail, dict):
+                continue
+
+            # Check for repositories
+            repositories = detail.get('repositories', [])
+            if repositories and len(repositories) > 0:
+                return True
+
+            # Check for pull requests
+            pull_requests = detail.get('pullRequests', [])
+            if pull_requests and len(pull_requests) > 0:
+                return True
+
+            # Check for branches (might indicate repository activity)
+            branches = detail.get('branches', [])
+            if branches and len(branches) > 0:
+                return True
+
+        return False
+
+    except Exception:
+        # If we can't parse it, assume it has useful data to avoid losing information
+        return True
+
+
 def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated issue types from Jira in a combined operation.
@@ -554,7 +594,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
         return {'statuses_processed': 0, 'relationships_processed': 0}
 
 
-def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None) -> Dict[str, Any]:
+def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None) -> Dict[str, Any]:
     """Extract and process Jira work items and their changelogs together using bulk operations with batching for performance.
 
     Returns:
@@ -814,77 +854,7 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
                 statuses_dict, job_logger, issue_changelogs
             )
 
-        # Step 3: Extract dev_status for issues with code_changed = True
-        job_logger.progress(f"[DEV_STATUS] Starting dev_status extraction...")
 
-        # Import here to avoid circular imports
-        from app.models.unified_models import JiraDevDetailsStaging
-
-        # Clear existing staging records for this integration to avoid duplicates
-        existing_count = session.query(JiraDevDetailsStaging).join(Issue).filter(
-            Issue.integration_id == integration.id
-        ).count()
-
-        if existing_count > 0:
-            job_logger.progress(f"[DEV_STATUS] Clearing {existing_count} existing staging records for this integration...")
-            session.query(JiraDevDetailsStaging).filter(
-                JiraDevDetailsStaging.issue_id.in_(
-                    session.query(Issue.id).filter(Issue.integration_id == integration.id)
-                )
-            ).delete(synchronize_session=False)
-            session.commit()
-            job_logger.progress(f"[DEV_STATUS] Cleared existing staging records")
-
-        # Get issues with code_changed = True from the current session
-        issues_with_code_changes = session.query(Issue).filter(
-            Issue.integration_id == integration.id,
-            Issue.code_changed == True
-        ).all()
-
-        job_logger.progress(f"[DEV_STATUS] Found {len(issues_with_code_changes)} issues with code changes")
-
-        # Prepare for bulk insert
-        staging_records_to_insert = []
-        dev_status_staged = 0
-        current_time = datetime.now()
-
-        for issue in issues_with_code_changes:
-            try:
-                if not issue.external_id:
-                    job_logger.warning(f"Issue {issue.key} has no external_id, skipping dev_status extraction")
-                    continue
-
-                # Fetch dev_status data from Jira
-                dev_details = jira_client.get_issue_dev_details(issue.external_id)
-                if dev_details:
-                    # Prepare staging record data for bulk insert
-                    staging_data = {
-                        'issue_id': issue.id,
-                        'dev_status_payload': json.dumps(dev_details) if isinstance(dev_details, dict) else str(dev_details),
-                        'processed': False,
-                        'client_id': integration.client_id,
-                        'active': True,
-                        'created_at': current_time,
-                        'last_updated_at': current_time
-                    }
-                    staging_records_to_insert.append(staging_data)
-                    dev_status_staged += 1
-
-                    if dev_status_staged % 10 == 0:
-                        job_logger.progress(f"[DEV_STATUS] Processed {dev_status_staged} dev_status records...")
-
-            except Exception as e:
-                job_logger.error(f"Error extracting dev_status for issue {issue.key}: {e}")
-                continue
-
-        # Perform bulk insert for staging records
-        if staging_records_to_insert:
-            job_logger.progress(f"[DEV_STATUS] Starting bulk insert for {len(staging_records_to_insert)} staging records...")
-            perform_bulk_insert(session, JiraDevDetailsStaging, staging_records_to_insert, "jira_dev_details_staging", job_logger)
-            session.commit()
-            job_logger.progress(f"[DEV_STATUS] Successfully staged {dev_status_staged} dev_status records")
-        else:
-            job_logger.progress(f"[DEV_STATUS] No dev_status data found for issues with code changes")
 
         # Update integration.last_sync_at to extraction start time (truncated to %Y-%m-%d %H:%M format)
         # This ensures we capture the start time to prevent losing changes made during extraction
@@ -898,14 +868,13 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
             'issues_processed': processed_count,
             'changelogs_processed': changelogs_processed,
             'issue_keys': processed_issue_keys,
-            'issue_changelogs': issue_changelogs,  # Include extracted changelog data
-            'dev_status_staged': dev_status_staged  # Include dev_status staging count
+            'issue_changelogs': issue_changelogs  # Include extracted changelog data
         }
 
     except Exception as e:
         session.rollback()
         job_logger.error(f"Error in work items and changelogs extraction: {str(e)}")
-        return {'success': False, 'error': str(e), 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': [], 'issue_changelogs': {}, 'dev_status_staged': 0}
+        return {'success': False, 'error': str(e), 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': [], 'issue_changelogs': {}}
 
 
 

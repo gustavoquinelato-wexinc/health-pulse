@@ -6,7 +6,7 @@ import logging
 import re
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Union
 from functools import wraps
 import time
@@ -375,6 +375,25 @@ class DateTimeHelper:
             Current datetime in timezone-naive UTC format
         """
         return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def now_central() -> datetime:
+        """
+        Get current datetime in Central Time (America/Chicago) as timezone-naive.
+
+        Returns:
+            datetime: Current Central Time without timezone info
+        """
+        try:
+            import pytz
+            central_tz = pytz.timezone('America/Chicago')
+            utc_now = datetime.now(timezone.utc)
+            central_now = utc_now.astimezone(central_tz)
+            return central_now.replace(tzinfo=None)
+        except ImportError:
+            # Fallback: approximate Central Time as UTC-6 (ignoring DST)
+            logger.warning("pytz not available, using UTC-6 approximation for Central Time")
+            return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=6)
 
 
 

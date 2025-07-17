@@ -46,7 +46,7 @@ async def test_connections(db: Session = Depends(get_db_session)):
     try:
         settings = get_settings()
         if settings.JIRA_BASE_URL and settings.JIRA_EMAIL and settings.JIRA_API_TOKEN:
-            # TODO: Add actual Jira API test
+            # Future enhancement: Add actual Jira API connectivity test
             results["connections"]["jira"] = {
                 "status": "configured",
                 "message": "Jira credentials configured",
@@ -68,7 +68,7 @@ async def test_connections(db: Session = Depends(get_db_session)):
     try:
         settings = get_settings()
         if settings.GITHUB_TOKEN:
-            # TODO: Add actual GitHub API test
+            # Future enhancement: Add actual GitHub API connectivity test
             results["connections"]["github"] = {
                 "status": "configured",
                 "message": "GitHub token configured"
@@ -147,8 +147,8 @@ async def get_job_debug_details(job_id: str):
     Returns:
         dict: Detailed job debug information
     """
-    # TODO: Implement job debug details from database
-    # This is a placeholder implementation
+    # Future enhancement: Implement job debug details from database
+    # This is a placeholder implementation for detailed job execution information
     
     return {
         "job_id": job_id,

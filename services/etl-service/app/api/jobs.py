@@ -114,7 +114,8 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db_session)):
         status=api_status,
         started_at=job.last_run_started_at,
         completed_at=job.last_success_at,
-        current_step=job.job_name,
+        progress_percentage=job.progress_percentage,
+        current_step=job.current_step,
         errors=[job.error_message] if job.error_message else None
     )
 

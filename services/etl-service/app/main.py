@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -40,6 +40,7 @@ from app.api.scheduler import router as scheduler_router
 # Import legacy routers (to be deprecated)
 from app.api.admin_routes import router as admin_router
 from app.api.web_routes import router as web_router
+from app.api.websocket_routes import router as websocket_router
 # from app.api.etl_routes import router as etl_router  # DEPRECATED: Split into modular routers
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
@@ -212,6 +213,12 @@ app.include_router(
     tags=["Web Interface"]
 )
 
+# Include WebSocket routes
+app.include_router(
+    websocket_router,
+    tags=["WebSocket"]
+)
+
 # Mount static files (if directory exists)
 import os
 from pathlib import Path
@@ -220,16 +227,7 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-@app.get("/")
-async def root():
-    """Application root endpoint."""
-    return {
-        "message": f"Welcome to {settings.APP_NAME}",
-        "version": settings.APP_VERSION,
-        "timestamp": datetime.now().isoformat(),
-        "docs_url": "/docs",
-        "health_check": "/health"
-    }
+# Root route is handled by web_router - redirects to login page
 
 
 @app.get("/favicon.ico")

@@ -21,7 +21,10 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                                        repository: Repository, owner: str, repo_name: str,
                                        integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
-    Process all pull requests for a repository using GraphQL with bulk inserts.
+    Process pull requests for a repository using GraphQL with bulk inserts and early termination.
+
+    Uses DESC ordering by updatedAt and stops when encountering PRs older than integration.last_sync_at
+    for optimal efficiency. Only processes new/updated PRs since last sync.
 
     Args:
         session: Database session
@@ -29,7 +32,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         repository: Repository object
         owner: Repository owner
         repo_name: Repository name
-        integration: GitHub integration
+        integration: GitHub integration (last_sync_at used for early termination)
         job_schedule: Job schedule for checkpoint management
 
     Returns:
@@ -40,6 +43,13 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
 
         processor = GitHubGraphQLProcessor(integration, repository.id)
         prs_processed = 0
+
+        # Get last sync timestamp for early termination (DESC ordering optimization)
+        last_sync_at = integration.last_sync_at
+        if last_sync_at:
+            logger.info(f"Using last_sync_at for early termination: {last_sync_at}")
+        else:
+            logger.info("No last_sync_at found - will process all PRs")
 
         # Check if we're resuming from a previous cursor (recovery mode)
         checkpoint_state = job_schedule.get_checkpoint_state()
@@ -111,6 +121,42 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
             # Process each PR in the batch and collect data for bulk insert
             for pr_node in pr_nodes:
                 try:
+                    # Early termination optimization: Check if PR is older than last_sync_at
+                    if last_sync_at:
+                        pr_updated_at_str = pr_node.get('updatedAt')
+                        if pr_updated_at_str:
+                            try:
+                                pr_updated_at = DateTimeHelper.parse_iso_datetime(pr_updated_at_str)
+                                # Remove timezone info for comparison if needed
+                                if last_sync_at.tzinfo is None and pr_updated_at.tzinfo is not None:
+                                    pr_updated_at = pr_updated_at.replace(tzinfo=None)
+                                elif last_sync_at.tzinfo is not None and pr_updated_at.tzinfo is None:
+                                    pr_updated_at = pr_updated_at.replace(tzinfo=last_sync_at.tzinfo)
+
+                                # If PR is older than last sync, we can stop (DESC ordering)
+                                if pr_updated_at < last_sync_at:
+                                    logger.info(f"Early termination: PR #{pr_node.get('number')} updated at {pr_updated_at} is older than last_sync_at {last_sync_at}")
+                                    logger.info(f"Stopping PR processing for {owner}/{repo_name} - processed {prs_processed} PRs")
+
+                                    # Perform any pending bulk inserts before stopping
+                                    if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
+                                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
+                                        session.commit()
+
+                                    # Clear checkpoint since we completed successfully
+                                    job_schedule.update_checkpoint({})
+
+                                    return {
+                                        'success': True,
+                                        'prs_processed': prs_processed,
+                                        'rate_limit_reached': False,
+                                        'partial_success': False,
+                                        'message': f'Early termination: processed {prs_processed} PRs, stopped at PR older than last_sync_at'
+                                    }
+                            except Exception as e:
+                                logger.warning(f"Error parsing PR updatedAt '{pr_updated_at_str}': {e}")
+                                # Continue processing if date parsing fails
+
                     # Process the main PR data
                     pr_result = process_single_pr_for_bulk_insert(
                         pr_node, repository, processor, bulk_prs, bulk_commits, bulk_reviews, bulk_comments
@@ -225,6 +271,13 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
         processor = GitHubGraphQLProcessor(integration, repository.id)
         checkpoint_state = job_schedule.get_checkpoint_state()
 
+        # Get last sync timestamp for early termination (DESC ordering optimization)
+        last_sync_at = integration.last_sync_at
+        if last_sync_at:
+            logger.info(f"Using last_sync_at for early termination in recovery: {last_sync_at}")
+        else:
+            logger.info("No last_sync_at found - will process all PRs in recovery")
+
         prs_processed = 0
         pr_cursor = checkpoint_state['last_pr_cursor']
         current_pr_node_id = checkpoint_state['current_pr_node_id']
@@ -311,7 +364,39 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
                     if current_pr_node_id and pr_node['id'] == current_pr_node_id:
                         current_pr_node_id = None  # Clear it so we don't skip others
                         continue
-                    
+
+                    # Early termination optimization: Check if PR is older than last_sync_at
+                    if last_sync_at:
+                        pr_updated_at_str = pr_node.get('updatedAt')
+                        if pr_updated_at_str:
+                            try:
+                                pr_updated_at = DateTimeHelper.parse_iso_datetime(pr_updated_at_str)
+                                # Remove timezone info for comparison if needed
+                                if last_sync_at.tzinfo is None and pr_updated_at.tzinfo is not None:
+                                    pr_updated_at = pr_updated_at.replace(tzinfo=None)
+                                elif last_sync_at.tzinfo is not None and pr_updated_at.tzinfo is None:
+                                    pr_updated_at = pr_updated_at.replace(tzinfo=last_sync_at.tzinfo)
+
+                                # If PR is older than last sync, we can stop (DESC ordering)
+                                if pr_updated_at < last_sync_at:
+                                    logger.info(f"Early termination in recovery: PR #{pr_node.get('number')} updated at {pr_updated_at} is older than last_sync_at {last_sync_at}")
+                                    logger.info(f"Stopping PR processing for {owner}/{repo_name} - processed {prs_processed} PRs")
+
+                                    # Clear checkpoint since we completed successfully
+                                    job_schedule.update_checkpoint({})
+                                    session.commit()
+
+                                    return {
+                                        'success': True,
+                                        'prs_processed': prs_processed,
+                                        'rate_limit_reached': False,
+                                        'partial_success': False,
+                                        'message': f'Early termination in recovery: processed {prs_processed} PRs, stopped at PR older than last_sync_at'
+                                    }
+                            except Exception as e:
+                                logger.warning(f"Error parsing PR updatedAt '{pr_updated_at_str}' in recovery: {e}")
+                                # Continue processing if date parsing fails
+
                     # Process the main PR data
                     pr_result = process_single_pr_with_nested_data(
                         session, graphql_client, pr_node, repository, processor, job_schedule
@@ -581,16 +666,19 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                                      processor: GitHubGraphQLProcessor, bulk_prs: list,
                                      bulk_commits: list, bulk_reviews: list, bulk_comments: list) -> Dict[str, Any]:
     """
-    Process a single PR and collect data for bulk insert.
+    Process a single PR and collect data for bulk UPSERT operations.
+
+    Note: This function only collects data. The actual UPSERT logic (update existing PRs,
+    delete+insert nested data) is handled in perform_bulk_inserts().
 
     Args:
         pr_node: PR node data from GraphQL
         repository: Repository object
         processor: GraphQL processor
-        bulk_prs: List to collect PR data
-        bulk_commits: List to collect commit data
-        bulk_reviews: List to collect review data
-        bulk_comments: List to collect comment data
+        bulk_prs: List to collect PR data for UPSERT
+        bulk_commits: List to collect commit data for delete+insert
+        bulk_reviews: List to collect review data for delete+insert
+        bulk_comments: List to collect comment data for delete+insert
 
     Returns:
         Dictionary with processing results
@@ -710,7 +798,10 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
 def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                         bulk_reviews: list, bulk_comments: list):
     """
-    Perform bulk inserts for all collected data.
+    Perform bulk UPSERT operations for all collected data.
+
+    For PRs: UPSERT (update existing, insert new)
+    For nested data: DELETE existing + INSERT new (full refresh approach)
 
     Args:
         session: Database session
@@ -722,11 +813,46 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
     try:
         from app.models.unified_models import PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment
 
-        # Bulk insert PRs first
+        # Step 1: UPSERT PRs (update existing, insert new)
         if bulk_prs:
-            logger.info(f"Bulk inserting {len(bulk_prs)} pull requests...")
-            session.bulk_insert_mappings(PullRequest, bulk_prs)
-            session.flush()  # Ensure PRs are inserted before nested data
+            logger.info(f"Processing {len(bulk_prs)} pull requests with UPSERT logic...")
+
+            # Get external IDs of PRs being processed
+            pr_external_ids = [pr['external_id'] for pr in bulk_prs]
+
+            # Find existing PRs
+            existing_prs = session.query(PullRequest).filter(
+                PullRequest.external_id.in_(pr_external_ids),
+                PullRequest.repository_id.in_([pr['repository_id'] for pr in bulk_prs])
+            ).all()
+
+            existing_pr_map = {(pr.external_id, pr.repository_id): pr for pr in existing_prs}
+
+            prs_to_insert = []
+            prs_to_update = []
+
+            for pr_data in bulk_prs:
+                key = (pr_data['external_id'], pr_data['repository_id'])
+                if key in existing_pr_map:
+                    # Update existing PR
+                    existing_pr = existing_pr_map[key]
+                    for field, value in pr_data.items():
+                        if field not in ['id', 'created_at']:  # Don't update these fields
+                            setattr(existing_pr, field, value)
+                    prs_to_update.append(existing_pr)
+                else:
+                    # New PR to insert
+                    prs_to_insert.append(pr_data)
+
+            # Perform bulk operations
+            if prs_to_insert:
+                logger.info(f"Bulk inserting {len(prs_to_insert)} new PRs...")
+                session.bulk_insert_mappings(PullRequest, prs_to_insert)
+
+            if prs_to_update:
+                logger.info(f"Updated {len(prs_to_update)} existing PRs...")
+
+            session.flush()  # Ensure PRs are processed before nested data
 
         # Now we need to get the PR IDs for the nested data
         # We'll update the nested data with actual PR IDs
@@ -756,7 +882,29 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                     pr_external_id = comment.pop('pull_request_external_id')
                     comment['pull_request_id'] = pr_mappings.get(pr_external_id)
 
-        # Bulk insert nested data
+                # DELETE existing nested data for full refresh approach
+                pr_ids_to_clean = list(pr_mappings.values())
+                if pr_ids_to_clean:
+                    logger.info(f"Cleaning existing nested data for {len(pr_ids_to_clean)} PRs...")
+
+                    # Delete existing commits
+                    deleted_commits = session.query(PullRequestCommit).filter(
+                        PullRequestCommit.pull_request_id.in_(pr_ids_to_clean)
+                    ).delete(synchronize_session=False)
+
+                    # Delete existing reviews
+                    deleted_reviews = session.query(PullRequestReview).filter(
+                        PullRequestReview.pull_request_id.in_(pr_ids_to_clean)
+                    ).delete(synchronize_session=False)
+
+                    # Delete existing comments
+                    deleted_comments = session.query(PullRequestComment).filter(
+                        PullRequestComment.pull_request_id.in_(pr_ids_to_clean)
+                    ).delete(synchronize_session=False)
+
+                    logger.info(f"Deleted existing data: {deleted_commits} commits, {deleted_reviews} reviews, {deleted_comments} comments")
+
+        # Bulk insert nested data (fresh data after cleanup)
         if bulk_commits:
             logger.info(f"Bulk inserting {len(bulk_commits)} commits...")
             session.bulk_insert_mappings(PullRequestCommit, bulk_commits)
