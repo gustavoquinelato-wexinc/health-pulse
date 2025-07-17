@@ -523,8 +523,8 @@ def initialize_integrations_non_interactive():
 
             # Create Jira integration (required)
             if settings.JIRA_URL and settings.JIRA_USERNAME and settings.JIRA_TOKEN:
-                # Set Jira last_sync_at to today at 12:00 PM
-                today_noon = DateTimeHelper.now_utc().replace(hour=12, minute=0, second=0, microsecond=0)
+                # Set Jira last_sync_at to today at 12:00 PM Central Time
+                today_noon = DateTimeHelper.now_central().replace(hour=12, minute=0, second=0, microsecond=0)
 
                 jira_integration = Integration(
                     name="Jira",

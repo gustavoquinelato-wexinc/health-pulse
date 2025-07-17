@@ -107,7 +107,7 @@ etl-service/
 │   │   ├── __init__.py
 │   │   └── unified_models.py   # Unified database models (PostgreSQL)
 │   ├── templates/
-│   │   └── dashboard.html      # Real-time ETL dashboard
+│   │   └── dashboard.html      # WebSocket-based real-time ETL dashboard
 │   └── utils/
 │       ├── __init__.py
 │       ├── datetime_helper.py  # DateTime utilities
@@ -284,10 +284,16 @@ ORCHESTRATOR_INTERVAL_MINUTES=60
 - `POST /api/v1/orchestrator/resume` - Resume orchestrator
 
 ### **Monitoring & Logs**
-- `GET /api/v1/logs/live` - Get live job logs
+- `GET /logs/recent` - Get recent log entries with filtering
+- `GET /logs/download` - Download log files
+- `GET /logs/tail` - Get live tail of log file
 - `GET /health` - Service health check
 - `GET /docs` - Interactive API documentation (Swagger UI)
 - `GET /redoc` - Alternative API documentation
+
+### **WebSocket Endpoints**
+- `WS /ws/progress/{job_name}` - Real-time job progress updates
+- Supports: jira_sync, github_sync, orchestrator
 
 ## 🔄 ETL Process Flow
 
@@ -355,10 +361,11 @@ curl http://localhost:8000/health
 ## 📈 Monitoring & Observability
 
 ### **Real-time Dashboard**
-- **Live Job Status**: Real-time job monitoring with status updates
-- **Progress Tracking**: Repository processing progress and completion rates
-- **Error Monitoring**: Live error tracking and recovery status
+- **WebSocket Progress**: Real-time progress bars with instant percentage updates
+- **Exception-only Logging**: Clean display of errors and warnings only
+- **Job Status Monitoring**: Live job state tracking and transitions
 - **Control Interface**: Manual job control (start, stop, pause, resume)
+- **Professional UI**: Streamlined interface focused on actionable information
 
 ### **Health Checks**
 - **Application Health**: `/health` endpoint with comprehensive status
@@ -463,8 +470,11 @@ curl http://localhost:8000/health
 # Check job status
 curl http://localhost:8000/api/v1/jobs/status
 
-# View live logs
+# View logs
 tail -f logs/app.log
+
+# Monitor real-time progress via WebSocket dashboard
+# Visit http://localhost:8000/dashboard
 
 # Test database connection
 python -c "from app.core.database import get_database; print('DB OK')"

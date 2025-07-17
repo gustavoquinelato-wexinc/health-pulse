@@ -17,85 +17,15 @@ from typing import Optional, List, Dict, Any
 import os
 from pathlib import Path
 from datetime import datetime
-from collections import deque
-import threading
-import re
 
-from app.core.logging_config import get_logger, set_live_log_capture
+from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync
 from app.core.database import get_database
 from app.models.unified_models import JobSchedule
 
 logger = get_logger(__name__)
 
-# Global in-memory log buffer for live logs
-live_log_buffer = deque(maxlen=200)  # Keep last 200 log entries
-log_buffer_lock = threading.Lock()
 
-def strip_ansi_codes(text: str) -> str:
-    """Remove ANSI color codes from text"""
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
-
-def add_live_log(level: str, message: str, timestamp: datetime = None):
-    """Add a log entry to the live log buffer"""
-    if timestamp is None:
-        timestamp = datetime.now()
-
-    # Strip ANSI color codes from message
-    clean_message = strip_ansi_codes(message)
-
-    # Filter out ALL system noise - only show errors and job progress
-    message_lower = clean_message.lower()
-    is_system_noise = any([
-        'http.request' in message_lower,
-        'http.response' in message_lower,
-        'select ' in message_lower,
-        'begin (implicit)' in message_lower,
-        'commit' in message_lower,
-        'rollback' in message_lower,
-        'sqlalchemy' in message_lower,
-        '/api/v1/' in message,
-        'info:     127.0.0.1' in message_lower,
-        'info:     ' in message_lower and 'http/1.1' in message_lower,
-        'cached since' in message_lower,
-        'generated in' in message_lower,
-        '[raw sql]' in message_lower,
-    ])
-
-    if is_system_noise:
-        return
-
-    # Only add ETL-related logs
-    is_etl_related = any([
-        'job progress' in message_lower,
-        'job' in message_lower and ('started' in message_lower or 'finished' in message_lower),
-        'extraction' in message_lower,
-        'bulk insert' in message_lower,
-        'processing' in message_lower and ('project' in message_lower or 'issue' in message_lower),
-        'step' in message_lower and ('project' in message_lower or 'issue' in message_lower),
-        'orchestrator' in message_lower,
-        'dev_status' in message_lower,
-        'staging' in message_lower,
-        'rate limit' in message_lower,
-        'checkpoint' in message_lower,
-    ])
-
-    if is_etl_related or level.lower() in ['error', 'warning']:
-        with log_buffer_lock:
-            live_log_buffer.append({
-                'timestamp': timestamp.isoformat(),
-                'level': level.lower(),
-                'message': clean_message.strip()
-            })
-
-def get_live_logs_from_buffer() -> List[Dict[str, Any]]:
-    """Get current live logs from buffer"""
-    with log_buffer_lock:
-        return list(live_log_buffer)
-
-# Register the live log capture function with the logging system
-set_live_log_capture(add_live_log)
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -706,25 +636,4 @@ async def update_system_setting(
         )
 
 
-# Live Logs Endpoint
-@router.get("/api/v1/logs/live")
-async def get_live_logs(token: str = Depends(verify_token)):
-    """Get recent live logs for the dashboard"""
-    try:
-        logs = get_live_logs_from_buffer()
 
-        # If no logs yet, show helpful message
-        if not logs:
-            logs = [
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "info",
-                    "message": "✅ Live logs ready! ETL job progress will appear here when jobs run."
-                }
-            ]
-
-        return {"logs": logs}
-
-    except Exception as e:
-        logger.error(f"Error getting live logs: {e}")
-        return {"logs": [{"timestamp": datetime.now().isoformat(), "level": "error", "message": f"Failed to read logs: {str(e)}"}]}

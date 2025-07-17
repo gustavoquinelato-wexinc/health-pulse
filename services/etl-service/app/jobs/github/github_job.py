@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
+from app.core.websocket_manager import get_websocket_manager
 from app.models.unified_models import JobSchedule, JiraDevDetailsStaging, Integration, Repository, PullRequest
 from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
@@ -27,7 +28,7 @@ import os
 logger = get_logger(__name__)
 
 
-def run_github_sync(session: Session, job_schedule: JobSchedule):
+async def run_github_sync(session: Session, job_schedule: JobSchedule):
     """
     Main GitHub sync function.
     
@@ -38,7 +39,12 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
     try:
         logger.info(f"Starting GitHub sync job (ID: {job_schedule.id})")
 
+        # Initialize WebSocket manager and clear previous progress
+        websocket_manager = get_websocket_manager()
+        websocket_manager.clear_job_progress("github_sync")
+
         # Get GitHub integration
+        await websocket_manager.send_progress_update("github_sync", 5.0, "Initializing GitHub integration...")
         github_integration = session.query(Integration).filter(
             Integration.name == "GitHub"
         ).first()
@@ -46,6 +52,7 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
         if not github_integration:
             error_msg = "No GitHub integration found. Please run initialize_integrations.py first."
             logger.error(f"ERROR: {error_msg}")
+            await websocket_manager.send_exception("github_sync", "ERROR", error_msg)
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
             return
@@ -57,15 +64,18 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
         # Process GitHub data with unified queue-based recovery
         if job_schedule.is_recovery_run():
             logger.info("Recovery run detected - resuming from checkpoint")
+            await websocket_manager.send_progress_update("github_sync", 15.0, "Resuming from checkpoint...")
         else:
             logger.info("Normal run - starting fresh")
+            await websocket_manager.send_progress_update("github_sync", 15.0, "Starting repository discovery...")
 
-        result = process_github_data_with_graphql(session, github_integration, github_token, job_schedule)
+        result = await process_github_data_with_graphql(session, github_integration, github_token, job_schedule)
         
         if result['success']:
             # Step 3: Link pull requests with Jira issues using staging data
             # This should happen even on partial success/rate limit to link the PRs that were processed
             logger.info("Step 3: Linking pull requests with Jira issues...")
+            await websocket_manager.send_progress_update("github_sync", 95.0, "Linking pull requests with Jira issues...")
             linking_result = link_pull_requests_with_jira_issues(session, github_integration)
 
             if linking_result['success']:
@@ -73,6 +83,7 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
                 logger.info(f"Successfully linked {linking_result['links_created']} pull requests with Jira issues")
             else:
                 logger.warning(f"PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
+                await websocket_manager.send_exception("github_sync", "WARNING", f"PR-Issue linking completed with warnings: {linking_result.get('error', 'Unknown error')}")
                 result['pr_links_created'] = linking_result.get('links_created', 0)
 
             # Check if this was a complete success (not partial or rate limited)
@@ -100,6 +111,19 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
                 job_schedule.set_finished()
                 session.commit()
 
+                # Send completion notification
+                await websocket_manager.send_completion(
+                    "github_sync",
+                    True,
+                    {
+                        'repos_processed': result['repos_processed'],
+                        'prs_processed': result['prs_processed'],
+                        'pr_links_created': result.get('pr_links_created', 0),
+                        'staging_cleared': True,
+                        'cycle_complete': True
+                    }
+                )
+
                 logger.info("GitHub sync completed successfully")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
                 logger.info(f"   • Pull requests processed: {result['prs_processed']}")
@@ -110,10 +134,24 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
             else:
                 # Partial Success or Rate Limit: Keep staging data, keep job PENDING
                 logger.info("Partial success or rate limit reached - preserving state")
+                await websocket_manager.send_exception("github_sync", "WARNING", "Partial success - rate limit reached, will resume later")
 
                 # Keep GitHub job as PENDING for next run
                 job_schedule.status = 'PENDING'
                 session.commit()
+
+                # Send partial completion notification
+                await websocket_manager.send_completion(
+                    "github_sync",
+                    False,  # Partial success
+                    {
+                        'repos_processed': result['repos_processed'],
+                        'prs_processed': result['prs_processed'],
+                        'pr_links_created': result.get('pr_links_created', 0),
+                        'partial_success': True,
+                        'rate_limit_reached': result.get('rate_limit_reached', False)
+                    }
+                )
 
                 logger.info("GitHub sync partially completed")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
@@ -126,6 +164,8 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
             # Failure: Set this job back to PENDING with checkpoint
             error_msg = result.get('error', 'Unknown error')
             checkpoint_data = result.get('checkpoint_data', {})
+
+            await websocket_manager.send_exception("github_sync", "ERROR", error_msg, str(checkpoint_data))
 
             job_schedule.set_pending_with_checkpoint(
                 error_msg,
@@ -140,6 +180,18 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
             )
             session.commit()
 
+            # Send failure completion notification
+            await websocket_manager.send_completion(
+                "github_sync",
+                False,
+                {
+                    'error': error_msg,
+                    'checkpoint_saved': True,
+                    'repos_processed': result.get('repos_processed', 0),
+                    'prs_processed': result.get('prs_processed', 0)
+                }
+            )
+
             logger.error(f"GitHub sync failed: {error_msg}")
             logger.info(f"   • Checkpoint data saved for recovery")
 
@@ -153,7 +205,7 @@ def run_github_sync(session: Session, job_schedule: JobSchedule):
         session.commit()
 
 
-def discover_repositories_from_staging(session: Session, integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
+async def discover_repositories_from_staging(session: Session, integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
     Discover repositories combining GitHub Search API and Jira dev_status data.
 
@@ -238,7 +290,7 @@ def discover_repositories_from_staging(session: Session, integration: Integratio
         else:
             logger.info("No previous sync found, using default start date")
 
-        # Search repositories
+        # Step 2: Search repositories using GitHub API
         repos_from_search = github_client.search_repositories(org, start_date, end_date, name_filter)
         logger.info(f"Found {len(repos_from_search)} repositories from GitHub Search API")
 
@@ -541,7 +593,7 @@ def link_pull_requests_with_jira_issues(session: Session, github_integration: In
         }
 
 
-def process_github_data_with_graphql(session: Session, integration: Integration, github_token: str, job_schedule: JobSchedule) -> Dict[str, Any]:
+async def process_github_data_with_graphql(session: Session, integration: Integration, github_token: str, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
     Process GitHub data using GraphQL API for efficient data fetching with queue-based recovery.
 
@@ -585,7 +637,7 @@ def process_github_data_with_graphql(session: Session, integration: Integration,
         else:
             # Normal mode: Discover repositories
             logger.info("Normal mode: Discovering repositories")
-            repos_result = discover_repositories_from_staging(session, integration, job_schedule)
+            repos_result = await discover_repositories_from_staging(session, integration, job_schedule)
             if not repos_result['success']:
                 return repos_result
 

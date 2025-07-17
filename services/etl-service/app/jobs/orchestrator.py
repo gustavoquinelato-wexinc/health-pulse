@@ -168,7 +168,7 @@ async def run_jira_sync_async(job_schedule_id: int):
                 return
 
             logger.info(f"STARTING: Jira sync job (ID: {job_schedule_id})")
-            await asyncio.to_thread(run_jira_sync, session, job_schedule)
+            await run_jira_sync(session, job_schedule)
 
     except Exception as e:
         logger.error(f"ERROR: Error in async Jira sync: {e}")
@@ -194,7 +194,7 @@ async def run_github_sync_async(job_schedule_id: int):
                 return
 
             logger.info(f"STARTING: GitHub sync job (ID: {job_schedule_id})")
-            await asyncio.to_thread(run_github_sync, session, job_schedule)
+            await run_github_sync(session, job_schedule)
 
     except Exception as e:
         logger.error(f"ERROR: Error in async GitHub sync: {e}")

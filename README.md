@@ -56,7 +56,7 @@ pulse-platform/
   - **Job Orchestration**: Active/Passive model with smart scheduling
   - **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
   - **Rate Limit Handling**: Graceful API rate limit management
-  - **Real-time Dashboard**: Live job monitoring and control
+  - **WebSocket Dashboard**: Real-time progress tracking with exception-only logging
   - **Pause/Resume**: Intelligent job control with status management
 - **Port**: 8000
 - **Documentation**: [ETL Service README](services/etl-service/README.md)
@@ -76,7 +76,7 @@ pulse-platform/
 - **Purpose**: React-based user interface and dashboard
 - **Technology**: React, TypeScript, Tailwind CSS
 - **Features**:
-  - **ETL Dashboard**: Real-time job monitoring and controls
+  - **ETL Dashboard**: WebSocket-based real-time job monitoring and controls
   - **Analytics Views**: Data visualization and insights
   - **User Management**: Authentication and role management
   - **Responsive Design**: Mobile-friendly interface
@@ -202,7 +202,7 @@ python scripts/init_sample_data.py
 
 ## 📈 Monitoring & Observability
 
-- **Job Status**: Real-time job monitoring dashboard
+- **Job Status**: WebSocket-based real-time job monitoring dashboard
 - **Logs**: Structured logging with colored console output
 - **Metrics**: Job execution metrics and performance tracking
 - **Health Checks**: Service health monitoring endpoints
@@ -230,7 +230,7 @@ python scripts/load_test.py
 - ✅ **Checkpoint Recovery**: Precise failure recovery with cursor tracking
 - ✅ **Rate Limit Handling**: Graceful API rate limit management
 - ✅ **Job Orchestration**: Active/Passive model with smart scheduling
-- ✅ **Real-time Dashboard**: Live job monitoring and control
+- ✅ **WebSocket Dashboard**: Real-time progress tracking with exception-only logging
 
 ### **Data Processing**
 - ✅ **Bulk Operations**: Efficient batch processing for large datasets
@@ -242,7 +242,7 @@ python scripts/load_test.py
 - ✅ **Pause/Resume**: Intelligent job control with status management
 - ✅ **Force Start/Stop**: Manual job control with safety mechanisms
 - ✅ **Recovery Strategies**: Different recovery patterns per integration
-- ✅ **Monitoring**: Real-time status updates and progress tracking
+- ✅ **Monitoring**: WebSocket-based real-time status updates and progress tracking
 
 ## 🤝 Contributing
 

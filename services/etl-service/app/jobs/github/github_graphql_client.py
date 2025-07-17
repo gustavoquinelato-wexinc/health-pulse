@@ -157,8 +157,8 @@ class GitHubGraphQLClient:
           repository(owner: $owner, name: $repoName) {
             pullRequests(
               first: 100,
-              after: $prCursor, 
-              orderBy: {field: UPDATED_AT, direction: ASC}
+              after: $prCursor,
+              orderBy: {field: UPDATED_AT, direction: DESC}  # DESC for early termination optimization
             ) {
               pageInfo {
                 endCursor

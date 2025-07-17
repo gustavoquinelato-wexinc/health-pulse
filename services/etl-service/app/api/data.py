@@ -9,7 +9,7 @@ from sqlalchemy import func, desc
 from typing import Optional, List
 from app.core.database import get_db_session
 from app.models.unified_models import (
-    Issue, Commit, PullRequest, User, Project, Client
+    Issue, PullRequestCommit, PullRequest, Project, Client, Repository
 )
 from app.schemas.api_schemas import (
     DataSummaryResponse, IssuesListResponse, CommitsListResponse,
@@ -30,27 +30,24 @@ async def get_data_summary(db: Session = Depends(get_db_session)):
     try:
         # Get counts for each data type
         issues_count = db.query(func.count(Issue.id)).scalar() or 0
-        commits_count = db.query(func.count(Commit.id)).scalar() or 0
+        commits_count = db.query(func.count(PullRequestCommit.id)).scalar() or 0
         pull_requests_count = db.query(func.count(PullRequest.id)).scalar() or 0
-        users_count = db.query(func.count(User.id)).scalar() or 0
+        users_count = 0  # No User model currently - could be derived from assignees/authors
         projects_count = db.query(func.count(Project.id)).scalar() or 0
         clients_count = db.query(func.count(Client.id)).scalar() or 0
-        
+
         # Get latest update timestamps
-        latest_issue = db.query(func.max(Issue.updated_at)).scalar()
-        latest_commit = db.query(func.max(Commit.updated_at)).scalar()
-        latest_pr = db.query(func.max(PullRequest.updated_at)).scalar()
+        latest_issue = db.query(func.max(Issue.last_updated_at)).scalar()
+        latest_commit = db.query(func.max(PullRequestCommit.last_updated_at)).scalar()
+        latest_pr = db.query(func.max(PullRequest.last_updated_at)).scalar()
         
         return DataSummaryResponse(
-            total_issues=issues_count,
-            total_commits=commits_count,
-            total_pull_requests=pull_requests_count,
-            total_users=users_count,
-            total_projects=projects_count,
-            total_clients=clients_count,
-            last_updated_issues=latest_issue,
-            last_updated_commits=latest_commit,
-            last_updated_pull_requests=latest_pr
+            integrations_count=0,  # TODO: Add integrations count when needed
+            projects_count=projects_count,
+            issues_count=issues_count,
+            commits_count=commits_count,
+            pull_requests_count=pull_requests_count,
+            last_sync_at=latest_pr  # Use latest PR update as overall sync indicator
         )
         
     except Exception as e:
@@ -139,38 +136,37 @@ async def get_commits(
         CommitsListResponse: List of commits with metadata
     """
     try:
-        # Build query
-        query = db.query(Commit)
-        
+        # Build query - join with PullRequest and Repository to get repository info
+        query = db.query(PullRequestCommit).join(PullRequest).join(Repository)
+
         # Apply filters
         if repository:
-            query = query.filter(Commit.repository_name == repository)
-        
+            query = query.filter(Repository.name == repository)
+
         # Get total count before pagination
         total_count = query.count()
-        
+
         # Apply pagination and ordering
-        commits = query.order_by(desc(Commit.commit_date)).offset(offset).limit(limit).all()
-        
+        commits = query.order_by(desc(PullRequestCommit.committed_date)).offset(offset).limit(limit).all()
+
         # Convert to response format
         commit_list = [
             CommitInfo(
-                id=commit.id,
-                sha=commit.sha,
-                message=commit.message,
+                sha=commit.external_id,  # external_id is the SHA
+                issue_id=commit.pull_request.issue_id if commit.pull_request.issue_id else 0,
+                repository_url=commit.pull_request.repository.url if commit.pull_request.repository else None,
                 author_name=commit.author_name,
-                repository_name=commit.repository_name,
-                commit_date=commit.commit_date,
-                created_at=commit.created_at
+                message=commit.message,
+                commit_date=commit.committed_date
             )
             for commit in commits
         ]
-        
+
         return CommitsListResponse(
             commits=commit_list,
             total_count=total_count,
-            limit=limit,
-            offset=offset
+            page=offset // limit + 1,
+            page_size=limit
         )
         
     except Exception as e:

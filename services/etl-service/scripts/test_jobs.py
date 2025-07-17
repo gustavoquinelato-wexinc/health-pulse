@@ -1038,7 +1038,8 @@ def run_full_github_extraction_manual(session, github_integration, github_token,
         print("   • Pull request extraction using GraphQL")
 
         from app.jobs.github.github_job import process_github_data_with_graphql
-        result = process_github_data_with_graphql(session, github_integration, github_token, github_job)
+        import asyncio
+        result = asyncio.run(process_github_data_with_graphql(session, github_integration, github_token, github_job))
 
         if result['success']:
             # Step 2: Link pull requests with Jira issues using staging data

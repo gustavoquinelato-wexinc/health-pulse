@@ -493,6 +493,8 @@ class JobSchedule(Base, BaseEntity):
     error_message = Column(Text, nullable=True, quote=False, name="error_message")
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
 
+
+
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
         self.last_repo_sync_checkpoint = None
@@ -565,6 +567,8 @@ class JobSchedule(Base, BaseEntity):
     def is_recovery_run(self) -> bool:
         """Check if this is a recovery run (has repo queue or cursor checkpoints)."""
         return self.repo_processing_queue is not None or self.last_pr_cursor is not None
+
+
 
     def get_checkpoint_state(self) -> Dict[str, Any]:
         """Get current checkpoint state for recovery."""
