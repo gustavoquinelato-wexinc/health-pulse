@@ -630,6 +630,89 @@ def initialize_system_settings_non_interactive():
         traceback.print_exc()
         return False
 
+
+def initialize_default_users_non_interactive():
+    """Initialize default users for authentication without user confirmation."""
+    try:
+        import asyncio
+        from app.auth.auth_service import get_auth_service
+
+        print("👥 Creating default users...")
+
+        # Default users to create
+        default_users = [
+            {
+                "email": "admin",
+                "password": "pulse",
+                "first_name": "System",
+                "last_name": "Administrator",
+                "role": "admin",
+                "is_admin": True
+            },
+            {
+                "email": "gustavo_user",
+                "password": "pulse",
+                "first_name": "Gustavo",
+                "last_name": "User",
+                "role": "user",
+                "is_admin": False
+            },
+            {
+                "email": "gustavo_view",
+                "password": "pulse",
+                "first_name": "Gustavo",
+                "last_name": "Viewer",
+                "role": "viewer",
+                "is_admin": False
+            }
+        ]
+
+        auth_service = get_auth_service()
+
+        async def create_users():
+            # Get the default client (WEX) - should be client_id = 1
+            from app.models.unified_models import Client
+            from app.core.database import get_database
+
+            database = get_database()
+            with database.get_session_context() as session:
+                default_client = session.query(Client).filter(Client.name == 'WEX').first()
+                if not default_client:
+                    print(f"   ❌ Default client 'WEX' not found. Cannot create users.")
+                    return
+
+                client_id = default_client.id
+                print(f"   📋 Using client: {default_client.name} (ID: {client_id})")
+
+            for user_data in default_users:
+                user = await auth_service.create_user(
+                    email=user_data["email"],
+                    password=user_data["password"],
+                    client_id=client_id,
+                    first_name=user_data["first_name"],
+                    last_name=user_data["last_name"],
+                    role=user_data["role"],
+                    is_admin=user_data["is_admin"]
+                )
+
+                if user:
+                    print(f"   ✅ Created user: {user_data['email']} (role: {user_data['role']})")
+                else:
+                    print(f"   ⚠️  User already exists or failed to create: {user_data['email']}")
+
+        # Run the async function
+        asyncio.run(create_users())
+
+        print("✅ Default users initialization completed")
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed to initialize default users: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def print_final_summary(reset_success, recreate_success, integration_success):
     """Print final summary of operations."""
     print("\n" + "=" * 60)
@@ -733,7 +816,11 @@ def main():
         print("🔧 Initializing system settings...")
         system_settings_success = initialize_system_settings_non_interactive()
 
-        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success)
+        # Initialize default users for authentication
+        print("🔧 Initializing default users...")
+        users_success = initialize_default_users_non_interactive()
+
+        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success and users_success)
 
     elif args.drop_only:
         print("🗑️  Running drop-only mode (non-interactive)")
@@ -799,7 +886,11 @@ def main():
                 print("🔧 Initializing system settings...")
                 system_settings_success = initialize_system_settings_non_interactive()
 
-                integration_success = integration_success and job_schedules_success and system_settings_success
+                # Initialize default users for authentication
+                print("🔧 Initializing default users...")
+                users_success = initialize_default_users_non_interactive()
+
+                integration_success = integration_success and job_schedules_success and system_settings_success and users_success
 
             print_final_summary(success, recreate_success, integration_success)
         else:

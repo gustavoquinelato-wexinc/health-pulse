@@ -21,18 +21,18 @@ from datetime import datetime
 from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync
 from app.core.database import get_database
-from app.models.unified_models import JobSchedule
+from app.models.unified_models import JobSchedule, User
+from app.auth.auth_service import get_auth_service
+from app.auth.auth_middleware import (
+    get_current_user, require_authentication, require_admin,
+    get_client_ip, get_user_agent
+)
 
 logger = get_logger(__name__)
-
-
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
-
-# Security
-security = HTTPBearer(auto_error=False)
 
 router = APIRouter()
 
@@ -44,28 +44,12 @@ class LoginRequest(BaseModel):
 class JobToggleRequest(BaseModel):
     active: bool
 
-# Simple hardcoded authentication
-VALID_CREDENTIALS = {
-    "gustavo.quinelato@wexinc.com": "pulse"
-}
-
-def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    """Verify JWT token (simplified for demo)"""
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
-        )
-    
-    # For demo purposes, we'll just check if token exists
-    # In production, you'd verify the JWT token properly
-    if credentials.credentials != "valid_pulse_token":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
-    
-    return credentials.credentials
+# Legacy function for backward compatibility - now uses proper authentication
+async def verify_token(user: User = Depends(require_authentication)):
+    """Verify JWT token - now uses proper authentication system"""
+    # Return user for routes that need it, but maintain backward compatibility
+    # for routes that just need authentication verification
+    return user
 
 # Web page routes
 @router.get("/", response_class=HTMLResponse)
@@ -85,29 +69,36 @@ async def dashboard_page(request: Request):
 
 # Authentication API routes
 @router.post("/auth/login")
-async def login(login_request: LoginRequest):
+async def login(login_request: LoginRequest, request: Request):
     """Handle login authentication"""
     try:
         email = login_request.email.lower().strip()
         password = login_request.password
-        
-        # Check credentials
-        if email in VALID_CREDENTIALS and VALID_CREDENTIALS[email] == password:
-            # In production, generate a proper JWT token
+
+        # Get client info for session tracking
+        ip_address = get_client_ip(request)
+        user_agent = get_user_agent(request)
+
+        # Authenticate user
+        auth_service = get_auth_service()
+        result = await auth_service.authenticate_local(email, password, ip_address, user_agent)
+
+        if result:
+            logger.info(f"Successful login for user: {email}")
             return {
                 "success": True,
-                "token": "valid_pulse_token",
-                "user": {
-                    "email": email,
-                    "name": "Gustavo Quinelato"
-                }
+                "token": result["token"],
+                "user": result["user"]
             }
         else:
+            logger.warning(f"Failed login attempt for email: {email}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
             )
-            
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(
@@ -115,9 +106,43 @@ async def login(login_request: LoginRequest):
             detail="Login failed"
         )
 
+
+@router.post("/auth/logout")
+async def logout(request: Request, user: User = Depends(require_authentication)):
+    """Handle user logout"""
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+
+            auth_service = get_auth_service()
+            success = await auth_service.invalidate_session(token)
+
+            if success:
+                logger.info(f"User logged out: {user.email}")
+                return {"success": True, "message": "Logged out successfully"}
+            else:
+                logger.warning(f"Failed to invalidate session for user: {user.email}")
+                return {"success": False, "message": "Session not found"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No token provided"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )
+
 # Job management API routes
 @router.get("/api/v1/jobs/status")
-async def get_jobs_status(token: str = Depends(verify_token)):
+async def get_jobs_status(user: User = Depends(verify_token)):
     """Get current status of all jobs with detailed information"""
     try:
         # Get basic job status
@@ -159,8 +184,8 @@ async def get_jobs_status(token: str = Depends(verify_token)):
         )
 
 @router.post("/api/v1/jobs/{job_name}/start")
-async def start_job(job_name: str, token: str = Depends(verify_token)):
-    """Force start a specific job"""
+async def start_job(job_name: str, user: User = Depends(require_admin)):
+    """Force start a specific job - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
             raise HTTPException(
@@ -217,8 +242,8 @@ async def start_job(job_name: str, token: str = Depends(verify_token)):
         )
 
 @router.post("/api/v1/jobs/{job_name}/stop")
-async def stop_job(job_name: str, token: str = Depends(verify_token)):
-    """Force stop a specific job"""
+async def stop_job(job_name: str, user: User = Depends(require_admin)):
+    """Force stop a specific job - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
             raise HTTPException(
