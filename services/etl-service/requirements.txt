@@ -11,3 +11,8 @@ python-multipart
 psutil
 bcrypt
 PyJWT
+pydantic[email]
+pydantic-settings
+email-validator
+dnspython
+requests

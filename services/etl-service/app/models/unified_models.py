@@ -98,7 +98,8 @@ class UserPermission(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, quote=False, name="user_id")
     resource = Column(String(100), nullable=False, quote=False, name="resource")  # 'etl_jobs', 'dashboards', 'settings'
-    action = Column(String(50), nullable=False, quote=False, name="action")  # 'read', 'write', 'execute', 'admin'
+    action = Column(String(50), nullable=False, quote=False, name="action")  # 'read', 'execute', 'delete', 'admin'
+    granted = Column(Boolean, nullable=False, default=True, quote=False, name="granted")  # True = grant, False = deny
 
     # Relationships
     user = relationship("User", back_populates="permissions")
@@ -313,7 +314,7 @@ class Issue(Base, BaseEntity):
     # New relationships for development data
     pull_requests = relationship("PullRequest", back_populates="issue")
     changelogs = relationship("IssueChangelog", back_populates="issue")
-    dev_details_staging = relationship("JiraDevDetailsStaging", back_populates="issue")
+    pr_links = relationship("JiraPullRequestLinks", back_populates="issue")
 
 class IssueChangelog(Base, BaseEntity):
     """Issue status change history table"""
@@ -374,6 +375,7 @@ class PullRequest(Base, BaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")
+    external_repo_id = Column(String, quote=False, name="external_repo_id")  # GitHub repository ID for linking
     repository_id = Column(Integer, ForeignKey('repositories.id'), nullable=False, quote=False, name="repository_id")
     issue_id = Column(Integer, ForeignKey('issues.id'), nullable=True, quote=False, name="issue_id")
     number = Column(Integer, quote=False, name="number")
@@ -567,6 +569,19 @@ class JobSchedule(Base, BaseEntity):
         self.last_review_cursor = None
         self.last_comment_cursor = None
         self.last_review_thread_cursor = None
+
+    def has_recovery_checkpoints(self) -> bool:
+        """Check if there are any remaining recovery checkpoints."""
+        return any([
+            self.last_repo_sync_checkpoint is not None,
+            self.repo_processing_queue is not None,
+            self.last_pr_cursor is not None,
+            self.current_pr_node_id is not None,
+            self.last_commit_cursor is not None,
+            self.last_review_cursor is not None,
+            self.last_comment_cursor is not None,
+            self.last_review_thread_cursor is not None
+        ])
         self.error_message = None
         self.retry_count = 0
 
@@ -748,15 +763,15 @@ class JobSchedule(Base, BaseEntity):
         return [repo for repo in queue if not repo.get("finished", False)]
 
 
-class JiraDevDetailsStaging(Base, BaseEntity):
+class JiraPullRequestLinks(Base, BaseEntity):
     """
-    Staging table for passing dev_status data between Jira and GitHub jobs.
+    Permanent table storing Jira issue to PR links from dev_status API.
 
-    This table temporarily stores raw Jira dev_status responses to decouple
-    the Jira extraction job from the GitHub enrichment job.
+    This table stores the facts about which PRs are linked to which Jira issues,
+    allowing for clean join-based queries without complex staging logic.
     """
 
-    __tablename__ = 'jira_dev_details_staging'
+    __tablename__ = 'jira_pull_request_links'
 
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -764,25 +779,15 @@ class JiraDevDetailsStaging(Base, BaseEntity):
     # Foreign keys
     issue_id = Column(Integer, ForeignKey('issues.id'), nullable=False, quote=False, name="issue_id")
 
-    # Data payload
-    dev_status_payload = Column(Text, nullable=False, quote=False, name="dev_status_payload")  # JSON as text for PostgreSQL compatibility
-    processed = Column(Boolean, default=False, quote=False, name="processed")
+    # PR identification (for joining with pull_requests table)
+    external_repo_id = Column(String, nullable=False, quote=False, name="external_repo_id")  # GitHub repo ID
+    repo_full_name = Column(String, nullable=False, quote=False, name="repo_full_name")  # GitHub repo full name (e.g., "wexinc/health-api")
+    pull_request_number = Column(Integer, nullable=False, quote=False, name="pull_request_number")
+
+    # Metadata from dev_status API
+    branch_name = Column(String, quote=False, name="branch_name")
+    commit_sha = Column(String, quote=False, name="commit_sha")
+    pr_status = Column(String, quote=False, name="pr_status")  # 'OPEN', 'MERGED', 'DECLINED'
 
     # Relationships
-    issue = relationship("Issue", back_populates="dev_details_staging")
-
-    def get_dev_status_data(self) -> Dict:
-        """Get dev_status data as a dictionary."""
-        if not self.dev_status_payload:
-            return {}
-
-        import json
-        try:
-            return json.loads(self.dev_status_payload) if isinstance(self.dev_status_payload, str) else self.dev_status_payload
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    def set_dev_status_data(self, data: Dict):
-        """Set dev_status data from a dictionary."""
-        import json
-        self.dev_status_payload = json.dumps(data)
+    issue = relationship("Issue", back_populates="pr_links")

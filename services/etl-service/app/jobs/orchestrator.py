@@ -22,6 +22,7 @@ Job Status Flow:
 from sqlalchemy.orm import Session
 from app.core.database import get_database
 from app.core.logging_config import get_logger
+from app.core.job_manager import get_job_manager
 from app.models.unified_models import JobSchedule
 from fastapi import BackgroundTasks
 import asyncio
@@ -29,12 +30,15 @@ import asyncio
 logger = get_logger(__name__)
 
 
-async def trigger_jira_sync():
+async def trigger_jira_sync(force_manual=False, execution_params=None):
     """
     Trigger a Jira sync job via the orchestration system.
 
-    This function is used by the API to trigger Jira extraction.
-    It sets the jira_sync job to PENDING and runs the orchestrator.
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+                     (jira_sync=PENDING, github_sync=NOT_STARTED).
+                     If False, uses normal orchestrator logic.
+        execution_params: Optional execution parameters for the job
 
     Returns:
         Dict containing job execution results
@@ -42,52 +46,55 @@ async def trigger_jira_sync():
     try:
         database = get_database()
         with database.get_session() as session:
-            # Find or create the jira_sync job
+            # Find or create the jobs
             jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
 
-            if not jira_job:
+            if not jira_job or not github_job:
                 # Initialize job schedules if they don't exist
                 initialize_job_schedules()
                 jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+                github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
 
-            if not jira_job:
+            if not jira_job or not github_job:
                 return {
                     'status': 'error',
-                    'message': 'Failed to initialize jira_sync job schedule',
+                    'message': 'Failed to initialize job schedules',
                     'issues_processed': 0,
                     'changelogs_processed': 0
                 }
 
-            # Set job to PENDING to trigger execution
-            jira_job.status = 'PENDING'
-            jira_job.error_message = None
-            session.commit()
+            if force_manual:
+                # Force correct job states for manual Jira execution:
+                # - jira_sync = PENDING (ready to run)
+                # - github_sync = NOT_STARTED (will be set to PENDING when Jira finishes)
+                jira_job.status = 'PENDING'
+                jira_job.error_message = None
+                github_job.status = 'NOT_STARTED'
+                github_job.error_message = None
+                session.commit()
 
-            logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id})")
-
-            # Run the orchestrator to process the job
-            await run_orchestrator()
-
-            # Check the job status after orchestration
-            session.refresh(jira_job)
-
-            if jira_job.status == 'FINISHED':
-                return {
-                    'status': 'success',
-                    'message': 'Jira sync completed successfully',
-                    'job_id': str(jira_job.id),
-                    'last_success_at': jira_job.last_success_at,
-                    'issues_processed': 0,  # TODO: Get actual counts from job results
-                    'changelogs_processed': 0  # TODO: Get actual counts from job results
-                }
+                logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - MANUAL MODE - forced job states")
+                logger.info(f"   - jira_sync: PENDING")
+                logger.info(f"   - github_sync: NOT_STARTED")
             else:
-                return {
-                    'status': 'error' if jira_job.status == 'PENDING' else jira_job.status,
-                    'message': jira_job.error_message or f'Job status: {jira_job.status}',
-                    'job_id': str(jira_job.id),
-                    'issues_processed': 0,
-                    'changelogs_processed': 0
-                }
+                # Normal mode: just set jira_sync to PENDING (for API/regular triggers)
+                jira_job.status = 'PENDING'
+                jira_job.error_message = None
+                session.commit()
+
+                logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - NORMAL MODE")
+
+            # Trigger the orchestrator to process the job (non-blocking)
+            asyncio.create_task(run_orchestrator())
+
+            # Return immediately - job will run in background
+            return {
+                'status': 'triggered',
+                'message': 'Jira sync job triggered successfully',
+                'job_id': str(jira_job.id),
+                'note': 'Job is running in background. Check job status for progress.'
+            }
 
     except Exception as e:
         logger.error(f"ERROR: Error triggering Jira sync: {e}")
@@ -96,6 +103,82 @@ async def trigger_jira_sync():
             'message': f'Failed to trigger Jira sync: {str(e)}',
             'issues_processed': 0,
             'changelogs_processed': 0
+        }
+
+
+async def trigger_github_sync(force_manual=False, execution_params=None):
+    """
+    Trigger a GitHub sync job via the orchestration system.
+
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+                     (jira_sync=FINISHED, github_sync=PENDING).
+                     If False, uses normal orchestrator logic.
+        execution_params: Optional execution parameters for the job
+
+    Returns:
+        Dict containing job execution results
+    """
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # Find or create the jobs
+            jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+
+            if not jira_job or not github_job:
+                # Initialize job schedules if they don't exist
+                initialize_job_schedules()
+                jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+                github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+
+            if not jira_job or not github_job:
+                return {
+                    'status': 'error',
+                    'message': 'Failed to initialize job schedules',
+                    'pull_requests_processed': 0,
+                    'commits_processed': 0
+                }
+
+            if force_manual:
+                # Force correct job states for manual GitHub execution:
+                # - jira_sync = FINISHED (prerequisite completed)
+                # - github_sync = PENDING (ready to run)
+                jira_job.status = 'FINISHED'
+                jira_job.error_message = None
+                github_job.status = 'PENDING'
+                github_job.error_message = None
+                session.commit()
+
+                logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - MANUAL MODE - forced job states")
+                logger.info(f"   - jira_sync: FINISHED")
+                logger.info(f"   - github_sync: PENDING")
+            else:
+                # Normal mode: just set github_sync to PENDING (for API/regular triggers)
+                github_job.status = 'PENDING'
+                github_job.error_message = None
+                session.commit()
+
+                logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - NORMAL MODE")
+
+            # Trigger the orchestrator to process the job (non-blocking)
+            asyncio.create_task(run_orchestrator())
+
+            # Return immediately - job will run in background
+            return {
+                'status': 'triggered',
+                'message': 'GitHub sync job triggered successfully',
+                'job_id': str(github_job.id),
+                'note': 'Job is running in background. Check job status for progress.'
+            }
+
+    except Exception as e:
+        logger.error(f"ERROR: Error triggering GitHub sync: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to trigger GitHub sync: {str(e)}',
+            'pull_requests_processed': 0,
+            'commits_processed': 0
         }
 
 
@@ -128,7 +211,7 @@ async def run_orchestrator():
 
             logger.info(f"LOCKED: job {pending_job.job_name} (status: RUNNING)")
 
-            # Trigger the appropriate passive job asynchronously
+            # Trigger the appropriate passive job asynchronously (jobs will register themselves)
             if pending_job.job_name == 'jira_sync':
                 logger.info("TRIGGERING: Jira sync job...")
                 asyncio.create_task(run_jira_sync_async(pending_job.id))
@@ -150,16 +233,19 @@ async def run_orchestrator():
         traceback.print_exc()
 
 
-async def run_jira_sync_async(job_schedule_id: int):
+async def run_jira_sync_async(job_schedule_id: int, execution_params=None):
     """
     Asynchronous wrapper for Jira sync job.
 
     Args:
         job_schedule_id: ID of the job schedule record
+        execution_params: Optional execution parameters for the job
     """
     try:
+
+
         from app.jobs.jira.jira_job import run_jira_sync
-        
+
         database = get_database()
         with database.get_session() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
@@ -168,7 +254,21 @@ async def run_jira_sync_async(job_schedule_id: int):
                 return
 
             logger.info(f"STARTING: Jira sync job (ID: {job_schedule_id})")
-            await run_jira_sync(session, job_schedule)
+
+            # Parse execution parameters if provided
+            if execution_params:
+                from app.jobs.jira.jira_job import JiraExecutionMode
+
+                mode = JiraExecutionMode(execution_params.mode) if execution_params.mode != "all" else JiraExecutionMode.ALL
+                await run_jira_sync(
+                    session, job_schedule,
+                    execution_mode=mode,
+                    custom_query=execution_params.custom_query,
+                    target_projects=execution_params.target_projects
+                )
+            else:
+                # Default behavior (ALL mode)
+                await run_jira_sync(session, job_schedule)
 
     except Exception as e:
         logger.error(f"ERROR: Error in async Jira sync: {e}")
@@ -176,16 +276,19 @@ async def run_jira_sync_async(job_schedule_id: int):
         traceback.print_exc()
 
 
-async def run_github_sync_async(job_schedule_id: int):
+async def run_github_sync_async(job_schedule_id: int, execution_params=None):
     """
     Asynchronous wrapper for GitHub sync job.
 
     Args:
         job_schedule_id: ID of the job schedule record
+        execution_params: Optional execution parameters for the job
     """
     try:
+
+
         from app.jobs.github.github_job import run_github_sync
-        
+
         database = get_database()
         with database.get_session() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
@@ -194,7 +297,21 @@ async def run_github_sync_async(job_schedule_id: int):
                 return
 
             logger.info(f"STARTING: GitHub sync job (ID: {job_schedule_id})")
-            await run_github_sync(session, job_schedule)
+
+            # Parse execution parameters if provided
+            if execution_params:
+                from app.jobs.github.github_job import GitHubExecutionMode
+
+                mode = GitHubExecutionMode(execution_params.mode) if execution_params.mode != "all" else GitHubExecutionMode.ALL
+                await run_github_sync(
+                    session, job_schedule,
+                    execution_mode=mode,
+                    target_repository=execution_params.target_repository,
+                    target_repositories=execution_params.target_repositories
+                )
+            else:
+                # Default behavior (ALL mode)
+                await run_github_sync(session, job_schedule)
 
     except Exception as e:
         logger.error(f"ERROR: Error in async GitHub sync: {e}")

@@ -33,11 +33,11 @@ def paginate_commits(session: Session, graphql_client: GitHubGraphQLClient, pr_n
 
         while cursor:
             # Check rate limit
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("Rate limit threshold reached during commit pagination")
+            if graphql_client.is_rate_limited():
+                logger.warning("Rate limit reached during commit pagination")
                 return {
                     'success': False,
-                    'error': 'Rate limit threshold reached',
+                    'error': 'Rate limit reached',
                     'last_cursor': cursor
                 }
 
@@ -107,11 +107,11 @@ def paginate_reviews(session: Session, graphql_client: GitHubGraphQLClient, pr_n
         
         while cursor:
             # Check rate limit
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during review pagination")
+            if graphql_client.is_rate_limited():
+                logger.warning("⚠️ Rate limit reached during review pagination")
                 return {
                     'success': False,
-                    'error': 'Rate limit threshold reached',
+                    'error': 'Rate limit reached',
                     'last_cursor': cursor
                 }
             
@@ -181,11 +181,11 @@ def paginate_comments(session: Session, graphql_client: GitHubGraphQLClient, pr_
         
         while cursor:
             # Check rate limit
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during comment pagination")
+            if graphql_client.is_rate_limited():
+                logger.warning("⚠️ Rate limit reached during comment pagination")
                 return {
                     'success': False,
-                    'error': 'Rate limit threshold reached',
+                    'error': 'Rate limit reached',
                     'last_cursor': cursor
                 }
             
@@ -255,11 +255,11 @@ def paginate_review_threads(session: Session, graphql_client: GitHubGraphQLClien
         
         while cursor:
             # Check rate limit
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("⚠️ Rate limit threshold reached during review thread pagination")
+            if graphql_client.is_rate_limited():
+                logger.warning("⚠️ Rate limit reached during review thread pagination")
                 return {
                     'success': False,
-                    'error': 'Rate limit threshold reached',
+                    'error': 'Rate limit reached',
                     'last_cursor': cursor
                 }
             

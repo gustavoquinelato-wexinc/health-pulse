@@ -13,7 +13,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">Kairus Platform</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Pulse Platform</h1>
             </div>
             <nav className="flex space-x-8">
               <Link href="/dashboard" className="text-gray-600 hover:text-gray-900">
@@ -38,7 +38,7 @@ export default function HomePage() {
             <span className="text-blue-600"> Intelligence</span>
           </h1>
           <p className="mt-3 max-w-md mx-auto text-base text-gray-500 sm:text-lg md:mt-5 md:text-xl md:max-w-3xl">
-            Comprehensive platform for extracting, analyzing, and visualizing software engineering data 
+            Comprehensive platform for extracting, analyzing, and visualizing software engineering data
             from Jira, GitHub, and other development tools.
           </p>
           <div className="mt-5 max-w-md mx-auto sm:flex sm:justify-center md:mt-8">

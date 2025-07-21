@@ -639,10 +639,18 @@ def initialize_default_users_non_interactive():
 
         print("👥 Creating default users...")
 
-        # Default users to create
+        # Default users to create with new 3-role system
         default_users = [
             {
-                "email": "admin",
+                "email": "gustavo.quinelato@wexinc.com",
+                "password": "pulse",
+                "first_name": "Gustavo",
+                "last_name": "Quinelato",
+                "role": "admin",
+                "is_admin": True
+            },
+            {
+                "email": "admin@pulse.com",
                 "password": "pulse",
                 "first_name": "System",
                 "last_name": "Administrator",
@@ -650,19 +658,19 @@ def initialize_default_users_non_interactive():
                 "is_admin": True
             },
             {
-                "email": "gustavo_user",
+                "email": "user@pulse.com",
                 "password": "pulse",
-                "first_name": "Gustavo",
+                "first_name": "Test",
                 "last_name": "User",
                 "role": "user",
                 "is_admin": False
             },
             {
-                "email": "gustavo_view",
+                "email": "viewer@pulse.com",
                 "password": "pulse",
-                "first_name": "Gustavo",
+                "first_name": "Test",
                 "last_name": "Viewer",
-                "role": "viewer",
+                "role": "view",
                 "is_admin": False
             }
         ]
@@ -713,6 +721,64 @@ def initialize_default_users_non_interactive():
         return False
 
 
+def initialize_user_permissions_non_interactive():
+    """Initialize sample user permissions to demonstrate the permission system."""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import User, UserPermission, Client
+        from app.auth.permissions import Role, Resource, Action
+
+        print("🔐 Setting up user permissions...")
+
+        database = get_database()
+        with database.get_session_context() as session:
+            # Get the default client
+            default_client = session.query(Client).filter(Client.name == 'WEX').first()
+            if not default_client:
+                print("   ❌ Default client 'WEX' not found. Cannot create permissions.")
+                return False
+
+            client_id = default_client.id
+
+            # Get test user (non-admin user for demonstration)
+            test_user = session.query(User).filter(
+                User.email == 'user@pulse.com',
+                User.client_id == client_id
+            ).first()
+
+            if test_user:
+                # Grant additional permission to test user (e.g., log download)
+                existing_permission = session.query(UserPermission).filter(
+                    UserPermission.user_id == test_user.id,
+                    UserPermission.resource == Resource.LOG_DOWNLOAD.value,
+                    UserPermission.action == Action.EXECUTE.value
+                ).first()
+
+                if not existing_permission:
+                    permission = UserPermission(
+                        user_id=test_user.id,
+                        resource=Resource.LOG_DOWNLOAD.value,
+                        action=Action.EXECUTE.value,
+                        client_id=client_id,
+                        active=True
+                    )
+                    session.add(permission)
+                    print(f"   ✅ Granted log download permission to {test_user.email}")
+                else:
+                    print(f"   ⚠️  Log download permission already exists for {test_user.email}")
+
+            session.commit()
+
+        print("✅ User permissions initialization completed")
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed to initialize user permissions: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def print_final_summary(reset_success, recreate_success, integration_success):
     """Print final summary of operations."""
     print("\n" + "=" * 60)
@@ -723,11 +789,25 @@ def print_final_summary(reset_success, recreate_success, integration_success):
         print("   • All old tables and sequences were dropped")
         print("   • Fresh table structure was created")
         print("   • Integration data was initialized")
+        print("   • Default users and roles were created")
+        print("   • User permissions were configured")
         print("   • Database is ready for new data")
         print()
+        print("👥 Default Users Created:")
+        print("   • gustavo.quinelato@wexinc.com (admin) - password: pulse")
+        print("   • admin@pulse.com (admin) - password: pulse")
+        print("   • user@pulse.com (user) - password: pulse")
+        print("   • viewer@pulse.com (view) - password: pulse")
+        print()
+        print("🔐 Role Permissions:")
+        print("   • admin: Full system access and job control")
+        print("   • user: Dashboard access, no job control")
+        print("   • view: Read-only dashboard access")
+        print()
         print("💡 Next steps:")
-        print("   • Run the ETL service to start data extraction")
-        print("   • Or use the admin API to manage data")
+        print("   • Login at http://localhost:8000/login")
+        print("   • Use admin panel at http://localhost:8000/admin")
+        print("   • Run ETL jobs from the dashboard")
     elif reset_success and recreate_success and not integration_success:
         print("⚠️  Database reset completed with warnings")
         print()
@@ -820,7 +900,11 @@ def main():
         print("🔧 Initializing default users...")
         users_success = initialize_default_users_non_interactive()
 
-        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success and users_success)
+        # Initialize user permissions
+        print("🔧 Initializing user permissions...")
+        permissions_success = initialize_user_permissions_non_interactive()
+
+        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success and users_success and permissions_success)
 
     elif args.drop_only:
         print("🗑️  Running drop-only mode (non-interactive)")
@@ -890,7 +974,11 @@ def main():
                 print("🔧 Initializing default users...")
                 users_success = initialize_default_users_non_interactive()
 
-                integration_success = integration_success and job_schedules_success and system_settings_success and users_success
+                # Initialize user permissions
+                print("🔧 Initializing user permissions...")
+                permissions_success = initialize_user_permissions_non_interactive()
+
+                integration_success = integration_success and job_schedules_success and system_settings_success and users_success and permissions_success
 
             print_final_summary(success, recreate_success, integration_success)
         else:

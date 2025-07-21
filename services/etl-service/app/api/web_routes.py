@@ -13,18 +13,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, List
 import os
 from pathlib import Path
 from datetime import datetime
 
 from app.core.logging_config import get_logger
-from app.jobs.orchestrator import get_job_status, trigger_jira_sync
+from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
 from app.core.database import get_database
 from app.models.unified_models import JobSchedule, User
 from app.auth.auth_service import get_auth_service
 from app.auth.auth_middleware import (
-    get_current_user, require_authentication, require_admin,
+    get_current_user, require_authentication, require_admin, require_permission,
+    require_web_authentication, require_web_permission,
     get_client_ip, get_user_agent
 )
 
@@ -43,6 +44,15 @@ class LoginRequest(BaseModel):
 
 class JobToggleRequest(BaseModel):
     active: bool
+
+
+class JobExecutionParams(BaseModel):
+    """Parameters for job execution modes."""
+    mode: Optional[str] = "all"
+    custom_query: Optional[str] = None
+    target_repository: Optional[str] = None
+    target_repositories: Optional[List[str]] = None
+    target_projects: Optional[List[str]] = None
 
 # Legacy function for backward compatibility - now uses proper authentication
 async def verify_token(user: User = Depends(require_authentication)):
@@ -64,8 +74,120 @@ async def login_page(request: Request):
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Serve dashboard page"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    """Serve dashboard page (authentication handled by middleware)"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info for template
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """Serve admin panel page (authentication handled by middleware, check permissions here)"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_session() as session:
+            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
+                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+
+        return templates.TemplateResponse("admin.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Admin page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/logout", response_class=HTMLResponse)
+async def logout_page(request: Request):
+    """Handle web logout - clear all cookies and redirect to login"""
+
+    logger.info("=== LOGOUT PROCESS STARTED ===")
+
+    # First, invalidate the token on the server side
+    try:
+        token = request.cookies.get("pulse_token")
+        if token:
+            logger.info(f"Found token during logout: {token[:20]}...")
+            logger.info(f"Logging out user with token: {token[:20]}...")
+        else:
+            logger.info("No token found in cookies during logout")
+    except Exception as e:
+        logger.warning(f"Error during logout token handling: {e}")
+
+    logger.info("Creating logout response with cookie deletion...")
+    response = RedirectResponse(url="/login?message=logged_out", status_code=302)
+
+    # Clear the pulse_token cookie by setting it to empty with immediate expiration
+    logger.info("Clearing pulse_token cookie by setting to empty with immediate expiration...")
+    response.set_cookie(
+        key="pulse_token",
+        value="",  # Empty value
+        max_age=0,  # Immediate expiration
+        path="/",
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
+
+    # Also try the traditional delete_cookie method
+    logger.info("Also trying delete_cookie method...")
+    response.delete_cookie(
+        key="pulse_token",
+        path="/",
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
+
+    # Try alternative delete methods for safety
+    logger.info("Trying alternative delete methods...")
+    response.delete_cookie(key="pulse_token", path="/")
+    response.delete_cookie(key="pulse_token")
+
+    # Clear other potential auth cookies
+    other_cookies = ["session", "auth_token", "token", "jwt"]
+    for cookie_name in other_cookies:
+        response.delete_cookie(key=cookie_name, path="/")
+        response.delete_cookie(key=cookie_name)
+
+    logger.info("=== LOGOUT PROCESS COMPLETED ===")
+    logger.info(f"Redirecting to: /login?message=logged_out")
+
+    # Add aggressive cache control headers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+
+    return response
 
 # Authentication API routes
 @router.post("/auth/login")
@@ -85,11 +207,31 @@ async def login(login_request: LoginRequest, request: Request):
 
         if result:
             logger.info(f"Successful login for user: {email}")
-            return {
+
+            # Create response with token cookie
+            response_data = {
                 "success": True,
                 "token": result["token"],
                 "user": result["user"]
             }
+
+            from fastapi.responses import JSONResponse
+            response = JSONResponse(content=response_data)
+
+            # Set secure cookie with token (expires in 24 hours)
+            logger.info(f"Setting pulse_token cookie for user: {email}")
+            response.set_cookie(
+                key="pulse_token",
+                value=result["token"],
+                max_age=86400,  # 24 hours
+                path="/",  # Explicitly set path
+                httponly=True,  # Prevent XSS
+                secure=False,   # Set to True in production with HTTPS
+                samesite="lax"
+            )
+            logger.info("Cookie set successfully")
+
+            return response
         else:
             logger.warning(f"Failed login attempt for email: {email}")
             raise HTTPException(
@@ -121,10 +263,32 @@ async def logout(request: Request, user: User = Depends(require_authentication))
 
             if success:
                 logger.info(f"User logged out: {user.email}")
-                return {"success": True, "message": "Logged out successfully"}
+
+                # Create response and clear cookie with exact same parameters
+                from fastapi.responses import JSONResponse
+                response = JSONResponse(content={"success": True, "message": "Logged out successfully"})
+                response.delete_cookie(
+                    key="pulse_token",
+                    path="/",
+                    httponly=True,
+                    secure=False,
+                    samesite="lax"
+                )
+                return response
             else:
                 logger.warning(f"Failed to invalidate session for user: {user.email}")
-                return {"success": False, "message": "Session not found"}
+
+                # Still clear the cookie even if session invalidation failed
+                from fastapi.responses import JSONResponse
+                response = JSONResponse(content={"success": False, "message": "Session not found"})
+                response.delete_cookie(
+                    key="pulse_token",
+                    path="/",
+                    httponly=True,
+                    secure=False,
+                    samesite="lax"
+                )
+                return response
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,6 +305,110 @@ async def logout(request: Request, user: User = Depends(require_authentication))
         )
 
 # Job management API routes
+@router.get("/api/v1/jobs/{job_name}/schedule-details")
+async def get_job_schedule_details(job_name: str, user: User = Depends(require_permission("etl_jobs", "read"))):
+    """Get detailed job schedule information for a specific job"""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import JobSchedule
+        from sqlalchemy.orm import Session
+
+        database = get_database()
+
+        with database.get_session_context() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.job_name == job_name).first()
+
+            if not job_schedule:
+                raise HTTPException(status_code=404, detail=f"Job schedule not found for {job_name}")
+
+            # Convert to dict with all available fields
+            schedule_details = {
+                'id': job_schedule.id,
+                'job_name': job_schedule.job_name,
+                'status': job_schedule.status,
+                'last_run_started_at': job_schedule.last_run_started_at.isoformat() if job_schedule.last_run_started_at else None,
+                'last_success_at': job_schedule.last_success_at.isoformat() if job_schedule.last_success_at else None,
+                'created_at': job_schedule.created_at.isoformat() if job_schedule.created_at else None,
+                'last_updated_at': job_schedule.last_updated_at.isoformat() if job_schedule.last_updated_at else None,
+                'error_message': job_schedule.error_message,
+                'retry_count': job_schedule.retry_count,
+                'active': job_schedule.active,
+
+                # Checkpoint data (actual fields from model)
+                'last_repo_sync_checkpoint': job_schedule.last_repo_sync_checkpoint.isoformat() if job_schedule.last_repo_sync_checkpoint else None,
+                'repo_processing_queue': job_schedule.repo_processing_queue,
+                'last_pr_cursor': job_schedule.last_pr_cursor,
+                'current_pr_node_id': job_schedule.current_pr_node_id,
+                'last_commit_cursor': job_schedule.last_commit_cursor,
+                'last_review_cursor': job_schedule.last_review_cursor,
+                'last_comment_cursor': job_schedule.last_comment_cursor,
+                'last_review_thread_cursor': job_schedule.last_review_thread_cursor,
+
+                # Additional computed fields
+                'is_recovery_run': job_schedule.is_recovery_run(),
+                'checkpoint_state': job_schedule.get_checkpoint_state()
+            }
+
+            return schedule_details
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job schedule details for {job_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get job schedule details: {str(e)}")
+
+@router.get("/api/v1/github/rate-limits")
+async def get_github_rate_limits(user: User = Depends(require_permission("etl_jobs", "read"))):
+    """Get current GitHub API rate limits"""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import Integration
+        from app.core.config import AppConfig
+        import requests
+
+        database = get_database()
+
+        with database.get_session_context() as session:
+            # Get GitHub integration
+            github_integration = session.query(Integration).filter(Integration.name == 'GitHub').first()
+
+            if not github_integration:
+                raise HTTPException(status_code=404, detail="GitHub integration not found")
+
+            # Decrypt GitHub token
+            key = AppConfig.load_key()
+            github_token = AppConfig.decrypt_token(github_integration.password, key)
+
+            # Make request to GitHub rate limit endpoint
+            headers = {
+                'Authorization': f'token {github_token}',
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'ETL-Service/1.0'
+            }
+
+            response = requests.get('https://api.github.com/rate_limit', headers=headers)
+
+            if not response.ok:
+                raise HTTPException(status_code=response.status_code, detail=f"GitHub API error: {response.text}")
+
+            rate_limit_data = response.json()
+
+            # Extract only the required rate limits (core, search, graphql)
+            filtered_data = {
+                'core': rate_limit_data['resources']['core'],
+                'search': rate_limit_data['resources']['search'],
+                'graphql': rate_limit_data['resources']['graphql'],
+                'timestamp': rate_limit_data.get('rate', {}).get('reset', None)
+            }
+
+            return filtered_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting GitHub rate limits: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get GitHub rate limits: {str(e)}")
+
 @router.get("/api/v1/jobs/status")
 async def get_jobs_status(user: User = Depends(verify_token)):
     """Get current status of all jobs with detailed information"""
@@ -184,8 +452,12 @@ async def get_jobs_status(user: User = Depends(verify_token)):
         )
 
 @router.post("/api/v1/jobs/{job_name}/start")
-async def start_job(job_name: str, user: User = Depends(require_admin)):
-    """Force start a specific job - requires admin privileges"""
+async def start_job(
+    job_name: str,
+    execution_params: Optional[JobExecutionParams] = None,
+    user: User = Depends(require_permission("etl_jobs", "execute"))
+):
+    """Force start a specific job with optional execution parameters"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
             raise HTTPException(
@@ -193,43 +465,49 @@ async def start_job(job_name: str, user: User = Depends(require_admin)):
                 detail="Invalid job name"
             )
         
-        database = get_database()
-        with database.get_session() as session:
-            job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
-                JobSchedule.active == True
-            ).first()
-            
-            if not job:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Job not found"
-                )
-            
-            # Set job to PENDING to trigger execution
-            job.status = 'PENDING'
-            job.error_message = None
-            session.commit()
+        # Log execution parameters
+        if execution_params:
+            logger.info(f"Force starting job {job_name} in MANUAL MODE with parameters: {execution_params.dict()}")
+        else:
+            logger.info(f"Force starting job {job_name} in MANUAL MODE (default parameters)")
 
-            logger.info(f"Job {job_name} manually started")
+        # Use the appropriate trigger function with force_manual=True and execution parameters
+        # Run in background to avoid blocking the web request
+        import asyncio
+        if job_name == 'jira_sync':
+            asyncio.create_task(trigger_jira_sync(force_manual=True, execution_params=execution_params))
+            result = {
+                'status': 'triggered',
+                'message': f'Jira sync job triggered successfully',
+                'job_name': job_name
+            }
+        elif job_name == 'github_sync':
+            asyncio.create_task(trigger_github_sync(force_manual=True, execution_params=execution_params))
+            result = {
+                'status': 'triggered',
+                'message': f'GitHub sync job triggered successfully',
+                'job_name': job_name
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid job name"
+            )
 
-            # Immediately trigger orchestrator to pick up the PENDING job
-            try:
-                from app.jobs.orchestrator import run_orchestrator
-                import asyncio
-
-                # Run orchestrator in background to pick up the PENDING job
-                asyncio.create_task(run_orchestrator())
-                logger.info(f"Orchestrator triggered to pick up {job_name}")
-
-            except Exception as e:
-                logger.warning(f"Failed to trigger orchestrator after Force Start: {e}")
-                # Don't fail the Force Start if orchestrator trigger fails
-
+        # Return the result from the trigger function
+        if result.get('status') == 'success':
             return {
                 "success": True,
-                "message": f"Job {job_name} started successfully and orchestrator triggered",
-                "job_id": str(job.id)
+                "message": f"Job {job_name} completed successfully",
+                "job_id": result.get('job_id'),
+                "result": result
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Job {job_name} failed: {result.get('message', 'Unknown error')}",
+                "job_id": result.get('job_id'),
+                "result": result
             }
             
     except HTTPException:
@@ -242,7 +520,7 @@ async def start_job(job_name: str, user: User = Depends(require_admin)):
         )
 
 @router.post("/api/v1/jobs/{job_name}/stop")
-async def stop_job(job_name: str, user: User = Depends(require_admin)):
+async def stop_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
     """Force stop a specific job - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
@@ -250,51 +528,46 @@ async def stop_job(job_name: str, user: User = Depends(require_admin)):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid job name"
             )
-        
-        database = get_database()
-        with database.get_session() as session:
-            job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
-                JobSchedule.active == True
-            ).first()
-            
-            if not job:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Job not found"
-                )
-            
-            # Handle job stopping based on job type
-            if job.status == 'RUNNING':
-                if job_name == 'jira_sync':
-                    # Jira: Simple abort - saved items will be reprocessed later
-                    job.status = 'FINISHED'
-                    job.error_message = "Manually stopped - saved items will be reprocessed on next run"
-                    logger.info(f"Jira job manually stopped - clean abort")
 
-                elif job_name == 'github_sync':
-                    # GitHub: Set to PENDING with checkpoint for recovery
+        from app.core.job_manager import get_job_manager
+        job_manager = get_job_manager()
+
+        # Check if job is actually running
+        if not job_manager.is_job_running(job_name):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Job {job_name} is not currently running"
+            )
+
+        # Request cancellation
+        cancelled = job_manager.request_cancellation(job_name)
+
+        if cancelled:
+            # Also update database status
+            database = get_database()
+            with database.get_session() as session:
+                job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == job_name,
+                    JobSchedule.active == True
+                ).first()
+
+                if job and job.status == 'RUNNING':
                     job.status = 'PENDING'
-                    job.error_message = "Manually stopped - will resume from last checkpoint"
-                    job.retry_count += 1
-                    logger.info(f"GitHub job manually stopped - will resume from checkpoint")
+                    job.error_message = 'Job cancelled by user request'
+                    session.commit()
 
-                session.commit()
+            logger.info(f"Job {job_name} cancellation requested by user {user.email}")
 
-                return {
-                    "success": True,
-                    "message": f"Job {job_name} stopped successfully",
-                    "recovery_info": {
-                        "jira_sync": "Saved items will be reprocessed on next run",
-                        "github_sync": "Will resume from last checkpoint"
-                    }.get(job_name, "")
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Job {job_name} is not currently running"
-                }
-            
+            return {
+                "success": True,
+                "message": f"Cancellation requested for job {job_name}",
+                "note": "Job will stop at the next safe checkpoint"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to request cancellation for job {job_name}"
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -304,9 +577,67 @@ async def stop_job(job_name: str, user: User = Depends(require_admin)):
             detail=f"Failed to stop job {job_name}"
         )
 
+
+
+
+
+@router.get("/api/v1/jobs/status")
+async def get_jobs_status(user: User = Depends(require_permission("etl_jobs", "read"))):
+    """Get status of all jobs including running state"""
+    try:
+        from app.core.job_manager import get_job_manager
+        job_manager = get_job_manager()
+
+        database = get_database()
+        with database.get_session() as session:
+            jobs_status = {}
+
+            for job_name in ['jira_sync', 'github_sync']:
+                job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == job_name,
+                    JobSchedule.active == True
+                ).first()
+
+                if job:
+                    is_running = job.status == 'RUNNING'
+
+                    jobs_status[job_name] = {
+                        'id': str(job.id),
+                        'status': job.status,
+                        'is_running': is_running,
+                        'can_stop': False,  # Force stop removed
+                        'last_success_at': job.last_success_at.isoformat() if job.last_success_at else None,
+                        'error_message': job.error_message,
+                        'retry_count': job.retry_count
+                    }
+                else:
+                    jobs_status[job_name] = {
+                        'id': None,
+                        'status': 'NOT_FOUND',
+                        'is_running': False,
+                        'can_stop': False,
+                        'last_success_at': None,
+                        'error_message': None,
+                        'retry_count': 0
+                    }
+
+            return {
+                "success": True,
+                "jobs": jobs_status,
+                "running_jobs": job_manager.get_running_jobs()
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting jobs status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get jobs status"
+        )
+
+
 @router.post("/api/v1/jobs/{job_name}/toggle")
-async def toggle_job_active(job_name: str, request: JobToggleRequest, token: str = Depends(verify_token)):
-    """Toggle job active/inactive status"""
+async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User = Depends(require_permission("etl_jobs", "execute"))):
+    """Toggle job active/inactive status - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
             raise HTTPException(
@@ -347,7 +678,7 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, token: str
 
 
 @router.post("/api/v1/jobs/{job_name}/pause")
-async def pause_job(job_name: str, token: str = Depends(verify_token)):
+async def pause_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
     """Pause a specific job"""
     try:
         database = get_database()
@@ -389,7 +720,7 @@ async def pause_job(job_name: str, token: str = Depends(verify_token)):
 
 
 @router.post("/api/v1/jobs/{job_name}/unpause")
-async def unpause_job(job_name: str, token: str = Depends(verify_token)):
+async def unpause_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
     """Unpause a specific job"""
     try:
         database = get_database()
@@ -437,7 +768,7 @@ async def unpause_job(job_name: str, token: str = Depends(verify_token)):
 
 # Orchestrator Control Endpoints
 @router.post("/api/v1/orchestrator/start")
-async def force_start_orchestrator(token: str = Depends(verify_token)):
+async def force_start_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
     """Force start the orchestrator to check for PENDING jobs"""
     try:
         from app.jobs.orchestrator import run_orchestrator
@@ -462,7 +793,7 @@ async def force_start_orchestrator(token: str = Depends(verify_token)):
 
 
 @router.post("/api/v1/orchestrator/pause")
-async def pause_orchestrator(token: str = Depends(verify_token)):
+async def pause_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
     """Pause the scheduled orchestrator"""
     try:
         from app.main import scheduler
@@ -486,8 +817,8 @@ async def pause_orchestrator(token: str = Depends(verify_token)):
 
 
 @router.post("/api/v1/orchestrator/resume")
-async def resume_orchestrator(token: str = Depends(verify_token)):
-    """Resume the scheduled orchestrator"""
+async def resume_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
+    """Resume the scheduled orchestrator - requires admin privileges"""
     try:
         from app.main import scheduler
 
@@ -509,8 +840,84 @@ async def resume_orchestrator(token: str = Depends(verify_token)):
         )
 
 
+@router.post("/api/v1/jobs/{job_name}/set-active")
+async def set_job_active(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
+    """Set a specific job as active (PENDING) and set the other job as FINISHED"""
+    try:
+        if job_name not in ['jira_sync', 'github_sync']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid job name. Must be 'jira_sync' or 'github_sync'"
+            )
+
+        database = get_database()
+        with database.get_session() as session:
+            # Get both jobs
+            jira_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'jira_sync',
+                JobSchedule.active == True
+            ).first()
+
+            github_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'github_sync',
+                JobSchedule.active == True
+            ).first()
+
+            if not jira_job or not github_job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="One or both jobs not found"
+                )
+
+            # Check if any job is currently running
+            if jira_job.status == 'RUNNING' or github_job.status == 'RUNNING':
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot set active while a job is currently running"
+                )
+
+            # Set the requested job as PENDING and handle the other job based on its current status
+            if job_name == 'jira_sync':
+                jira_job.status = 'PENDING'
+                jira_job.error_message = None  # Clear any previous errors
+                other_job_name = 'github_sync'
+                other_job = github_job
+            else:  # github_sync
+                github_job.status = 'PENDING'
+                github_job.error_message = None  # Clear any previous errors
+                other_job_name = 'jira_sync'
+                other_job = jira_job
+
+            # Only set other job to FINISHED if it's not PAUSED
+            other_job_action = "unchanged (PAUSED)"
+            if other_job.status != 'PAUSED':
+                other_job.status = 'FINISHED'
+                other_job_action = "set to FINISHED"
+
+            session.commit()
+
+            logger.info(f"Job {job_name} set as active (PENDING) by user {user.email}. {other_job_name} {other_job_action}.")
+
+            return {
+                "success": True,
+                "message": f"Job {job_name} is now active and ready to run",
+                "active_job": job_name,
+                "other_job": other_job_name,
+                "note": f"{job_name} set to PENDING, {other_job_name} {other_job_action}"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting job {job_name} as active: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set job {job_name} as active"
+        )
+
+
 @router.get("/api/v1/orchestrator/status")
-async def get_orchestrator_status(token: str = Depends(verify_token)):
+async def get_orchestrator_status(user: User = Depends(require_permission("orchestrator", "read"))):
     """Get orchestrator status"""
     try:
         from app.main import scheduler
@@ -549,9 +956,9 @@ async def get_orchestrator_status(token: str = Depends(verify_token)):
 @router.post("/api/v1/orchestrator/schedule")
 async def update_orchestrator_schedule(
     request: dict,
-    token: str = Depends(verify_token)
+    user: User = Depends(require_permission("orchestrator", "execute"))
 ):
-    """Update orchestrator schedule interval"""
+    """Update orchestrator schedule interval - requires admin privileges"""
     try:
         interval_minutes = request.get('interval_minutes')
         enabled = request.get('enabled', True)
@@ -590,7 +997,7 @@ async def update_orchestrator_schedule(
 
 
 @router.get("/api/v1/settings")
-async def get_system_settings(token: str = Depends(verify_token)):
+async def get_system_settings(user: User = Depends(require_permission("settings", "read"))):
     """Get all system settings"""
     try:
         from app.core.settings_manager import SettingsManager
@@ -612,9 +1019,9 @@ async def get_system_settings(token: str = Depends(verify_token)):
 @router.post("/api/v1/settings")
 async def update_system_setting(
     request: dict,
-    token: str = Depends(verify_token)
+    user: User = Depends(require_permission("settings", "execute"))
 ):
-    """Update a system setting"""
+    """Update a system setting - requires admin privileges"""
     try:
         setting_key = request.get('setting_key')
         setting_value = request.get('setting_value')
@@ -661,4 +1068,288 @@ async def update_system_setting(
         )
 
 
+@router.get("/websocket_test", response_class=HTMLResponse)
+async def websocket_test():
+    """WebSocket test page for debugging."""
+    html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        .container {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .connected { background-color: #2d5a2d; }
+        .disconnected { background-color: #5a2d2d; }
+        .log {
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border: 1px solid #444;
+        }
+        button {
+            background-color: #4a5568;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #5a6578;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #444;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4a90e2;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-text {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 WebSocket Connection Test</h1>
+
+    <div class="container">
+        <h2>Connection Status</h2>
+        <div id="jira-sync-status" class="status disconnected">
+            🔴 Jira Sync: Disconnected
+        </div>
+        <div id="github-sync-status" class="status disconnected">
+            🔴 GitHub Sync: Disconnected
+        </div>
+
+        <button onclick="connectAll()">Connect All</button>
+        <button onclick="disconnectAll()">Disconnect All</button>
+        <button onclick="clearLog()">Clear Log</button>
+        <button onclick="sendTestMessage()">Send Test Message</button>
+    </div>
+
+    <div class="container">
+        <h2>Progress Display</h2>
+        <div id="progress-container">
+            <div class="progress-text" id="progress-text">No progress data</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div id="progress-percentage">0%</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>WebSocket Log</h2>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let websockets = {
+            jira_sync: null,
+            github_sync: null
+        };
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateStatus(jobName, connected) {
+            const statusElement = document.getElementById(`${jobName.replace('_', '-')}-status`);
+            if (!statusElement) {
+                log(`❌ Status element not found for ${jobName}`);
+                return;
+            }
+            if (connected) {
+                statusElement.className = 'status connected';
+                statusElement.innerHTML = `🟢 ${jobName.replace('_', ' ').toUpperCase()}: Connected`;
+            } else {
+                statusElement.className = 'status disconnected';
+                statusElement.innerHTML = `🔴 ${jobName.replace('_', ' ').toUpperCase()}: Disconnected`;
+            }
+        }
+
+        function updateProgress(percentage, step) {
+            document.getElementById('progress-text').textContent = step;
+            document.getElementById('progress-fill').style.width = `${percentage}%`;
+            document.getElementById('progress-percentage').textContent = `${Math.round(percentage)}%`;
+        }
+
+        function connectWebSocket(jobName) {
+            if (websockets[jobName]) {
+                websockets[jobName].close();
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobName}`;
+
+            log(`🔌 Attempting to connect to ${jobName} at: ${wsUrl}`);
+            log(`🔍 Looking for status element: ${jobName.replace('_', '-')}-status`);
+
+            try {
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = function () {
+                    log(`✅ WebSocket connected for ${jobName}`);
+                    websockets[jobName] = ws;
+                    updateStatus(jobName, true);
+                };
+
+                ws.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📨 Message from ${jobName}: ${JSON.stringify(data)}`);
+
+                        if (data.type === 'progress') {
+                            updateProgress(data.percentage, data.step);
+                        }
+                    } catch (e) {
+                        log(`❌ Error parsing message from ${jobName}: ${e}`);
+                    }
+                };
+
+                ws.onclose = function (event) {
+                    log(`🔌 WebSocket disconnected for ${jobName}. Code: ${event.code}, Reason: ${event.reason}`);
+                    websockets[jobName] = null;
+                    updateStatus(jobName, false);
+                };
+
+                ws.onerror = function (error) {
+                    log(`❌ WebSocket error for ${jobName}: ${error}`);
+                    updateStatus(jobName, false);
+                };
+
+            } catch (e) {
+                log(`❌ Failed to create WebSocket for ${jobName}: ${e}`);
+                updateStatus(jobName, false);
+            }
+        }
+
+        function connectAll() {
+            log('🚀 Connecting to all WebSocket endpoints...');
+            connectWebSocket('jira_sync');
+            connectWebSocket('github_sync');
+        }
+
+        function disconnectAll() {
+            log('🔌 Disconnecting all WebSocket connections...');
+            Object.keys(websockets).forEach(jobName => {
+                if (websockets[jobName]) {
+                    websockets[jobName].close();
+                    websockets[jobName] = null;
+                    updateStatus(jobName, false);
+                }
+            });
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function sendTestMessage() {
+            log('📤 Requesting test message via API...');
+            fetch('/api/test_websocket', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    job_name: 'jira_sync',
+                    percentage: Math.random() * 100,
+                    message: `Test message: ${Math.floor(Math.random() * 1000)} of 5000 items (${(Math.random() * 100).toFixed(1)}%)`
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log(`📨 API Response: ${JSON.stringify(data)}`);
+            })
+            .catch(error => {
+                log(`❌ API Error: ${error}`);
+            });
+        }
+
+        // Auto-connect on page load
+        window.addEventListener('load', function() {
+            log('🌐 WebSocket Test Page Loaded');
+            log('📍 Current URL: ' + window.location.href);
+
+            // Auto-connect after a short delay
+            setTimeout(() => {
+                connectAll();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@router.post("/api/test_websocket")
+async def test_websocket_message(request: Request):
+    """Send a test WebSocket message."""
+    try:
+        from app.core.websocket_manager import get_websocket_manager
+
+        data = await request.json()
+        job_name = data.get('job_name', 'jira_sync')
+        percentage = data.get('percentage', 50.0)
+        message = data.get('message', 'Test message')
+
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.send_progress_update(job_name, percentage, message)
+
+        connections = websocket_manager.get_connection_count(job_name)
+
+        return {
+            "success": True,
+            "message": "Test message sent",
+            "job_name": job_name,
+            "percentage": percentage,
+            "step": message,
+            "connections": connections
+        }
+
+    except Exception as e:
+        logger.error(f"Error sending test WebSocket message: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 

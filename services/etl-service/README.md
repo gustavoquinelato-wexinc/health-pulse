@@ -120,7 +120,7 @@ etl-service/
 ├── logs/                      # Application logs (auto-created)
 ├── Dockerfile
 ├── requirements.txt
-├── .env.example              # Environment configuration template
+├── .env                      # Environment configuration (copy from root .env.example)
 └── README.md
 ```
 
@@ -148,12 +148,14 @@ pip install -r requirements.txt
 
 ### 2. Configuration
 ```bash
-# Copy environment template
-cp .env.example .env
+# Copy environment template from root directory
+cp ../../.env.example ../../.env
 
 # Edit configuration with your settings
-nano .env
+nano ../../.env
 ```
+
+**Note**: The ETL service uses the root-level `.env` file for configuration. This ensures consistency across all services in the platform.
 
 **Required Environment Variables:**
 ```bash
@@ -273,7 +275,7 @@ ORCHESTRATOR_INTERVAL_MINUTES=60
 ### **Job Management**
 - `GET /api/v1/jobs/status` - Get all job statuses
 - `POST /api/v1/jobs/{job_name}/start` - Force start specific job
-- `POST /api/v1/jobs/{job_name}/stop` - Force stop specific job
+- `POST /api/v1/jobs/{job_name}/set-active` - Set job as active (PENDING) and other as FINISHED
 - `POST /api/v1/jobs/{job_name}/pause` - Pause specific job
 - `POST /api/v1/jobs/{job_name}/unpause` - Unpause specific job
 
@@ -451,9 +453,9 @@ python scripts/reset_database.py
 
 #### **4. Job Stuck in RUNNING State**
 - Check application logs for errors
-- Use Force Stop button in dashboard
-- Restart service if necessary
+- Restart service if necessary (jobs will resume from checkpoints)
 - Check for database connection issues
+- Jobs have built-in timeout and error handling
 
 #### **5. Dashboard Login Issues**
 - Use hardcoded credentials: `gustavo.quinelato@wexinc.com` / `pulse`

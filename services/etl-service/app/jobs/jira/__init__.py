@@ -28,11 +28,7 @@ from .jira_bulk_operations import perform_bulk_insert
 
 
 
-def extract_issue_changelogs(session, jira_client, integration, issue_keys, statuses_dict, job_logger):
-    """Backward compatibility wrapper - changelogs are now processed with issues."""
-    # This function is now a no-op since changelogs are processed with issues
-    job_logger.progress("ℹ️  Changelogs are now processed together with issues in step 6")
-    return 0
+# Removed deprecated extract_issue_changelogs function - changelogs are now processed with issues
 
 __all__ = [
     'run_jira_sync',  # New orchestration system entry point

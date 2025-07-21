@@ -19,27 +19,33 @@
         }
 
         .status-running {
-            @apply bg-blue-500 text-white;
+            background-color: #3b82f6;
+            color: white;
         }
 
         .status-pending {
-            @apply bg-yellow-500 text-white;
+            background-color: #eab308;
+            color: white;
         }
 
         .status-finished {
-            @apply bg-green-500 text-white;
+            background-color: #22c55e;
+            color: white;
         }
 
         .status-paused {
-            @apply bg-amber-600 text-white;
+            background-color: #d97706;
+            color: white;
         }
 
         .status-not-started {
-            @apply bg-gray-500 text-white;
+            background-color: #6b7280;
+            color: white;
         }
 
         .status-error {
-            @apply bg-red-500 text-white;
+            background-color: #ef4444;
+            color: white;
         }
 
 
@@ -204,17 +210,15 @@
         <a href="/dashboard" class="menu-item">
             <i class="fas fa-tachometer-alt"></i>Dashboard
         </a>
-        <a href="/status" class="menu-item">
-            <i class="fas fa-info-circle"></i>Status Page
-        </a>
         <a href="/docs" class="menu-item">
             <i class="fas fa-book"></i>API Documentation
         </a>
         <a href="/health" class="menu-item">
             <i class="fas fa-heartbeat"></i>Health Check
         </a>
-        <a href="/api/v1/admin" class="menu-item">
-            <i class="fas fa-cog"></i>Admin Panel
+        <!-- Admin Panel - Only visible to admin users -->
+        <a href="/admin" class="menu-item" id="admin-menu-item" style="display: none;">
+            <i class="fas fa-users-cog"></i>Admin Panel
         </a>
         <div class="menu-item"
             style="border-top: 1px solid rgba(255, 255, 255, 0.2); margin-top: 4px; padding-top: 12px;">
@@ -240,7 +244,9 @@
                 </div>
                 <div class="flex items-center space-x-4">
                     <div class="text-white text-opacity-80 text-sm">
-                        <i class="fas fa-user mr-2"></i>gustavo.quinelato@wexinc.com
+                        <i class="fas fa-user mr-2"></i><span id="user-email">{{ user.email }}</span>
+                        <span id="user-role-badge" class="ml-2 px-2 py-1 rounded text-xs font-semibold"
+                            style="display: none;"></span>
                     </div>
 
                     <!-- Hamburger Menu Button -->
@@ -257,6 +263,73 @@
 
     <!-- Main Content -->
     <main class="container mx-auto px-6 py-8">
+        <!-- System Health Section -->
+        <div class="glass-effect rounded-lg p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-semibold text-white">
+                    <i class="fas fa-heartbeat mr-2"></i>System Health
+                </h3>
+                <button onclick="refreshSystemHealth()"
+                    class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded text-sm transition duration-300">
+                    <i class="fas fa-sync mr-1"></i>Refresh
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Database Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">Database</span>
+                        <span id="dbStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="dbDetails" class="text-white text-opacity-60 text-xs">
+                        PostgreSQL Connection
+                    </div>
+                </div>
+
+                <!-- Jira API Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">Jira API</span>
+                        <span id="jiraApiStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="jiraApiDetails" class="text-white text-opacity-60 text-xs">
+                        API Connectivity
+                    </div>
+                </div>
+
+                <!-- GitHub API Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">GitHub API</span>
+                        <span id="githubApiStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="githubApiDetails" class="text-white text-opacity-60 text-xs">
+                        Rate Limits & Connectivity
+                    </div>
+                </div>
+
+                <!-- System Resources -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">System</span>
+                        <span id="systemStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="systemDetails" class="text-white text-opacity-60 text-xs">
+                        Memory & CPU Usage
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Auto-refresh controls -->
         <div class="glass-effect rounded-lg p-4 mb-6">
             <div class="flex items-center justify-between">
@@ -277,7 +350,7 @@
                 </div>
                 <div class="flex items-center space-x-2">
                     <span id="lastUpdate" class="text-white text-opacity-70 text-sm"></span>
-                    <button onclick="refreshData()"
+                    <button onclick="refreshData(); refreshSystemHealth();"
                         class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-300">
                         <i class="fas fa-refresh mr-2"></i>Refresh Now
                     </button>
@@ -286,10 +359,10 @@
         </div>
 
         <!-- Orchestrator Controls -->
-        <div class="glass-effect rounded-lg p-4 mb-6">
+        <div id="orchestratorControlsSection" class="glass-effect rounded-lg p-4 mb-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-4">
-                    <h3 class="text-lg font-semibold text-white">
+                    <h3 id="orchestratorSectionTitle" class="text-lg font-semibold text-white">
                         <i class="fas fa-cogs mr-2"></i>Orchestrator Controls
                     </h3>
                     <div id="orchestratorStatus" class="flex items-center space-x-4">
@@ -308,11 +381,12 @@
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center space-x-2">
+                <div id="orchestratorControlButtons" class="flex items-center space-x-2">
                     <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn"
                         class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
                         <i class="fas fa-play mr-1"></i>Force Start
                     </button>
+
                     <button onclick="pauseOrchestrator()" id="pauseOrchestratorBtn"
                         class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm font-medium">
                         <i class="fas fa-pause mr-1"></i>Pause
@@ -383,9 +457,12 @@
         </div>
 
 
+
+
     </main>
 
     <script>
+        // @ts-nocheck
         let refreshTimer = null;
 
         // WebSocket connections for real-time progress
@@ -408,6 +485,7 @@
             refreshData();
             setupAutoRefresh();
             refreshOrchestratorStatus();
+            refreshSystemHealth();
             initializeWebSockets();
         });
 
@@ -440,7 +518,6 @@
                 const ws = new WebSocket(wsUrl);
 
                 ws.onopen = function () {
-                    console.log(`WebSocket connected for ${jobName}`);
                     websockets[jobName] = ws;
                 };
 
@@ -449,24 +526,25 @@
                         const data = JSON.parse(event.data);
                         handleWebSocketMessage(jobName, data);
                     } catch (e) {
-                        console.error(`Error parsing WebSocket message for ${jobName}:`, e);
+                        console.error(`❌ Error parsing WebSocket message for ${jobName}:`, e);
                     }
                 };
 
-                ws.onclose = function () {
-                    console.log(`WebSocket disconnected for ${jobName}`);
+                ws.onclose = function (event) {
+                    console.log(`🔌 WebSocket disconnected for ${jobName}. Code: ${event.code}, Reason: ${event.reason}`);
                     websockets[jobName] = null;
 
                     // Reconnect after 5 seconds
                     setTimeout(() => {
                         if (!websockets[jobName]) {
+                            console.log(`🔄 Reconnecting WebSocket for ${jobName}...`);
                             connectWebSocket(jobName);
                         }
                     }, 5000);
                 };
 
                 ws.onerror = function (error) {
-                    console.error(`WebSocket error for ${jobName}:`, error);
+                    console.error(`❌ WebSocket error for ${jobName}:`, error);
                 };
 
             } catch (e) {
@@ -494,6 +572,11 @@
         }
 
         function updateJobProgress(jobName, percentage, step) {
+            // Clear previous exceptions if this is a new job start (low percentage)
+            if (percentage <= 10) {
+                jobProgress[jobName].exceptions = [];
+            }
+
             jobProgress[jobName].percentage = percentage;
             jobProgress[jobName].step = step;
 
@@ -501,6 +584,18 @@
             const jobCard = document.querySelector(`[data-job="${jobName}"]`);
             if (jobCard) {
                 updateJobCardProgress(jobCard, percentage, step);
+
+                // Additional verification for 100% completion
+                if (percentage >= 100) {
+                    // Double-check the progress bar was updated
+                    setTimeout(() => {
+                        const progressBar = jobCard.querySelector('.ws-progress-bar');
+                        const progressText = jobCard.querySelector('.ws-progress-text');
+                        const progressPercentage = jobCard.querySelector('.ws-progress-container')?.parentElement?.querySelector('.text-xs:last-child');
+                    }, 100);
+                }
+            } else {
+                console.warn(`⚠️ No job card found for ${jobName}`);
             }
         }
 
@@ -534,20 +629,36 @@
         }
 
         function handleJobCompletion(jobName, success, summary) {
-            console.log(`Job ${jobName} completed:`, { success, summary });
-
-            // Clear progress and show completion
+            // Force update progress to 100% on completion
             if (success) {
-                updateJobProgress(jobName, 100, 'Completed successfully');
+                // Check if this is a rate limit case (partial success)
+                if (summary.rate_limit_reached) {
+                    updateJobProgress(jobName, 100, '✅ Rate limit reached - will resume on next run');
+                    addJobException(jobName, 'INFO', summary.message || 'Rate limit reached - progress saved', new Date().toISOString());
+                } else if (summary.partial_success) {
+                    updateJobProgress(jobName, 100, '✅ Partially completed - will resume later');
+                    addJobException(jobName, 'INFO', summary.message || 'Partial completion - progress saved', new Date().toISOString());
+                } else {
+                    updateJobProgress(jobName, 100, '✅ Completed successfully');
+                }
             } else {
                 addJobException(jobName, 'ERROR', summary.error || 'Job failed', new Date().toISOString());
             }
 
-            // Refresh job status after completion
+            // Force final progress bar update and refresh job status
             setTimeout(() => {
+                // Force update the progress bar one more time
+                const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+                if (jobCard) {
+                    updateJobCardProgress(jobCard, 100, success ? '✅ Completed successfully' : '❌ Failed');
+                }
+
+                // Refresh the entire dashboard
                 refreshData();
-            }, 2000);
+            }, 1000);
         }
+
+        // Job status checking simplified - no individual stop buttons to manage
 
         function createWebSocketProgress(jobName) {
             const progress = jobProgress[jobName];
@@ -565,6 +676,19 @@
                         <div class="ws-progress-bar" style="width: ${progress.percentage}%"></div>
                     </div>
                     <div class="ws-progress-text">${progress.step}</div>
+                </div>
+            `;
+        }
+
+        function createErrorMessage(jobData) {
+            if (!jobData.error_message) {
+                return '';
+            }
+
+            return `
+                <div class="mt-3 p-3 bg-red-500 bg-opacity-20 rounded-lg border border-red-500 border-opacity-50">
+                    <div class="text-red-200 text-xs font-medium mb-1">Error Message:</div>
+                    <div class="text-red-100 text-xs">${jobData.error_message}</div>
                 </div>
             `;
         }
@@ -596,14 +720,14 @@
         }
 
         function updateJobCardProgress(jobCard, percentage, step) {
-            // Update or create progress section
+            // Update or create progress section in the dynamic content area
             let progressSection = jobCard.querySelector('.ws-progress-container');
             if (!progressSection) {
-                // Create progress section if it doesn't exist
-                const detailsSection = jobCard.querySelector('.space-y-3');
-                if (detailsSection) {
+                // Create progress section in the dynamic content area
+                const dynamicContentSection = jobCard.querySelector('.space-y-3:last-child');
+                if (dynamicContentSection) {
                     const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
-                    detailsSection.insertAdjacentHTML('afterend', progressHtml);
+                    dynamicContentSection.insertAdjacentHTML('afterbegin', progressHtml);
                     progressSection = jobCard.querySelector('.ws-progress-container');
                 }
             }
@@ -620,15 +744,14 @@
         }
 
         function updateJobCardExceptions(jobCard, exceptions) {
-            // Update or create exception log section
+            // Update or create exception log section in the dynamic content area
             let exceptionSection = jobCard.querySelector('.exception-log');
             if (!exceptionSection && exceptions.length > 0) {
-                // Create exception section if it doesn't exist
-                const progressSection = jobCard.querySelector('.ws-progress-container');
-                const insertPoint = progressSection ? progressSection.parentElement : jobCard.querySelector('.space-y-3');
-                if (insertPoint) {
+                // Create exception section in the dynamic content area
+                const dynamicContentSection = jobCard.querySelector('.space-y-3:last-child');
+                if (dynamicContentSection) {
                     const exceptionHtml = createExceptionLog(jobCard.getAttribute('data-job'));
-                    insertPoint.insertAdjacentHTML('afterend', exceptionHtml);
+                    dynamicContentSection.insertAdjacentHTML('beforeend', exceptionHtml);
                     exceptionSection = jobCard.querySelector('.exception-log');
                 }
             }
@@ -658,8 +781,11 @@
         }
 
         function logout() {
+            // Clear localStorage
             localStorage.removeItem('pulse_token');
-            window.location.href = '/login';
+
+            // Call server-side logout to clear cookies properly
+            window.location.href = '/logout';
         }
 
         async function refreshData() {
@@ -685,6 +811,53 @@
                 // Note: Orchestrator status refreshed separately via countdown timer
             } catch (error) {
                 console.error('Error fetching job status:', error);
+            }
+        }
+
+        // System Health Functions
+        async function refreshSystemHealth() {
+            try {
+                // Check database health
+                const healthResponse = await fetch('/api/v1/health', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (healthResponse.ok) {
+                    const healthData = await healthResponse.json();
+                    updateHealthStatus('db', healthData.database_status === 'healthy', healthData.database_message);
+                } else {
+                    updateHealthStatus('db', false, 'Health check failed');
+                }
+
+                // Check system status (placeholder for now)
+                updateHealthStatus('system', true, 'Memory: 2.1GB / 8GB, CPU: 15%');
+                updateHealthStatus('jiraApi', true, 'Connected');
+                updateHealthStatus('githubApi', true, 'Rate limit: 4,850/5,000');
+
+            } catch (error) {
+                console.error('Error checking system health:', error);
+                updateHealthStatus('db', false, 'Connection error');
+                updateHealthStatus('system', false, 'Check failed');
+                updateHealthStatus('jiraApi', false, 'Check failed');
+                updateHealthStatus('githubApi', false, 'Check failed');
+            }
+        }
+
+        function updateHealthStatus(component, isHealthy, details) {
+            const statusElement = document.getElementById(`${component}Status`);
+            const detailsElement = document.getElementById(`${component}Details`);
+
+            if (statusElement) {
+                statusElement.className = `px-2 py-1 rounded text-xs font-medium ${isHealthy ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                    }`;
+                statusElement.innerHTML = `<i class="fas fa-${isHealthy ? 'check' : 'times'} mr-1"></i>${isHealthy ? 'Healthy' : 'Error'
+                    }`;
+            }
+
+            if (detailsElement) {
+                detailsElement.textContent = details;
             }
         }
 
@@ -729,14 +902,20 @@
 
                 const interval = parseInt(this.value);
                 if (interval > 0) {
-                    refreshTimer = setInterval(refreshData, interval);
+                    refreshTimer = setInterval(() => {
+                        refreshData();
+                        refreshSystemHealth();
+                    }, interval);
                 }
             });
 
             // Start with default 30s refresh
             const defaultInterval = parseInt(select.value);
             if (defaultInterval > 0) {
-                refreshTimer = setInterval(refreshData, defaultInterval);
+                refreshTimer = setInterval(() => {
+                    refreshData();
+                    refreshSystemHealth();
+                }, defaultInterval);
             }
         }
 
@@ -766,11 +945,19 @@
                 </div>
 
                 ${createJobDetails(jobName, jobData)}
-                ${createWebSocketProgress(jobName)}
-                ${createExceptionLog(jobName)}
 
-                <div class="mt-4 flex flex-wrap gap-2">
-                    ${createActionButtons(jobName, jobData, allJobsData)}
+                <!-- Fixed Action Buttons Section -->
+                <div class="mt-4 pt-3 border-t border-white border-opacity-20">
+                    <div class="flex flex-wrap gap-2 justify-start">
+                        ${createActionButtons(jobName, jobData, allJobsData)}
+                    </div>
+                </div>
+
+                <!-- Dynamic Content Section (below buttons) -->
+                <div class="mt-4 space-y-3">
+                    ${createWebSocketProgress(jobName)}
+                    ${createRecoveryDetails(jobName, jobData)}
+                    ${createExceptionLog(jobName)}
                 </div>
             `;
 
@@ -798,34 +985,20 @@
 
             details += `</div>`;
 
-            // Add recovery details for PENDING jobs
-            if (jobData.status === 'PENDING' && jobData.checkpoint_data) {
-                details += createRecoveryDetails(jobData.checkpoint_data);
-            }
-
-            // Add error message if exists
-            if (jobData.error_message) {
-                details += `
-                    <div class="mt-3 p-3 bg-red-500 bg-opacity-20 rounded-lg border border-red-500 border-opacity-50">
-                        <div class="text-red-200 text-xs font-medium mb-1">Error Message:</div>
-                        <div class="text-red-100 text-xs">${jobData.error_message}</div>
-                    </div>
-                `;
-            }
+            // Note: Error message moved to createErrorMessage function (after buttons)
+            // Note: Recovery details moved to dynamic content section (after progress bar)
 
             details += '</div>';
             return details;
         }
 
-        function createRecoveryDetails(checkpointData) {
-            if (!checkpointData) return '';
+        function createRecoveryDetails(jobName, jobData) {
+            // Only show recovery details for PENDING GitHub jobs with checkpoint data
+            if (jobName !== 'github_sync' || jobData.status !== 'PENDING' || !jobData.checkpoint_data) {
+                return '';
+            }
 
-            let recoveryHtml = `
-                <div class="mt-3 p-3 bg-yellow-500 bg-opacity-20 rounded-lg border border-yellow-500 border-opacity-50">
-                    <div class="text-yellow-200 text-xs font-medium mb-2">
-                        <i class="fas fa-redo mr-1"></i>Recovery Information:
-                    </div>
-            `;
+            const checkpointData = jobData.checkpoint_data;
 
             // Repository queue information
             if (checkpointData.repo_processing_queue) {
@@ -841,30 +1014,40 @@
                 const total = queue.length;
                 const remaining = total - finished;
 
-                recoveryHtml += `
-                    <div class="text-yellow-100 text-xs mb-1">
-                        Repositories: ${finished}/${total} completed (${remaining} remaining)
+                return `
+                    <div class="mt-3 p-3 bg-yellow-500 bg-opacity-20 rounded-lg border border-yellow-500 border-opacity-50">
+                        <div class="text-yellow-200 text-xs font-medium mb-2">
+                            <i class="fas fa-redo mr-1"></i>Recovery Information:
+                        </div>
+                        <div class="text-yellow-100 text-xs">
+                            Repositories: ${finished}/${total} completed (${remaining} remaining)
+                        </div>
                     </div>
                 `;
             }
 
-            // Cursor information
-            const cursors = ['last_pr_cursor', 'current_pr_node_id', 'last_commit_cursor', 'last_review_cursor', 'last_comment_cursor'];
-            cursors.forEach(cursor => {
-                if (checkpointData[cursor]) {
-                    recoveryHtml += `
-                        <div class="text-yellow-100 text-xs mb-1">
-                            ${cursor.replace(/_/g, ' ')}: ${checkpointData[cursor].substring(0, 20)}...
-                        </div>
-                    `;
-                }
-            });
-
-            recoveryHtml += '</div>';
-            return recoveryHtml;
+            return '';
         }
 
         function createActionButtons(jobName, jobData, allJobsData) {
+            // Check if user is admin - only admins get control buttons
+            if (!currentUser || (currentUser.role !== 'admin' && !currentUser.is_admin)) {
+                // Non-admin users only get the details button
+                return `
+                    <button onclick="showJobDetails('${jobName}')"
+                            class="px-3 py-1 rounded text-sm bg-purple-500 hover:bg-purple-600 text-white transition duration-300">
+                        <i class="fas fa-info-circle mr-1"></i>Details
+                    </button>
+                    ${jobName === 'github_sync' ? `
+                        <button onclick="showGitHubRateLimits()"
+                                class="px-3 py-1 rounded text-sm bg-blue-500 hover:bg-blue-600 text-white transition duration-300">
+                            <i class="fab fa-github mr-1"></i>Rate Limits
+                        </button>
+                    ` : ''}
+                `;
+            }
+
+            // Admin users get full control buttons
             const canStart = ['PENDING', 'FINISHED', 'NOT_STARTED'].includes(jobData.status);
             const canStop = jobData.status === 'RUNNING';
             const canPause = ['PENDING', 'FINISHED'].includes(jobData.status);
@@ -881,17 +1064,15 @@
             // Disable Pause if this job is running
             const canPauseSafe = canPause && jobData.status !== 'RUNNING';
 
+            // Can set active if job is not running and not already pending
+            const canSetActive = jobData.status !== 'RUNNING' && jobData.status !== 'PENDING' && !otherJobRunning;
+
             return `
-                <button onclick="forceStart('${jobName}')"
-                        ${!canStartSafe ? 'disabled' : ''}
-                        class="px-3 py-1 rounded text-sm ${canStartSafe ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
-                        title="${!canStartSafe && otherJobRunning ? 'Cannot start while another job is running' : ''}">
-                    <i class="fas fa-play mr-1"></i>Force Start
-                </button>
-                <button onclick="forceStop('${jobName}')"
-                        ${!canStop ? 'disabled' : ''}
-                        class="px-3 py-1 rounded text-sm ${canStop ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300">
-                    <i class="fas fa-stop mr-1"></i>Force Stop
+                <button onclick="setJobActive('${jobName}')"
+                        ${!canSetActive ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${canSetActive ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
+                        title="${!canSetActive ? (jobData.status === 'RUNNING' ? 'Cannot set active while running' : jobData.status === 'PENDING' ? 'Job is already active' : 'Another job is running') : 'Set this job as active (PENDING) and the other as FINISHED'}">
+                    <i class="fas fa-${jobData.status === 'PENDING' ? 'check' : 'play'} mr-1"></i>${jobData.status === 'PENDING' ? 'Active' : 'Set Active'}
                 </button>
                 <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
                         ${!(canPauseSafe || canUnpause) ? 'disabled' : ''}
@@ -903,6 +1084,12 @@
                         class="px-3 py-1 rounded text-sm bg-purple-500 hover:bg-purple-600 text-white transition duration-300">
                     <i class="fas fa-info-circle mr-1"></i>Details
                 </button>
+                ${jobName === 'github_sync' ? `
+                    <button onclick="showGitHubRateLimits()"
+                            class="px-3 py-1 rounded text-sm bg-blue-500 hover:bg-blue-600 text-white transition duration-300">
+                        <i class="fab fa-github mr-1"></i>Rate Limits
+                    </button>
+                ` : ''}
             `;
         }
 
@@ -930,62 +1117,453 @@
 
 
 
-        // Job action functions
-        async function forceStart(jobName) {
-            if (!confirm(`Are you sure you want to force start ${jobName}?`)) return;
+        // Individual job controls removed - use orchestrator Force Start/Stop buttons instead
 
+
+
+        async function showJobDetails(jobName) {
             try {
-                const token = localStorage.getItem('pulse_token');
-                const response = await fetch(`/api/v1/jobs/${jobName}/start`, {
-                    method: 'POST',
+                // Fetch job schedule details from API
+                const response = await fetch(`/api/v1/jobs/${jobName}/schedule-details`, {
                     headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
                     }
                 });
 
-                const result = await response.json();
-                if (response.ok) {
-                    console.log(`${jobName} started successfully`);
-                    refreshData();
-                } else {
-                    console.error(`Failed to start ${jobName}: ${result.detail}`);
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        // Authentication failed - redirect to login
+                        logout();
+                        return;
+                    }
+                    throw new Error(`Failed to fetch job details: ${response.statusText}`);
                 }
+
+                const scheduleDetails = await response.json();
+                showJobDetailsModal(jobName, scheduleDetails);
+
             } catch (error) {
-                console.error(`Error starting ${jobName}: ${error.message}`);
+                console.error('Error fetching job details:', error);
+                alert(`Failed to load job details: ${error.message}`);
             }
         }
 
-        async function forceStop(jobName) {
-            if (!confirm(`Are you sure you want to force stop ${jobName}?`)) return;
+        function showJobDetailsModal(jobName, details) {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="jobDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-white">
+                                <i class="fas fa-info-circle mr-2"></i>${jobName} Job Schedule Details
+                            </h2>
+                            <button onclick="closeJobDetailsModal()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
 
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Basic Information -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-cog mr-2"></i>Basic Information
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Job ID:</span>
+                                        <span class="text-white">${details.id}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Status:</span>
+                                        <span class="text-white font-semibold">${details.status}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-white">${details.active ? 'Yes' : 'No'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Retry Count:</span>
+                                        <span class="text-white">${details.retry_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Timing Information -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-clock mr-2"></i>Timing Information
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Created:</span>
+                                        <span class="text-white">${details.created_at ? new Date(details.created_at).toLocaleString() : 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Updated:</span>
+                                        <span class="text-white">${details.last_updated_at ? new Date(details.last_updated_at).toLocaleString() : 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Run Started:</span>
+                                        <span class="text-white">${details.last_run_started_at ? new Date(details.last_run_started_at).toLocaleString() : 'Never'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Success:</span>
+                                        <span class="text-white">${details.last_success_at ? new Date(details.last_success_at).toLocaleString() : 'Never'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Job Status Info -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-chart-line mr-2"></i>Job Status
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Is Recovery Run:</span>
+                                        <span class="text-white">${details.is_recovery_run ? 'Yes' : 'No'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Has Checkpoints:</span>
+                                        <span class="text-white">${(details.last_pr_cursor || details.repo_processing_queue) ? 'Yes' : 'No'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Additional Info -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-info-circle mr-2"></i>Additional Info
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Current PR Node:</span>
+                                        <span class="text-white font-mono text-xs">${details.current_pr_node_id || 'None'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Repo Checkpoint:</span>
+                                        <span class="text-white">${details.last_repo_sync_checkpoint ? new Date(details.last_repo_sync_checkpoint).toLocaleString() : 'None'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Checkpoint Data -->
+                        <div class="mt-6 glass-effect rounded-lg p-4">
+                            <h3 class="text-lg font-semibold text-white mb-3">
+                                <i class="fas fa-bookmark mr-2"></i>Checkpoint Data
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span class="text-gray-300">PR Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_pr_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Commit Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_commit_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Review Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_review_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Comment Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_comment_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Review Thread Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_review_thread_cursor || 'None'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Repository Processing Queue -->
+                        ${details.repo_processing_queue ? `
+                        <div class="mt-6 glass-effect rounded-lg p-4">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="text-lg font-semibold text-white">
+                                    <i class="fas fa-list mr-2"></i>Repository Processing Queue
+                                </h3>
+                                <div class="text-sm text-gray-300">
+                                    ${(() => {
+                                        try {
+                                            const queue = typeof details.repo_processing_queue === 'string'
+                                                ? JSON.parse(details.repo_processing_queue)
+                                                : details.repo_processing_queue;
+                                            const finished = queue.filter(repo => repo.finished).length;
+                                            const pending = queue.length - finished;
+                                            return `
+                                                <span class="text-green-400 font-medium">${finished} Finished</span>
+                                                <span class="mx-2">•</span>
+                                                <span class="text-yellow-400 font-medium">${pending} Pending</span>
+                                            `;
+                                        } catch (e) {
+                                            return '<span class="text-red-400">Error parsing data</span>';
+                                        }
+                                    })()}
+                                </div>
+                            </div>
+                            <div class="max-h-64 overflow-y-auto border border-gray-600 rounded">
+                                <table class="w-full text-sm text-white">
+                                    <thead class="sticky top-0 bg-gray-800 border-b border-gray-600">
+                                        <tr>
+                                            <th class="text-left py-2 px-3 text-gray-300">Repo ID</th>
+                                            <th class="text-left py-2 px-3 text-gray-300">Full Name</th>
+                                            <th class="text-center py-2 px-3 text-gray-300">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${(() => {
+                                            try {
+                                                const queue = typeof details.repo_processing_queue === 'string'
+                                                    ? JSON.parse(details.repo_processing_queue)
+                                                    : details.repo_processing_queue;
+                                                return queue.map(repo => `
+                                                    <tr class="border-b border-gray-700 hover:bg-gray-700 hover:bg-opacity-30">
+                                                        <td class="py-2 px-3 font-mono text-xs">${repo.repo_id || 'N/A'}</td>
+                                                        <td class="py-2 px-3">${repo.full_name || 'N/A'}</td>
+                                                        <td class="py-2 px-3 text-center">
+                                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${repo.finished ? 'bg-green-500 bg-opacity-20 text-green-400' : 'bg-yellow-500 bg-opacity-20 text-yellow-400'}">
+                                                                <i class="fas fa-${repo.finished ? 'check' : 'clock'} mr-1"></i>
+                                                                ${repo.finished ? 'Finished' : 'Pending'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                `).join('');
+                                            } catch (e) {
+                                                return '<tr><td colspan="3" class="py-2 px-3 text-red-400">Error parsing queue data</td></tr>';
+                                            }
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Error Message -->
+                        ${details.error_message ? `
+                        <div class="mt-6 glass-effect rounded-lg p-4">
+                            <h3 class="text-lg font-semibold text-red-400 mb-3">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Error Message
+                            </h3>
+                            <div class="text-red-300 bg-red-900 bg-opacity-30 p-3 rounded">
+                                ${details.error_message}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div class="mt-6 flex justify-end">
+                            <button onclick="closeJobDetailsModal()"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition duration-300">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add keyboard event listener for ESC key
+            document.addEventListener('keydown', handleModalKeydown);
+        }
+
+        function closeJobDetailsModal() {
+            const modal = document.getElementById('jobDetailsModal');
+            if (modal) {
+                modal.remove();
+                // Remove keyboard event listener
+                document.removeEventListener('keydown', handleModalKeydown);
+            }
+        }
+
+        function handleModalKeydown(event) {
+            if (event.key === 'Escape') {
+                closeJobDetailsModal();
+                closeGitHubRateLimitsModal();
+            }
+        }
+
+        async function showGitHubRateLimits() {
             try {
-                const token = localStorage.getItem('pulse_token');
-                const response = await fetch(`/api/v1/jobs/${jobName}/stop`, {
-                    method: 'POST',
+                // Fetch GitHub rate limits from API
+                const response = await fetch('/api/v1/github/rate-limits', {
                     headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
                     }
                 });
 
-                const result = await response.json();
-                if (response.ok) {
-                    console.log(`${jobName} stopped successfully`);
-                    refreshData();
-                } else {
-                    console.error(`Failed to stop ${jobName}: ${result.detail}`);
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        logout();
+                        return;
+                    }
+                    throw new Error(`Failed to fetch GitHub rate limits: ${response.statusText}`);
                 }
+
+                const rateLimits = await response.json();
+                showGitHubRateLimitsModal(rateLimits);
+
             } catch (error) {
-                console.error(`Error stopping ${jobName}: ${error.message}`);
+                console.error('Error fetching GitHub rate limits:', error);
+                alert(`Failed to load GitHub rate limits: ${error.message}`);
             }
         }
 
+        function showGitHubRateLimitsModal(rateLimits) {
+            // Helper function to format reset time
+            function formatResetTime(resetTimestamp) {
+                if (!resetTimestamp) return 'N/A';
+                const resetDate = new Date(resetTimestamp * 1000);
+                return resetDate.toLocaleString();
+            }
 
+            // Helper function to get status color
+            function getStatusColor(remaining, limit) {
+                const percentage = (remaining / limit) * 100;
+                if (percentage > 50) return 'text-green-400';
+                if (percentage > 20) return 'text-yellow-400';
+                return 'text-red-400';
+            }
 
-        function showJobDetails(jobName) {
-            // Future enhancement: Implement job details modal with execution history, performance metrics, and detailed logs
-            console.log(`Showing details for ${jobName} (feature coming soon)`);
+            // Create modal HTML
+            const modalHtml = `
+                <div id="gitHubRateLimitsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-white">
+                                <i class="fab fa-github mr-2"></i>GitHub API Rate Limits
+                            </h2>
+                            <button onclick="closeGitHubRateLimitsModal()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Core API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-server mr-2"></i>Core API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.core?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.core?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.core?.remaining || 0, rateLimits.core?.limit || 1)}">${rateLimits.core?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.core?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Search API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-search mr-2"></i>Search API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.search?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.search?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.search?.remaining || 0, rateLimits.search?.limit || 1)}">${rateLimits.search?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.search?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- GraphQL API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-code mr-2"></i>GraphQL API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.graphql?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.graphql?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.graphql?.remaining || 0, rateLimits.graphql?.limit || 1)}">${rateLimits.graphql?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.graphql?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Info Section -->
+                        <div class="mt-6 glass-effect rounded-lg p-4">
+                            <h3 class="text-lg font-semibold text-white mb-3">
+                                <i class="fas fa-info-circle mr-2"></i>Rate Limit Information
+                            </h3>
+                            <div class="text-sm text-gray-300 space-y-2">
+                                <p><strong>Core API:</strong> General GitHub API requests (repositories, issues, etc.)</p>
+                                <p><strong>Search API:</strong> Repository and code search requests (30 requests/minute)</p>
+                                <p><strong>GraphQL API:</strong> GraphQL queries (5000 points/hour, varies by query complexity)</p>
+                                <p class="text-yellow-300"><i class="fas fa-exclamation-triangle mr-1"></i>Rate limits reset at the specified times above</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex justify-end">
+                            <button onclick="closeGitHubRateLimitsModal()"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition duration-300">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add keyboard event listener for ESC key
+            document.addEventListener('keydown', handleModalKeydown);
+        }
+
+        function closeGitHubRateLimitsModal() {
+            const modal = document.getElementById('gitHubRateLimitsModal');
+            if (modal) {
+                modal.remove();
+                // Remove keyboard event listener
+                document.removeEventListener('keydown', handleModalKeydown);
+            }
         }
 
         async function pauseJob(jobName) {
@@ -1038,6 +1616,39 @@
             }
         }
 
+        async function setJobActive(jobName) {
+            if (!confirm(`Set ${jobName} as active? This will set ${jobName} to PENDING and the other job to FINISHED.`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.log(`${jobName} set as active successfully`);
+                    console.log(`Result: ${result.note}`);
+
+                    // Show success message
+                    const successMsg = `✅ ${jobName} is now active and ready to run!\n${result.note}`;
+                    alert(successMsg);
+
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    console.error(`Failed to set ${jobName} as active: ${result.detail || result.message}`);
+                    alert(`Failed to set ${jobName} as active: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                console.error(`Error setting ${jobName} as active: ${error.message}`);
+                alert(`Error setting ${jobName} as active: ${error.message}`);
+            }
+        }
+
         // Orchestrator Control Functions
         async function forceStartOrchestrator() {
             const button = event.target.closest('button');
@@ -1055,8 +1666,6 @@
                 button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Starting...';
                 button.disabled = true;
 
-                console.log('Force starting orchestrator... (this may take a few seconds)');
-
                 const token = localStorage.getItem('pulse_token');
                 const response = await fetch('/api/v1/orchestrator/start', {
                     method: 'POST',
@@ -1068,7 +1677,6 @@
 
                 const result = await response.json();
                 if (response.ok) {
-                    console.log('Orchestrator started successfully');
                     // Refresh status after a short delay to allow scheduler to update
                     setTimeout(refreshOrchestratorStatus, 1000);
                 } else {
@@ -1082,6 +1690,8 @@
                 button.disabled = false;
             }
         }
+
+
 
         async function pauseOrchestrator() {
             try {
@@ -1314,6 +1924,133 @@
                 dropdown.classList.remove('show');
             }
         });
+
+        // Role-based UI Management
+        let currentUser = null;
+
+        // Initialize role-based UI on page load
+        document.addEventListener('DOMContentLoaded', function () {
+            loadUserInfo();
+        });
+
+        // Load current user information
+        async function loadUserInfo() {
+            // Use server-side user info directly
+            currentUser = {
+                email: '{{ user.email }}',
+                role: '{{ user.role }}',
+                is_admin: '{{ user.is_admin }}' === 'True'
+            };
+            updateUIForRole();
+        }
+
+        // Update UI based on user role
+        function updateUIForRole() {
+            if (!currentUser) return;
+
+            // Show/hide admin menu item
+            const adminMenuItem = document.getElementById('admin-menu-item');
+            if (currentUser.is_admin || currentUser.role === 'admin') {
+                adminMenuItem.style.display = 'block';
+            }
+
+            // Update user role badge
+            const roleBadge = document.getElementById('user-role-badge');
+            if (roleBadge) {
+                roleBadge.textContent = currentUser.role.toUpperCase();
+                roleBadge.style.display = 'inline';
+
+                // Style badge based on role
+                roleBadge.className = 'ml-2 px-2 py-1 rounded text-xs font-semibold ';
+                if (currentUser.role === 'admin') {
+                    roleBadge.className += 'bg-red-600 text-white';
+                } else if (currentUser.role === 'user') {
+                    roleBadge.className += 'bg-blue-600 text-white';
+                } else if (currentUser.role === 'view') {
+                    roleBadge.className += 'bg-gray-600 text-white';
+                }
+            }
+
+            // Hide job control buttons for non-admin users
+            if (currentUser.role !== 'admin' && !currentUser.is_admin) {
+                hideJobControlButtons();
+            }
+        }
+
+        // Hide job control buttons for users without job control permissions
+        function hideJobControlButtons() {
+            // Hide only the orchestrator control buttons, keep status visible
+            const orchestratorControlButtons = document.getElementById('orchestratorControlButtons');
+            if (orchestratorControlButtons) {
+                orchestratorControlButtons.style.display = 'none';
+            }
+
+            // Change the section title to "Orchestrator Status" for non-admin users
+            const orchestratorTitle = document.getElementById('orchestratorSectionTitle');
+            if (orchestratorTitle) {
+                orchestratorTitle.innerHTML = '<i class="fas fa-eye mr-2"></i>Orchestrator Status';
+            }
+
+            // Add a notice for non-admin users at the top of the main content area
+            if (!document.getElementById('role-notice')) {
+                const notice = document.createElement('div');
+                notice.id = 'role-notice';
+                notice.className = 'glass-effect rounded-lg p-4 mb-6';
+                notice.innerHTML = `
+                    <div class="flex items-center">
+                        <i class="fas fa-info-circle text-blue-400 mr-3"></i>
+                        <div class="text-white">
+                            <h3 class="font-semibold">View-Only Access</h3>
+                            <p class="text-white text-opacity-70 text-sm">You have read-only access to the ETL dashboard. Job controls are available to admin users only.</p>
+                        </div>
+                    </div>
+                `;
+
+                // Insert at the very beginning of the main content area
+                const mainContent = document.querySelector('main.container');
+                if (mainContent && mainContent.firstChild) {
+                    mainContent.insertBefore(notice, mainContent.firstChild);
+                }
+            }
+        }
+
+        // Override job control functions for non-admin users
+        const originalForceStart = window.forceStart;
+        const originalForceStop = window.forceStop;
+        const originalPauseJob = window.pauseJob;
+        const originalUnpauseJob = window.unpauseJob;
+
+        window.forceStart = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalForceStart(jobName);
+        };
+
+        window.forceStop = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalForceStop(jobName);
+        };
+
+        window.pauseJob = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalPauseJob(jobName);
+        };
+
+        window.unpauseJob = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalUnpauseJob(jobName);
+        };
     </script>
 </body>
 

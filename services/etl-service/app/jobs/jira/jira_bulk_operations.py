@@ -90,7 +90,11 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
         """
         
         session.execute(text(bulk_sql), params)
-        job_logger.progress(f"[OK] BULK inserted batch {i//batch_size + 1}/{(len(data_list) + batch_size - 1)//batch_size} ({len(batch)} {table_name})")
+        # Only log every 5th batch to reduce verbosity
+        batch_num = i//batch_size + 1
+        total_batches = (len(data_list) + batch_size - 1)//batch_size
+        if batch_num % 5 == 0 or batch_num == total_batches:
+            job_logger.progress(f"[OK] BULK inserted batch {batch_num}/{total_batches} ({len(batch)} {table_name})")
 
     job_logger.progress(f"[COMPLETE] Completed REAL bulk insert of {len(data_list)} {table_name} records")
 
@@ -142,6 +146,10 @@ def perform_bulk_delete_relationships(session, table_name, relationships_to_dele
 
         result = session.execute(text(bulk_delete_sql), params)
         deleted_count = result.rowcount
-        job_logger.progress(f"[OK] BULK deleted batch {i//batch_size + 1}/{(len(relationships_list) + batch_size - 1)//batch_size} ({deleted_count} {table_name})")
+        # Only log every 5th batch to reduce verbosity
+        batch_num = i//batch_size + 1
+        total_batches = (len(relationships_list) + batch_size - 1)//batch_size
+        if batch_num % 5 == 0 or batch_num == total_batches:
+            job_logger.progress(f"[OK] BULK deleted batch {batch_num}/{total_batches} ({deleted_count} {table_name})")
 
     job_logger.progress(f"[COMPLETE] Completed bulk delete of {len(relationships_list)} {table_name} relationships")

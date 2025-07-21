@@ -31,6 +31,15 @@
             <p class="text-white text-opacity-80">Data Pipeline Management</p>
         </div>
 
+        <!-- Error Message -->
+        <div id="errorMessage"
+            class="hidden mb-4 p-3 bg-red-500 bg-opacity-20 border border-red-500 border-opacity-50 rounded-lg">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle text-red-300 mr-2"></i>
+                <span id="errorText" class="text-red-100 text-sm"></span>
+            </div>
+        </div>
+
         <!-- Login Form -->
         <form id="loginForm" class="space-y-6">
             <div>
@@ -39,7 +48,7 @@
                 </label>
                 <input type="text" id="email" name="email"
                     class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter username (admin, gustavo_user, or gustavo_view)" required>
+                    placeholder="Enter email (gustavo.quinelato@wexinc.com)" required>
             </div>
 
             <div>
@@ -72,9 +81,10 @@
                 <i class="fas fa-info-circle mr-2"></i>Available Test Users
             </h3>
             <div class="text-white text-opacity-80 text-xs space-y-1">
-                <div><strong>admin</strong> - Full admin access</div>
-                <div><strong>gustavo_user</strong> - Standard user access</div>
-                <div><strong>gustavo_view</strong> - View-only access</div>
+                <div><strong>gustavo.quinelato@wexinc.com</strong> - Admin access</div>
+                <div><strong>admin@pulse.com</strong> - Admin access</div>
+                <div><strong>user@pulse.com</strong> - Standard user access</div>
+                <div><strong>viewer@pulse.com</strong> - View-only access</div>
                 <div class="mt-2 text-white text-opacity-60">Password for all users: <strong>pulse</strong></div>
             </div>
         </div>
@@ -87,6 +97,77 @@
     </div>
 
     <script>
+        const errorDiv = document.getElementById('errorMessage');
+
+        // Check for error parameters in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const error = urlParams.get('error');
+        const message = urlParams.get('message');
+        const resource = urlParams.get('resource');
+
+        // Handle success messages
+        if (message) {
+            let successMessage = '';
+            switch (message) {
+                case 'logged_out':
+                    successMessage = 'You have been successfully logged out.';
+                    break;
+                default:
+                    successMessage = message;
+            }
+
+            // Show success message (reuse error div but with different styling)
+            document.getElementById('errorText').textContent = successMessage;
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.classList.remove('hidden', 'bg-red-500', 'border-red-500');
+            errorDiv.classList.add('bg-green-500', 'border-green-500');
+            errorDiv.querySelector('i').className = 'fas fa-check-circle text-green-300 mr-2';
+
+            // Clean up URL after showing message (optional)
+            if (window.history.replaceState) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        if (error) {
+            let errorMessage = '';
+            switch (error) {
+                case 'authentication_required':
+                    errorMessage = 'Please log in to access this page.';
+                    break;
+                case 'invalid_token':
+                    errorMessage = 'Your session has expired. Please log in again.';
+                    break;
+                case 'authentication_failed':
+                    errorMessage = 'Authentication failed. Please log in again.';
+                    break;
+                case 'permission_denied':
+                    errorMessage = resource ?
+                        `You don't have permission to access ${resource}. Please contact an administrator.` :
+                        'You don\'t have permission to access this resource.';
+                    break;
+                case 'invalid_permission':
+                    errorMessage = 'Invalid permission request. Please contact support.';
+                    break;
+                case 'page_not_found':
+                    errorMessage = 'The page you requested was not found. Please log in to access the system.';
+                    break;
+                case 'server_error':
+                    errorMessage = 'A server error occurred. Please log in and try again.';
+                    break;
+                default:
+                    errorMessage = 'Please log in to continue.';
+            }
+
+            document.getElementById('errorText').textContent = errorMessage;
+            errorDiv.classList.remove('hidden');
+
+            // Clear URL parameters to avoid showing error on refresh
+            if (window.history.replaceState) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
         document.getElementById('loginForm').addEventListener('submit', async function (e) {
             e.preventDefault();
 

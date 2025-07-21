@@ -1,6 +1,40 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DATABASE}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
   frontend:
     build:
       context: ./services/frontend-app
@@ -10,6 +44,8 @@ services:
       - ./services/frontend-app:/app
       - /app/node_modules
     command: npm run dev
+    networks:
+      - pulse-network
 
   backend:
     build:
@@ -20,7 +56,11 @@ services:
       - ./services/backend-service:/app
       - /app/node_modules
     env_file:
-      - ./services/backend-service/.env
+      - .env
+    networks:
+      - pulse-network
+    depends_on:
+      - postgres
 
   etl:
     build:
@@ -31,7 +71,12 @@ services:
       - ./services/etl-service:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     env_file:
-      - ./services/etl-service/.env
+      - .env
+    networks:
+      - pulse-network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   ai:
     build:
@@ -42,4 +87,15 @@ services:
       - ./services/ai-service:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
     env_file:
-      - ./services/ai-service/.env
+      - .env
+    networks:
+      - pulse-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+networks:
+  pulse-network:
+    driver: bridge

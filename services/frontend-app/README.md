@@ -193,7 +193,7 @@ NEXT_PUBLIC_REFRESH_INTERVAL=30000
 
 ### Tailwind Configuration
 
-Custom theme configuration for Kairus branding:
+Custom theme configuration for Pulse branding:
 
 ```javascript
 // tailwind.config.js

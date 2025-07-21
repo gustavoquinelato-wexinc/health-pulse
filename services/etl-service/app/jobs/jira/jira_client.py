@@ -20,6 +20,8 @@ class JiraAPIClient:
         self.username = username
         self.token = token
         self.base_url = base_url
+        # Progress tracking
+        self.last_fetch_progress = {'current': 0, 'total': 0, 'percentage': 0}
     
     def get_projects(self, expand: str = None, max_results: int = 50) -> List[Dict]:
         """
@@ -242,7 +244,7 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         params=params,
-                        timeout=60
+                        timeout=5  # Very short timeout to prevent blocking
                     )
                     response.raise_for_status()
 
@@ -258,7 +260,14 @@ class JiraAPIClient:
                         if progress_callback:
                             progress_callback(f"Fetched {len(all_issues)} of {total} issues so far...")
                         else:
-                            logger.debug(f"Fetched {len(batch_issues)} issues (total: {len(all_issues)}/{total})")
+                            logger.info(f"[JIRA] Fetched {len(batch_issues)} issues (total: {len(all_issues)}/{total})")
+
+                        # Store progress information for external access
+                        self.last_fetch_progress = {
+                            'current': len(all_issues),
+                            'total': total,
+                            'percentage': (len(all_issues) / total) * 100 if total > 0 else 0
+                        }
 
                     # Check if we have more pages
                     if not batch_issues or len(batch_issues) < max_results or start_at + len(batch_issues) >= total:
