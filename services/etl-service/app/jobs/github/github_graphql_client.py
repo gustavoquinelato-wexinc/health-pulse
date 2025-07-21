@@ -11,20 +11,23 @@ from app.core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class GitHubRateLimitException(Exception):
+    """Custom exception for GitHub API rate limit exceeded."""
+    pass
+
+
 class GitHubGraphQLClient:
     """Client for GitHub GraphQL API interactions with cursor-based pagination."""
     
-    def __init__(self, token: str, rate_limit_threshold: int = 500):
+    def __init__(self, token: str):
         """
         Initialize GitHub GraphQL client.
 
         Args:
             token: GitHub personal access token
-            rate_limit_threshold: Stop extraction when remaining points < threshold
         """
         self.token = token
         self.graphql_url = "https://api.github.com/graphql"
-        self.rate_limit_threshold = rate_limit_threshold
         self.rate_limit_remaining = 5000  # Default GitHub GraphQL limit
         self.rate_limit_reset = None
 
@@ -43,14 +46,14 @@ class GitHubGraphQLClient:
             self.rate_limit_reset = rate_limit.get('resetAt')
             logger.debug(f"GraphQL rate limit updated: {self.rate_limit_remaining} points remaining")
 
-    def should_stop_for_rate_limit(self) -> bool:
-        """Check if we should stop due to approaching rate limit."""
-        return self.rate_limit_remaining < self.rate_limit_threshold
+    def is_rate_limited(self) -> bool:
+        """Check if we have hit the rate limit (0 remaining points)."""
+        return self.rate_limit_remaining <= 0
 
     def check_rate_limit_before_request(self):
-        """Check rate limit before making a request and log warning if threshold reached."""
-        if self.should_stop_for_rate_limit():
-            logger.warning(f"GraphQL rate limit threshold reached: {self.rate_limit_remaining} < {self.rate_limit_threshold}")
+        """Check rate limit before making a request and log info if rate limited."""
+        if self.is_rate_limited():
+            logger.warning(f"GraphQL rate limit reached: {self.rate_limit_remaining} points remaining")
             logger.warning("Consider implementing checkpoint-based recovery in the calling function")
 
     def _make_graphql_request(self, query: str, variables: Dict[str, Any] = None, max_retries: int = 3) -> Optional[Dict[str, Any]]:
@@ -92,8 +95,8 @@ class GitHubGraphQLClient:
                     # Check for rate limit errors
                     for error in errors:
                         if 'rate limit' in error.get('message', '').lower():
-                            logger.error("GraphQL rate limit exceeded")
-                            raise Exception(f"GitHub GraphQL API rate limit exceeded: {error['message']}")
+                            logger.warning("GraphQL rate limit exceeded - stopping gracefully")
+                            raise GitHubRateLimitException(f"GitHub GraphQL API rate limit exceeded: {error['message']}")
                     
                     logger.error(f"GraphQL errors: {error_messages}")
                     if attempt < max_retries - 1:

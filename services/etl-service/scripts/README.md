@@ -42,22 +42,19 @@ python scripts/generate_secret_key.py
 
 ### 🧪 Testing & Debugging
 
-#### `test_jira_jobs.py`
-Comprehensive test script for debugging and testing Jira ETL jobs manually.
+#### `test_jobs.py`
+Unified testing script for debugging and testing ETL jobs using the same functions as production.
 
 **Basic Usage:**
 ```bash
-# Test Jira connection only
+# Interactive manual testing (default)
+python scripts/test_jobs.py
+
+# Test API connections only
 python scripts/test_jobs.py --test-connection
 
-# Debug job execution step-by-step
-python scripts/test_jobs.py --auto
-
-# Step-by-step debugging with breakpoints
-python scripts/test_jobs.py --manual
-
-# Test scheduler configuration
-python scripts/test_jobs.py --test-scheduler
+# Enable debug logging
+python scripts/test_jobs.py --debug
 
 # Force unlock if job is stuck
 python scripts/test_jobs.py --breakpoint

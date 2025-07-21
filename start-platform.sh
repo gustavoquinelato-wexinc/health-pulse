@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Kairus Platform Startup Script
+# Pulse Platform Startup Script
 # This script helps you start the entire platform or individual services
 
 set -e
@@ -45,7 +45,7 @@ check_env_file() {
         if [ -f ".env.example" ]; then
             cp .env.example .env
             print_warning "Please edit .env file with your actual configuration before starting services"
-            print_warning "Required: SNOWFLAKE_*, JIRA_*, and security keys"
+            print_warning "Required: JIRA_*, GITHUB_*, and security keys"
             return 1
         else
             print_error ".env.example file not found"
@@ -58,7 +58,7 @@ check_env_file() {
 
 # Function to start all services
 start_all() {
-    print_header "🚀 Starting Kairus Platform - All Services"
+    print_header "🚀 Starting Pulse Platform - All Services"
     
     check_docker
     if ! check_env_file; then
@@ -148,7 +148,7 @@ show_logs() {
 
 # Function to show status
 show_status() {
-    print_header "📊 Kairus Platform Status"
+    print_header "📊 Pulse Platform Status"
     
     if ! docker info > /dev/null 2>&1; then
         print_error "Docker is not running"

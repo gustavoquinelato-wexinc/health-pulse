@@ -57,7 +57,6 @@ class Settings(BaseSettings):
     
     # GitHub Configuration (for dev status)
     GITHUB_TOKEN: Optional[str] = None
-    GITHUB_RATE_LIMIT_THRESHOLD: int = 10
 
     # Azure DevOps Configuration
     AZDO_URL: Optional[str] = None
@@ -214,31 +213,38 @@ def get_settings() -> Settings:
         # Try to load from .env file in current directory first
         from pathlib import Path
 
-        # Find .env file - check current directory and parent directories
+        # Find .env file - prioritize root-level configuration
         current_dir = Path.cwd()
         env_file = None
 
-        # First, try to find the etl-service directory specifically
-        # This handles cases where we're running from workspace root
-        etl_service_env = None
+        # Strategy: Look for root-level .env first, then fallback to local
+        # This supports both workspace-root execution and service-specific execution
 
-        # Check if we're in a workspace with services/etl-service structure
-        if (current_dir / "services" / "etl-service" / ".env").exists():
-            etl_service_env = str(current_dir / "services" / "etl-service" / ".env")
-        elif (current_dir.parent / "services" / "etl-service" / ".env").exists():
-            etl_service_env = str(current_dir.parent / "services" / "etl-service" / ".env")
+        # 1. Check if we're in workspace root (has services/ directory)
+        if (current_dir / "services").exists() and (current_dir / ".env").exists():
+            env_file = str(current_dir / ".env")
 
-        if etl_service_env:
-            env_file = etl_service_env
-        else:
-            # Fallback to original logic - check current directory and up to 3 parent directories
+        # 2. Check if we're in a subdirectory of workspace (go up to find root)
+        elif not env_file:
+            check_dir = current_dir
+            for i in range(4):  # Check up to 4 levels up
+                if (check_dir / "services").exists() and (check_dir / ".env").exists():
+                    env_file = str(check_dir / ".env")
+                    break
+                check_dir = check_dir.parent
+                if check_dir == check_dir.parent:  # Reached filesystem root
+                    break
+
+        # 3. Fallback: Look for .env in current directory and parent directories
+        if not env_file:
+            check_dir = current_dir
             for i in range(4):
-                check_path = current_dir / ".env"
+                check_path = check_dir / ".env"
                 if check_path.exists():
                     env_file = str(check_path)
                     break
-                current_dir = current_dir.parent
-                if current_dir == current_dir.parent:  # Reached root
+                check_dir = check_dir.parent
+                if check_dir == check_dir.parent:  # Reached filesystem root
                     break
 
         if env_file:

@@ -19,18 +19,16 @@ logger = get_logger(__name__)
 class GitHubClient:
     """Client for GitHub API interactions."""
     
-    def __init__(self, token: str, base_url: str = "https://api.github.com", rate_limit_threshold: int = 5):
+    def __init__(self, token: str, base_url: str = "https://api.github.com"):
         """
         Initialize GitHub client.
 
         Args:
             token: GitHub personal access token
             base_url: GitHub API base URL
-            rate_limit_threshold: Stop extraction when remaining requests < threshold (default: 5)
         """
         self.token = token
         self.base_url = base_url.rstrip('/')
-        self.rate_limit_threshold = rate_limit_threshold
         self.rate_limit_remaining = 5000  # Default GitHub limit
         self.rate_limit_reset = None
 
@@ -48,15 +46,15 @@ class GitHubClient:
 
         logger.debug(f"Rate limit updated: {self.rate_limit_remaining} requests remaining")
 
-    def should_stop_for_rate_limit(self) -> bool:
-        """Check if we should stop due to approaching rate limit."""
-        return self.rate_limit_remaining < self.rate_limit_threshold
+    def is_rate_limited(self) -> bool:
+        """Check if we have hit the rate limit (0 remaining requests)."""
+        return self.rate_limit_remaining <= 0
 
     def check_rate_limit_before_request(self):
-        """Check rate limit before making a request and log warning if threshold reached."""
-        if self.should_stop_for_rate_limit():
-            logger.warning(f"GitHub API rate limit threshold reached: {self.rate_limit_remaining} remaining < {self.rate_limit_threshold} threshold")
-            logger.warning("GitHub Search API has a limit of 30 requests per minute. Consider pausing extraction or implementing checkpoint recovery.")
+        """Check rate limit before making a request and log info if rate limited."""
+        if self.is_rate_limited():
+            logger.warning(f"GitHub API rate limit reached: {self.rate_limit_remaining} requests remaining")
+            logger.warning("Consider implementing checkpoint-based recovery in the calling function")
 
     def _make_request(self, endpoint: str, params: Dict[str, Any] = None, max_retries: int = 3) -> Optional[Dict[str, Any]]:
         """
@@ -75,7 +73,9 @@ class GitHubClient:
         for attempt in range(max_retries):
             try:
                 # Check rate limit before making request
-                self.check_rate_limit_before_request()
+                if self.is_rate_limited():
+                    logger.warning(f"GitHub API rate limit reached: {self.rate_limit_remaining} requests remaining")
+                    raise Exception("GitHub API rate limit exceeded")
 
                 logger.debug(f"Making GitHub API request: {url}")
                 response = self.session.get(url, params=params, timeout=30)
@@ -379,34 +379,144 @@ class GitHubClient:
         logger.info(f"PR #{pr_number} commits: Total items fetched: {len(result)}")
         return result
 
-    def search_repositories(self, org: str, start_date: str, end_date: str, name_filter: str = None) -> List[Dict[str, Any]]:
+    def search_repositories_combined(self, org: str, start_date: str, end_date: str,
+                                   health_filter: str = None, additional_repo_names: List[str] = None) -> List[Dict[str, Any]]:
         """
-        Search repositories using GitHub Search API.
+        Search repositories using GitHub Search API with combined patterns.
+        Uses OR operators to combine health- filter with specific repo names.
+        Handles 256 character limit by batching requests.
 
         Args:
             org: Organization name (e.g., 'wexinc')
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
-            name_filter: Optional name filter (e.g., 'health-')
+            health_filter: Health pattern filter (e.g., 'health-')
+            additional_repo_names: List of specific repo names to include
 
         Returns:
-            List of repository data
+            List of repository data from all search requests
         """
-        query_parts = [f"org:{org}", f"pushed:{start_date}..{end_date}"]
-        if name_filter:
-            query_parts.append(f"{name_filter} in:name")
+        all_repos = []
 
-        query = " ".join(query_parts)
-        endpoint = "search/repositories"
-        params = {
-            "q": query,
-            "sort": "updated",
-            "order": "asc",
-            "per_page": 100
-        }
+        # Base query parts that are always included
+        base_query_parts = [f"org:{org}", f"pushed:{start_date}..{end_date}"]
+        base_query = " ".join(base_query_parts)
 
-        logger.info(f"Searching repositories with query: {query}")
-        return self._paginate_search_request(endpoint, params)
+        # Calculate base query length for character limit calculations
+        base_length = len(base_query)
+
+        # Start with health- filter if provided
+        search_patterns = []
+        if health_filter:
+            search_patterns.append(f"{health_filter} in:name")
+
+        # Add specific repo names (extract just the repo name part after '/')
+        if additional_repo_names:
+            for full_name in additional_repo_names:
+                if '/' in full_name:
+                    repo_name = full_name.split('/', 1)[1]  # Get part after '/'
+                    search_patterns.append(f"{repo_name} in:name")
+                else:
+                    search_patterns.append(f"{full_name} in:name")
+
+        if not search_patterns:
+            logger.warning("No search patterns provided")
+            return []
+
+        # Batch patterns to stay within 256 character limit
+        pattern_batches = self._batch_search_patterns(base_query, search_patterns, max_length=256)
+
+        logger.info(f"Executing {len(pattern_batches)} search requests to stay within character limit")
+
+        # Execute each batch
+        for i, batch_patterns in enumerate(pattern_batches, 1):
+            # Combine patterns with OR
+            combined_patterns = " OR ".join(batch_patterns)
+            full_query = f"{base_query} {combined_patterns}"
+
+            endpoint = "search/repositories"
+            params = {
+                "q": full_query,
+                "sort": "updated",
+                "order": "asc",
+                "per_page": 100
+            }
+
+            # Log each batch query and full URL so you can see all the searches being performed
+            logger.info(f"Batch {i}/{len(pattern_batches)} Query: {full_query}")
+
+            # Create the URL that requests will actually use (with proper encoding)
+            import urllib.parse
+            query_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+            actual_url = f"{self.base_url}/{endpoint}?{query_params}"
+            logger.info(f"Full Search URL: {actual_url}")
+
+            batch_results = self._paginate_search_request(endpoint, params)
+            all_repos.extend(batch_results)
+
+            logger.info(f"Batch {i}/{len(pattern_batches)}: {len(batch_results)} repositories")
+
+        # Remove duplicates (same repo might match multiple patterns)
+        unique_repos = {}
+        for repo in all_repos:
+            repo_id = repo.get('id')
+            if repo_id and repo_id not in unique_repos:
+                unique_repos[repo_id] = repo
+            else:
+                logger.info(f"Non-unique repo: {repo.get("name","")}")
+
+        final_repos = list(unique_repos.values())
+        logger.info(f"Total unique repositories found: {len(final_repos)}")
+
+        return final_repos
+
+    def _batch_search_patterns(self, base_query: str, patterns: List[str], max_length: int = 256) -> List[List[str]]:
+        """
+        Batch search patterns to stay within character limit.
+
+        Args:
+            base_query: Base query string (org, date range, etc.)
+            patterns: List of search patterns to batch
+            max_length: Maximum query length (default 256)
+
+        Returns:
+            List of pattern batches
+        """
+        batches = []
+        current_batch = []
+
+        # Account for base query + space + " OR " separators
+        base_length = len(base_query) + 1  # +1 for space before patterns
+
+        for pattern in patterns:
+            # Calculate length if we add this pattern
+            if current_batch:
+                # Need " OR " separator
+                test_length = base_length + len(" OR ".join(current_batch + [pattern]))
+            else:
+                # First pattern in batch
+                test_length = base_length + len(pattern)
+
+            if test_length <= max_length:
+                current_batch.append(pattern)
+            else:
+                # Current batch is full, start new one
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [pattern]
+
+        # Add final batch if not empty
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
+    def search_repositories(self, org: str, start_date: str, end_date: str, name_filter: str = None) -> List[Dict[str, Any]]:
+        """
+        Legacy method - kept for backward compatibility.
+        Use search_repositories_combined for new implementations.
+        """
+        return self.search_repositories_combined(org, start_date, end_date, health_filter=name_filter)
 
     def search_pull_requests(self, repo_full_name: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """

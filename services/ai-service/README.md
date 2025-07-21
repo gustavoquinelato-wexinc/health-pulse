@@ -1,6 +1,6 @@
 # AI Service - Machine Learning and Analytics
 
-The AI Service provides machine learning capabilities and advanced analytics for the Kairus Platform. It processes data from the ETL service to generate insights, predictions, and recommendations.
+The AI Service provides machine learning capabilities and advanced analytics for the Pulse Platform. It processes data from the ETL service to generate insights, predictions, and recommendations.
 
 ## 🎯 Features
 
@@ -192,4 +192,4 @@ python -m pytest --cov=app
 
 ---
 
-**Part of the Kairus Platform - Software Engineering Intelligence**
+**Part of the Pulse Platform - Software Engineering Intelligence**

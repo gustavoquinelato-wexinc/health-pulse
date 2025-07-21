@@ -102,6 +102,7 @@ class GitHubGraphQLProcessor:
 
             return {
                 'external_id': str(pr_node.get('number')),  # Use PR number as external_id
+                'external_repo_id': None,  # Will be set by the caller with repository.external_id
                 'repository_id': self.repository_id,
                 'issue_id': None,  # Will be linked later if Jira data exists
                 'number': pr_node.get('number'),

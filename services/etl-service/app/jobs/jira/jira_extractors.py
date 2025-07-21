@@ -65,6 +65,155 @@ def has_useful_dev_status_data(dev_details: Dict) -> bool:
         return True
 
 
+def extract_pr_links_from_dev_status(dev_details: Dict) -> List[Dict]:
+    """
+    Extract PR links from Jira dev_status API response.
+
+    Args:
+        dev_details: The dev_status response from Jira API
+
+    Returns:
+        List of dictionaries containing PR link information:
+        [
+            {
+                'repo_id': str,
+                'pr_number': int,
+                'branch': str,
+                'commit': str,
+                'status': str
+            },
+            ...
+        ]
+    """
+    pr_links = []
+
+    try:
+        if not isinstance(dev_details, dict) or 'detail' not in dev_details:
+            return pr_links
+
+        for detail in dev_details['detail']:
+            if not isinstance(detail, dict):
+                continue
+
+            # Extract pull requests
+            pull_requests = detail.get('pullRequests', [])
+            for pr in pull_requests:
+                if not isinstance(pr, dict):
+                    continue
+
+                # Extract repository information from Jira dev_status structure
+                repo_id = pr.get('repositoryId')  # GitHub repository ID
+                repo_full_name = pr.get('repositoryName')  # GitHub repository full name (e.g., "wexinc/health-api")
+
+                # Both fields are required for the hybrid approach
+                if not repo_id or not repo_full_name:
+                    continue
+
+                # Extract PR number - based on actual Jira dev_status structure
+                pr_number = None
+
+                # Try different possible fields for PR number
+                if 'id' in pr:
+                    pr_id = pr['id']
+                    # Handle different ID formats
+                    if isinstance(pr_id, int):
+                        pr_number = pr_id
+                    elif isinstance(pr_id, str):
+                        if pr_id.isdigit():
+                            pr_number = int(pr_id)
+                        else:
+                            # Try to extract number from string like "pull-request-123"
+                            import re
+                            match = re.search(r'(\d+)', pr_id)
+                            if match:
+                                pr_number = int(match.group(1))
+
+                # Try pullRequestNumber field (from old staging logic)
+                if not pr_number and 'pullRequestNumber' in pr:
+                    try:
+                        pr_number = int(pr['pullRequestNumber'])
+                    except (ValueError, TypeError):
+                        pass
+
+                # Try extracting from URL if available
+                if not pr_number and 'url' in pr:
+                    import re
+                    match = re.search(r'/pull/(\d+)', pr['url'])
+                    if match:
+                        pr_number = int(match.group(1))
+
+                if repo_id and repo_full_name and pr_number:
+                    # Extract branch name safely
+                    branch_name = None
+                    if 'branchName' in pr:
+                        branch_name = pr['branchName']
+                    elif 'source' in pr and isinstance(pr['source'], dict):
+                        branch_name = pr['source'].get('branch')
+
+                    # Extract commit ID safely
+                    commit_id = None
+                    if 'commitId' in pr:
+                        commit_id = pr['commitId']
+                    elif 'source' in pr and isinstance(pr['source'], dict):
+                        commit_data = pr['source'].get('commit')
+                        if isinstance(commit_data, dict):
+                            commit_id = commit_data.get('id')
+                        elif isinstance(commit_data, str):
+                            commit_id = commit_data
+
+                    pr_link = {
+                        'repo_id': str(repo_id),
+                        'repo_full_name': str(repo_full_name),
+                        'pr_number': pr_number,
+                        'branch': branch_name,
+                        'commit': commit_id,
+                        'status': pr.get('status', 'UNKNOWN').upper()
+                    }
+                    pr_links.append(pr_link)
+
+            # Also check repositories for branch/commit information
+            repositories = detail.get('repositories', [])
+            for repo in repositories:
+                if not isinstance(repo, dict):
+                    continue
+
+                repo_id = repo.get('id') or repo.get('name')
+                if not repo_id:
+                    continue
+
+                # Check for commits that might be linked to PRs
+                commits = repo.get('commits', [])
+                for commit in commits:
+                    if not isinstance(commit, dict):
+                        continue
+
+                    # Look for PR references in commit message or metadata
+                    commit_message = commit.get('message', '')
+                    if commit_message:
+                        import re
+                        # Look for PR references like "Merge pull request #123"
+                        pr_match = re.search(r'#(\d+)', commit_message)
+                        if pr_match:
+                            pr_number = int(pr_match.group(1))
+                            pr_link = {
+                                'repo_id': str(repo_id),
+                                'pr_number': pr_number,
+                                'branch': None,
+                                'commit': commit.get('id'),
+                                'status': 'MERGED'  # Assume merged if found in commit
+                            }
+                            # Only add if not already present
+                            if not any(link['repo_id'] == pr_link['repo_id'] and
+                                     link['pr_number'] == pr_link['pr_number']
+                                     for link in pr_links):
+                                pr_links.append(pr_link)
+
+    except Exception as e:
+        logger.warning(f"Error extracting PR links from dev_status: {e}")
+
+    return pr_links
+
+
 def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated issue types from Jira in a combined operation.
@@ -594,7 +743,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
         return {'statuses_processed': 0, 'relationships_processed': 0}
 
 
-def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None) -> Dict[str, Any]:
+async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True) -> Dict[str, Any]:
     """Extract and process Jira work items and their changelogs together using bulk operations with batching for performance.
 
     Returns:
@@ -648,20 +797,55 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
 
         job_logger.progress(f"[FETCHING] Fetching issues with JQL: {jql}")
 
+
+
         def progress_callback(message):
             job_logger.progress(f"[FETCHED] {message}")
 
-        all_issues = jira_client.get_issues(jql=jql, max_results=100, progress_callback=progress_callback)
+        # Run the blocking API call in a thread pool to avoid blocking the event loop
+        import asyncio
+        import concurrent.futures
+
+        def get_issues_sync():
+            return jira_client.get_issues(jql=jql, max_results=100, progress_callback=progress_callback)
+
+        # Run in thread pool with timeout
+        try:
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = loop.run_in_executor(executor, get_issues_sync)
+                all_issues = await asyncio.wait_for(future, timeout=300)  # 5 minute timeout
+        except asyncio.TimeoutError:
+            job_logger.error("Issue fetching timed out after 5 minutes")
+            return {
+                'success': False,
+                'error': 'Issue fetching timed out after 5 minutes',
+                'issues_processed': 0,
+                'changelogs_processed': 0,
+                'issue_keys': []
+            }
+        except Exception as e:
+            job_logger.error(f"Error during async issue fetching: {e}")
+            return {
+                'success': False,
+                'error': f'Error during issue fetching: {str(e)}',
+                'issues_processed': 0,
+                'changelogs_processed': 0,
+                'issue_keys': []
+            }
         job_logger.progress(f"[TOTAL] Total issues fetched: {len(all_issues)}")
 
         if not all_issues:
             job_logger.warning("No issues found for the given criteria")
 
             # Update integration.last_sync_at even when no issues found (to prevent re-processing same time range)
-            truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-            integration.last_sync_at = truncated_start_time
-            session.commit()
-            job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+            if update_sync_timestamp:
+                truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
+                integration.last_sync_at = truncated_start_time
+                session.commit()
+                job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+            else:
+                job_logger.progress("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
 
             return {'success': True, 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': []}
 
@@ -693,6 +877,7 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
 
         for issue_data in all_issues:
             try:
+
                 external_id = issue_data.get('id')
                 if not external_id:
                     continue
@@ -787,6 +972,24 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
 
                 processed_count += 1
 
+                # Send progress update every 50 issues
+                if websocket_manager and processed_count % 50 == 0:
+                    # Calculate progress within the 35-45% range for issue processing
+                    process_progress = 35.0 + (processed_count / len(all_issues)) * 10.0
+                    progress_message = f"Processing issues: {processed_count:,} of {len(all_issues):,} ({processed_count/len(all_issues)*100:.1f}%)"
+
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(websocket_manager.send_progress_update(
+                                "jira_sync",
+                                process_progress,
+                                progress_message
+                            ))
+                    except Exception:
+                        pass
+
                 # Track issue key and changelog data for processing
                 issue_key = processed_issue.get('key', '') or issue_data.get('key', '')
                 if issue_key:
@@ -851,17 +1054,20 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
         if processed_issue_keys:
             changelogs_processed = process_changelogs_for_issues(
                 session, jira_client, integration, processed_issue_keys,
-                statuses_dict, job_logger, issue_changelogs
+                statuses_dict, job_logger, issue_changelogs, websocket_manager
             )
 
 
 
         # Update integration.last_sync_at to extraction start time (truncated to %Y-%m-%d %H:%M format)
         # This ensures we capture the start time to prevent losing changes made during extraction
-        truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-        integration.last_sync_at = truncated_start_time
-        session.commit()
-        job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+        if update_sync_timestamp:
+            truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
+            integration.last_sync_at = truncated_start_time
+            session.commit()
+            job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+        else:
+            job_logger.progress("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
 
         return {
             'success': True,
@@ -881,7 +1087,7 @@ def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClie
 
 def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, integration: Integration,
                                  issue_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
-                                 issue_changelogs: Dict[str, List[Dict]] = None) -> int:
+                                 issue_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
     """Process changelogs for a list of issues and calculate started/completed dates.
 
     Args:
@@ -927,8 +1133,10 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
         job_logger.progress(f"[PROCESSING] Processing changelogs for {len(issues_in_db)} issues...")
 
         # Process each issue's changelogs
+        issues_processed = 0
         for issue in issues_in_db:
             try:
+
                 issue_key = issue.key
 
                 # Use embedded changelog data if available, otherwise fall back to API call
@@ -1018,8 +1226,30 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                     # Add processed entries to bulk insert list
                     changelogs_to_insert.extend(changelog_entries_for_processing)
 
+                # Track progress
+                issues_processed += 1
+
+                # Send progress update every 25 issues
+                if websocket_manager and issues_processed % 25 == 0:
+                    # Calculate progress within the 45-50% range for changelog processing
+                    changelog_progress = 45.0 + (issues_processed / len(issues_in_db)) * 5.0
+                    progress_message = f"Processing changelogs: {issues_processed:,} of {len(issues_in_db):,} issues ({issues_processed/len(issues_in_db)*100:.1f}%)"
+
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(websocket_manager.send_progress_update(
+                                "jira_sync",
+                                changelog_progress,
+                                progress_message
+                            ))
+                    except Exception:
+                        pass
+
             except Exception as e:
                 job_logger.error(f"Error processing changelogs for issue {issue.key}: {e}")
+                issues_processed += 1  # Still count it as processed for progress tracking
                 continue
 
         # Bulk insert changelogs

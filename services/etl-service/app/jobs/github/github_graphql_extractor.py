@@ -7,8 +7,9 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
+from app.core.websocket_manager import get_websocket_manager
 from app.models.unified_models import Repository, PullRequest, PullRequestReview, PullRequestCommit, PullRequestComment, Integration, JobSchedule
-from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+from app.jobs.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_pagination import (
     paginate_commits, paginate_reviews, paginate_comments, paginate_review_threads, resume_pr_nested_pagination
@@ -19,7 +20,8 @@ logger = get_logger(__name__)
 
 def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLClient,
                                        repository: Repository, owner: str, repo_name: str,
-                                       integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
+                                       integration: Integration, job_schedule: JobSchedule,
+                                       websocket_manager=None) -> Dict[str, Any]:
     """
     Process pull requests for a repository using GraphQL with bulk inserts and early termination.
 
@@ -41,6 +43,10 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
     try:
         logger.info(f"Processing PRs for {owner}/{repo_name} using GraphQL")
 
+        # Get WebSocket manager if not provided
+        if websocket_manager is None:
+            websocket_manager = get_websocket_manager()
+
         processor = GitHubGraphQLProcessor(integration, repository.id)
         prs_processed = 0
 
@@ -56,9 +62,9 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         pr_cursor = checkpoint_state.get('last_pr_cursor')  # Use saved cursor or None for fresh start
 
         if pr_cursor:
-            logger.info(f"Resuming PR processing from cursor: {pr_cursor}")
+            logger.info(f"[{owner}/{repo_name}] Resuming PR processing from cursor: {pr_cursor}")
         else:
-            logger.info("Starting fresh PR processing (no saved cursor)")
+            logger.info(f"[{owner}/{repo_name}] Starting fresh PR processing (no saved cursor)")
 
         # Bulk insert collections
         bulk_prs = []
@@ -72,8 +78,8 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         # Outer loop: Paginate through pull requests
         while True:
             # Check rate limit before making request and abort if needed
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("Rate limit threshold reached during PR processing, aborting to save state")
+            if graphql_client.is_rate_limited():
+                logger.warning(f"Rate limit reached during PR processing for {owner}/{repo_name}, aborting to save state")
                 # Save current state before aborting
                 job_schedule.update_checkpoint({
                     'last_pr_cursor': pr_cursor,
@@ -83,25 +89,41 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                     'last_comment_cursor': None,
                     'last_review_thread_cursor': None
                 })
-                logger.info(f"Saved checkpoint: repo_id={repository.external_id}, pr_cursor={pr_cursor}")
+                logger.info(f"Saved checkpoint for {owner}/{repo_name}: repo_id={repository.external_id}, pr_cursor={pr_cursor}")
                 return {
                     'success': True,
                     'prs_processed': prs_processed,
                     'rate_limit_reached': True,
                     'partial_success': True,
-                    'message': f'Rate limit reached, processed {prs_processed} PRs, state saved'
+                    'message': f'Rate limit reached, processed {prs_processed} PRs for {owner}/{repo_name}, state saved'
                 }
             
             # Fetch batch of PRs with nested data
+            logger.debug(f"[{owner}/{repo_name}] Fetching PR batch with cursor: {pr_cursor or 'None (first page)'}")
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
             
             if not response or 'data' not in response:
                 logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
+                logger.info(f"[{owner}/{repo_name}] Saving checkpoint: processed {prs_processed} PRs, cursor: {pr_cursor}")
+
+                # Save checkpoint data for recovery
+                job_schedule.update_checkpoint({
+                    'last_pr_cursor': pr_cursor,
+                    'current_pr_node_id': None,
+                    'last_commit_cursor': None,
+                    'last_review_cursor': None,
+                    'last_comment_cursor': None,
+                    'last_review_thread_cursor': None
+                })
+
                 return {
                     'success': False,
-                    'error': 'Failed to fetch PR data from GraphQL',
+                    'error': f'GitHub API connection failed for {owner}/{repo_name}. This may be due to network issues, API outage, or repository access permissions.',
                     'prs_processed': prs_processed,
-                    'checkpoint_data': {}
+                    'checkpoint_data': {
+                        'last_pr_cursor': pr_cursor,
+                        'prs_processed_before_failure': prs_processed
+                    }
                 }
             
             repository_data = response['data']['repository']
@@ -116,7 +138,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                 logger.info(f"No more PRs to process for {owner}/{repo_name}")
                 break
             
-            logger.info(f"Processing batch of {len(pr_nodes)} PRs")
+            logger.info(f"[{owner}/{repo_name}] Processing batch of {len(pr_nodes)} PRs (total processed so far: {prs_processed})")
             
             # Process each PR in the batch and collect data for bulk insert
             for pr_node in pr_nodes:
@@ -165,7 +187,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                     if not pr_result['success']:
                         # Before failing, save any collected data
                         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-                            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
+                            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
 
                         return {
                             'success': False,
@@ -182,7 +204,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
 
                     # Perform bulk insert when batch is full
                     if len(bulk_prs) >= BATCH_SIZE:
-                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
+                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
                         bulk_prs.clear()
                         bulk_commits.clear()
                         bulk_reviews.clear()
@@ -190,25 +212,25 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
 
                     # Log progress every 10 PRs
                     if prs_processed % 10 == 0:
-                        logger.info(f"Processed {prs_processed} PRs so far...")
+                        logger.info(f"[{owner}/{repo_name}] Processed {prs_processed} PRs so far...")
 
                 except Exception as e:
-                    logger.error(f"Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
+                    logger.error(f"[{owner}/{repo_name}] Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
                     continue
 
             # Check if there are more pages
             page_info = pull_requests['pageInfo']
             if not page_info['hasNextPage']:
-                logger.info(f"Completed processing all PRs for {owner}/{repo_name}")
+                logger.info(f"[{owner}/{repo_name}] Completed processing all PRs - no more pages")
                 break
 
             pr_cursor = page_info['endCursor']
-            logger.debug(f"Moving to next page with cursor: {pr_cursor}")
+            logger.debug(f"[{owner}/{repo_name}] Moving to next page with cursor: {pr_cursor}")
 
         # Final bulk insert for remaining data
         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
-            logger.info(f"Final bulk insert completed for {owner}/{repo_name}")
+            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+            logger.info(f"[{owner}/{repo_name}] Final bulk insert completed")
 
         logger.info(f"Repository {owner}/{repo_name} completed: {prs_processed} PRs processed")
 
@@ -231,15 +253,25 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
             'prs_processed': prs_processed
         }
         
+    except GitHubRateLimitException as e:
+        logger.warning(f"Rate limit reached while processing repository {owner}/{repo_name}: {e}")
+
+        # Rate limit is a partial success - we processed what we could
+        return {
+            'success': True,  # Partial success
+            'rate_limit_reached': True,
+            'partial_success': True,
+            'error': str(e),
+            'prs_processed': prs_processed,
+            'checkpoint_data': {}
+        }
+
     except Exception as e:
         logger.error(f"Error processing repository {owner}/{repo_name}: {e}")
 
-        # Check if this is a rate limit error
-        is_rate_limit_error = 'rate limit' in str(e).lower()
-
         return {
             'success': False,
-            'rate_limit_reached': is_rate_limit_error,
+            'rate_limit_reached': False,
             'partial_success': False,
             'error': str(e),
             'prs_processed': prs_processed,
@@ -311,8 +343,8 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
         # Continue with normal processing from the saved cursor
         while True:
             # Check rate limit before making request and abort if needed
-            if graphql_client.should_stop_for_rate_limit():
-                logger.warning("Rate limit threshold reached during recovery, aborting to save state")
+            if graphql_client.is_rate_limited():
+                logger.warning("Rate limit reached during recovery, aborting to save state")
                 # Save current state before aborting
                 job_schedule.update_checkpoint({
                     'last_pr_cursor': pr_cursor,
@@ -338,7 +370,7 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
                 logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
                 return {
                     'success': False,
-                    'error': 'Failed to fetch PR data from GraphQL',
+                    'error': f'GitHub API connection failed during recovery for {owner}/{repo_name}. Check network connectivity and repository permissions.',
                     'prs_processed': prs_processed,
                     'checkpoint_data': {}
                 }
@@ -495,6 +527,9 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
                 'error': f'Failed to process PR #{pr_number} data',
                 'checkpoint_data': {}
             }
+
+        # Set the external_repo_id from the repository
+        pr_data['external_repo_id'] = repository.external_id
 
         # Check if PR already exists
         existing_pr = session.query(PullRequest).filter(
@@ -697,6 +732,9 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                 'error': f'Failed to process PR #{pr_number} data'
             }
 
+        # Set the external_repo_id from the repository
+        pr_data['external_repo_id'] = repository.external_id
+
         # Add to bulk PR collection
         bulk_prs.append(pr_data)
 
@@ -796,7 +834,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
 
 
 def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
-                        bulk_reviews: list, bulk_comments: list):
+                        bulk_reviews: list, bulk_comments: list, repo_context: str = None):
     """
     Perform bulk UPSERT operations for all collected data.
 
@@ -815,7 +853,8 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
 
         # Step 1: UPSERT PRs (update existing, insert new)
         if bulk_prs:
-            logger.info(f"Processing {len(bulk_prs)} pull requests with UPSERT logic...")
+            context_prefix = f"[{repo_context}] " if repo_context else ""
+            logger.info(f"{context_prefix}Processing {len(bulk_prs)} pull requests with UPSERT logic...")
 
             # Get external IDs of PRs being processed
             pr_external_ids = [pr['external_id'] for pr in bulk_prs]
@@ -846,11 +885,11 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
 
             # Perform bulk operations
             if prs_to_insert:
-                logger.info(f"Bulk inserting {len(prs_to_insert)} new PRs...")
+                logger.info(f"{context_prefix}Bulk inserting {len(prs_to_insert)} new PRs...")
                 session.bulk_insert_mappings(PullRequest, prs_to_insert)
 
             if prs_to_update:
-                logger.info(f"Updated {len(prs_to_update)} existing PRs...")
+                logger.info(f"{context_prefix}Updated {len(prs_to_update)} existing PRs...")
 
             session.flush()  # Ensure PRs are processed before nested data
 
@@ -885,7 +924,7 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                 # DELETE existing nested data for full refresh approach
                 pr_ids_to_clean = list(pr_mappings.values())
                 if pr_ids_to_clean:
-                    logger.info(f"Cleaning existing nested data for {len(pr_ids_to_clean)} PRs...")
+                    logger.info(f"{context_prefix}Cleaning existing nested data for {len(pr_ids_to_clean)} PRs...")
 
                     # Delete existing commits
                     deleted_commits = session.query(PullRequestCommit).filter(
@@ -902,22 +941,23 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                         PullRequestComment.pull_request_id.in_(pr_ids_to_clean)
                     ).delete(synchronize_session=False)
 
-                    logger.info(f"Deleted existing data: {deleted_commits} commits, {deleted_reviews} reviews, {deleted_comments} comments")
+                    logger.info(f"{context_prefix}Deleted existing data: {deleted_commits} commits, {deleted_reviews} reviews, {deleted_comments} comments")
 
         # Bulk insert nested data (fresh data after cleanup)
+        context_prefix = f"[{repo_context}] " if repo_context else ""
         if bulk_commits:
-            logger.info(f"Bulk inserting {len(bulk_commits)} commits...")
+            logger.info(f"{context_prefix}Bulk inserting {len(bulk_commits)} commits...")
             session.bulk_insert_mappings(PullRequestCommit, bulk_commits)
 
         if bulk_reviews:
-            logger.info(f"Bulk inserting {len(bulk_reviews)} reviews...")
+            logger.info(f"{context_prefix}Bulk inserting {len(bulk_reviews)} reviews...")
             session.bulk_insert_mappings(PullRequestReview, bulk_reviews)
 
         if bulk_comments:
-            logger.info(f"Bulk inserting {len(bulk_comments)} comments...")
+            logger.info(f"{context_prefix}Bulk inserting {len(bulk_comments)} comments...")
             session.bulk_insert_mappings(PullRequestComment, bulk_comments)
 
-        logger.info(f"Bulk insert completed: {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+        logger.info(f"{context_prefix}Bulk insert completed: {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
 
     except Exception as e:
         logger.error(f"Error performing bulk inserts: {e}")

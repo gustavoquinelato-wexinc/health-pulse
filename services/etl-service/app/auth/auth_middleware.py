@@ -6,6 +6,7 @@ Provides authentication decorators and dependencies for FastAPI.
 from typing import Optional
 from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import RedirectResponse
 
 from app.auth.auth_service import get_auth_service
 from app.models.unified_models import User
@@ -67,6 +68,48 @@ async def require_authentication(
     return user
 
 
+async def require_web_authentication(
+    request: Request
+) -> User:
+    """
+    Web-specific authentication dependency that redirects to login on failure.
+    Used for web pages instead of API endpoints.
+    """
+    try:
+        # Try to get token from various sources
+        token = None
+
+        # 1. Check Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+        # 2. Check cookies (for session-based auth)
+        if not token:
+            token = request.cookies.get("pulse_token")
+
+        # 3. For web pages, we'll rely on JavaScript to include the token in headers
+        # The frontend should set the Authorization header from localStorage
+
+        if not token:
+            logger.debug("No authentication token found, redirecting to login")
+            return RedirectResponse(url="/login?error=authentication_required", status_code=302)
+
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            logger.debug("Invalid token, redirecting to login")
+            return RedirectResponse(url="/login?error=invalid_token", status_code=302)
+
+        logger.debug(f"Web user authenticated: {user.email}")
+        return user
+
+    except Exception as e:
+        logger.error(f"Web authentication error: {e}")
+        return RedirectResponse(url="/login?error=authentication_failed", status_code=302)
+
+
 async def require_admin(
     user: User = Depends(require_authentication)
 ) -> User:
@@ -97,11 +140,79 @@ async def require_role(required_role: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role '{required_role}' required"
             )
-        
+
         logger.debug(f"Role access granted for user: {user.email}, role: {user.role}")
         return user
-    
+
     return role_checker
+
+
+def require_permission(resource: str, action: str):
+    """
+    Dependency factory that requires a specific permission.
+    Returns a dependency function that checks for the required permission.
+    """
+    async def permission_checker(user: User = Depends(require_authentication)) -> User:
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        try:
+            resource_enum = Resource(resource)
+            action_enum = Action(action)
+
+            # Check permission with database session for custom permissions
+            database = get_database()
+            with database.get_session() as session:
+                if has_permission(user, resource_enum, action_enum, session):
+                    logger.debug(f"Permission granted for user: {user.email}, resource: {resource}, action: {action}")
+                    return user
+                else:
+                    logger.warning(f"Permission denied for user: {user.email}, resource: {resource}, action: {action}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Permission required: {action} on {resource}"
+                    )
+        except ValueError:
+            logger.error(f"Invalid resource or action: {resource}, {action}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid resource or action"
+            )
+
+    return permission_checker
+
+
+def require_web_permission(resource: str, action: str):
+    """
+    Web-specific permission dependency that redirects to login/error page on failure.
+    Used for web pages instead of API endpoints.
+    """
+    async def web_permission_checker(user: User = Depends(require_web_authentication)) -> User:
+        # If require_web_authentication returned a redirect, pass it through
+        if isinstance(user, RedirectResponse):
+            return user
+
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        try:
+            resource_enum = Resource(resource)
+            action_enum = Action(action)
+
+            # Check permission with database session for custom permissions
+            database = get_database()
+            with database.get_session() as session:
+                if has_permission(user, resource_enum, action_enum, session):
+                    logger.debug(f"Web permission granted for user: {user.email}, resource: {resource}, action: {action}")
+                    return user
+                else:
+                    logger.warning(f"Web permission denied for user: {user.email}, resource: {resource}, action: {action}")
+                    return RedirectResponse(url=f"/login?error=permission_denied&resource={resource}", status_code=302)
+        except ValueError:
+            logger.error(f"Invalid resource or action: {resource}, {action}")
+            return RedirectResponse(url="/login?error=invalid_permission", status_code=302)
+
+    return web_permission_checker
 
 
 def get_client_ip(request: Request) -> str:

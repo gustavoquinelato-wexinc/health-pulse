@@ -213,8 +213,8 @@ redis-data/
 *.sublime-workspace
 .vscode/settings.json
 .vscode/tasks.json
-.vscode/launch.json
 .vscode/extensions.json
+# Note: .vscode/launch.json is included for development consistency
 
 # Local development files
 docker-compose.override.yml

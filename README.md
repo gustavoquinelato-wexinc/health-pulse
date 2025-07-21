@@ -1,268 +1,426 @@
-# Pulse Platform - Software Engineering Intelligence Platform
+# Pulse Platform - Complete Documentation
 
-A comprehensive ETL platform for integrating and processing data from multiple sources including Jira, GitHub, Aha!, and Azure DevOps for development workflow analytics and project management insights.
+## 🏗️ **Architecture Overview**
 
-## 🏗️ Architecture Overview
+The Pulse Platform is a microservices-based data integration platform designed for enterprise-scale ETL operations, real-time analytics, and AI-powered insights.
 
-Pulse Platform follows a microservices architecture with secure service communication:
+### **System Architecture**
+
+```
+Row 1: Application Services
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌───────────────────┐
+│  Frontend       │◄──►│  Backend        │◄──►│  ETL Service    │    │  AI Service       │
+│  (React/Vite)   │    │  (Node.js)      │    │  (Python)       │    │  (LangGraph)      │
+│  Port: 5173     │    │  Port: 3001     │    │  Port: 8000     │    │  Port: 8001       │
+│                 │    │                 │    │                 │    │                   │
+│ • Dashboard UI  │    │ • API Gateway   │    │ • Data Extract  │    │ • AI Orchestrator │
+│ • Real-time UI  │    │ • Authentication│    │ • Job Control   │    │ • Agent Workflows │
+│ • Job Management│    │ • User Mgmt     │    │ • Progress Track│    │ • MCP Servers     │
+│ • AI Chat (MCP) │◄───┼─ Session Mgmt   │    │ • Recovery      │    │ • Tool Integration│
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └───────────────────┘
+                                │                       │                       │
+                                ▼                       ▼                       ▼
+Row 2: Caching Layer            │              ┌─────────────────┐              │
+                                └─────────────►│  Redis Cache    │◄─────────────┘
+                                               │  (Caching)      │
+                                               │  Port: 6379     │
+                                               │                 │
+                                               │ • Query Cache   │
+                                               │ • Session Cache │
+                                               │ • Job Queue     │
+                                               │ • Performance   │
+                                               └─────────────────┘
+                                                       │
+                                                       ▼
+Row 3: Database Layer                         ┌─────────────────┐
+                                              │  PostgreSQL     │
+                                              │  (Database)     │
+                                              │  Port: 5432     │
+                                              │                 │
+                                              │ • Primary DB    │
+                                              │ • Job State     │
+                                              │ • User Data     │
+                                              │ • Audit Logs    │
+                                              └─────────────────┘
+
+External Integrations:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Data APIs      │    │  AI/LLM APIs    │    │  MCP Ecosystem  │
+│                 │    │                 │    │                 │
+│ • Jira Cloud    │    │ • OpenAI        │    │ • MCP Servers   │
+│ • GitHub API    │    │ • Claude        │    │ • Tool Protocols│
+│ • Rate Limits   │    │ • Local LLMs    │    │ • Agent Tools   │
+│ • Auth Tokens   │    │ • Embeddings    │    │ • Context Mgmt  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         ▲                       ▲                       ▲
+         │                       │                       │
+    ETL Service            AI Service              Frontend (Direct)
+```
+
+### **Core Components**
+
+#### **🔄 ETL Service (Primary)**
+- **Jira Integration:** Issue tracking, project management data
+- **GitHub Integration:** Repository, PR, commit data  
+- **Job Orchestration:** Smart scheduling, recovery, monitoring
+- **Real-time Progress:** WebSocket updates, live dashboards
+- **Checkpoint System:** Fault-tolerant, resumable operations
+
+#### **🧠 AI Service**
+- **Data Analysis:** Pattern recognition, anomaly detection
+- **Predictive Models:** Sprint planning, risk assessment
+- **Insights Engine:** Automated reporting, recommendations
+
+#### **🌐 Frontend & Backend**
+- **Authentication:** JWT-based, role-based access control
+- **API Gateway:** Request routing, rate limiting, monitoring
+- **Real-time UI:** Live job status, progress tracking
+
+### **Data Flow Architecture**
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Frontend       │    │  Backend        │    │  ETL Service    │
-│  (React SPA)    │◄──►│  (API Gateway)  │◄──►│  (Data Engine)  │
-│  Port: 3000     │    │  Port: 5000     │    │  Port: 8000     │
+│  External APIs  │───►│  ETL Service    │───►│  PostgreSQL     │
+│                 │    │                 │    │                 │
+│ • Jira Issues   │    │ • Extract       │    │ • Unified       │
+│ • GitHub PRs    │    │ • Transform     │    │   Schema        │
+│ • Repositories  │    │ • Load          │    │ • Normalized    │
+│ • Changelogs    │    │ • Validate      │    │   Data          │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │  PostgreSQL     │    │  Redis Cache    │
-                       │  (Main DB)      │    │  (Optional)     │
-                       │  Port: 5432     │    │  Port: 6379     │
-                       └─────────────────┘    └─────────────────┘
-                                                        │
-                                                        ▼
-                                               ┌─────────────────┐
-                                               │  External APIs  │
-                                               │ Jira • GitHub   │
-                                               │ Aha! • Azure    │
-                                               └─────────────────┘
+                                                       │
+                                                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Frontend UI    │◄───│  AI Service     │◄───│  Data Analysis  │
+│                 │    │                 │    │                 │
+│ • Dashboards    │    │ • ML Models     │    │ • Pattern       │
+│ • Reports       │    │ • Analytics     │    │   Recognition   │
+│ • Alerts        │    │ • Insights      │    │ • Predictions   │
+│ • Monitoring    │    │ • Predictions   │    │ • Correlations  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 📁 Project Structure
+## 🚀 **Quick Start Guide**
 
-```
-pulse-platform/
-├── docs/                     # Comprehensive documentation
-│   ├── architecture/         # System design documents
-│   ├── etl/                  # ETL-specific documentation
-│   └── deployment/           # Deployment guides
-├── services/
-│   ├── etl-service/          # ✅ COMPLETE - Python FastAPI ETL engine
-│   ├── backend-service/      # 🔄 PLANNED - API gateway and auth
-│   └── frontend-service/     # 🔄 PLANNED - React dashboard
-├── scripts/                  # Utility scripts
-├── docker-compose.yml        # Service orchestration
-└── README.md
-```
-
-## 🚀 Services
-
-### **ETL Service** (`/services/etl-service/`) ✅ **COMPLETE**
-- **Purpose**: Core data extraction, transformation, and loading engine
-- **Technology**: Python 3.11+, FastAPI, SQLAlchemy, APScheduler
-- **Database**: PostgreSQL (migrated from Snowflake)
-- **Features**:
-  - **Multi-source ETL**: Jira, GitHub, Aha!, Azure DevOps
-  - **Job Orchestration**: Active/Passive model with smart scheduling
-  - **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
-  - **Rate Limit Handling**: Graceful API rate limit management
-  - **WebSocket Dashboard**: Real-time progress tracking with exception-only logging
-  - **Pause/Resume**: Intelligent job control with status management
-- **Port**: 8000
-- **Documentation**: [ETL Service README](services/etl-service/README.md)
-
-### **Backend Service** (`/services/backend-service/`) 🔄 **PLANNED**
-- **Purpose**: API gateway, authentication, and business logic
-- **Technology**: Node.js/Python (TBD)
-- **Features**:
-  - **JWT Authentication**: User authentication and session management
-  - **ETL Proxy**: Secure proxy to ETL service APIs
-  - **RBAC Permissions**: Role-based access control
-  - **API Aggregation**: Unified API layer for frontend
-- **Port**: 5000
-- **Documentation**: [Backend Service README](services/backend-service/README.md)
-
-### **Frontend Service** (`/services/frontend-service/`) 🔄 **PLANNED**
-- **Purpose**: React-based user interface and dashboard
-- **Technology**: React, TypeScript, Tailwind CSS
-- **Features**:
-  - **ETL Dashboard**: WebSocket-based real-time job monitoring and controls
-  - **Analytics Views**: Data visualization and insights
-  - **User Management**: Authentication and role management
-  - **Responsive Design**: Mobile-friendly interface
-- **Port**: 3000
-- **Documentation**: [Frontend Service README](services/frontend-service/README.md)
-
-## 📊 Supported Integrations
-
-| Integration | Status | Features | Recovery |
-|-------------|--------|----------|----------|
-| **Jira** | ✅ Active | Issues, Projects, Users, Custom Fields, Dev Status | ✅ Checkpoint-based |
-| **GitHub** | ✅ Active | Repositories, Pull Requests, Commits, Reviews, Comments | ✅ Cursor-based |
-| **Aha!** | 🔄 Planned | Features, Releases, Ideas, Goals | 🔄 TBD |
-| **Azure DevOps** | 🔄 Planned | Work Items, Repositories, Pipelines, Builds | 🔄 TBD |
-
-## 🔧 Quick Start
-
-### Prerequisites
+### **Prerequisites**
 - Docker & Docker Compose
 - Git
-- PostgreSQL (local or Docker)
-- API tokens for integrations (Jira, GitHub, etc.)
+- 8GB+ RAM recommended
+- Ports 3001, 5173, 8000, 8001, 5432, 6379 available
 
-### 1. Clone Repository
+### **1. Clone & Setup**
 ```bash
 git clone <repository-url>
 cd pulse-platform
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys and configuration
 ```
 
-### 2. Environment Setup
+### **2. Start Platform**
 ```bash
-# Copy environment template
-cp services/etl-service/.env.example services/etl-service/.env
+# Start all services
+./start-platform.sh start
 
-# Edit with your configuration
-nano services/etl-service/.env
+# Or start specific service
+./start-platform.sh start etl
 ```
 
-### 3. Start ETL Service
-```bash
-# Using Docker
-docker-compose up etl-service
+### **3. Access Services**
+- **Frontend:** http://localhost:5173
+- **ETL Dashboard:** http://localhost:8000  
+- **Backend API:** http://localhost:3001
+- **AI Service:** http://localhost:8001
 
-# Or locally
+### **4. Initial Configuration**
+```bash
+# Initialize integrations (first time only)
 cd services/etl-service
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python scripts/initialize_integrations.py
+
+# Test connections
+python scripts/test_jobs.py --test-connection
 ```
 
-### 4. Access Applications
-- **ETL Dashboard**: http://localhost:8000
-- **ETL API**: http://localhost:8000/docs (Swagger UI)
-- **Health Check**: http://localhost:8000/health
+## ⚙️ **Configuration**
 
-## 📚 Documentation
+### **Environment Variables**
 
-### **Architecture & Design**
-- [System Architecture](docs/architecture/overview.md) - Overall system design and patterns
-- [Microservices Communication](docs/architecture/microservices.md) - Service interaction patterns
-- [Security Design](docs/architecture/security.md) - Authentication and authorization
+#### **Database Configuration**
+```env
+# PostgreSQL Database
+DATABASE_URL=postgresql://pulse_user:pulse_password@localhost:5432/pulse_db
+POSTGRES_DB=pulse_db
+POSTGRES_USER=pulse_user
+POSTGRES_PASSWORD=pulse_password
+```
 
-### **ETL System**
-- [Recovery Strategy](docs/etl/recovery-strategy.md) - Checkpoint and failure recovery rules
-- [Job Orchestration](docs/etl/job-orchestration.md) - Active/Passive job management
-- [Checkpoint System](docs/etl/checkpoint-system.md) - Cursor-based recovery design
+#### **External API Integration**
+```env
+# Jira Configuration
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_EMAIL=your-email@company.com
+JIRA_API_TOKEN=your-jira-api-token
 
-### **Deployment**
-- [Docker Setup](docs/deployment/docker-setup.md) - Container orchestration
-- [Environment Configuration](docs/deployment/environment-setup.md) - Configuration management
+# GitHub Configuration  
+GITHUB_TOKEN=your-github-personal-access-token
+GITHUB_ORG=your-organization-name
+```
 
-### **Service Documentation**
-- [ETL Service](services/etl-service/README.md) - Complete ETL engine documentation
-- [Backend Service](services/backend-service/README.md) - API gateway documentation
-- [Frontend Service](services/frontend-service/README.md) - React dashboard documentation
+#### **Security Configuration**
+```env
+# JWT Security
+SECRET_KEY=your-super-secret-jwt-key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-## 🛠️ Development
+# Admin User (created automatically)
+ADMIN_EMAIL=admin@company.com
+ADMIN_PASSWORD=secure-admin-password
+```
 
-### **Local Development**
+#### **Service Configuration**
+```env
+# ETL Service
+ETL_SERVICE_URL=http://localhost:8000
+REDIS_URL=redis://localhost:6379
+
+# AI Service
+AI_SERVICE_URL=http://localhost:8001
+OPENAI_API_KEY=your-openai-key (optional)
+```
+
+### **Docker Configuration**
+
+The platform uses Docker Compose for orchestration. Key configuration files:
+
+- `docker-compose.yml` - Development environment
+- `docker-compose.prod.yml` - Production environment  
+- `.env` - Environment variables
+- `start-platform.sh` - Management script
+
+## 🔧 **Development Workflow**
+
+### **Service Development**
+
+#### **ETL Service Development**
 ```bash
-# ETL Service (Primary)
 cd services/etl-service
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+
+# Install dependencies
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
 
-# Backend Service (Planned)
-cd services/backend-service
+# Run locally (development)
+uvicorn app.main:app --reload --port 8000
+
+# Run tests
+python scripts/test_jobs.py
+```
+
+#### **Frontend Development**
+```bash
+cd services/frontend-app
+
+# Install dependencies
 npm install
+
+# Run development server
 npm run dev
-
-# Frontend Service (Planned)
-cd services/frontend-service
-npm install
-npm start
 ```
 
 ### **Database Management**
-```bash
-# Reset ETL database
-cd services/etl-service
-python scripts/reset_database.py
 
-# Initialize with sample data
-python scripts/init_sample_data.py
+#### **Reset Database (Development)**
+```bash
+cd services/etl-service
+
+# Complete reset with sample data
+python scripts/reset_database.py --all
+
+# Reset tables only
+python scripts/reset_database.py --recreate-tables
 ```
 
-## 📊 Data Flow
-
-1. **External APIs** → ETL Service extracts data (Jira, GitHub, etc.)
-2. **ETL Service** → Transforms and loads into PostgreSQL
-3. **ETL Service** → Provides APIs for processed data
-4. **Backend Service** → Proxies ETL APIs with authentication
-5. **Frontend Service** → Displays dashboards and analytics
-
-## 🔐 Security
-
-- **Authentication**: JWT-based user authentication (planned)
-- **Authorization**: Role-based access control (RBAC)
-- **Service Communication**: Internal API keys and request signing
-- **Data Protection**: Encrypted tokens and sensitive data
-- **Network Security**: Service isolation and IP whitelisting
-- **Input Validation**: Comprehensive request validation and sanitization
-
-## 📈 Monitoring & Observability
-
-- **Job Status**: WebSocket-based real-time job monitoring dashboard
-- **Logs**: Structured logging with colored console output
-- **Metrics**: Job execution metrics and performance tracking
-- **Health Checks**: Service health monitoring endpoints
-- **Error Tracking**: Comprehensive error logging and recovery
-- **Rate Limit Monitoring**: API usage tracking and alerts
-
-## 🧪 Testing
-
+#### **Database Migrations**
 ```bash
-# ETL Service tests
-cd services/etl-service
-python -m pytest tests/ -v
+# Create migration
+alembic revision --autogenerate -m "description"
 
-# Integration tests
-python -m pytest tests/integration/ -v
-
-# Load testing
-python scripts/load_test.py
+# Apply migrations
+alembic upgrade head
 ```
 
-## 🚀 Key Features
+### **Testing & Debugging**
 
-### **ETL Engine**
-- ✅ **Multi-source Integration**: Jira, GitHub, Aha!, Azure DevOps
-- ✅ **Checkpoint Recovery**: Precise failure recovery with cursor tracking
-- ✅ **Rate Limit Handling**: Graceful API rate limit management
-- ✅ **Job Orchestration**: Active/Passive model with smart scheduling
-- ✅ **WebSocket Dashboard**: Real-time progress tracking with exception-only logging
+#### **ETL Job Testing**
+```bash
+cd services/etl-service
 
-### **Data Processing**
-- ✅ **Bulk Operations**: Efficient batch processing for large datasets
-- ✅ **Incremental Updates**: Only process changed data
-- ✅ **Data Validation**: Comprehensive data quality checks
-- ✅ **Relationship Mapping**: Automatic linking between data sources
+# Interactive testing
+python scripts/test_jobs.py
 
-### **Operational Excellence**
-- ✅ **Pause/Resume**: Intelligent job control with status management
-- ✅ **Force Start/Stop**: Manual job control with safety mechanisms
-- ✅ **Recovery Strategies**: Different recovery patterns per integration
-- ✅ **Monitoring**: WebSocket-based real-time status updates and progress tracking
+# Test API connections
+python scripts/test_jobs.py --test-connection
 
-## 🤝 Contributing
+# Debug mode
+python scripts/test_jobs.py --debug
+```
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+#### **Service Health Checks**
+```bash
+# Check all services
+./start-platform.sh status
 
-## 📄 License
+# View logs
+./start-platform.sh logs etl
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 📊 **Monitoring & Operations**
 
-## 🆘 Support
+### **Job Monitoring**
 
-- **Documentation**: Check the `/docs` directory for comprehensive guides
-- **Issues**: Create GitHub issues for bugs and feature requests
-- **Development**: See service-specific README files for detailed setup
-- **ETL Dashboard**: Access http://localhost:8000 for live monitoring
+#### **Real-time Dashboard**
+- Access: http://localhost:8000
+- Features: Live progress, job status, error tracking
+- WebSocket updates for real-time monitoring
+
+#### **Job Management**
+- **Start/Stop:** Manual job control
+- **Scheduling:** Automated job orchestration  
+- **Recovery:** Automatic checkpoint-based recovery
+- **Monitoring:** Progress tracking, error handling
+
+### **Performance Monitoring**
+
+#### **System Metrics**
+```bash
+# Container resource usage
+docker stats
+
+# Service-specific metrics
+docker-compose logs -f etl
+```
+
+#### **Database Performance**
+```bash
+# Connect to database
+docker-compose exec postgres psql -U pulse_user -d pulse_db
+
+# Check table sizes
+SELECT schemaname,tablename,pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size 
+FROM pg_tables WHERE schemaname='public' ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+```
+
+## 🔒 **Security**
+
+### **Authentication & Authorization**
+- **JWT Tokens:** Secure API access
+- **Role-based Access:** Admin, User, Viewer roles
+- **Session Management:** Redis-based session storage
+
+### **API Security**
+- **Rate Limiting:** Prevents API abuse
+- **Input Validation:** Comprehensive request validation
+- **CORS Configuration:** Secure cross-origin requests
+
+### **Data Security**
+- **Encrypted Storage:** Sensitive data encryption
+- **Secure Connections:** HTTPS/TLS for external APIs
+- **Audit Logging:** Comprehensive activity tracking
+
+## 🚀 **Deployment**
+
+### **Development Deployment**
+```bash
+# Start all services
+./start-platform.sh start
+
+# Start specific services
+./start-platform.sh start etl
+```
+
+### **Production Deployment**
+```bash
+# Production build
+docker-compose -f docker-compose.prod.yml up -d
+
+# With custom environment
+ENV=production ./start-platform.sh start
+```
+
+### **Scaling**
+```bash
+# Scale ETL service
+docker-compose up -d --scale etl=3
+
+# Load balancer configuration
+# (Configure nginx/traefik for production)
+```
+
+## 🔧 **Troubleshooting**
+
+### **Common Issues**
+
+#### **Service Won't Start**
+```bash
+# Check Docker status
+docker info
+
+# Check port conflicts
+netstat -tulpn | grep :8000
+
+# View service logs
+./start-platform.sh logs etl
+```
+
+#### **Database Connection Issues**
+```bash
+# Test database connection
+docker-compose exec postgres psql -U pulse_user -d pulse_db
+
+# Reset database
+cd services/etl-service
+python scripts/reset_database.py --all
+```
+
+#### **API Integration Issues**
+```bash
+# Test API connections
+cd services/etl-service
+python scripts/test_jobs.py --test-connection
+
+# Check API credentials in .env file
+```
+
+### **Performance Issues**
+```bash
+# Monitor resource usage
+docker stats
+
+# Check database performance
+docker-compose exec postgres pg_stat_activity
+
+# Optimize database
+VACUUM ANALYZE;
+```
+
+## 📚 **Additional Resources**
+
+### **API Documentation**
+- **ETL Service:** http://localhost:8000/docs
+- **AI Service:** http://localhost:8001/docs  
+- **Backend API:** http://localhost:3001/api-docs
+
+### **Development Tools**
+- **Database Admin:** pgAdmin or similar
+- **API Testing:** Postman, curl
+- **Log Analysis:** Docker logs, application logs
+
+### **External Documentation**
+- **Jira API:** https://developer.atlassian.com/cloud/jira/platform/rest/v3/
+- **GitHub API:** https://docs.github.com/en/rest
+- **Docker Compose:** https://docs.docker.com/compose/
 
 ---
 
-**Built with ❤️ for Software Engineering Intelligence and ETL Excellence** 🚀
+**For ETL-specific testing and debugging, see:** `services/etl-service/docs/TESTING_GUIDE.md`

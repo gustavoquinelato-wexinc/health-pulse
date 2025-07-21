@@ -94,7 +94,19 @@ class AuthService:
                         User.active == True
                     )
                 ).first()
-                
+
+                if user:
+                    # Eagerly load attributes that might be accessed later
+                    # This prevents DetachedInstanceError when session closes
+                    _ = user.email       # Force load email attribute
+                    _ = user.first_name  # Force load first_name attribute
+                    _ = user.last_name   # Force load last_name attribute
+                    _ = user.role        # Force load role attribute
+                    _ = user.is_admin    # Force load is_admin attribute
+
+                    # Expunge the user from session so it can be used outside the session context
+                    session.expunge(user)
+
                 return user
                 
         except jwt.ExpiredSignatureError:

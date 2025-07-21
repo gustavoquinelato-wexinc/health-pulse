@@ -248,10 +248,10 @@ class SecurityValidationMiddleware(BaseHTTPMiddleware):
 
 class HealthCheckMiddleware(BaseHTTPMiddleware):
     """Middleware for automatic health checks."""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Simple health check for load balancers
-        if request.url.path == "/health" and request.method == "GET":
+        # Simple health check for load balancers - use a different path to avoid conflicts
+        if request.url.path == "/healthz" and request.method == "GET":
             return JSONResponse(
                 content={
                     "status": "healthy",
@@ -260,5 +260,5 @@ class HealthCheckMiddleware(BaseHTTPMiddleware):
                     "version": settings.APP_VERSION
                 }
             )
-        
+
         return await call_next(request)
