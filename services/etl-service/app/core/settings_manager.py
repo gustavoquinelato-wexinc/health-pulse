@@ -29,6 +29,21 @@ class SettingsManager:
             'type': 'boolean',
             'description': 'Whether the orchestrator is enabled'
         },
+        'orchestrator_retry_enabled': {
+            'value': True,
+            'type': 'boolean',
+            'description': 'Whether to enable fast retry for failed jobs'
+        },
+        'orchestrator_retry_interval_minutes': {
+            'value': 15,
+            'type': 'integer',
+            'description': 'Fast retry interval in minutes for failed jobs'
+        },
+        'orchestrator_max_retry_attempts': {
+            'value': 3,
+            'type': 'integer',
+            'description': 'Maximum number of fast retry attempts before falling back to normal interval'
+        },
         'max_concurrent_jobs': {
             'value': 1,
             'type': 'integer',
@@ -38,6 +53,16 @@ class SettingsManager:
             'value': 120,
             'type': 'integer',
             'description': 'Job timeout in minutes'
+        },
+        'github_graphql_batch_size': {
+            'value': 50,
+            'type': 'integer',
+            'description': 'Number of pull requests to fetch per GraphQL request'
+        },
+        'github_request_timeout_seconds': {
+            'value': 60,
+            'type': 'integer',
+            'description': 'Timeout for GitHub API requests in seconds'
         }
     }
     
@@ -222,3 +247,53 @@ def is_orchestrator_enabled() -> bool:
 def set_orchestrator_enabled(enabled: bool) -> bool:
     """Enable or disable orchestrator."""
     return SettingsManager.set_setting('orchestrator_enabled', enabled)
+
+
+def is_orchestrator_retry_enabled() -> bool:
+    """Check if orchestrator fast retry is enabled."""
+    return SettingsManager.get_setting('orchestrator_retry_enabled', True)
+
+
+def set_orchestrator_retry_enabled(enabled: bool) -> bool:
+    """Enable or disable orchestrator fast retry."""
+    return SettingsManager.set_setting('orchestrator_retry_enabled', enabled)
+
+
+def get_orchestrator_retry_interval() -> int:
+    """Get orchestrator retry interval in minutes."""
+    return SettingsManager.get_setting('orchestrator_retry_interval_minutes', 15)
+
+
+def set_orchestrator_retry_interval(minutes: int) -> bool:
+    """Set orchestrator retry interval in minutes."""
+    return SettingsManager.set_setting('orchestrator_retry_interval_minutes', minutes)
+
+
+def get_orchestrator_max_retry_attempts() -> int:
+    """Get maximum retry attempts before falling back to normal interval."""
+    return SettingsManager.get_setting('orchestrator_max_retry_attempts', 3)
+
+
+def set_orchestrator_max_retry_attempts(attempts: int) -> bool:
+    """Set maximum retry attempts before falling back to normal interval."""
+    return SettingsManager.set_setting('orchestrator_max_retry_attempts', attempts)
+
+
+def get_github_graphql_batch_size() -> int:
+    """Get GitHub GraphQL batch size for pull requests."""
+    return SettingsManager.get_setting('github_graphql_batch_size', 50)
+
+
+def set_github_graphql_batch_size(batch_size: int) -> bool:
+    """Set GitHub GraphQL batch size for pull requests."""
+    return SettingsManager.set_setting('github_graphql_batch_size', batch_size)
+
+
+def get_github_request_timeout() -> int:
+    """Get GitHub API request timeout in seconds."""
+    return SettingsManager.get_setting('github_request_timeout_seconds', 60)
+
+
+def set_github_request_timeout(timeout_seconds: int) -> bool:
+    """Set GitHub API request timeout in seconds."""
+    return SettingsManager.set_setting('github_request_timeout_seconds', timeout_seconds)

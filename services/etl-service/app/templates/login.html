@@ -48,7 +48,7 @@
                 </label>
                 <input type="text" id="email" name="email"
                     class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter email (gustavo.quinelato@wexinc.com)" required>
+                    placeholder="Enter email (gustavo.quinelato@wexinc.com)" autocomplete="username" required>
             </div>
 
             <div>
@@ -57,7 +57,7 @@
                 </label>
                 <input type="password" id="password" name="password"
                     class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter your password" required>
+                    placeholder="Enter your password" autocomplete="current-password" required>
             </div>
 
             <!-- Error Message -->
@@ -179,7 +179,7 @@
 
             // Show loading state
             loginButton.disabled = true;
-            loginButtonText.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing In...';
+            loginButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing In...';
             errorDiv.classList.add('hidden');
 
             try {
@@ -209,7 +209,7 @@
             } finally {
                 // Reset button state
                 loginButton.disabled = false;
-                loginButtonText.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Sign In';
+                loginButton.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i><span id="loginButtonText">Sign In</span>';
             }
         });
 

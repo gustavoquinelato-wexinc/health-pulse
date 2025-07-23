@@ -399,7 +399,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     needs_update = False
 
                     # Check each field for changes (excluding external_id)
-                    for field in ['original_name', 'hierarchy_level', 'description']:
+                    for field in ['original_name', 'issuetype_mapping_id', 'hierarchy_level', 'description']:
                         new_value = processed_issuetype.get(field)
                         current_value = getattr(existing_issuetype, field, None)
                         if current_value != new_value:
@@ -419,7 +419,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                         'integration_id': integration.id,
                         'external_id': issuetype_external_id,
                         'original_name': processed_issuetype.get('original_name', ''),
-                        'mapped_name': processed_issuetype.get('mapped_name', ''),
+                        'issuetype_mapping_id': processed_issuetype.get('issuetype_mapping_id'),
                         'description': processed_issuetype.get('description'),
                         'hierarchy_level': processed_issuetype.get('hierarchy_level', 2),
                         'client_id': integration.client_id,
@@ -445,7 +445,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
                     'original_name': obj.original_name,
-                    'mapped_name': obj.mapped_name,
+                    'issuetype_mapping_id': getattr(obj, 'issuetype_mapping_id', None),
                     'description': getattr(obj, 'description', None),
                     'hierarchy_level': obj.hierarchy_level,
                     'client_id': obj.client_id,
@@ -618,7 +618,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
                     needs_update = False
 
                     # Check each field for changes (excluding external_id)
-                    for field in ['original_name', 'flow_step_id', 'category', 'description']:
+                    for field in ['original_name', 'status_mapping_id', 'category', 'description']:
                         new_value = processed_status.get(field)
                         current_value = getattr(existing_status, field, None)
                         if current_value != new_value:
@@ -638,7 +638,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
                         'integration_id': integration.id,
                         'external_id': status_external_id,
                         'original_name': processed_status.get('original_name', ''),
-                        'flow_step_id': processed_status.get('flow_step_id'),
+                        'status_mapping_id': processed_status.get('status_mapping_id'),
                         'category': processed_status.get('category', ''),
                         'description': processed_status.get('description'),
                         'client_id': integration.client_id,
@@ -664,7 +664,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
                     'original_name': obj.original_name,
-                    'mapped_name': obj.mapped_name,
+                    'status_mapping_id': getattr(obj, 'status_mapping_id', None),
                     'category': obj.category,
                     'description': getattr(obj, 'description', None),
                     'client_id': obj.client_id,
@@ -1141,9 +1141,9 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 
                 # Use embedded changelog data if available, otherwise fall back to API call
                 if issue_changelogs and issue_key in issue_changelogs:
-                    job_logger.progress(f"[PROCESSING] Processing embedded changelogs for issue {issue_key}")
                     changelogs_data = issue_changelogs[issue_key]
                 else:
+                    # Only log fallback API calls since they're less common and more important
                     job_logger.progress(f"[FETCHING] Fetching changelogs for issue {issue_key} (fallback)")
                     changelogs_data = jira_client.get_issue_changelogs(issue_key)
 
@@ -1228,6 +1228,10 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 
                 # Track progress
                 issues_processed += 1
+
+                # Log progress every 50 issues and send websocket updates every 25 issues
+                if issues_processed % 50 == 0:
+                    job_logger.progress(f"[PROGRESS] Processed changelogs for {issues_processed:,} of {len(issues_in_db):,} issues ({issues_processed/len(issues_in_db)*100:.1f}%)")
 
                 # Send progress update every 25 issues
                 if websocket_manager and issues_processed % 25 == 0:
@@ -1484,9 +1488,9 @@ def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], status
             return None
         for status_external_id, status_obj in statuses_dict.items():
             if status_obj.id == status_id:
-                # Get the flow step category if flow_step relationship exists
-                if hasattr(status_obj, 'flow_step') and status_obj.flow_step:
-                    return getattr(status_obj.flow_step, 'step_category', '').lower()
+                # Get the flow step category via status_mapping relationship
+                if hasattr(status_obj, 'status_mapping') and status_obj.status_mapping and status_obj.status_mapping.flow_step:
+                    return getattr(status_obj.status_mapping.flow_step, 'step_category', '').lower()
                 # Fallback to status category for backward compatibility
                 return getattr(status_obj, 'category', '').lower()
         return None

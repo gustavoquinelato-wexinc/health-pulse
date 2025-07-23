@@ -77,8 +77,12 @@ class GitHubClient:
                     logger.warning(f"GitHub API rate limit reached: {self.rate_limit_remaining} requests remaining")
                     raise Exception("GitHub API rate limit exceeded")
 
-                logger.debug(f"Making GitHub API request: {url}")
-                response = self.session.get(url, params=params, timeout=30)
+                # Get configurable timeout
+                from app.core.settings_manager import get_github_request_timeout
+                timeout = get_github_request_timeout()
+
+                logger.debug(f"Making GitHub API request: {url} with {timeout}s timeout")
+                response = self.session.get(url, params=params, timeout=timeout)
 
                 # Update rate limit info from response
                 self._update_rate_limit_info(response)
@@ -132,8 +136,12 @@ class GitHubClient:
                 # Check rate limit before making request
                 self.check_rate_limit_before_request()
 
-                logger.debug(f"Making GitHub API request: {url}")
-                response = self.session.get(url, params=params, timeout=30)
+                # Get configurable timeout
+                from app.core.settings_manager import get_github_request_timeout
+                timeout = get_github_request_timeout()
+
+                logger.debug(f"Making GitHub API request: {url} with {timeout}s timeout")
+                response = self.session.get(url, params=params, timeout=timeout)
 
                 # Update rate limit info from response
                 self._update_rate_limit_info(response)

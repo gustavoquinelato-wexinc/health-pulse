@@ -136,6 +136,10 @@ def recreate_tables():
             database.create_tables()
             print("✅ Tables created successfully")
             print("💡 Database is ready for fresh data")
+
+            # Record migration 001 as applied since we created the same schema
+            record_migration_001_applied()
+
             return True
         except Exception as e:
             print(f"❌ Failed to recreate tables: {e}")
@@ -197,10 +201,40 @@ def recreate_tables_non_interactive():
         print("🔄 Creating tables...")
         database.create_tables()
         print("✅ Tables created successfully")
+
+        # Record migration 001 as applied since we created the same schema
+        record_migration_001_applied()
+
         return True
     except Exception as e:
         print(f"❌ Failed to recreate tables: {e}")
         return False
+
+def record_migration_001_applied():
+    """Record migration 001 as applied in migration_history table."""
+    try:
+        from app.core.database import get_database
+        from sqlalchemy import text
+
+        database = get_database()
+        print("📋 Recording migration 001 as applied...")
+
+        with database.get_session_context() as session:
+            # Use raw SQL to insert migration record
+            session.execute(text("""
+                INSERT INTO migration_history (migration_number, migration_name, applied_at, status)
+                VALUES ('001', 'Initial Schema', NOW(), 'applied')
+                ON CONFLICT (migration_number)
+                DO UPDATE SET applied_at = NOW(), status = 'applied', rollback_at = NULL;
+            """))
+            session.commit()
+
+        print("✅ Migration 001 recorded as applied")
+        print("💡 Migration system will recognize this as already applied")
+
+    except Exception as e:
+        print(f"⚠️  Warning: Could not record migration 001: {e}")
+        print("💡 You may need to manually apply migration 001 later")
 
 def initialize_clients_non_interactive():
     """Initialize clients without user confirmation."""
@@ -245,12 +279,12 @@ def initialize_clients_non_interactive():
         traceback.print_exc()
         return False
 
-def initialize_status_mappings_non_interactive():
-    """Initialize status mappings without user confirmation."""
+def initialize_workflow_configuration_non_interactive():
+    """Initialize flow steps, status mappings, and issuetype mappings from workflow configuration."""
     try:
         from app.core.database import get_database
         from app.core.utils import DateTimeHelper
-        from app.models.unified_models import StatusMapping, Client
+        from app.models.unified_models import StatusMapping, Client, FlowStep, IssuetypeMapping, IssuetypeHierarchy
 
         database = get_database()
 
@@ -261,161 +295,266 @@ def initialize_status_mappings_non_interactive():
                 print("❌ No client found. Please run client initialization first")
                 return False
 
-            # Check if any status mappings already exist for this client
-            existing_mappings = session.query(StatusMapping).filter(StatusMapping.client_id == default_client.id).count()
+            # Check if workflow configuration already exists for this client
+            existing_flow_steps = session.query(FlowStep).filter(FlowStep.client_id == default_client.id).count()
+            existing_status_mappings = session.query(StatusMapping).filter(StatusMapping.client_id == default_client.id).count()
+            existing_issuetype_hierarchies = session.query(IssuetypeHierarchy).filter(IssuetypeHierarchy.client_id == default_client.id).count()
+            existing_issuetype_mappings = session.query(IssuetypeMapping).filter(IssuetypeMapping.client_id == default_client.id).count()
 
-            if existing_mappings > 0:
-                print(f"✅ Status mappings table already has {existing_mappings} mapping(s) for client {default_client.name}")
+            print(f"📊 Existing data check: {existing_flow_steps} flow steps, {existing_status_mappings} status mappings, {existing_issuetype_hierarchies} issuetype hierarchies, {existing_issuetype_mappings} issuetype mappings")
+
+            if existing_flow_steps > 0 and existing_status_mappings > 0 and existing_issuetype_hierarchies > 0 and existing_issuetype_mappings > 0:
+                print(f"✅ Workflow configuration already exists: {existing_flow_steps} flow steps, {existing_status_mappings} status mappings, {existing_issuetype_hierarchies} issuetype hierarchies, {existing_issuetype_mappings} issuetype mappings for client {default_client.name}")
                 return True
 
-            # Create status mappings from the updated list
-            status_mapping_data = [
+            # Step 1: Extract unique flow steps from workflow configuration
+            # Combined workflow configuration data
+            workflow_configuration_data = [
                 #BACKLOG
-                {"status_from": "--creation--", "status_to": "Backlog", "status_category": "To Do"},
-                {"status_from": "backlog", "status_to": "Backlog", "status_category": "To Do"},
-                {"status_from": "new", "status_to": "Backlog", "status_category": "To Do"},
-                {"status_from": "open", "status_to": "Backlog", "status_category": "To Do"},
-                {"status_from": "created", "status_to": "Backlog", "status_category": "To Do"},
-                {"status_from": "(backlog) unprioritized to dos", "status_to": "Backlog", "status_category": "To Do"},
+                {"status_from": "Backlog", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
+                {"status_from": "New", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
+                {"status_from": "Open", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
+                {"status_from": "Created", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
 
                 #REFINEMENT
-                {"status_from": "analysis", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "design", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "prerefinement", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "ready to refine", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "refinement", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "refining", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "tech review", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "waiting for refinement", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "in triage", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "pending approval", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "discovery", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "composting", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "onboarding templates", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "templates", "status_to": "Refinement", "status_category": "To Do"},
-                {"status_from": "template approval pending", "status_to": "Refinement", "status_category": "To Do"},
+                {"status_from": "Analysis", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Design", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Prerefinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Ready to Refine", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Refinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Refining", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Tech Review", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Waiting for refinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "In Triage", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Pending Approval", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Discovery", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Composting", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Onboarding Templates", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Templates", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+                {"status_from": "Template Approval Pending", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
 
                 #READY TO WORK
-                {"status_from": "approved", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "ready", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "ready for development", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "ready to development", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "ready to work", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "refined", "status_to": "Ready to Work", "status_category": "To Do"},
-                {"status_from": "proposed", "status_to": "Ready to Work", "status_category": "To Do"},
+                {"status_from": "Approved", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Ready", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Ready for Development", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Ready to Development", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Ready to Work", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Refined", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+                {"status_from": "Proposed", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
 
                 #TO DO
-                {"status_from": "committed", "status_to": "To Do", "status_category": "To Do"},
-                {"status_from": "planned", "status_to": "To Do", "status_category": "To Do"},
-                {"status_from": "selected for development", "status_to": "To Do", "status_category": "To Do"},
-                {"status_from": "to do", "status_to": "To Do", "status_category": "To Do"},
+                {"status_from": "Committed", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
+                {"status_from": "Planned", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
+                {"status_from": "Selected for development", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
+                {"status_from": "To Do", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
 
                 #IN PROGRESS
-                {"status_from": "active", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "applied to trn", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "blocked", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "building", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "code review", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "codereview", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "coding", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "coding done", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "deployed to dev", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "development", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "in development", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "in progress", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "in review", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "peer review", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "pre-readiness", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "ready for peer review", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "ready to dep to dev", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "review", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "training", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "validated in trn", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "waiting partner", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "on hold", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "pipeline approval pending", "status_to": "In Progress", "status_category": "In Progress"},
-                {"status_from": "merging branches", "status_to": "In Progress", "status_category": "In Progress"},
+                {"status_from": "Active", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Applied to TRN", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Blocked", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Building", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Code Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Codereview", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Coding", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Coding Done", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Deployed to Dev", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Development", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "In Development", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "In Progress", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "In Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Peer Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Pre-readiness", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Ready for Peer Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Ready to Dep to Dev", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Training", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Validated in TRN", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Waiting Partner", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "On Hold", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Pipeline Approval Pending", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+                {"status_from": "Merging Branches", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
 
                 #READY FOR QA TESTING
-                {"status_from": "ready for qa", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
-                {"status_from": "ready for qa build", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
-                {"status_from": "ready for test", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
-                {"status_from": "ready for testing", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
-                {"status_from": "ready for story testing", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
-                {"status_from": "deploying demo", "status_to": "Ready for Story Testing", "status_category": "Waiting"},
+                {"status_from": "Ready for QA", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+                {"status_from": "Ready for QA build", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+                {"status_from": "Ready for Test", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+                {"status_from": "Ready for Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+                {"status_from": "Ready for Story Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+                {"status_from": "Deploying Demo", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
 
                 #IN QA TEST
-                {"status_from": "applied to qa", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "in test", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "in testing", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "promoted to qa", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "qa", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "qa in progress", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "test", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "story testing", "status_to": "Story Testing", "status_category": "In Progress"},
-                {"status_from": "testing", "status_to": "Story Testing", "status_category": "In Progress"},
+                {"status_from": "Applied to QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "In Test", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "In Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "Promoted to QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "QA in Progress", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "Test", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "Story Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+                {"status_from": "Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
 
                 #READY FOR UAT TESTING
-                {"status_from": "ready for uat", "status_to": "Ready for Acceptance", "status_category": "Waiting"},
-                {"status_from": "ready for stage", "status_to": "Ready for Acceptance", "status_category": "Waiting"},
-                {"status_from": "validated in qa", "status_to": "Ready for Acceptance", "status_category": "Waiting"},
-                {"status_from": "ready for demo", "status_to": "Ready for Acceptance", "status_category": "Waiting"},
-                {"status_from": "ready for acceptance", "status_to": "Ready for Acceptance", "status_category": "Waiting"},
+                {"status_from": "Ready for Uat", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
+                {"status_from": "Ready for Stage", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
+                {"status_from": "Validated in QA", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
+                {"status_from": "Ready for Demo", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
+                {"status_from": "Ready for Acceptance", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
 
                 #IN UAT TEST
-                {"status_from": "applied to stg", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "applied to uat", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "in stage testing", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "promoted to uat", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "regression testing", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "release approval pending", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "uat", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "acceptance testing", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "pre production testing", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "final checks", "status_to": "Acceptance Testing", "status_category": "In Progress"},
-                {"status_from": "release testing", "status_to": "Acceptance Testing", "status_category": "In Progress"},
+                {"status_from": "Applied to STG", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Applied to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "In Stage Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Promoted to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Regression Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Release Approval Pending", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Acceptance Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Pre Production Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Final Checks", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+                {"status_from": "Release Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
 
                 #READY FOR PROD
-                {"status_from": "deploy", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "deployment", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready for prod", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready for prd", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready for production", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready for release", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready to dep to prod", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "ready to launch", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "release pending", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "resolved", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "validated in stg", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "validated in uat", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "deploying database", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "deploying applications", "status_to": "Ready for Prod", "status_category": "Waiting"},
-                {"status_from": "awaiting deployment", "status_to": "Ready for Prod", "status_category": "Waiting"},
+                {"status_from": "Deploy", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready for prod", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready for prd", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready for production", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready for Release", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready to Dep to Prod", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Ready to Launch", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Release Pending", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Resolved", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Validated in STG", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Validated in UAT", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Deploying Database", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Deploying Applications", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+                {"status_from": "Awaiting Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
 
                 #DONE
-                {"status_from": "applied to prod", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "applied to prod/trn", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "closed", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "done", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "validated in prod", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "released", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "deployed to production", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "release deployed", "status_to": "Done", "status_category": "Done"},
-                {"status_from": "closure", "status_to": "Done", "status_category": "Done"},
+                {"status_from": "Applied to Prod", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Applied to Prod/TRN", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Closed", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Done", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Validated in Prod", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Released", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Deployed to Production", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Release Deployed", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+                {"status_from": "Closure", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
 
                 #REMOVED
-                {"status_from": "cancelled", "status_to": "Discarded", "status_category": "Discarded"},
-                {"status_from": "rejected", "status_to": "Discarded", "status_category": "Discarded"},
-                {"status_from": "removed", "status_to": "Discarded", "status_category": "Discarded"},
-                {"status_from": "withdrawn", "status_to": "Discarded", "status_category": "Discarded"},
+                {"status_from": "Cancelled", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
+                {"status_from": "Rejected", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
+                {"status_from": "Removed", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
+                {"status_from": "Withdrawn", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
             ]
 
+            # Issue type hierarchy configuration
+            issuetype_hierarchy_data = [
+                {"level_name": "Capital Investment", "level_number": 4, "description": "Capital Investment / Theme"},
+                {"level_name": "Product Objective", "level_number": 3, "description": "Product Objective / Initiative Name"},
+                {"level_name": "Milestone", "level_number": 2, "description": "Milestone"},
+                {"level_name": "Epic", "level_number": 1, "description": "Big chunk of work"},
+                {"level_name": "Story", "level_number": 0, "description": "Small chunk of work"},
+                {"level_name": "Sub-task", "level_number": -1, "description": "Internal Checklist Points"}
+            ]
+
+            # Issue type mapping configuration
+            issuetype_mapping_data = [
+                #CAPITAL INVESTMENT
+                {"issuetype_from": "Capital Investment", "issuetype_to": "Capital Investment", "hierarchy_level": 4},
+
+                #PRODUCT OBJECTIVE
+                {"issuetype_from": "Product Objective", "issuetype_to": "Product Objective", "hierarchy_level": 3},
+
+                #MILESTONE
+                {"issuetype_from": "Milestone", "issuetype_to": "Milestone", "hierarchy_level": 2},
+
+                #EPIC
+                {"issuetype_from": "Epic", "issuetype_to": "Epic", "hierarchy_level": 1},
+                {"issuetype_from": "Feature", "issuetype_to": "Epic", "hierarchy_level": 1},
+
+                #STORY
+                {"issuetype_from": "User Story", "issuetype_to": "Story", "hierarchy_level": 0},
+                {"issuetype_from": "Story", "issuetype_to": "Story", "hierarchy_level": 0},
+
+                #TECH ENHANCEMENT
+                {"issuetype_from": "Devops Story", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+                {"issuetype_from": "Tech Debt", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+                {"issuetype_from": "Performance", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+                {"issuetype_from": "Security Remediation", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+                {"issuetype_from": "Tech Enhancement", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+
+                #TASK
+                {"issuetype_from": "Task", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "UAT", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Unparented Tasks", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Shared Steps", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Educational Services", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Impediment", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Requirement", "issuetype_to": "Task", "hierarchy_level": 0},
+                {"issuetype_from": "Shared Parameter", "issuetype_to": "Task", "hierarchy_level": 0},
+
+                #BUG (PROD)
+                {"issuetype_from": "Bug", "issuetype_to": "Bug", "hierarchy_level": 0},
+
+                #INCIDENT
+                {"issuetype_from": "Issue", "issuetype_to": "Incident", "hierarchy_level": 0},
+                {"issuetype_from": "Incident", "issuetype_to": "Incident", "hierarchy_level": 0},
+
+                #SPIKE
+                {"issuetype_from": "Spike", "issuetype_to": "Spike", "hierarchy_level": 0},
+
+                #DEFECT (NON-PROD)
+                {"issuetype_from": "Defect", "issuetype_to": "Defect", "hierarchy_level": -1},
+                {"issuetype_from": "Sprint Issue", "issuetype_to": "Defect", "hierarchy_level": -1},
+                {"issuetype_from": "Sub-task", "issuetype_to": "Sub-task", "hierarchy_level": -1},
+                {"issuetype_from": "Approval", "issuetype_to": "Approval", "hierarchy_level": -1},
+            ]
+
+            # Step 1: Extract unique flow steps and create them first
+            unique_flow_steps = {}
+            for mapping in workflow_configuration_data:
+                flow_step_name = mapping["flow_step"]
+                if flow_step_name not in unique_flow_steps:
+                    # Determine step_category from the first occurrence
+                    unique_flow_steps[flow_step_name] = mapping["status_category"]
+
+            # Create flow steps with predefined order
+            flow_step_order = [
+                ("Backlog", 1), ("Refinement", 2), ("Ready to Work", 3), ("To Do", 4),
+                ("In Progress", 5), ("Ready for Story Testing", 6), ("Story Testing", 7),
+                ("Ready for Acceptance", 8), ("Acceptance Testing", 9), ("Ready for Prod", 10),
+                ("Done", 11), ("Discarded", None)  # No step number for Discarded
+            ]
+
+            flow_steps_created = 0
+            flow_step_lookup = {}
+            for flow_step_name, step_number in flow_step_order:
+                if flow_step_name in unique_flow_steps:
+                    step_category = unique_flow_steps[flow_step_name]
+                    flow_step = FlowStep(
+                        name=flow_step_name,
+                        step_number=step_number,
+                        step_category=step_category,
+                        client_id=default_client.id,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                    )
+                session.add(flow_step)
+                session.flush()  # Get the ID immediately
+                flow_step_lookup[flow_step_name] = flow_step.id
+                flow_steps_created += 1
+
+            # Step 2: Create status mappings with flow_step_id references
             mappings_created = 0
-            for mapping_data in status_mapping_data:
+            for mapping_data in workflow_configuration_data:
+                flow_step_id = flow_step_lookup.get(mapping_data["flow_step"])
+
                 status_mapping = StatusMapping(
                     status_from=mapping_data["status_from"],
                     status_to=mapping_data["status_to"],
                     status_category=mapping_data["status_category"],
+                    flow_step_id=flow_step_id,  # Foreign key relationship
                     client_id=default_client.id,
                     created_at=DateTimeHelper.now_utc(),
                     last_updated_at=DateTimeHelper.now_utc()
@@ -423,8 +562,50 @@ def initialize_status_mappings_non_interactive():
                 session.add(status_mapping)
                 mappings_created += 1
 
+            # Step 3: Create issuetype hierarchies
+            issuetype_hierarchies_created = 0
+            for hierarchy_data in issuetype_hierarchy_data:
+                issuetype_hierarchy = IssuetypeHierarchy(
+                    level_name=hierarchy_data["level_name"],
+                    level_number=hierarchy_data["level_number"],
+                    description=hierarchy_data["description"],
+                    client_id=default_client.id,
+                    created_at=DateTimeHelper.now_utc(),
+                    last_updated_at=DateTimeHelper.now_utc()
+                )
+                session.add(issuetype_hierarchy)
+                issuetype_hierarchies_created += 1
+                print(f"   ✅ Created hierarchy: {hierarchy_data['level_name']} (Level {hierarchy_data['level_number']})")
+
+            # Flush session to make hierarchies visible for queries
+            session.flush()
+
+            # Step 4: Create issuetype mappings with hierarchy links
+            issuetype_mappings_created = 0
+            for mapping_data in issuetype_mapping_data:
+                # Find the corresponding hierarchy
+                hierarchy = session.query(IssuetypeHierarchy).filter(
+                    IssuetypeHierarchy.level_number == mapping_data["hierarchy_level"],
+                    IssuetypeHierarchy.client_id == default_client.id
+                ).first()
+
+                if hierarchy:
+                    issuetype_mapping = IssuetypeMapping(
+                        issuetype_from=mapping_data["issuetype_from"],
+                        issuetype_to=mapping_data["issuetype_to"],
+                        issuetype_hierarchy_id=hierarchy.id,
+                        client_id=default_client.id,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                    )
+                    session.add(issuetype_mapping)
+                    issuetype_mappings_created += 1
+                    print(f"   ✅ Created mapping: {mapping_data['issuetype_from']} → {mapping_data['issuetype_to']} (Level {mapping_data['hierarchy_level']})")
+                else:
+                    print(f"   ❌ No hierarchy found for level {mapping_data['hierarchy_level']} - skipping {mapping_data['issuetype_from']}")
+
             session.commit()
-            print(f"✅ Successfully created {mappings_created} status mappings for client {default_client.name}")
+            print(f"✅ Successfully created {flow_steps_created} flow steps, {mappings_created} status mappings, {issuetype_hierarchies_created} issuetype hierarchies, and {issuetype_mappings_created} issuetype mappings for client {default_client.name}")
 
         return True
     except Exception as e:
@@ -433,67 +614,6 @@ def initialize_status_mappings_non_interactive():
         traceback.print_exc()
         return False
 
-
-def initialize_flow_steps_non_interactive():
-    """Initialize flow steps without user confirmation."""
-    try:
-        from app.core.database import get_database
-        from app.core.utils import DateTimeHelper
-        from app.models.unified_models import FlowStep, Client
-
-        database = get_database()
-
-        with database.get_session_context() as session:
-            # Get the default client (should be the first one)
-            default_client = session.query(Client).first()
-            if not default_client:
-                print("❌ No client found. Please run client initialization first")
-                return False
-
-            # Check if any flow steps already exist for this client
-            existing_flow_steps = session.query(FlowStep).filter(FlowStep.client_id == default_client.id).count()
-
-            if existing_flow_steps > 0:
-                print(f"✅ Flow steps table already has {existing_flow_steps} flow step(s) for client {default_client.name}")
-                return True
-
-            # Create standardized flow steps
-            flow_steps_data = [
-                {"mapped_name": "Backlog", "step_category": "To Do"},
-                {"mapped_name": "Refinement", "step_category": "To Do"},
-                {"mapped_name": "Ready to Work", "step_category": "To Do"},
-                {"mapped_name": "To Do", "step_category": "To Do"},
-                {"mapped_name": "In Progress", "step_category": "In Progress"},
-                {"mapped_name": "Ready for Story Testing", "step_category": "Waiting"},
-                {"mapped_name": "Story Testing", "step_category": "In Progress"},
-                {"mapped_name": "Ready for Acceptance", "step_category": "Waiting"},
-                {"mapped_name": "Acceptance Testing", "step_category": "In Progress"},
-                {"mapped_name": "Ready for Prod", "step_category": "Waiting"},
-                {"mapped_name": "Done", "step_category": "Done"},
-                {"mapped_name": "Discarded", "step_category": "Discarded"},
-            ]
-
-            flow_steps_created = 0
-            for step_data in flow_steps_data:
-                flow_step = FlowStep(
-                    mapped_name=step_data["mapped_name"],
-                    step_category=step_data["step_category"],
-                    client_id=default_client.id,
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc()
-                )
-                session.add(flow_step)
-                flow_steps_created += 1
-
-            session.commit()
-            print(f"✅ Successfully created {flow_steps_created} flow steps for client {default_client.name}")
-
-        return True
-    except Exception as e:
-        print(f"❌ Failed to initialize flow steps: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
 
 
 def initialize_integrations_non_interactive():
@@ -527,7 +647,7 @@ def initialize_integrations_non_interactive():
                 today_noon = DateTimeHelper.now_central().replace(hour=12, minute=0, second=0, microsecond=0)
 
                 jira_integration = Integration(
-                    name="Jira",
+                    name="JIRA",
                     url=settings.JIRA_URL,
                     username=settings.JIRA_USERNAME,
                     password=AppConfig.encrypt_token(settings.JIRA_TOKEN, key),
@@ -544,7 +664,7 @@ def initialize_integrations_non_interactive():
             # Create GitHub integration (optional)
             if settings.GITHUB_TOKEN:
                 github_integration = Integration(
-                    name="GitHub",
+                    name="GITHUB",
                     url="https://api.github.com",
                     username=None,
                     password=AppConfig.encrypt_token(settings.GITHUB_TOKEN, key),
@@ -561,7 +681,7 @@ def initialize_integrations_non_interactive():
             # Create Aha! integration (optional)
             if settings.AHA_TOKEN and settings.AHA_URL:
                 aha_integration = Integration(
-                    name="Aha!",
+                    name="AHA!",
                     url=settings.AHA_URL,
                     username=None,
                     password=AppConfig.encrypt_token(settings.AHA_TOKEN, key),
@@ -578,7 +698,7 @@ def initialize_integrations_non_interactive():
             # Create Azure DevOps integration (optional)
             if settings.AZDO_TOKEN and settings.AZDO_URL:
                 azdo_integration = Integration(
-                    name="Azure DevOps",
+                    name="AZURE DEVOPS",
                     url=settings.AZDO_URL,
                     username=None,
                     password=AppConfig.encrypt_token(settings.AZDO_TOKEN, key),
@@ -617,8 +737,13 @@ def initialize_system_settings_non_interactive():
             print("✅ System settings initialized successfully")
             print("   • Orchestrator interval: 60 minutes")
             print("   • Orchestrator enabled: True")
+            print("   • Orchestrator retry enabled: True")
+            print("   • Orchestrator retry interval: 15 minutes")
+            print("   • Orchestrator max retry attempts: 3")
             print("   • Max concurrent jobs: 1")
             print("   • Job timeout: 120 minutes")
+            print("   • GitHub GraphQL batch size: 50 PRs per request")
+            print("   • GitHub request timeout: 60 seconds")
         else:
             print("❌ Failed to initialize system settings")
 
@@ -818,7 +943,7 @@ def print_final_summary(reset_success, recreate_success, integration_success):
         print("   • Integration initialization had issues")
         print()
         print("💡 Next steps:")
-        print("   • Use 'python utils/initialize_integrations.py' to add integrations")
+        print("   • Run 'python scripts/reset_database.py --all' to reinitialize everything")
         print("   • Or run the ETL service to create initial data")
     elif reset_success and not recreate_success:
         print("⚠️  Database reset completed with warnings")
@@ -883,8 +1008,7 @@ def main():
             sys.exit(1)
 
         clients_success = initialize_clients_non_interactive()
-        status_mappings_success = initialize_status_mappings_non_interactive()
-        flow_steps_success = initialize_flow_steps_non_interactive()
+        workflow_success = initialize_workflow_configuration_non_interactive()  # Create flow steps, status mappings, and issuetype mappings
         integration_success = initialize_integrations_non_interactive()
 
         # Initialize job schedules for orchestration
@@ -904,7 +1028,7 @@ def main():
         print("🔧 Initializing user permissions...")
         permissions_success = initialize_user_permissions_non_interactive()
 
-        print_final_summary(True, True, integration_success and flow_steps_success and status_mappings_success and job_schedules_success and system_settings_success and users_success and permissions_success)
+        print_final_summary(True, True, integration_success and workflow_success and job_schedules_success and system_settings_success and users_success and permissions_success)
 
     elif args.drop_only:
         print("🗑️  Running drop-only mode (non-interactive)")
@@ -931,7 +1055,7 @@ def main():
         recreate_success = recreate_tables_non_interactive()
         if recreate_success:
             print("✅ Tables recreated successfully")
-            print("💡 Use 'python utils/initialize_integrations.py' to add integrations")
+            print("💡 Use 'python scripts/reset_database.py --all' to initialize integrations")
         else:
             sys.exit(1)
     else:
@@ -956,10 +1080,9 @@ def main():
             integration_success = True
             if recreate_success:
                 clients_success = initialize_clients()
-                status_mappings_success = initialize_status_mappings_non_interactive()
-                flow_steps_success = initialize_flow_steps_non_interactive()
+                workflow_success = initialize_workflow_configuration_non_interactive()  # Create flow steps, status mappings, and issuetype mappings
                 integration_success = initialize_integrations()
-                integration_success = integration_success and flow_steps_success and status_mappings_success
+                integration_success = integration_success and workflow_success
 
                 # Initialize job schedules for orchestration
                 print("🔧 Initializing job schedules...")

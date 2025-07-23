@@ -17,6 +17,7 @@ from typing import Optional, List, Dict, Any, List
 import os
 from pathlib import Path
 from datetime import datetime
+from sqlalchemy import func
 
 from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
@@ -74,24 +75,10 @@ async def login_page(request: Request):
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Serve dashboard page (authentication handled by middleware)"""
-    try:
-        # Get user from token (middleware ensures we're authenticated)
-        token = request.cookies.get("pulse_token")
-        if not token:
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-
-        # Get user info for template
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
-
-        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
-
-    except Exception as e:
-        logger.error(f"Dashboard error: {e}")
-        return RedirectResponse(url="/login?error=server_error", status_code=302)
+    """Serve dashboard page (authentication handled by frontend JavaScript)"""
+    # Always serve the dashboard page - authentication is handled by frontend checkAuth()
+    # The frontend will redirect to login if the token is invalid
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -116,12 +103,136 @@ async def admin_page(request: Request):
         database = get_database()
         with database.get_session() as session:
             if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+                return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         return templates.TemplateResponse("admin.html", {"request": request, "user": user})
 
     except Exception as e:
         logger.error(f"Admin page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/admin/status-mappings", response_class=HTMLResponse)
+async def status_mappings_page(request: Request):
+    """Serve status mappings management page"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_session() as session:
+            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
+                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+
+        return templates.TemplateResponse("admin_status_mappings.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Status mappings page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/admin/issuetype-mappings", response_class=HTMLResponse)
+async def issuetype_mappings_page(request: Request):
+    """Serve issue type mappings management page"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_session() as session:
+            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
+                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+
+        return templates.TemplateResponse("admin_issuetype_mappings.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Issue type mappings page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/admin/issuetype-hierarchies", response_class=HTMLResponse)
+async def issuetype_hierarchies_page(request: Request):
+    """Serve issue type hierarchies management page (temporarily redirected to flow steps)"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_session() as session:
+            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
+                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+
+        return templates.TemplateResponse("admin_issuetype_hierarchies.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Issue type hierarchies page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/admin/flow-steps", response_class=HTMLResponse)
+async def flow_steps_page(request: Request):
+    """Serve flow steps management page"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        from app.auth.permissions import Resource, Action, has_permission
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_session() as session:
+            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
+                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+
+        return templates.TemplateResponse("admin_flow_steps.html", {"request": request, "user": user})
+
+    except Exception as e:
+        logger.error(f"Flow steps page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
@@ -304,6 +415,64 @@ async def logout(request: Request, user: User = Depends(require_authentication))
             detail="Logout failed"
         )
 
+
+@router.get("/api/v1/auth/validate")
+async def validate_token(user: User = Depends(require_authentication)):
+    """Validate JWT token - returns 200 if valid, 401 if invalid"""
+    try:
+        # If we reach here, the token is valid (require_authentication succeeded)
+        return {
+            "valid": True,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "role": user.role,
+                "is_admin": user.is_admin
+            },
+            "expires_in_hours": 24  # Let frontend know when token expires
+        }
+    except Exception as e:
+        logger.error(f"Token validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+
+
+@router.post("/api/v1/auth/refresh")
+async def refresh_token(user: User = Depends(require_authentication)):
+    """Refresh JWT token to extend session"""
+    try:
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        # Create a new session for the user (this generates a new token)
+        from app.core.database import get_database
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the user from database to ensure fresh data
+            fresh_user = session.query(User).filter(User.id == user.id).first()
+            if not fresh_user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            # Create new session
+            new_session = await auth_service._create_session(fresh_user, session)
+
+            return {
+                "token": new_session["token"],
+                "user": new_session["user"],
+                "message": "Token refreshed successfully"
+            }
+
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh token"
+        )
+
+
 # Job management API routes
 @router.get("/api/v1/jobs/{job_name}/schedule-details")
 async def get_job_schedule_details(job_name: str, user: User = Depends(require_permission("etl_jobs", "read"))):
@@ -370,7 +539,7 @@ async def get_github_rate_limits(user: User = Depends(require_permission("etl_jo
 
         with database.get_session_context() as session:
             # Get GitHub integration
-            github_integration = session.query(Integration).filter(Integration.name == 'GitHub').first()
+            github_integration = session.query(Integration).filter(func.upper(Integration.name) == 'GITHUB').first()
 
             if not github_integration:
                 raise HTTPException(status_code=404, detail="GitHub integration not found")
@@ -921,6 +1090,12 @@ async def get_orchestrator_status(user: User = Depends(require_permission("orche
     """Get orchestrator status"""
     try:
         from app.main import scheduler
+        from app.core.settings_manager import (
+            get_orchestrator_interval, is_orchestrator_enabled,
+            is_orchestrator_retry_enabled, get_orchestrator_retry_interval,
+            get_orchestrator_max_retry_attempts
+        )
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 
         # Get orchestrator job status
         job = scheduler.get_job('etl_orchestrator')
@@ -935,12 +1110,26 @@ async def get_orchestrator_status(user: User = Depends(require_permission("orche
         # Check if job is paused
         is_paused = job.next_run_time is None
 
+        # Get retry status
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        retry_status = orchestrator_scheduler.get_all_retry_status()
+        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+
         status_info = {
             "status": "paused" if is_paused else "running",
             "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
             "job_id": job.id,
             "name": job.name,
-            "message": f"Orchestrator is {'paused' if is_paused else 'running'}"
+            "message": f"Orchestrator is {'paused' if is_paused else 'running'}",
+            "interval_minutes": get_orchestrator_interval(),
+            "enabled": is_orchestrator_enabled(),
+            "fast_retry_active": fast_retry_active,
+            "retry_config": {
+                "enabled": is_orchestrator_retry_enabled(),
+                "interval_minutes": get_orchestrator_retry_interval(),
+                "max_attempts": get_orchestrator_max_retry_attempts()
+            },
+            "retry_status": retry_status
         }
 
         return status_info
@@ -996,6 +1185,92 @@ async def update_orchestrator_schedule(
         )
 
 
+@router.post("/api/v1/orchestrator/retry")
+async def update_orchestrator_retry_config(
+    request: dict,
+    user: User = Depends(require_permission("orchestrator", "execute"))
+):
+    """Update orchestrator retry configuration - requires admin privileges"""
+    try:
+        retry_enabled = request.get('enabled')
+        retry_interval = request.get('interval_minutes')
+        max_attempts = request.get('max_attempts')
+
+        # Validate inputs
+        if retry_interval is not None and (retry_interval < 1 or retry_interval > 60):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Retry interval must be between 1 and 60 minutes"
+            )
+
+        if max_attempts is not None and (max_attempts < 1 or max_attempts > 10):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Max attempts must be between 1 and 10"
+            )
+
+        from app.core.settings_manager import (
+            set_orchestrator_retry_enabled, set_orchestrator_retry_interval,
+            set_orchestrator_max_retry_attempts
+        )
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+
+        # Check if fast retry is currently active
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+
+        # Update settings
+        updates = {}
+        schedule_updated = False
+
+        if retry_enabled is not None:
+            set_orchestrator_retry_enabled(retry_enabled)
+            updates['enabled'] = retry_enabled
+
+        if retry_interval is not None:
+            set_orchestrator_retry_interval(retry_interval)
+            updates['interval_minutes'] = retry_interval
+
+            # Check if we should apply the new retry interval immediately
+            if fast_retry_active:
+                schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(retry_interval)
+
+        if max_attempts is not None:
+            set_orchestrator_max_retry_attempts(max_attempts)
+            updates['max_attempts'] = max_attempts
+
+        logger.info(f"Orchestrator retry configuration updated: {updates}")
+
+        # Build appropriate message based on what happened
+        message = "Orchestrator retry configuration updated successfully"
+        if fast_retry_active and retry_interval is not None:
+            if schedule_updated:
+                message += f" (new retry interval applied immediately - was {current_countdown:.1f}min, now {retry_interval}min)"
+            else:
+                message += f" (current fast retry preserved - {current_countdown:.1f}min remaining, new interval will apply to future attempts)"
+        elif fast_retry_active:
+            message += " (current fast retry preserved - changes will apply to future retry attempts)"
+
+        return {
+            "success": True,
+            "message": message,
+            "updates": updates,
+            "fast_retry_active": fast_retry_active,
+            "schedule_updated": schedule_updated,
+            "current_countdown_minutes": current_countdown
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating orchestrator retry configuration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update orchestrator retry configuration"
+        )
+
+
 @router.get("/api/v1/settings")
 async def get_system_settings(user: User = Depends(require_permission("settings", "read"))):
     """Get all system settings"""
@@ -1045,6 +1320,22 @@ async def update_system_setting(
                 interval = get_orchestrator_interval()
                 enabled = is_orchestrator_enabled()
                 await update_orchestrator_schedule(interval, enabled)
+            elif setting_key == 'orchestrator_retry_interval_minutes':
+                # For retry interval changes, check if we should apply immediately
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+
+                if orchestrator_scheduler.is_fast_retry_active():
+                    schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(int(setting_value))
+                    if schedule_updated:
+                        logger.info(f"Retry interval updated to {setting_value} minutes and applied immediately (was smaller than current countdown)")
+                    else:
+                        logger.info(f"Retry interval updated to {setting_value} minutes - current fast retry preserved (new interval will apply to future attempts)")
+                else:
+                    logger.info(f"Retry interval updated to {setting_value} minutes - will apply to future retry attempts")
+            elif setting_key in ['orchestrator_retry_enabled', 'orchestrator_max_retry_attempts']:
+                # For other retry settings, just log the change - no need to update schedule
+                logger.info(f"Retry setting {setting_key} updated to {setting_value} - will apply to future retry attempts")
 
             return {
                 "success": True,

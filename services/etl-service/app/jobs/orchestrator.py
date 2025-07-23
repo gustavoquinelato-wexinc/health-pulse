@@ -74,6 +74,11 @@ async def trigger_jira_sync(force_manual=False, execution_params=None):
                 github_job.error_message = None
                 session.commit()
 
+                # Reset retry attempts when manually triggered
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.force_reset_retry_attempts('jira_sync')
+
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - MANUAL MODE - forced job states")
                 logger.info(f"   - jira_sync: PENDING")
                 logger.info(f"   - github_sync: NOT_STARTED")
@@ -150,6 +155,11 @@ async def trigger_github_sync(force_manual=False, execution_params=None):
                 github_job.error_message = None
                 session.commit()
 
+                # Reset retry attempts when manually triggered
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.force_reset_retry_attempts('github_sync')
+
                 logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - MANUAL MODE - forced job states")
                 logger.info(f"   - jira_sync: FINISHED")
                 logger.info(f"   - github_sync: PENDING")
@@ -210,6 +220,16 @@ async def run_orchestrator():
             session.commit()
 
             logger.info(f"LOCKED: job {pending_job.job_name} (status: RUNNING)")
+
+            # Send real-time status update via WebSocket
+            from app.core.websocket_manager import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            logger.info(f"WEBSOCKET: Sending RUNNING status update for {pending_job.job_name}")
+            await websocket_manager.send_status_update(
+                pending_job.job_name,
+                "RUNNING",
+                {"message": f"Job {pending_job.job_name} is now running"}
+            )
 
             # Trigger the appropriate passive job asynchronously (jobs will register themselves)
             if pending_job.job_name == 'jira_sync':

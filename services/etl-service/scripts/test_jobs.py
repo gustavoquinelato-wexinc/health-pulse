@@ -47,19 +47,19 @@ def test_connection():
         integrations = session.query(Integration).all()
         
         if not integrations:
-            print("❌ No integrations found. Please run initialize_integrations.py first.")
+            print("❌ No integrations found. Please run 'python scripts/reset_database.py --all' first.")
             return False
         
         for integration in integrations:
             print(f"\n🔗 Testing {integration.name} connection...")
             
-            if integration.name.lower() == 'jira':
+            if integration.name.upper() == 'JIRA':
                 success &= test_jira_connection(integration)
-            elif integration.name.lower() == 'github':
+            elif integration.name.upper() == 'GITHUB':
                 success &= test_github_connection(integration)
-            elif integration.name.lower() == 'aha':
+            elif integration.name.upper() == 'AHA!':
                 success &= test_aha_connection(integration)
-            elif integration.name.lower() == 'azure_devops':
+            elif integration.name.upper() == 'AZURE DEVOPS':
                 success &= test_azdo_connection(integration)
             else:
                 print(f"   ⚠️  {integration.name} connection testing not implemented")
@@ -210,10 +210,10 @@ def manual_debug_unified():
     with database.get_session() as session:
         # Get integrations
         integrations = session.query(Integration).all()
-        integration_lookup = {integration.name.lower(): integration for integration in integrations}
+        integration_lookup = {integration.name.upper(): integration for integration in integrations}
         
         if not integrations:
-            print("❌ No integrations found. Please run initialize_integrations.py first.")
+            print("❌ No integrations found. Please run 'python scripts/reset_database.py --all' first.")
             return
         
         while True:
@@ -221,7 +221,7 @@ def manual_debug_unified():
             print("=" * 40)
             
             # Jira options
-            if 'jira' in integration_lookup:
+            if 'JIRA' in integration_lookup:
                 print("🎫 JIRA JOBS:")
                 print("   1. Extract issue types and projects (ISSUETYPES mode)")
                 print("   2. Extract statuses and project links (STATUSES mode)")
@@ -229,9 +229,9 @@ def manual_debug_unified():
                 print("   4. Execute custom JQL query (CUSTOM_QUERY mode)")
                 print("   5. Full Jira extraction (ALL mode)")
                 print()
-            
+
             # GitHub options
-            if 'github' in integration_lookup:
+            if 'GITHUB' in integration_lookup:
                 print("🐙 GITHUB JOBS:")
                 print("   6. Discover repositories only (REPOSITORIES mode)")
                 print("   7. Extract pull requests only (PULL_REQUESTS mode)")
@@ -253,10 +253,10 @@ def manual_debug_unified():
                 elif choice == '10':
                     test_connection()
                     continue
-                elif choice in ['1', '2', '3', '4', '5'] and 'jira' in integration_lookup:
-                    execute_jira_test_mode(session, integration_lookup['jira'], choice)
-                elif choice in ['6', '7', '8', '9'] and 'github' in integration_lookup:
-                    execute_github_test_mode(session, integration_lookup['github'], choice)
+                elif choice in ['1', '2', '3', '4', '5'] and 'JIRA' in integration_lookup:
+                    execute_jira_test_mode(session, integration_lookup['JIRA'], choice)
+                elif choice in ['6', '7', '8', '9'] and 'GITHUB' in integration_lookup:
+                    execute_github_test_mode(session, integration_lookup['GITHUB'], choice)
                 else:
                     print("❌ Invalid choice or integration not available.")
                     

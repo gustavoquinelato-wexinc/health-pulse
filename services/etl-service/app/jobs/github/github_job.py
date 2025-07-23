@@ -12,6 +12,7 @@ Note: PR-Issue linking is now handled via join queries on JiraPullRequestLinks t
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
@@ -293,6 +294,8 @@ async def run_github_sync(
     """
     try:
         logger.info(f"Starting GitHub sync job (ID: {job_schedule.id}, Mode: {execution_mode.value})")
+        logger.info(f"GitHub sync - Job status at entry: {job_schedule.status}")
+        logger.info(f"GitHub sync - update_job_schedule: {update_job_schedule}")
 
         # Log execution parameters
         if execution_mode == GitHubExecutionMode.SINGLE_REPO:
@@ -304,14 +307,22 @@ async def run_github_sync(
         websocket_manager = get_websocket_manager()
         websocket_manager.clear_job_progress("github_sync")
 
+        # Send status update that job is running
+        if update_job_schedule:
+            await websocket_manager.send_status_update(
+                "github_sync",
+                "RUNNING",
+                {"message": "GitHub sync job is now running"}
+            )
+
         # Get GitHub integration
         await websocket_manager.send_progress_update("github_sync", 5.0, "Initializing GitHub integration...")
         github_integration = session.query(Integration).filter(
-            Integration.name == "GitHub"
+            func.upper(Integration.name) == "GITHUB"
         ).first()
 
         if not github_integration:
-            error_msg = "No GitHub integration found. Please run initialize_integrations.py first."
+            error_msg = "No GitHub integration found. Please run 'python scripts/reset_database.py --all' first."
             logger.error(f"ERROR: {error_msg}")
             await websocket_manager.send_exception("github_sync", "ERROR", error_msg)
             job_schedule.set_pending_with_checkpoint(error_msg)
@@ -329,6 +340,32 @@ async def run_github_sync(
 
         if graphql_remaining <= 10:  # Need at least 10 requests to do meaningful work
             logger.warning(f"GitHub GraphQL API rate limit too low to proceed: {graphql_remaining} requests remaining")
+
+            # Update job status to PENDING for early rate limit detection (only if update_job_schedule is True)
+            if update_job_schedule:
+                job_schedule.status = 'PENDING'
+
+                # Send status update for early rate limit detection
+                await websocket_manager.send_status_update(
+                    "github_sync",
+                    "PENDING",
+                    {"message": "Rate limit too low to proceed - will retry later"}
+                )
+            else:
+                logger.info("[JOB_SCHEDULE] Skipped updating job schedule status (test mode)")
+
+            session.commit()
+
+            # Schedule fast retry for early rate limit detection
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            logger.info("GitHub job hit early rate limit - attempting to schedule fast retry...")
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+
+            if fast_retry_scheduled:
+                retry_interval = orchestrator_scheduler.get_retry_status('github_sync')['retry_interval_minutes']
+                logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
             # Send completion notification for early rate limit detection
             await websocket_manager.send_completion(
@@ -423,6 +460,13 @@ async def run_github_sync(
                             jira_job.status = 'PENDING'
                         job_schedule.set_finished()
                         logger.info(f"   • Jira job set to PENDING, GitHub job set to FINISHED")
+
+                        # Send status update that job is finished
+                        await websocket_manager.send_status_update(
+                            "github_sync",
+                            "FINISHED",
+                            {"message": "GitHub sync job completed successfully"}
+                        )
                 else:
                     logger.info("[JOB_SCHEDULE] Skipped updating job schedule status (test mode)")
 
@@ -450,6 +494,12 @@ async def run_github_sync(
                         'cycle_complete': True
                     }
                 )
+
+                # Reset retry attempts and restore normal schedule on success
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.reset_retry_attempts('github_sync')
+                orchestrator_scheduler.restore_normal_schedule()
 
                 logger.info("GitHub sync completed successfully")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
@@ -480,6 +530,13 @@ async def run_github_sync(
                 # Keep GitHub job as PENDING for next run (only if update_job_schedule is True)
                 if update_job_schedule:
                     job_schedule.status = 'PENDING'
+
+                    # Send status update for partial completion
+                    await websocket_manager.send_status_update(
+                        "github_sync",
+                        "PENDING",
+                        {"message": "GitHub sync partially completed - will resume later"}
+                    )
                 else:
                     logger.info("[JOB_SCHEDULE] Skipped updating job schedule status (test mode)")
                 session.commit()
@@ -500,17 +557,40 @@ async def run_github_sync(
                     }
                 )
 
+                # Schedule fast retry for partial success (to continue processing sooner)
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+
+                logger.info("GitHub job partially completed - attempting to schedule fast retry...")
+                fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+
                 logger.info("GitHub sync partially completed")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
                 logger.info(f"   • Pull requests processed: {result['prs_processed']}")
                 logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
                 logger.info(f"   • Staging data preserved for next run")
                 logger.info(f"   • GitHub job remains PENDING")
+                if fast_retry_scheduled:
+                    retry_interval = orchestrator_scheduler.get_retry_status('github_sync')['retry_interval_minutes']
+                    logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
             
         else:
             # Failure: Set this job back to PENDING with checkpoint
             error_msg = result.get('error', 'Unknown error')
             checkpoint_data = result.get('checkpoint_data', {})
+
+            # Schedule fast retry if enabled
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            logger.info("GitHub job failed - attempting to schedule fast retry...")
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+
+            if fast_retry_scheduled:
+                retry_status = orchestrator_scheduler.get_retry_status('github_sync')
+                logger.info(f"Fast retry scheduled successfully: {retry_status}")
+            else:
+                logger.warning("Fast retry was not scheduled")
 
             # Note: No redundant send_exception call - error will be shown via progress update
 
@@ -531,6 +611,14 @@ async def run_github_sync(
                 job_schedule.error_message = error_msg
                 logger.info("[JOB_SCHEDULE] Skipped updating job schedule status (test mode)")
             session.commit()
+
+            # Send status update that job failed and is now pending
+            if update_job_schedule:
+                await websocket_manager.send_status_update(
+                    "github_sync",
+                    "PENDING",
+                    {"message": f"GitHub sync failed - {error_msg[:100]}..."}
+                )
 
             # Send final progress update for error case (short message for progress bar)
             await websocket_manager.send_progress_update("github_sync", 100.0, "❌ GitHub sync failed - check Issues & Warnings below")

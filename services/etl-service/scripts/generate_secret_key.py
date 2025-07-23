@@ -20,10 +20,14 @@ def main():
     print("🔐 Generating secure keys for ETL Service...")
     print()
     
+    # Generate JWT_SECRET_KEY
+    jwt_secret_key = generate_secret_key()
+    print(f"JWT_SECRET_KEY=\"{jwt_secret_key}\"")
+
     # Generate SECRET_KEY
     secret_key = generate_secret_key()
     print(f"SECRET_KEY=\"{secret_key}\"")
-    
+
     # Generate ENCRYPTION_KEY
     encryption_key = generate_encryption_key()
     print(f"ENCRYPTION_KEY=\"{encryption_key}\"")

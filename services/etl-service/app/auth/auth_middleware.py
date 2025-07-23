@@ -33,9 +33,9 @@ async def get_current_user(
     user = await auth_service.verify_token(credentials.credentials)
     
     if user:
-        # Log successful authentication
-        logger.debug(f"User authenticated: {user.email}")
-    
+        # Log successful authentication (avoid accessing user.email due to session expunge)
+        logger.debug("User authenticated successfully")
+
     return user
 
 
@@ -64,7 +64,7 @@ async def require_authentication(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    logger.debug(f"User authenticated: {user.email}")
+    logger.debug("User authenticated successfully")
     return user
 
 
@@ -102,7 +102,7 @@ async def require_web_authentication(
             logger.debug("Invalid token, redirecting to login")
             return RedirectResponse(url="/login?error=invalid_token", status_code=302)
 
-        logger.debug(f"Web user authenticated: {user.email}")
+        logger.debug("Web user authenticated successfully")
         return user
 
     except Exception as e:
@@ -135,13 +135,13 @@ async def require_role(required_role: str):
     """
     async def role_checker(user: User = Depends(require_authentication)) -> User:
         if user.role != required_role and not user.is_admin:
-            logger.warning(f"Role access denied for user: {user.email}, required: {required_role}, has: {user.role}")
+            logger.warning(f"Role access denied for user, required: {required_role}, has: {user.role}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role '{required_role}' required"
             )
 
-        logger.debug(f"Role access granted for user: {user.email}, role: {user.role}")
+        logger.debug(f"Role access granted for user, role: {user.role}")
         return user
 
     return role_checker
@@ -164,10 +164,10 @@ def require_permission(resource: str, action: str):
             database = get_database()
             with database.get_session() as session:
                 if has_permission(user, resource_enum, action_enum, session):
-                    logger.debug(f"Permission granted for user: {user.email}, resource: {resource}, action: {action}")
+                    logger.debug(f"Permission granted for user, resource: {resource}, action: {action}")
                     return user
                 else:
-                    logger.warning(f"Permission denied for user: {user.email}, resource: {resource}, action: {action}")
+                    logger.warning(f"Permission denied for user, resource: {resource}, action: {action}")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail=f"Permission required: {action} on {resource}"
@@ -203,14 +203,14 @@ def require_web_permission(resource: str, action: str):
             database = get_database()
             with database.get_session() as session:
                 if has_permission(user, resource_enum, action_enum, session):
-                    logger.debug(f"Web permission granted for user: {user.email}, resource: {resource}, action: {action}")
+                    logger.debug(f"Web permission granted for user, resource: {resource}, action: {action}")
                     return user
                 else:
-                    logger.warning(f"Web permission denied for user: {user.email}, resource: {resource}, action: {action}")
-                    return RedirectResponse(url=f"/login?error=permission_denied&resource={resource}", status_code=302)
+                    logger.warning(f"Web permission denied for user, resource: {resource}, action: {action}")
+                    return RedirectResponse(url=f"/dashboard?error=permission_denied&resource={resource}", status_code=302)
         except ValueError:
             logger.error(f"Invalid resource or action: {resource}, {action}")
-            return RedirectResponse(url="/login?error=invalid_permission", status_code=302)
+            return RedirectResponse(url="/dashboard?error=invalid_permission", status_code=302)
 
     return web_permission_checker
 

@@ -7,9 +7,10 @@ Handles transformation and processing of Jira data for ETL operations.
 from datetime import datetime
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
-from app.models.unified_models import Project, Issuetype, Status, FlowStep, StatusMapping
+from app.models.unified_models import Project, Issuetype, Status, StatusMapping, IssuetypeMapping
 
 logger = get_logger(__name__)
 
@@ -161,21 +162,52 @@ class JiraDataProcessor:
     
     def process_issuetype_data(self, issuetype_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process raw Jira issue type data into database format.
-        
+        Process raw Jira issue type data into database format with mapping.
+
         Args:
             issuetype_data: Raw issue type data from Jira API
-            
+
         Returns:
             Processed issue type data ready for database insertion
         """
         try:
+            original_name = issuetype_data.get('name', None)
+
+            # Find issuetype mapping for this issue type from database
+            issuetype_mapping_id = None
+            hierarchy_level = issuetype_data.get('hierarchyLevel', 0)  # Default hierarchy level
+            client_id = getattr(self.integration, 'client_id', None) if self.integration else None
+
+            if original_name and client_id:
+                # Look up issuetype mapping in database (case-insensitive on both sides)
+                # Include the hierarchy relationship to avoid lazy loading issues
+                from sqlalchemy.orm import joinedload
+                issuetype_mapping = self.session.query(IssuetypeMapping).options(
+                    joinedload(IssuetypeMapping.issuetype_hierarchy)
+                ).filter(
+                    func.lower(IssuetypeMapping.issuetype_from) == original_name.lower(),
+                    IssuetypeMapping.client_id == client_id
+                ).first()
+
+                if issuetype_mapping:
+                    issuetype_mapping_id = issuetype_mapping.id
+                    # Get hierarchy level from the related hierarchy record
+                    hierarchy_level = issuetype_mapping.issuetype_hierarchy.level_number if issuetype_mapping.issuetype_hierarchy else 0
+                    logger.debug(f"Mapped issuetype '{original_name}' to '{issuetype_mapping.issuetype_to}' (hierarchy: {hierarchy_level}) via issuetype mapping")
+                else:
+                    logger.warning(f"No issuetype mapping found in database for issuetype '{original_name}' and client {client_id}")
+            else:
+                if not original_name:
+                    logger.warning("No issuetype name provided for mapping")
+                if not client_id:
+                    logger.warning("No client_id available for issuetype mapping")
+
             return {
                 'external_id': issuetype_data.get('id', None),
-                'original_name': issuetype_data.get('name', None),
-                'mapped_name': issuetype_data.get('name', None),  # Can be customized later
+                'original_name': original_name,
+                'issuetype_mapping_id': issuetype_mapping_id,  # Foreign key relationship to IssuetypeMapping
                 'description': issuetype_data.get('description', None),
-                'hierarchy_level': issuetype_data.get('hierarchyLevel', None),
+                'hierarchy_level': hierarchy_level,
                 'active': True  # Default to active for new issue types
             }
         except Exception as e:
@@ -196,29 +228,24 @@ class JiraDataProcessor:
             original_name = status_data.get('name', None)
             category = status_data.get('statusCategory', {}).get('name', None)
 
-            # Find flow step mapping for this status from database
-            flow_step_id = None
+            # Find status mapping for this status from database
+            status_mapping_id = None
             client_id = getattr(self.integration, 'client_id', None) if self.integration else None
 
             if original_name and client_id:
-                # Look up status mapping in database
+                # Look up status mapping in database (case-insensitive on both sides)
                 status_mapping = self.session.query(StatusMapping).filter(
-                    StatusMapping.status_from == original_name.lower(),
+                    func.lower(StatusMapping.status_from) == original_name.lower(),
                     StatusMapping.client_id == client_id
                 ).first()
 
                 if status_mapping:
-                    # Find the corresponding flow step
-                    flow_step = self.session.query(FlowStep).filter(
-                        FlowStep.mapped_name == status_mapping.status_to,
-                        FlowStep.client_id == client_id
-                    ).first()
+                    status_mapping_id = status_mapping.id
 
-                    if flow_step:
-                        flow_step_id = flow_step.id
-                        logger.debug(f"Mapped status '{original_name}' to flow step '{flow_step.mapped_name}' (ID: {flow_step.id}) via database mapping")
+                    if status_mapping.flow_step:
+                        logger.debug(f"Mapped status '{original_name}' to flow step '{status_mapping.flow_step.name}' via status mapping")
                     else:
-                        logger.warning(f"Flow step '{status_mapping.status_to}' not found in database for client {client_id} and status '{original_name}'")
+                        logger.warning(f"Status mapping found but no flow step linked for status '{original_name}' and client {client_id}")
                 else:
                     logger.warning(f"No status mapping found in database for status '{original_name}' and client {client_id}")
             else:
@@ -230,7 +257,7 @@ class JiraDataProcessor:
             return {
                 'external_id': status_data.get('id', None),
                 'original_name': original_name,
-                'flow_step_id': flow_step_id,
+                'status_mapping_id': status_mapping_id,  # Foreign key relationship to StatusMapping
                 'category': category,
                 'description': status_data.get('description', None),
                 'active': True  # Default to active for new statuses

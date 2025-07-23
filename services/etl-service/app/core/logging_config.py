@@ -143,13 +143,18 @@ def setup_logging(force_reconfigure=False):
     if _logging_configured and not force_reconfigure:
         return
 
-    # Basic logging configuration
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-        force=True  # Force reconfiguration of basic logging
-    )
+    # Clear any existing handlers first
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Configure console handler with colors
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+    console_formatter = logging.Formatter("%(message)s")
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
     
     # Common processors
     shared_processors = [
@@ -172,16 +177,12 @@ def setup_logging(force_reconfigure=False):
     )
 
     if debug_mode:
-        # Development: colored and readable logs
-        # Use custom colored renderer for better Windows terminal support
-        processors = shared_processors + [
-            ColoredConsoleRenderer()
-        ]
+        # Development: colored console logs
+        # File handler will clean ANSI codes automatically
+        processors = shared_processors + [ColoredConsoleRenderer()]
     else:
         # Production: JSON logs
-        processors = shared_processors + [
-            JSONRenderer()
-        ]
+        processors = shared_processors + [JSONRenderer()]
     
     # Clear structlog cache if forcing reconfiguration
     if force_reconfigure:
@@ -192,7 +193,7 @@ def setup_logging(force_reconfigure=False):
             # If reset_defaults doesn't work, try to clear manually
             pass
 
-    # Configure structlog (allow reconfiguration if forced)
+    # Configure structlog (colors for console, cleaned automatically for file)
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -208,16 +209,33 @@ def setup_logging(force_reconfigure=False):
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
 
-    # Add file handler (only if not already added)
-    root_logger = logging.getLogger()
-    if not any(isinstance(h, logging.FileHandler) for h in root_logger.handlers):
-        file_handler = logging.FileHandler("logs/etl_service.log")
-        file_handler.setLevel(logging.INFO)
-        file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
+    # Add file handler with ANSI cleaning
+    class AnsiCleaningFileHandler(logging.FileHandler):
+        """File handler that removes ANSI escape sequences from log messages."""
+
+        def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+            super().__init__(filename, mode, encoding, delay)
+            # Compile ANSI escape sequence regex once
+            import re
+            self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+        def format(self, record):
+            # Get the formatted message
+            formatted = super().format(record)
+            # Remove ANSI escape sequences
+            return self.ansi_escape.sub('', formatted)
+
+    # Add the clean file handler
+    file_handler = AnsiCleaningFileHandler("logs/etl_service.log")
+    file_handler.setLevel(logging.INFO)
+
+    # Create a clean formatter
+    clean_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(clean_formatter)
+    root_logger.addHandler(file_handler)
 
 
 

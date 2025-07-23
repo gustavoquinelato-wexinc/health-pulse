@@ -76,8 +76,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
     # Routes that don't require authentication
     PUBLIC_ROUTES = {
-        "/", "/login", "/health", "/healthz", "/docs", "/redoc", "/openapi.json",
-        "/logout", "/auth/login", "/debug/auth-status", "/debug/clear-cookies"
+        "/", "/login", "/health", "/healthz", "/redoc", "/openapi.json",
+        "/logout", "/auth/login"
     }
 
     # Routes that should redirect to login if not authenticated
@@ -85,39 +85,39 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/dashboard", "/admin"
     }
 
+    # Route prefixes that should be treated as protected web routes
+    PROTECTED_WEB_PREFIXES = [
+        "/admin/"
+    ]
+
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Debug: Print to console (temporary)
-        print(f"[AUTH MIDDLEWARE] Processing: {path}")
-
         # Skip authentication for public routes
         if path in self.PUBLIC_ROUTES or path.startswith("/static/"):
-            print(f"[AUTH MIDDLEWARE] Public route: {path}")
             return await call_next(request)
 
         # Skip authentication for API routes (they handle their own auth)
         if path.startswith("/api/"):
-            print(f"[AUTH MIDDLEWARE] API route: {path}")
             return await call_next(request)
 
         # For protected web routes and unknown routes, check authentication
-        print(f"[AUTH MIDDLEWARE] Checking auth for: {path}")
         is_authenticated = await self.check_authentication(request)
-        print(f"[AUTH MIDDLEWARE] Auth result: {is_authenticated}")
 
         if not is_authenticated:
             # Determine redirect reason
-            if path in self.PROTECTED_WEB_ROUTES:
-                print(f"[AUTH MIDDLEWARE] Redirecting protected route: {path}")
+            is_protected_route = (
+                path in self.PROTECTED_WEB_ROUTES or
+                any(path.startswith(prefix) for prefix in self.PROTECTED_WEB_PREFIXES)
+            )
+
+            if is_protected_route:
                 return RedirectResponse(url="/login?error=authentication_required", status_code=302)
             else:
                 # For unknown/404 routes, redirect with page_not_found error
-                print(f"[AUTH MIDDLEWARE] Redirecting unknown route: {path}")
                 return RedirectResponse(url="/login?error=page_not_found", status_code=302)
 
         # User is authenticated, proceed with request
-        print(f"[AUTH MIDDLEWARE] User authenticated, proceeding: {path}")
         return await call_next(request)
 
     async def check_authentication(self, request: Request) -> bool:
@@ -127,31 +127,23 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
             # Try to get token from cookies first
             token = request.cookies.get("pulse_token")
-            print(f"[AUTH DEBUG] Cookie token: {'Found' if token else 'None'}")
 
             if not token:
                 # Try Authorization header
                 auth_header = request.headers.get("Authorization")
                 if auth_header and auth_header.startswith("Bearer "):
                     token = auth_header.split(" ")[1]
-                    print(f"[AUTH DEBUG] Header token: Found")
-                else:
-                    print(f"[AUTH DEBUG] Header token: None")
 
             if not token:
-                print(f"[AUTH DEBUG] No token found, returning False")
                 return False
 
             # Verify token
-            print(f"[AUTH DEBUG] Verifying token: {token[:20]}...")
             auth_service = get_auth_service()
             user = await auth_service.verify_token(token)
-            result = user is not None
-            print(f"[AUTH DEBUG] Token verification result: {result}, user: {user.email if user else 'None'}")
-            return result
+            return user is not None
 
         except Exception as e:
-            print(f"[AUTH DEBUG] Exception in auth check: {e}")
+            logger.error(f"Authentication check failed: {e}")
             return False
 
 
@@ -171,7 +163,8 @@ async def lifespan(_: FastAPI):
         # Initialize scheduler
         await initialize_scheduler()
 
-        # Clear any existing user sessions on startup for security
+        # Clear all user sessions on startup for security
+        # This happens regardless of DEBUG mode for consistent security behavior
         await clear_all_user_sessions()
 
         logger.info("ETL Service started successfully")
@@ -231,7 +224,7 @@ app = FastAPI(
     - **Azure DevOps**: Personal Access Token for work items and repositories
     """,
     lifespan=lifespan,
-    docs_url="/docs",
+    docs_url=None,  # Disabled - using custom protected route
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     contact={
@@ -327,6 +320,46 @@ async def favicon():
     return Response(status_code=204)  # No Content
 
 
+@app.get("/docs")
+async def custom_docs(request: Request):
+    """Custom docs endpoint that requires admin authentication."""
+    try:
+        # Check authentication
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        if not token:
+            return RedirectResponse(url="/login?error=authentication_required", status_code=302)
+
+        # Verify token and check admin permissions
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            return RedirectResponse(url="/login?error=invalid_token", status_code=302)
+
+        # Check admin permission
+        if not user.is_admin and user.role != 'admin':
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=docs", status_code=302)
+
+        # If admin, redirect to the actual docs
+        from fastapi.openapi.docs import get_swagger_ui_html
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=app.title + " - API Documentation",
+            swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
+            swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
+        )
+
+    except Exception as e:
+        logger.error(f"Docs access error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
 # Admin route is handled by web_router - serves the admin.html template
 
 
@@ -351,53 +384,7 @@ async def debug_auth_status(request: Request):
     }
 
 
-# Debug route to force clear all cookies
-@app.get("/debug/clear-cookies")
-async def debug_clear_cookies():
-    """Debug endpoint to force clear all authentication cookies."""
-    response = JSONResponse(content={
-        "message": "All cookies cleared with correct parameters",
-        "primary_cookie": "pulse_token",
-        "method": "Using exact same parameters as when cookie was set"
-    })
 
-    # Clear pulse_token by setting to empty with immediate expiration
-    response.set_cookie(
-        key="pulse_token",
-        value="",  # Empty value
-        max_age=0,  # Immediate expiration
-        path="/",
-        httponly=True,
-        secure=False,
-        samesite="lax"
-    )
-
-    # Also try delete_cookie method
-    response.delete_cookie(
-        key="pulse_token",
-        path="/",
-        httponly=True,
-        secure=False,
-        samesite="lax"
-    )
-
-    # Try other variations for safety
-    response.delete_cookie(key="pulse_token", path="/")
-    response.delete_cookie(key="pulse_token")
-
-    # Clear other potential cookies
-    other_cookies = ["session", "auth_token", "token", "jwt"]
-    for cookie_name in other_cookies:
-        response.delete_cookie(key=cookie_name, path="/")
-        response.delete_cookie(key=cookie_name)
-
-    # Add aggressive cache control headers
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
-
-    return response
 
 
 # Authentication is now handled by AuthenticationMiddleware
@@ -645,6 +632,21 @@ async def initialize_scheduler():
 
         # Start scheduler
         scheduler.start()
+
+        # Initialize orchestrator scheduler helper
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.set_scheduler(scheduler)
+
+        # Ensure retry settings are initialized
+        from app.core.settings_manager import (
+            get_orchestrator_retry_interval, is_orchestrator_retry_enabled,
+            get_orchestrator_max_retry_attempts
+        )
+        logger.info(f"Retry settings initialized: enabled={is_orchestrator_retry_enabled()}, "
+                   f"interval={get_orchestrator_retry_interval()}min, "
+                   f"max_attempts={get_orchestrator_max_retry_attempts()}")
+
         logger.info("Scheduler initialized successfully")
 
     except Exception as e:
@@ -672,6 +674,7 @@ def get_scheduler():
 async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = True):
     """
     Updates the orchestrator schedule dynamically without restarting the server.
+    Preserves fast retry timing if currently active.
 
     Args:
         interval_minutes: New interval in minutes
@@ -683,10 +686,24 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
 
     try:
         from app.core.settings_manager import set_orchestrator_interval, set_orchestrator_enabled
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 
-        # Update database settings
+        # Update database settings first
         set_orchestrator_interval(interval_minutes)
         set_orchestrator_enabled(enabled)
+
+        # Check if we should apply the new interval immediately
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        should_apply = orchestrator_scheduler.should_apply_new_interval(interval_minutes, is_retry_setting=False)
+
+        if not should_apply:
+            current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+            logger.info(f"Preserving current schedule - new interval ({interval_minutes} minutes) is larger than current countdown ({current_countdown:.1f} minutes)")
+            logger.info(f"New interval will apply after current schedule completes")
+            return True
+
+        # Get current countdown before removing the job (for logging)
+        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
 
         # Remove existing orchestrator job if it exists
         try:
@@ -705,7 +722,10 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
                 replace_existing=True,
                 max_instances=1
             )
-            logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes")
+            if current_countdown:
+                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes (applied immediately - was {current_countdown:.1f}min, now {interval_minutes}min)")
+            else:
+                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes")
         else:
             logger.info("Orchestrator disabled")
 
@@ -719,25 +739,150 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
 async def clear_all_user_sessions():
     """Clear all user sessions on startup for security."""
     try:
-        from app.auth.auth_service import get_auth_service
-        auth_service = get_auth_service()
-
-        # Invalidate all existing tokens by updating the secret key
+        # Invalidate all existing tokens by updating the JWT secret
         logger.info("Invalidating all existing JWT tokens on startup for security")
 
-        # Force regenerate JWT secret to invalidate all existing tokens
-        from app.core.config import get_settings
-        settings = get_settings()
+        # Method 1: Reset the auth service to pick up current configuration
+        from app.auth.auth_service import get_auth_service, reset_auth_service
 
-        # Update the JWT secret in memory (this invalidates all existing tokens)
+        # Reset the auth service instance to force reinitialization with current settings
+        reset_auth_service()
+        auth_service = get_auth_service()
+
+        # Generate new JWT secret and update it in the auth service
         import secrets
         new_secret = secrets.token_urlsafe(32)
-        settings.JWT_SECRET_KEY = new_secret
+        auth_service.jwt_secret = new_secret
+
+        # Method 2: Also update environment variable for consistency
+        import os
+        os.environ['JWT_SECRET_KEY'] = new_secret
+
+        # Method 3: Clear all user sessions from database
+        from app.core.database import get_database
+        database = get_database()
+
+        with database.get_session() as session:
+            from app.models.unified_models import UserSession
+            # Mark all existing sessions as inactive
+            session.query(UserSession).update({
+                'active': False,
+                'last_updated_at': datetime.now()
+            })
+            session.commit()
+
+            session_count = session.query(UserSession).filter(UserSession.active == False).count()
+            logger.info(f"Marked {session_count} user sessions as inactive")
 
         logger.info("All existing authentication tokens have been invalidated")
 
     except Exception as e:
         logger.warning(f"Failed to clear user sessions: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+@app.get("/debug/token-info")
+async def debug_token_info(request: Request):
+    """Debug endpoint to show token information."""
+    token_cookie = request.cookies.get("pulse_token")
+    auth_header = request.headers.get("Authorization")
+
+    token_info = {
+        "cookie_token_present": bool(token_cookie),
+        "cookie_token_preview": token_cookie[:20] + "..." if token_cookie else None,
+        "header_token_present": bool(auth_header),
+        "header_token_preview": auth_header[:30] + "..." if auth_header else None
+    }
+
+    if token_cookie:
+        try:
+            import jwt
+            # Try to decode without verification to see the payload
+            payload = jwt.decode(token_cookie, options={"verify_signature": False})
+            token_info["token_payload"] = {
+                "user_id": payload.get("user_id"),
+                "email": payload.get("email"),
+                "exp": payload.get("exp"),
+                "iat": payload.get("iat")
+            }
+
+            # Also try to verify with current secret
+            from app.auth.auth_service import get_auth_service
+            auth_service = get_auth_service()
+            try:
+                verified_payload = jwt.decode(token_cookie, auth_service.jwt_secret, algorithms=[auth_service.jwt_algorithm])
+                token_info["token_verified_with_current_secret"] = True
+                token_info["verified_payload"] = verified_payload
+            except Exception as verify_error:
+                token_info["token_verified_with_current_secret"] = False
+                token_info["verification_error"] = str(verify_error)
+
+        except Exception as e:
+            token_info["token_decode_error"] = str(e)
+
+    # Check session in database
+    if token_cookie:
+        try:
+            from app.auth.auth_service import get_auth_service
+            auth_service = get_auth_service()
+            user = await auth_service.verify_token(token_cookie)
+            token_info["session_valid_in_database"] = user is not None
+            if user:
+                token_info["user_info"] = {
+                    "id": user.id,
+                    "email": user.email,
+                    "active": user.active
+                }
+        except Exception as e:
+            token_info["session_check_error"] = str(e)
+
+    return token_info
+
+@app.get("/debug/force-logout")
+async def debug_force_logout():
+    """Debug endpoint to force complete logout."""
+    response = JSONResponse(content={"message": "Force logout completed"})
+
+    # Clear all possible cookie variations
+    cookie_names = ["pulse_token", "token", "access_token", "auth_token", "session"]
+    for cookie_name in cookie_names:
+        response.set_cookie(
+            key=cookie_name,
+            value="",
+            max_age=0,
+            expires=0,
+            path="/",
+            httponly=True,
+            secure=False,
+            samesite="lax"
+        )
+        response.delete_cookie(key=cookie_name, path="/")
+        response.delete_cookie(key=cookie_name)
+
+    # Add headers to clear everything
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    return response
+
+@app.get("/debug/jwt-info")
+async def debug_jwt_info():
+    """Debug endpoint to check JWT configuration."""
+    from app.auth.auth_service import get_auth_service
+    import os
+
+    auth_service = get_auth_service()
+
+    return {
+        "jwt_secret_preview": auth_service.jwt_secret[:10] + "..." if auth_service.jwt_secret else None,
+        "jwt_algorithm": auth_service.jwt_algorithm,
+        "env_jwt_secret_preview": os.environ.get('JWT_SECRET_KEY', '')[:10] + "..." if os.environ.get('JWT_SECRET_KEY') else None,
+        "auth_service_id": id(auth_service),
+        "token_expiry_hours": auth_service.token_expiry.total_seconds() / 3600 if auth_service.token_expiry else None
+    }
 
 
 if __name__ == "__main__":

@@ -59,15 +59,18 @@ class GitHubGraphQLClient:
     def _make_graphql_request(self, query: str, variables: Dict[str, Any] = None, max_retries: int = 3) -> Optional[Dict[str, Any]]:
         """
         Make a GraphQL request with retry logic.
-        
+
         Args:
             query: GraphQL query string
             variables: Query variables
             max_retries: Maximum number of retries
-            
+
         Returns:
             GraphQL response data or None if failed
         """
+        # Get configurable timeout
+        from app.core.settings_manager import get_github_request_timeout
+        timeout = get_github_request_timeout()
         payload = {
             'query': query,
             'variables': variables or {}
@@ -78,8 +81,8 @@ class GitHubGraphQLClient:
                 # Check rate limit before making request
                 self.check_rate_limit_before_request()
 
-                logger.debug(f"Making GitHub GraphQL request (attempt {attempt + 1})")
-                response = self.session.post(self.graphql_url, json=payload, timeout=30)
+                logger.debug(f"Making GitHub GraphQL request (attempt {attempt + 1}) with {timeout}s timeout")
+                response = self.session.post(self.graphql_url, json=payload, timeout=timeout)
 
                 response.raise_for_status()
                 response_data = response.json()
@@ -138,110 +141,113 @@ class GitHubGraphQLClient:
     def get_pull_requests_with_details(self, owner: str, repo_name: str, pr_cursor: str = None) -> Optional[Dict[str, Any]]:
         """
         Fetch a batch of pull requests with all nested data using GraphQL.
-        
+
         Args:
             owner: Repository owner
             repo_name: Repository name
             pr_cursor: Cursor for pagination
-            
+
         Returns:
             GraphQL response with pull requests and nested data
         """
-        query = """
+        # Get configurable batch size
+        from app.core.settings_manager import get_github_graphql_batch_size
+        batch_size = get_github_graphql_batch_size()
+        query = f"""
         query getPullRequestBatchWithDetails(
-          $owner: String!, 
-          $repoName: String!, 
+          $owner: String!,
+          $repoName: String!,
           $prCursor: String
-        ) {
-          rateLimit {
+        ) {{
+          rateLimit {{
             remaining
             resetAt
-          }
-          repository(owner: $owner, name: $repoName) {
+          }}
+          repository(owner: $owner, name: $repoName) {{
             pullRequests(
-              first: 100,
+              first: {batch_size},
               after: $prCursor,
-              orderBy: {field: UPDATED_AT, direction: DESC}  # DESC for early termination optimization
-            ) {
-              pageInfo {
+              orderBy: {{field: UPDATED_AT, direction: DESC}}  # DESC for early termination optimization
+            ) {{
+              pageInfo {{
                 endCursor
                 hasNextPage
-              }
-              nodes {
+              }}
+              nodes {{
                 id
                 number
                 title
                 state
-                author { login }
+                author {{ login }}
                 body
                 createdAt
                 updatedAt
                 mergedAt
                 closedAt
-                mergedBy { login }
+                mergedBy {{ login }}
                 additions
                 deletions
                 changedFiles
                 url
-                
-                commits(first: 100) {
+
+                commits(first: 100) {{
                   totalCount
-                  pageInfo { endCursor, hasNextPage }
-                  nodes {
-                    commit {
+                  pageInfo {{ endCursor, hasNextPage }}
+                  nodes {{
+                    commit {{
                       oid
-                      author { name, email, date }
-                      committer { name, email, date }
+                      author {{ name, email, date }}
+                      committer {{ name, email, date }}
                       message
-                    }
-                  }
-                }
-                
-                reviews(first: 100) {
+                    }}
+                  }}
+                }}
+
+                reviews(first: 100) {{
                   totalCount
-                  pageInfo { endCursor, hasNextPage }
-                  nodes {
+                  pageInfo {{ endCursor, hasNextPage }}
+                  nodes {{
                     id
-                    author { login }
+                    author {{ login }}
                     state
                     body
                     submittedAt
-                  }
-                }
-                
-                comments(first: 100) {
+                  }}
+                }}
+
+                comments(first: 100) {{
                   totalCount
-                  pageInfo { endCursor, hasNextPage }
-                  nodes {
+                  pageInfo {{ endCursor, hasNextPage }}
+                  nodes {{
                     id
-                    author { login }
+                    author {{ login }}
                     body
                     createdAt
                     updatedAt
-                  }
-                }
-                
-                reviewThreads(first: 50) {
-                  pageInfo { endCursor, hasNextPage }
-                  nodes {
-                    comments(first: 10) {
-                      pageInfo { endCursor, hasNextPage }
-                      nodes {
+                  }}
+                }}
+
+                reviewThreads(first: 50) {{
+                  pageInfo {{ endCursor, hasNextPage }}
+                  nodes {{
+                    comments(first: 10) {{
+                      pageInfo {{ endCursor, hasNextPage }}
+                      nodes {{
                         id
-                        author { login }
+                        author {{ login }}
                         body
                         path
                         position
                         createdAt
                         updatedAt
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
         """
         
         variables = {
