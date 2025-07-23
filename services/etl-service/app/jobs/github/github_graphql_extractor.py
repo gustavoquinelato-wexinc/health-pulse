@@ -74,13 +74,13 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
 
         # Batch size for bulk operations
         BATCH_SIZE = 50
-        
+
         # Outer loop: Paginate through pull requests
         while True:
             # Check rate limit before making request and abort if needed
             if graphql_client.is_rate_limited():
                 logger.warning(f"Rate limit reached during PR processing for {owner}/{repo_name}, aborting to save state")
-                # Save current state before aborting
+                # Save current state before aborting (pr_cursor is the next page to fetch)
                 job_schedule.update_checkpoint({
                     'last_pr_cursor': pr_cursor,
                     'current_pr_node_id': None,
@@ -89,7 +89,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                     'last_comment_cursor': None,
                     'last_review_thread_cursor': None
                 })
-                logger.info(f"Saved checkpoint for {owner}/{repo_name}: repo_id={repository.external_id}, pr_cursor={pr_cursor}")
+                logger.info(f"[{owner}/{repo_name}] Rate limit checkpoint saved: next_cursor={pr_cursor}, processed={prs_processed} PRs")
                 return {
                     'success': True,
                     'prs_processed': prs_processed,
@@ -99,8 +99,15 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                 }
             
             # Fetch batch of PRs with nested data
-            logger.debug(f"[{owner}/{repo_name}] Fetching PR batch with cursor: {pr_cursor or 'None (first page)'}")
+            from app.core.settings_manager import get_github_graphql_batch_size
+            batch_size = get_github_graphql_batch_size()
+            logger.info(f"[{owner}/{repo_name}] Fetching PR batch (size: {batch_size}) with cursor: {pr_cursor or 'None (first page)'}")
+
+            import time
+            start_time = time.time()
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
+            request_time = time.time() - start_time
+            logger.info(f"[{owner}/{repo_name}] GraphQL request completed in {request_time:.2f}s")
             
             if not response or 'data' not in response:
                 logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
@@ -224,8 +231,9 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                 logger.info(f"[{owner}/{repo_name}] Completed processing all PRs - no more pages")
                 break
 
+            prev_cursor = pr_cursor
             pr_cursor = page_info['endCursor']
-            logger.debug(f"[{owner}/{repo_name}] Moving to next page with cursor: {pr_cursor}")
+            logger.info(f"[{owner}/{repo_name}] Page completed, moving to next page: prev_cursor={prev_cursor} -> next_cursor={pr_cursor}")
 
         # Final bulk insert for remaining data
         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
@@ -256,6 +264,17 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
     except GitHubRateLimitException as e:
         logger.warning(f"Rate limit reached while processing repository {owner}/{repo_name}: {e}")
 
+        # Save current state before returning (rate limit checkpoint)
+        job_schedule.update_checkpoint({
+            'last_pr_cursor': pr_cursor,
+            'current_pr_node_id': None,
+            'last_commit_cursor': None,
+            'last_review_cursor': None,
+            'last_comment_cursor': None,
+            'last_review_thread_cursor': None
+        })
+        logger.info(f"[{owner}/{repo_name}] Rate limit checkpoint saved: cursor={pr_cursor}, processed={prs_processed} PRs")
+
         # Rate limit is a partial success - we processed what we could
         return {
             'success': True,  # Partial success
@@ -263,7 +282,14 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
             'partial_success': True,
             'error': str(e),
             'prs_processed': prs_processed,
-            'checkpoint_data': {}
+            'checkpoint_data': {
+                'last_pr_cursor': pr_cursor,
+                'current_pr_node_id': None,
+                'last_commit_cursor': None,
+                'last_review_cursor': None,
+                'last_comment_cursor': None,
+                'last_review_thread_cursor': None
+            }
         }
 
     except Exception as e:
@@ -486,13 +512,32 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
         # Check if this is a rate limit error
         is_rate_limit_error = 'rate limit' in str(e).lower()
 
+        # Save current state if it's a rate limit error
+        if is_rate_limit_error:
+            job_schedule.update_checkpoint({
+                'last_pr_cursor': pr_cursor,
+                'current_pr_node_id': None,
+                'last_commit_cursor': None,
+                'last_review_cursor': None,
+                'last_comment_cursor': None,
+                'last_review_thread_cursor': None
+            })
+            logger.info(f"[{owner}/{repo_name}] Recovery rate limit checkpoint saved: cursor={pr_cursor}, processed={prs_processed} PRs")
+
         return {
             'success': False,
             'rate_limit_reached': is_rate_limit_error,
             'partial_success': False,
             'error': str(e),
             'prs_processed': prs_processed,
-            'checkpoint_data': {}
+            'checkpoint_data': {
+                'last_pr_cursor': pr_cursor if is_rate_limit_error else None,
+                'current_pr_node_id': None,
+                'last_commit_cursor': None,
+                'last_review_cursor': None,
+                'last_comment_cursor': None,
+                'last_review_thread_cursor': None
+            } if is_rate_limit_error else {}
         }
 
 
@@ -556,10 +601,20 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         )
 
         if not nested_result['success']:
+            # Save checkpoint with current PR node ID and nested cursor data
+            checkpoint_data = {
+                'current_pr_node_id': pr_node['id'],
+                **nested_result.get('checkpoint_data', {})
+            }
+
+            # Save to database immediately
+            job_schedule.update_checkpoint(checkpoint_data)
+            logger.warning(f"Saved nested pagination checkpoint for PR {pr_node['id']}: {checkpoint_data}")
+
             return {
                 'success': False,
                 'error': nested_result['error'],
-                'checkpoint_data': nested_result.get('checkpoint_data', {})
+                'checkpoint_data': checkpoint_data
             }
 
         # Note: session.commit() is now handled at the repository level
@@ -613,12 +668,18 @@ def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient
                 pull_request_id, processor
             )
             if not commit_result['success']:
+                # Save checkpoint immediately for commit pagination failure
+                checkpoint_data = {
+                    'current_pr_node_id': pr_node_id,
+                    'last_commit_cursor': commit_result.get('last_cursor', commits_data['pageInfo']['endCursor'])
+                }
+                job_schedule.update_checkpoint(checkpoint_data)
+                logger.warning(f"Saved commit pagination checkpoint for PR {pr_node_id}: cursor={checkpoint_data['last_commit_cursor']}")
+
                 return {
                     'success': False,
                     'error': commit_result['error'],
-                    'checkpoint_data': {
-                        'last_commit_cursor': commits_data['pageInfo']['endCursor']
-                    }
+                    'checkpoint_data': checkpoint_data
                 }
 
         # Process first page of reviews
@@ -634,12 +695,18 @@ def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient
                 pull_request_id, processor
             )
             if not review_result['success']:
+                # Save checkpoint immediately for review pagination failure
+                checkpoint_data = {
+                    'current_pr_node_id': pr_node_id,
+                    'last_review_cursor': review_result.get('last_cursor', reviews_data['pageInfo']['endCursor'])
+                }
+                job_schedule.update_checkpoint(checkpoint_data)
+                logger.warning(f"Saved review pagination checkpoint for PR {pr_node_id}: cursor={checkpoint_data['last_review_cursor']}")
+
                 return {
                     'success': False,
                     'error': review_result['error'],
-                    'checkpoint_data': {
-                        'last_review_cursor': reviews_data['pageInfo']['endCursor']
-                    }
+                    'checkpoint_data': checkpoint_data
                 }
 
         # Process first page of comments
@@ -676,12 +743,18 @@ def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient
                 pull_request_id, processor
             )
             if not thread_result['success']:
+                # Save checkpoint immediately for review thread pagination failure
+                checkpoint_data = {
+                    'current_pr_node_id': pr_node_id,
+                    'last_review_thread_cursor': thread_result.get('last_cursor', review_threads_data['pageInfo']['endCursor'])
+                }
+                job_schedule.update_checkpoint(checkpoint_data)
+                logger.warning(f"Saved review thread pagination checkpoint for PR {pr_node_id}: cursor={checkpoint_data['last_review_thread_cursor']}")
+
                 return {
                     'success': False,
                     'error': thread_result['error'],
-                    'checkpoint_data': {
-                        'last_review_thread_cursor': review_threads_data['pageInfo']['endCursor']
-                    }
+                    'checkpoint_data': checkpoint_data
                 }
 
         return {

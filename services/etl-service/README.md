@@ -59,12 +59,14 @@ The ETL Service is the core data processing engine of the Pulse Platform, design
 ### **Job Management**
 - ✅ **Active/Passive Orchestration**: Single job execution with smart coordination
 - ✅ **Checkpoint Recovery**: Precise failure recovery with state preservation
+- ✅ **Fast Retry System**: Intelligent retry logic with configurable intervals (15min default)
 - ✅ **Manual Controls**: Force start, stop, pause, and resume capabilities
 - ✅ **Status Management**: Real-time job status tracking and transitions
 - ✅ **Rate Limit Handling**: Graceful API rate limit detection and recovery
 
 ### **Monitoring & Control**
 - ✅ **Real-time Dashboard**: Live job monitoring with control interface
+- ✅ **Enhanced Log Management**: Table-based log viewer with pagination and individual file actions
 - ✅ **Structured Logging**: Colored console logs with detailed execution tracking
 - ✅ **Health Monitoring**: Service health checks and status reporting
 - ✅ **Error Tracking**: Comprehensive error logging and recovery metrics
@@ -113,8 +115,7 @@ etl-service/
 │       ├── datetime_helper.py  # DateTime utilities
 │       └── logging_utils.py    # Logging utilities
 ├── scripts/                    # Executable utilities (moved from utils)
-│   ├── reset_database.py      # Database reset and initialization
-│   ├── initialize_integrations.py # Integration setup
+│   ├── reset_database.py      # Database reset and initialization (includes integrations)
 │   ├── generate_secret_key.py # Security key generation
 │   └── test_jobs.py           # Job testing and debugging
 ├── logs/                      # Application logs (auto-created)
@@ -195,7 +196,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### 5. Access Applications
 - **ETL Dashboard**: http://localhost:8000 (Login: gustavo.quinelato@wexinc.com / pulse)
 - **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
+- **Health Check**: http://localhost:8000/api/v1/health
 
 ## 📊 Supported Integrations
 
@@ -240,11 +241,17 @@ AZURE_DEVOPS_TOKEN=your-azure-devops-token
 REDIS_URL=redis://localhost:6379/0
 
 # Security
-SECRET_KEY=your-secret-key-for-jwt
+JWT_SECRET_KEY=your-jwt-secret-key-here
+SECRET_KEY=your-secret-key-change-this-in-production
 ENCRYPTION_KEY=your-32-byte-encryption-key
 
 # Job Configuration
 ORCHESTRATOR_INTERVAL_MINUTES=60
+
+# Fast Retry Configuration (Optional)
+ORCHESTRATOR_RETRY_ENABLED=true
+ORCHESTRATOR_RETRY_INTERVAL_MINUTES=15
+ORCHESTRATOR_MAX_RETRY_ATTEMPTS=3
 ```
 
 ### API Token Setup
@@ -286,10 +293,12 @@ ORCHESTRATOR_INTERVAL_MINUTES=60
 - `POST /api/v1/orchestrator/resume` - Resume orchestrator
 
 ### **Monitoring & Logs**
-- `GET /logs/recent` - Get recent log entries with filtering
-- `GET /logs/download` - Download log files
-- `GET /logs/tail` - Get live tail of log file
-- `GET /health` - Service health check
+- `GET /api/v1/logs/recent` - Get recent log entries with filtering and pagination
+- `GET /api/v1/logs/files` - List all available log files with metadata
+- `GET /api/v1/logs/download/{filename}` - Download specific log files (ZIP format)
+- `DELETE /api/v1/logs/cleanup` - Bulk delete old log files by age
+- `DELETE /api/v1/logs/file/{filename}` - Delete or clear individual log files
+- `GET /api/v1/health` - Service health check
 - `GET /docs` - Interactive API documentation (Swagger UI)
 - `GET /redoc` - Alternative API documentation
 
@@ -309,6 +318,35 @@ ORCHESTRATOR_INTERVAL_MINUTES=60
 7. **PostgreSQL Loading**: Bulk insert into unified database schema
 8. **Checkpoint Save**: Save progress for recovery
 9. **Job Completion**: Update job status and execution metrics
+
+### **Fast Retry System**
+
+The ETL service includes an intelligent fast retry system for handling job failures:
+
+#### **How It Works**
+1. **Normal Operation**: Jobs run on the main orchestrator interval (60 minutes default)
+2. **Failure Detection**: When a job fails, the system automatically schedules a fast retry
+3. **Fast Retry**: Failed jobs are retried at shorter intervals (15 minutes default)
+4. **Max Attempts**: After maximum retry attempts (3 default), jobs fall back to normal interval
+5. **Success Recovery**: Successful retry clears the retry count and returns to normal scheduling
+
+#### **Configuration**
+```bash
+# Enable/disable fast retry system
+ORCHESTRATOR_RETRY_ENABLED=true
+
+# Fast retry interval (minutes)
+ORCHESTRATOR_RETRY_INTERVAL_MINUTES=15
+
+# Maximum retry attempts before falling back to normal interval
+ORCHESTRATOR_MAX_RETRY_ATTEMPTS=3
+```
+
+#### **Benefits**
+- **Faster Recovery**: Failed jobs retry quickly instead of waiting for the next hourly run
+- **Reduced Downtime**: Transient failures are resolved within 15 minutes instead of up to 60 minutes
+- **Intelligent Fallback**: Persistent failures don't spam the system - they fall back to normal intervals
+- **Configurable**: All retry parameters can be adjusted via the dashboard or environment variables
 
 ### **GitHub ETL Process**
 1. **Authentication**: Validate GitHub API token
@@ -357,20 +395,22 @@ curl http://localhost:8000/
 curl http://localhost:8000/api/v1/jobs/status
 
 # Test health endpoint
-curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/health
 ```
 
 ## 📈 Monitoring & Observability
 
 ### **Real-time Dashboard**
 - **WebSocket Progress**: Real-time progress bars with instant percentage updates
-- **Exception-only Logging**: Clean display of errors and warnings only
+- **Enhanced Log Management**: Table-based log viewer with pagination, search, and file management
+- **Individual File Actions**: Download, delete, or clear content of specific log files
+- **Bulk Operations**: Delete all logs or logs older than specified days
 - **Job Status Monitoring**: Live job state tracking and transitions
 - **Control Interface**: Manual job control (start, stop, pause, resume)
-- **Professional UI**: Streamlined interface focused on actionable information
+- **Professional UI**: Consistent dark theme with streamlined interface
 
 ### **Health Checks**
-- **Application Health**: `/health` endpoint with comprehensive status
+- **Application Health**: `/api/v1/health` endpoint with comprehensive status
 - **Database Connectivity**: PostgreSQL connection and query testing
 - **External API Health**: Jira and GitHub API connectivity validation
 - **Job Status Health**: Orchestrator and job execution status
@@ -415,6 +455,7 @@ curl http://localhost:8000/health
 - **Multi-source ETL**: Jira and GitHub integration with unified data model
 - **Job Orchestration**: Active/Passive model with intelligent scheduling
 - **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
+- **Fast Retry System**: Intelligent retry logic with configurable intervals and max attempts
 - **Rate Limit Handling**: Graceful API rate limit detection and recovery
 - **Real-time Dashboard**: Live job monitoring with manual control capabilities
 - **Bulk Operations**: Efficient batch processing for large datasets
@@ -466,11 +507,17 @@ python scripts/reset_database.py
 ### **Debug Commands**
 
 ```bash
-# Check service status
-curl http://localhost:8000/health
+# Check service status (admin only)
+curl http://localhost:8000/api/v1/health
 
 # Check job status
 curl http://localhost:8000/api/v1/jobs/status
+
+# Debug system information
+curl http://localhost:8000/api/v1/debug/system
+
+# Test external connections
+curl http://localhost:8000/api/v1/debug/connections
 
 # View logs
 tail -f logs/app.log
@@ -501,10 +548,11 @@ python scripts/reset_database.py
 
 ## 📚 Additional Documentation
 
-- **[System Architecture](../../docs/architecture/overview.md)** - Overall system design
-- **[Recovery Strategy](../../docs/etl/recovery-strategy.md)** - Failure recovery rules and patterns
-- **[Job Orchestration](../../docs/etl/job-orchestration.md)** - Job management and scheduling
-- **[Checkpoint System](../../docs/etl/checkpoint-system.md)** - Checkpoint and recovery design
+- **[Development Guide](docs/DEVELOPMENT_GUIDE.md)** - Complete development, testing, and debugging guide
+- **[Log Management Guide](docs/LOG_MANAGEMENT.md)** - Comprehensive log management system documentation
+- **[System Architecture](../../docs/ARCHITECTURE.md)** - Overall system design
+- **[Migration Guide](../../docs/MIGRATION_GUIDE.md)** - Database migration system
+- **[Scripts Guide](../../docs/SCRIPTS_GUIDE.md)** - Cross-service scripts and utilities
 
 ## 🤝 Contributing
 

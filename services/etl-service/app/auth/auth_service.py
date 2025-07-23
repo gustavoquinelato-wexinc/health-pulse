@@ -16,6 +16,7 @@ from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.models.unified_models import User, UserSession
 from app.core.utils import DateTimeHelper
+from app.core.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -24,10 +25,19 @@ class AuthService:
     """Authentication service for handling login, token generation, and user management."""
     
     def __init__(self):
-        self.jwt_secret = os.getenv("JWT_SECRET", "pulse-dev-secret-key-2024")
-        self.jwt_algorithm = "HS256"
-        self.token_expiry = timedelta(hours=24)
+        # Use Pydantic settings instead of os.getenv for proper configuration loading
+        settings = get_settings()
+
+        self.jwt_secret = settings.JWT_SECRET_KEY
+        self.jwt_algorithm = settings.JWT_ALGORITHM
+
+        # Use JWT expiry from settings
+        expire_minutes = settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        self.token_expiry = timedelta(minutes=expire_minutes)
         self.database = get_database()
+
+        # Log token expiry configuration
+        logger.info(f"JWT token expiry configured: {expire_minutes} minutes ({self.token_expiry})")
     
     async def authenticate_local(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
         """Local authentication (for development/admin)"""
@@ -80,11 +90,13 @@ class AuthService:
                     and_(
                         UserSession.user_id == user_id,
                         UserSession.token_hash == token_hash,
+                        UserSession.active == True,
                         UserSession.expires_at > DateTimeHelper.now_utc()
                     )
                 ).first()
-                
+
                 if not user_session:
+                    logger.debug(f"No valid session found for user {user_id} - token may be expired, invalid, or terminated")
                     return None
                 
                 # Get user
@@ -96,24 +108,38 @@ class AuthService:
                 ).first()
 
                 if user:
-                    # Eagerly load attributes that might be accessed later
+                    # Update session activity timestamp
+                    user_session.last_updated_at = DateTimeHelper.now_utc()
+
+                    # Create a detached user object with all needed attributes
                     # This prevents DetachedInstanceError when session closes
-                    _ = user.email       # Force load email attribute
-                    _ = user.first_name  # Force load first_name attribute
-                    _ = user.last_name   # Force load last_name attribute
-                    _ = user.role        # Force load role attribute
-                    _ = user.is_admin    # Force load is_admin attribute
+                    detached_user = User()
+                    detached_user.id = user.id
+                    detached_user.email = user.email
+                    detached_user.first_name = user.first_name
+                    detached_user.last_name = user.last_name
+                    detached_user.role = user.role
+                    detached_user.is_admin = user.is_admin
+                    detached_user.active = user.active
+                    detached_user.client_id = user.client_id
+                    detached_user.auth_provider = user.auth_provider
+                    detached_user.last_login_at = user.last_login_at
+                    detached_user.created_at = user.created_at
+                    detached_user.last_updated_at = user.last_updated_at
 
-                    # Expunge the user from session so it can be used outside the session context
-                    session.expunge(user)
+                    # Commit session activity update
+                    session.commit()
 
-                return user
+                    logger.debug(f"Token verification successful for user: {user.email}")
+                    return detached_user
+
+                return None
                 
         except jwt.ExpiredSignatureError:
-            logger.warning("JWT token expired")
+            logger.warning(f"JWT token expired for user {user_id if 'user_id' in locals() else 'unknown'}")
             return None
         except jwt.InvalidTokenError:
-            logger.warning("Invalid JWT token")
+            logger.warning(f"Invalid JWT token for user {user_id if 'user_id' in locals() else 'unknown'}")
             return None
         except Exception as e:
             logger.error(f"Token verification error: {e}")
@@ -127,15 +153,17 @@ class AuthService:
                 user_session = session.query(UserSession).filter(
                     UserSession.token_hash == token_hash
                 ).first()
-                
+
                 if user_session:
-                    session.delete(user_session)
+                    # Mark session as inactive instead of deleting for audit purposes
+                    user_session.active = False
+                    user_session.last_updated_at = DateTimeHelper.now_utc()
                     session.commit()
                     logger.info(f"Session invalidated for user: {user_session.user_id}")
                     return True
-                    
+
                 return False
-                
+
         except Exception as e:
             logger.error(f"Session invalidation error: {e}")
             return False
@@ -143,6 +171,15 @@ class AuthService:
     async def _create_session(self, user: User, session: Session, ip_address: str = None, user_agent: str = None) -> Dict[str, Any]:
         """Create JWT session for user"""
         try:
+            # Clean up any existing sessions for this user (both active and inactive)
+            # This ensures only one active session per user at a time
+            deleted_count = session.query(UserSession).filter(
+                UserSession.user_id == user.id
+            ).delete()
+
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} existing sessions for user {user.id} during login")
+
             # Create JWT payload
             payload = {
                 "user_id": user.id,  # Now using integer ID directly
@@ -152,10 +189,10 @@ class AuthService:
                 "exp": DateTimeHelper.now_utc() + self.token_expiry,
                 "iat": DateTimeHelper.now_utc()
             }
-            
+
             # Generate JWT token
             token = jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
-            
+
             # Store session in database
             token_hash = self._hash_token(token)
             user_session = UserSession(
@@ -169,17 +206,17 @@ class AuthService:
                 created_at=DateTimeHelper.now_utc(),
                 last_updated_at=DateTimeHelper.now_utc()
             )
-            
+
             session.add(user_session)
             
             # Update last login
             user.last_login_at = DateTimeHelper.now_utc()
             user.last_updated_at = DateTimeHelper.now_utc()
-            
+
             session.commit()
-            
+
             logger.info(f"Session created for user: {user.email}")
-            
+
             return {
                 "token": token,
                 "user": {
@@ -264,3 +301,9 @@ def get_auth_service() -> AuthService:
     if _auth_service is None:
         _auth_service = AuthService()
     return _auth_service
+
+
+def reset_auth_service():
+    """Reset the global auth service instance (useful for testing or config changes)"""
+    global _auth_service
+    _auth_service = None

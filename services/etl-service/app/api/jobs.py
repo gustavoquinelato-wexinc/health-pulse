@@ -7,9 +7,11 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func, distinct
 from app.core.database import get_db_session
-from app.models.unified_models import JobSchedule
+from app.models.unified_models import (
+    JobSchedule, Project, Issuetype, Status, Issue, IssueChangelog, JiraPullRequestLinks
+)
 from app.schemas.api_schemas import (
     JobRunRequest, JobRunResponse, JobStatusResponse, JobStatus
 )
@@ -278,3 +280,127 @@ async def list_all_jobs(db: Session = Depends(get_db_session)):
         "jobs": job_list,
         "total_jobs": len(job_list)
     }
+
+
+@router.get("/jobs/jira_sync/summary")
+async def get_jira_summary(db: Session = Depends(get_db_session)):
+    """
+    Get summary statistics for Jira data tables.
+
+    Returns:
+        dict: Summary statistics for all Jira-related tables
+    """
+    try:
+        summary = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "tables": {}
+        }
+
+        # Projects summary
+        projects_count = db.query(func.count(Project.id)).scalar() or 0
+        active_projects = db.query(func.count(Project.id)).filter(Project.active == True).scalar() or 0
+
+        summary["tables"]["projects"] = {
+            "total_count": projects_count,
+            "active_count": active_projects,
+            "inactive_count": projects_count - active_projects
+        }
+
+        # Issue types summary
+        issuetypes_count = db.query(func.count(Issuetype.id)).scalar() or 0
+        active_issuetypes = db.query(func.count(Issuetype.id)).filter(Issuetype.active == True).scalar() or 0
+
+        summary["tables"]["issuetypes"] = {
+            "total_count": issuetypes_count,
+            "active_count": active_issuetypes,
+            "inactive_count": issuetypes_count - active_issuetypes
+        }
+
+        # Statuses summary
+        statuses_count = db.query(func.count(Status.id)).scalar() or 0
+        active_statuses = db.query(func.count(Status.id)).filter(Status.active == True).scalar() or 0
+
+        summary["tables"]["statuses"] = {
+            "total_count": statuses_count,
+            "active_count": active_statuses,
+            "inactive_count": statuses_count - active_statuses
+        }
+
+        # Issues summary
+        issues_count = db.query(func.count(Issue.id)).scalar() or 0
+        active_issues = db.query(func.count(Issue.id)).filter(Issue.active == True).scalar() or 0
+
+        # Issues by status (top 5)
+        top_statuses = db.query(
+            Status.original_name,
+            func.count(Issue.id).label('count')
+        ).join(Issue, Issue.status_id == Status.id)\
+         .filter(Issue.active == True)\
+         .group_by(Status.original_name)\
+         .order_by(func.count(Issue.id).desc())\
+         .limit(5).all()
+
+        # Issues by type (top 5)
+        top_types = db.query(
+            Issuetype.original_name,
+            func.count(Issue.id).label('count')
+        ).join(Issue, Issue.issuetype_id == Issuetype.id)\
+         .filter(Issue.active == True)\
+         .group_by(Issuetype.original_name)\
+         .order_by(func.count(Issue.id).desc())\
+         .limit(5).all()
+
+        summary["tables"]["issues"] = {
+            "total_count": issues_count,
+            "active_count": active_issues,
+            "inactive_count": issues_count - active_issues,
+            "top_statuses": [{"name": status.original_name, "count": status.count} for status in top_statuses],
+            "top_types": [{"name": type_.original_name, "count": type_.count} for type_ in top_types]
+        }
+
+        # Changelogs summary
+        changelogs_count = db.query(func.count(IssueChangelog.id)).scalar() or 0
+        active_changelogs = db.query(func.count(IssueChangelog.id)).filter(IssueChangelog.active == True).scalar() or 0
+
+        # Recent changelog activity (last 30 days)
+        from datetime import timedelta
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        recent_changelogs = db.query(func.count(IssueChangelog.id))\
+            .filter(IssueChangelog.created_at >= thirty_days_ago)\
+            .filter(IssueChangelog.active == True).scalar() or 0
+
+        summary["tables"]["changelogs"] = {
+            "total_count": changelogs_count,
+            "active_count": active_changelogs,
+            "inactive_count": changelogs_count - active_changelogs,
+            "recent_activity_30d": recent_changelogs
+        }
+
+        # Jira PR Links summary
+        pr_links_count = db.query(func.count(JiraPullRequestLinks.id)).scalar() or 0
+        active_pr_links = db.query(func.count(JiraPullRequestLinks.id)).filter(JiraPullRequestLinks.active == True).scalar() or 0
+
+        # Unique repositories linked
+        unique_repos = db.query(func.count(distinct(JiraPullRequestLinks.repo_full_name)))\
+            .filter(JiraPullRequestLinks.active == True).scalar() or 0
+
+        # PR status breakdown
+        pr_status_breakdown = db.query(
+            JiraPullRequestLinks.pr_status,
+            func.count(JiraPullRequestLinks.id).label('count')
+        ).filter(JiraPullRequestLinks.active == True)\
+         .group_by(JiraPullRequestLinks.pr_status)\
+         .all()
+
+        summary["tables"]["jira_pull_request_links"] = {
+            "total_count": pr_links_count,
+            "active_count": active_pr_links,
+            "inactive_count": pr_links_count - active_pr_links,
+            "unique_repositories": unique_repos,
+            "pr_status_breakdown": [{"status": link.pr_status or "Unknown", "count": link.count} for link in pr_status_breakdown]
+        }
+
+        return summary
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get Jira summary: {str(e)}")

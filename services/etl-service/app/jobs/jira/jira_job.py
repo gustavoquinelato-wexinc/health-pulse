@@ -11,6 +11,7 @@ This job:
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
@@ -199,6 +200,16 @@ async def run_jira_sync(
     try:
         logger.info(f"Starting Jira sync job (ID: {job_schedule.id}, Mode: {execution_mode.value})")
 
+        # Send status update that job is running
+        if update_job_schedule:
+            from app.core.websocket_manager import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.send_status_update(
+                "jira_sync",
+                "RUNNING",
+                {"message": "Jira sync job is now running"}
+            )
+
         # Log execution parameters
         if execution_mode == JiraExecutionMode.CUSTOM_QUERY:
             logger.info(f"Custom JQL Query: {custom_query}")
@@ -207,7 +218,7 @@ async def run_jira_sync(
 
         # Get Jira integration
         jira_integration = session.query(Integration).filter(
-            Integration.name == "Jira"
+            func.upper(Integration.name) == "JIRA"
         ).first()
 
         if not jira_integration:
@@ -248,7 +259,23 @@ async def run_jira_sync(
                 if github_job:
                     github_job.status = 'PENDING'
                 job_schedule.set_finished()
+
+                # Reset retry attempts and restore normal schedule on success
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.reset_retry_attempts('jira_sync')
+                orchestrator_scheduler.restore_normal_schedule()
+
                 logger.info(f"   • GitHub job set to PENDING, Jira job set to FINISHED")
+
+                # Send status update that job is finished
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "jira_sync",
+                    "FINISHED",
+                    {"message": "Jira sync job completed successfully"}
+                )
 
             session.commit()
 
@@ -264,14 +291,29 @@ async def run_jira_sync(
             job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
             session.commit()
 
-            # Send error progress update (short message for progress bar)
+            # Schedule fast retry if enabled
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+
+            # Send status update that job failed and is now pending
             from app.core.websocket_manager import get_websocket_manager
             websocket_manager = get_websocket_manager()
+            await websocket_manager.send_status_update(
+                "jira_sync",
+                "PENDING",
+                {"message": f"Jira sync failed - {error_msg[:100]}..."}
+            )
+
+            # Send error progress update (short message for progress bar)
             await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync failed - check Issues & Warnings below")
 
             logger.error(f"Jira sync failed: {error_msg}")
             if checkpoint:
                 logger.info(f"   • Checkpoint saved: {checkpoint}")
+            if fast_retry_scheduled:
+                retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+                logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
     except Exception as e:
         logger.error(f"Jira sync job error: {e}")
@@ -285,7 +327,17 @@ async def run_jira_sync(
 
         # Set job back to PENDING on unexpected error
         job_schedule.set_pending_with_checkpoint(str(e))
+
+        # Schedule fast retry if enabled
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+
         session.commit()
+
+        if fast_retry_scheduled:
+            retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+            logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
 
 async def extract_jira_issues_and_dev_status(session: Session, integration: Integration, jira_client, job_schedule: JobSchedule) -> Dict[str, Any]:

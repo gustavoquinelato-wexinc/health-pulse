@@ -29,13 +29,15 @@ class Client(Base):
     statuses = relationship("Status", back_populates="client")
     status_mappings = relationship("StatusMapping", back_populates="client")
     flow_steps = relationship("FlowStep", back_populates="client")
+    issuetype_mappings = relationship("IssuetypeMapping", back_populates="client")
+    issuetype_hierarchies = relationship("IssuetypeHierarchy", back_populates="client")
     issues = relationship("Issue", back_populates="client")
     changelogs = relationship("IssueChangelog", back_populates="client")
     repositories = relationship("Repository", back_populates="client")
     pull_requests = relationship("PullRequest", back_populates="client")
-    pull_request_reviews = relationship("PullRequestReview")
-    pull_request_commits = relationship("PullRequestCommit")
-    pull_request_comments = relationship("PullRequestComment")
+    pull_request_reviews = relationship("PullRequestReview", back_populates="client")
+    pull_request_commits = relationship("PullRequestCommit", back_populates="client")
+    pull_request_comments = relationship("PullRequestComment", back_populates="client")
 
 
 class BaseEntity:
@@ -170,15 +172,15 @@ class Issuetype(Base, BaseEntity):
     integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
-    mapped_name = Column(String, quote=False, nullable=False, name="mapped_name")
+    issuetype_mapping_id = Column(Integer, ForeignKey('issuetype_mappings.id'), quote=False, nullable=True, name="issuetype_mapping_id")
     description = Column(String, quote=False, name="description")
     hierarchy_level = Column(Integer, quote=False, nullable=False, name="hierarchy_level")
-    active = Column(Boolean, quote=False, nullable=False, default=True, name="active")
 
     # Relationships
     client = relationship("Client", back_populates="issuetypes")
     integration = relationship("Integration", back_populates="issuetypes")
     projects = relationship("Project", secondary="projects_issuetypes", back_populates="issuetypes")
+    issuetype_mapping = relationship("IssuetypeMapping", back_populates="issuetypes")
     issues = relationship("Issue", back_populates="issuetype")
 
 class StatusMapping(Base, BaseEntity):
@@ -190,9 +192,42 @@ class StatusMapping(Base, BaseEntity):
     status_from = Column(String, quote=False, nullable=False, name="status_from")
     status_to = Column(String, quote=False, nullable=False, name="status_to")
     status_category = Column(String, quote=False, nullable=False, name="status_category")
+    flow_step_id = Column(Integer, ForeignKey('flow_steps.id'), quote=False, nullable=True, name="flow_step_id")
 
     # Relationships
     client = relationship("Client", back_populates="status_mappings")
+    flow_step = relationship("FlowStep", back_populates="status_mappings")
+    statuses = relationship("Status", back_populates="status_mapping")
+
+class IssuetypeHierarchy(Base, BaseEntity):
+    """Issue Type Hierarchies table - defines hierarchy levels and their properties"""
+    __tablename__ = 'issuetype_hierarchies'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    level_name = Column(String, quote=False, nullable=False, name="level_name")
+    level_number = Column(Integer, quote=False, nullable=False, name="level_number")
+    description = Column(String, quote=False, nullable=True, name="description")
+
+    # Relationships
+    client = relationship("Client", back_populates="issuetype_hierarchies")
+    issuetype_mappings = relationship("IssuetypeMapping", back_populates="issuetype_hierarchy")
+
+
+class IssuetypeMapping(Base, BaseEntity):
+    """Issue Type Mapping table - maps raw issue type names to standardized issue types"""
+    __tablename__ = 'issuetype_mappings'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    issuetype_from = Column(String, quote=False, nullable=False, name="issuetype_from")
+    issuetype_to = Column(String, quote=False, nullable=False, name="issuetype_to")
+    issuetype_hierarchy_id = Column(Integer, ForeignKey('issuetype_hierarchies.id'), quote=False, nullable=False, name="issuetype_hierarchy_id")
+
+    # Relationships
+    client = relationship("Client", back_populates="issuetype_mappings")
+    issuetypes = relationship("Issuetype", back_populates="issuetype_mapping")
+    issuetype_hierarchy = relationship("IssuetypeHierarchy", back_populates="issuetype_mappings")
 
 class FlowStep(Base, BaseEntity):
     """Flow Steps table - client-specific workflow steps"""
@@ -200,12 +235,13 @@ class FlowStep(Base, BaseEntity):
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    mapped_name = Column(String, quote=False, nullable=False, name="mapped_name")
+    name = Column(String, quote=False, nullable=False, name="name")  # Renamed from mapped_name
+    step_number = Column(Integer, quote=False, nullable=True, name="step_number")
     step_category = Column(String, quote=False, nullable=False, name="step_category")
 
     # Relationships
     client = relationship("Client", back_populates="flow_steps")
-    statuses = relationship("Status", back_populates="flow_step")
+    status_mappings = relationship("StatusMapping", back_populates="flow_step")
 
 class Status(Base, BaseEntity):
     """Statuses table"""
@@ -216,16 +252,15 @@ class Status(Base, BaseEntity):
     integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
-    flow_step_id = Column(Integer, ForeignKey('flow_steps.id'), quote=False, nullable=True, name="flow_step_id")
+    status_mapping_id = Column(Integer, ForeignKey('status_mappings.id'), quote=False, nullable=True, name="status_mapping_id")
     category = Column(String, quote=False, nullable=False, name="category")
     description = Column(String, quote=False, name="description")
-    active = Column(Boolean, quote=False, nullable=False, default=True, name="active")
 
     # Relationships
     client = relationship("Client", back_populates="statuses")
     integration = relationship("Integration", back_populates="statuses")
     projects = relationship("Project", secondary="projects_statuses", back_populates="statuses")
-    flow_step = relationship("FlowStep", back_populates="statuses")
+    status_mapping = relationship("StatusMapping", back_populates="statuses")
     issues = relationship("Issue", back_populates="status")
 
 class Issue(Base, BaseEntity):
@@ -427,7 +462,7 @@ class PullRequestReview(Base, BaseEntity):
 
     # Relationships
     pull_request = relationship("PullRequest", back_populates="reviews")
-    client = relationship("Client")
+    client = relationship("Client", back_populates="pull_request_reviews")
 
 class PullRequestCommit(Base, BaseEntity):
     """Pull Request Commits table - stores each individual commit associated with a PR"""
@@ -447,7 +482,7 @@ class PullRequestCommit(Base, BaseEntity):
 
     # Relationships
     pull_request = relationship("PullRequest", back_populates="commits")
-    client = relationship("Client")
+    client = relationship("Client", back_populates="pull_request_commits")
 
 class PullRequestComment(Base, BaseEntity):
     """Pull Request Comments table - stores all comments made on the PR's main thread and on specific lines of code"""
@@ -468,7 +503,7 @@ class PullRequestComment(Base, BaseEntity):
 
     # Relationships
     pull_request = relationship("PullRequest", back_populates="comments")
-    client = relationship("Client")
+    client = relationship("Client", back_populates="pull_request_comments")
 
 class SystemSettings(Base):
     """
@@ -791,3 +826,15 @@ class JiraPullRequestLinks(Base, BaseEntity):
 
     # Relationships
     issue = relationship("Issue", back_populates="pr_links")
+
+class MigrationHistory(Base):
+    """Migration history tracking table for database migrations."""
+    __tablename__ = 'migration_history'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    migration_number = Column(String(10), nullable=False, unique=True, quote=False, name="migration_number")
+    migration_name = Column(String(255), nullable=False, quote=False, name="migration_name")
+    applied_at = Column(DateTime, quote=False, name="applied_at", default=func.now())
+    rollback_at = Column(DateTime, nullable=True, quote=False, name="rollback_at")
+    status = Column(String(20), nullable=False, default='applied', quote=False, name="status")  # 'applied', 'rolled_back'
