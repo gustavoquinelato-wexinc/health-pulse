@@ -1,257 +1,176 @@
-# Backend Service - Backend for Frontend (BFF)
+# Backend Service - Pulse Platform
 
-The Backend Service acts as a Backend for Frontend (BFF), providing a unified API layer that aggregates data from the ETL and AI services. It handles authentication, authorization, and business logic orchestration.
+A specialized Python/FastAPI backend service providing analytics APIs, authentication, and serving as the primary API gateway for the React frontend.
 
-## 🎯 Features
+## 🎯 Overview
 
-### Core Functionality
-- **API Aggregation**: Unified interface to ETL and AI services
-- **Authentication & Authorization**: JWT-based user authentication
-- **Business Logic**: Complex workflows and data orchestration
-- **Caching**: Response caching for improved performance
-- **Rate Limiting**: API rate limiting and throttling
-
-### Technical Features
-- **Express.js Framework**: Fast, minimalist web framework
-- **TypeScript**: Type-safe development
-- **JWT Authentication**: Secure token-based authentication
-- **PostgreSQL Integration**: User and session management
-- **Redis Caching**: High-performance caching layer
+The Backend Service serves as the primary interface between the frontend and data layer, specializing in:
+- **Complex Analytics**: DORA metrics, statistical calculations, data aggregations
+- **API Gateway**: Unified API layer for frontend applications
+- **Authentication**: JWT-based user authentication and authorization
+- **Performance Optimization**: Query caching, connection pooling, response optimization
+- **ETL Coordination**: Settings management and job coordination with ETL service
 
 ## 🏗️ Architecture
 
+### **Service Specialization**
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Frontend App   │    │ Backend Service │    │   ETL Service   │
-│                 │◄──►│      (BFF)      │◄──►│                 │
-│  - React/Next   │    │  - Auth         │    │  - Data Ext.    │
-│  - Dashboard    │    │  - Aggregation  │    │  - Jobs         │
-│  - UI/UX        │    │  - Business     │    │  - Snowflake    │
-└─────────────────┘    │    Logic        │    └─────────────────┘
-                       │                 │    ┌─────────────────┐
-                       │                 │◄──►│   AI Service    │
-                       │                 │    │                 │
-                       └─────────────────┘    │  - ML Models    │
-                                              │  - Analytics    │
-                                              │  - Predictions  │
-                                              └─────────────────┘
+Frontend ──► Analytics Backend ──► PostgreSQL Database
+    │              │                       │
+    │              ├─ Complex Calculations │
+    │              ├─ Data Aggregations    │
+    │              ├─ Query Optimization   │
+    │              └─ Caching Layer        │
+    │                       │
+    └─────────────────────► ETL Service (Job Coordination)
 ```
 
-## 📁 Project Structure
+### **Technology Stack**
+- **FastAPI** - Modern, fast web framework with automatic API documentation
+- **SQLAlchemy** - Advanced ORM for complex analytical queries
+- **Pydantic** - Data validation and serialization
+- **NumPy/Pandas** - Data processing and statistical analysis
+- **Redis** - Caching and session management
+- **PostgreSQL** - Primary database with connection pooling
 
-```
-backend-service/
-├── src/
-│   ├── app.ts                  # Express application setup
-│   ├── server.ts               # Server entry point
-│   ├── config/
-│   │   ├── database.ts         # Database configuration
-│   │   ├── redis.ts            # Redis configuration
-│   │   └── services.ts         # External services config
-│   ├── controllers/
-│   │   ├── auth.controller.ts
-│   │   ├── etl.controller.ts
-│   │   ├── ai.controller.ts
-│   │   └── dashboard.controller.ts
-│   ├── middleware/
-│   │   ├── auth.middleware.ts
-│   │   ├── cors.middleware.ts
-│   │   ├── rate-limit.middleware.ts
-│   │   └── error.middleware.ts
-│   ├── routes/
-│   │   ├── auth.routes.ts
-│   │   ├── etl.routes.ts
-│   │   ├── ai.routes.ts
-│   │   └── dashboard.routes.ts
-│   ├── services/
-│   │   ├── auth.service.ts
-│   │   ├── etl.service.ts
-│   │   ├── ai.service.ts
-│   │   └── cache.service.ts
-│   ├── models/
-│   │   ├── user.model.ts
-│   │   └── session.model.ts
-│   ├── types/
-│   │   ├── auth.types.ts
-│   │   ├── etl.types.ts
-│   │   └── ai.types.ts
-│   └── utils/
-│       ├── logger.ts
-│       ├── validation.ts
-│       └── helpers.ts
-├── tests/
-├── db/
-│   └── init.sql               # Database initialization
-├── package.json
-├── tsconfig.json
-├── Dockerfile
-├── .env.example
-└── README.md
-```
+### **Core Responsibilities**
+1. **Data Analytics**: Complex calculations, metrics, and statistical analysis
+2. **API Gateway**: Unified interface for frontend applications
+3. **Authentication**: User management and JWT token handling
+4. **Performance**: Query optimization, caching, and response time optimization
+5. **ETL Integration**: Configuration management and job coordination
 
 ## 🚀 Quick Start
 
-### Using Docker (Recommended)
+### **Prerequisites**
+- Python 3.11+
+- PostgreSQL database (shared with ETL service)
+- Redis for caching
+- ETL Service running for job coordination
 
-1. **From the monorepo root**:
+### **Development Setup**
 ```bash
-cd pulse-platform
-docker-compose up backend-service
+cd services/analytics-backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configuration is managed centrally at root level
+# Edit the root .env file: ../../.env
+
+# Run development server
+uvicorn app.main:app --reload --port 3001
+
+# Access API documentation
+open http://localhost:3001/docs
 ```
 
-2. **Access the service**:
-- API Base URL: http://localhost:3000
-- Health Check: http://localhost:3000/health
-- API Documentation: http://localhost:3000/api-docs
+## 📊 Analytics Capabilities
 
-### Local Development
+### **DORA Metrics**
+- **Lead Time**: Time from commit to production deployment
+- **Deployment Frequency**: How often deployments occur
+- **Mean Time to Recovery (MTTR)**: Time to recover from failures
+- **Change Failure Rate**: Percentage of deployments causing failures
 
-1. **Install dependencies**:
-```bash
-cd services/backend-service
-npm install
-```
+### **GitHub Analytics**
+- **Code Quality Metrics**: PR review times, code coverage, complexity
+- **Contributor Analysis**: Activity patterns, collaboration metrics
+- **Repository Insights**: Commit patterns, branch strategies, release cycles
 
-2. **Configure environment**:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+### **Portfolio Analytics**
+- **Cross-Project Metrics**: Aggregated performance across projects
+- **Team Performance**: Velocity, quality, and delivery metrics
+- **Business Alignment**: Feature delivery vs business objectives
 
-3. **Run the service**:
-```bash
-npm run dev
-```
-
-## 📊 API Endpoints
-
-### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/logout` - User logout
-- `POST /api/auth/refresh` - Refresh JWT token
-- `GET /api/auth/profile` - Get user profile
-
-### ETL Operations
-- `GET /api/etl/jobs` - List ETL jobs
-- `POST /api/etl/jobs` - Start new ETL job
-- `GET /api/etl/jobs/{id}` - Get job details
-- `GET /api/etl/integrations` - List integrations
-
-### AI Analytics
-- `GET /api/ai/analysis/{projectId}` - Get project analysis
-- `POST /api/ai/predictions/timeline` - Get timeline predictions
-- `GET /api/ai/models` - List available models
-- `POST /api/ai/analysis/custom` - Custom analysis request
-
-### Dashboard
-- `GET /api/dashboard/overview` - Dashboard overview data
-- `GET /api/dashboard/metrics` - Key metrics summary
-- `GET /api/dashboard/projects` - Projects dashboard data
-- `GET /api/dashboard/teams` - Teams performance data
+### **Executive Dashboards**
+- **C-Level KPIs**: High-level business and technical metrics
+- **Trend Analysis**: Historical performance and predictive insights
+- **Risk Assessment**: Identification of potential issues and bottlenecks
 
 ## 🔧 Configuration
 
-### Environment Variables
+### **Environment Variables**
+Configuration is managed through the **centralized `.env` file** at the root level (`../../.env`).
 
-```bash
-# Application Settings
-NODE_ENV=development
-PORT=3000
-API_PREFIX=/api
+Key variables used by the Analytics Backend:
+```env
+# Database Configuration (shared with ETL service)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=pulse_user
+POSTGRES_PASSWORD=pulse_password
+POSTGRES_DATABASE=pulse_db
 
-# Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/pulse
-DB_POOL_SIZE=10
-
-# Redis Configuration
+# Redis Configuration (shared)
 REDIS_URL=redis://localhost:6379
-CACHE_TTL=3600
 
-# JWT Configuration
-JWT_SECRET=your-jwt-secret
-JWT_EXPIRES_IN=24h
-JWT_REFRESH_EXPIRES_IN=7d
+# JWT Configuration (shared)
+JWT_SECRET_KEY=your-secret-key
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 
-# External Services
-ETL_SERVICE_URL=http://etl-service:8000
-AI_SERVICE_URL=http://ai-service:8001
-ETL_API_KEY=your-etl-api-key
-AI_API_KEY=your-ai-api-key
+# Service Integration
+ETL_SERVICE_URL=http://localhost:8000
 
-# CORS Configuration
-CORS_ORIGIN=http://localhost:3001
-CORS_CREDENTIALS=true
-
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
+# API Configuration
+API_V1_PREFIX=/api/v1
+CORS_ORIGINS=["http://localhost:5173"]
 ```
 
-## 🔐 Authentication Flow
+**Important**: Do not create a local `.env` file. All configuration is centralized in the root `.env` file.
 
-1. **User Login**: Validate credentials and issue JWT
-2. **Token Validation**: Middleware validates JWT on protected routes
-3. **Token Refresh**: Automatic token refresh mechanism
-4. **Session Management**: Track active sessions in Redis
+## 🏛️ Architecture Rationale
 
-## 🔄 Data Aggregation
+### **Why Python for Analytics?**
+1. **Data Processing Excellence**: NumPy, Pandas, SciPy for advanced analytics
+2. **Database Operations**: SQLAlchemy for complex analytical queries
+3. **Statistical Analysis**: Rich ecosystem for mathematical computations
+4. **Performance**: Optimized libraries for data-intensive operations
+5. **Ecosystem Alignment**: Shared technology stack with ETL service
 
-The BFF aggregates data from multiple sources:
+### **Service Separation Benefits**
+- **ETL Service**: Specialized for data engineering (extraction, loading, orchestration)
+- **Analytics Backend**: Specialized for data consumption (calculations, API serving)
+- **Different Scaling**: ETL optimized for throughput, Analytics for latency
+- **Independent Deployment**: Services can be updated and scaled independently
 
-1. **ETL Service**: Job status, integration data, raw metrics
-2. **AI Service**: Analysis results, predictions, model outputs
-3. **Local Database**: User data, preferences, cached results
-4. **External APIs**: Additional data sources as needed
+## 🔗 Integration Points
 
-## 🧪 Testing
+### **Frontend Integration**
+- **RESTful APIs**: JSON-based API communication
+- **Authentication**: JWT token-based authentication
+- **Real-time Updates**: WebSocket support for live data
+- **Error Handling**: Comprehensive error responses and logging
 
-```bash
-# Run all tests
-npm test
+### **ETL Service Coordination**
+- **Job Management**: Trigger and monitor ETL jobs
+- **Configuration**: Manage ETL settings and parameters
+- **Status Monitoring**: Real-time job status and progress tracking
 
-# Run tests in watch mode
-npm run test:watch
+### **Database Access**
+- **Shared Schema**: Uses same database as ETL service
+- **Optimized Queries**: Complex analytical queries with proper indexing
+- **Connection Pooling**: Efficient database connection management
 
-# Run tests with coverage
-npm run test:coverage
+## 📚 API Documentation
 
-# Run specific test suites
-npm run test:unit
-npm run test:integration
-```
+### **Automatic Documentation**
+- **OpenAPI/Swagger**: http://localhost:3001/docs
+- **ReDoc**: http://localhost:3001/redoc
+- **JSON Schema**: http://localhost:3001/openapi.json
 
-## 📈 Monitoring
-
-- Health checks at `/health`
-- Request/response logging
-- Performance metrics collection
-- Error tracking and alerting
-
-## 🔒 Security Features
-
-- JWT token authentication
-- Rate limiting per IP/user
-- Input validation and sanitization
-- CORS configuration
-- Security headers
-- SQL injection prevention
-
-## 🚀 Deployment
-
-### Production Build
-
-```bash
-npm run build
-npm start
-```
-
-### Docker Deployment
-
-```bash
-docker build -t pulse-backend .
-docker run -p 3000:3000 pulse-backend
-```
+### **Key Endpoints**
+- **Authentication**: `/api/v1/auth/*`
+- **DORA Metrics**: `/api/v1/metrics/dora/*`
+- **GitHub Analytics**: `/api/v1/analytics/github/*`
+- **Portfolio Data**: `/api/v1/portfolio/*`
+- **ETL Management**: `/api/v1/etl/*`
 
 ---
 
-**Part of the Pulse Platform - Software Engineering Intelligence**
+**Note**: This service is designed to be the primary backend for the React frontend, providing optimized analytics capabilities and serving as the main API gateway for the Pulse Platform.

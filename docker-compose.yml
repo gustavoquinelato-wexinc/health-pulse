@@ -47,20 +47,23 @@ services:
     networks:
       - pulse-network
 
-  backend:
+  backend-service:
     build:
       context: ./services/backend-service
     ports:
       - "3001:3001"
     volumes:
       - ./services/backend-service:/app
-      - /app/node_modules
+    command: uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
     env_file:
       - .env
     networks:
       - pulse-network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   etl:
     build:
