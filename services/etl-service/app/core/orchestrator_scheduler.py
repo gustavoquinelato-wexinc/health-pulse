@@ -253,6 +253,36 @@ class OrchestratorScheduler:
             logger.warning(f"Error getting current countdown: {e}")
             return None
 
+    def _is_github_job_pending(self) -> bool:
+        """
+        Check if the GitHub job is currently in PENDING status.
+
+        Returns:
+            bool: True if GitHub job status is 'PENDING', False otherwise
+        """
+        try:
+            from app.core.database import get_database
+            from app.models.unified_models import JobSchedule
+
+            database = get_database()
+            with database.get_session() as session:
+                github_job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'github_sync',
+                    JobSchedule.active == True
+                ).first()
+
+                if github_job:
+                    is_pending = github_job.status == 'PENDING'
+                    logger.debug(f"GitHub job status check: {github_job.status}, is_pending={is_pending}")
+                    return is_pending
+                else:
+                    logger.warning("GitHub job not found in database")
+                    return False
+
+        except Exception as e:
+            logger.warning(f"Error checking GitHub job status: {e}")
+            return False
+
     def should_apply_new_interval(self, new_interval_minutes: int, is_retry_setting: bool = False) -> bool:
         """
         Determine if a new interval should be applied immediately based on current countdown.
@@ -272,10 +302,18 @@ class OrchestratorScheduler:
 
         # If fast retry is active and this is a retry setting change
         if fast_retry_active and is_retry_setting:
-            # Apply new retry interval if it's smaller than current countdown
-            should_apply = new_interval_minutes < current_countdown
-            logger.info(f"Fast retry active, retry setting change: current_countdown={current_countdown:.1f}min, new_retry_interval={new_interval_minutes}min, should_apply={should_apply}")
-            return should_apply
+            # Check GitHub job status - only consider fast recovery timing if GitHub is PENDING
+            github_job_pending = self._is_github_job_pending()
+
+            if github_job_pending:
+                # GitHub is PENDING: Include fast recovery in shortest time calculation
+                should_apply = new_interval_minutes < current_countdown
+                logger.info(f"Fast retry active, retry setting change, GitHub PENDING: current_countdown={current_countdown:.1f}min, new_retry_interval={new_interval_minutes}min, should_apply={should_apply}")
+                return should_apply
+            else:
+                # GitHub is not PENDING: Exclude fast recovery from timing decisions
+                logger.info(f"Fast retry active, retry setting change, GitHub NOT PENDING: excluding fast recovery from timing decisions, preserving current schedule")
+                return False
 
         # If no fast retry is active and this is a main interval change
         if not fast_retry_active and not is_retry_setting:
@@ -291,7 +329,7 @@ class OrchestratorScheduler:
     def apply_new_retry_interval_if_smaller(self, new_retry_interval: int) -> bool:
         """
         Apply a new retry interval immediately if it's smaller than the current countdown.
-        Only applies when fast retry is currently active.
+        Only applies when fast retry is currently active and GitHub job is PENDING.
 
         Args:
             new_retry_interval: New retry interval in minutes
@@ -311,7 +349,12 @@ class OrchestratorScheduler:
 
         if not should_apply:
             current_countdown = self.get_current_countdown_minutes()
-            logger.info(f"Preserving current fast retry schedule - new retry interval ({new_retry_interval} minutes) is larger than current countdown ({current_countdown:.1f} minutes)")
+            github_job_pending = self._is_github_job_pending()
+
+            if not github_job_pending:
+                logger.info(f"Preserving current fast retry schedule - GitHub job is not PENDING, excluding fast recovery from timing decisions")
+            else:
+                logger.info(f"Preserving current fast retry schedule - new retry interval ({new_retry_interval} minutes) is larger than current countdown ({current_countdown:.1f} minutes)")
             return False
 
         try:

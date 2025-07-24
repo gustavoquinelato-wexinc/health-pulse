@@ -7,40 +7,24 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, RedirectResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 
-try:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from apscheduler.triggers.interval import IntervalTrigger
-    SCHEDULER_AVAILABLE = True
-except ImportError:
-    SCHEDULER_AVAILABLE = False
-    AsyncIOScheduler = None
-    IntervalTrigger = None
+# Backend Service - No scheduler needed
 
 from app.core.config import get_settings
-from app.core.database import get_database, get_db_session
+from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
-# Import new modular API routers
+# Import Backend Service API routers
 from app.api.health import router as health_router
-from app.api.jobs import router as jobs_router
-from app.api.data import router as data_router
-
-from app.api.logs import router as logs_router
 from app.api.debug import router as debug_router
-from app.api.scheduler import router as scheduler_router
-
-# Import web interface routers
+from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
-from app.api.web_routes import router as web_router
-from app.api.websocket_routes import router as websocket_router
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
 import logging
@@ -67,8 +51,7 @@ sqlalchemy.engine.Engine.echo = False
 logger = get_logger(__name__)
 settings = get_settings()
 
-# Scheduler global
-scheduler = AsyncIOScheduler() if SCHEDULER_AVAILABLE else None
+# Backend Service - No scheduler needed
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -160,8 +143,7 @@ async def lifespan(_: FastAPI):
         else:
             logger.warning("Database connection failed - service will continue with limited functionality")
 
-        # Initialize scheduler
-        await initialize_scheduler()
+        # Backend Service - No scheduler needed
 
         # Clear all user sessions on startup for security
         # This happens regardless of DEBUG mode for consistent security behavior
@@ -178,8 +160,6 @@ async def lifespan(_: FastAPI):
     finally:
         # Cleanup
         logger.info("Shutting down Backend Service...")
-        if scheduler and scheduler.running:
-            scheduler.shutdown()
 
         database = get_database()
         database.close_connections()
@@ -258,10 +238,7 @@ app = FastAPI(
 
 # Middleware configuration (order matters - last added runs first)
 
-# Authentication middleware (runs first)
-app.add_middleware(AuthenticationMiddleware)
-
-# CORS configuration (runs second)
+# CORS configuration (runs first - must handle preflight requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify allowed origins
@@ -269,6 +246,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Authentication middleware (runs second - after CORS)
+app.add_middleware(AuthenticationMiddleware)
 
 # Rate limiting (configurable)
 if not settings.DEBUG:
@@ -280,49 +260,14 @@ app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
 
-# Include modular API routes with consistent versioning
+# Include Backend Service API routes
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
-app.include_router(jobs_router, prefix="/api/v1", tags=["Jobs"])
-app.include_router(data_router, prefix="/api/v1", tags=["Data"])
-app.include_router(logs_router, prefix="/api/v1", tags=["Logs"])
 app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
-app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
+app.include_router(admin_router, tags=["Administration"])
 
-
-
-# Include web interface routes
-app.include_router(
-    admin_router,
-    tags=["Administration"]
-)
-
-# Include web interface routes (no prefix for web pages)
-app.include_router(
-    web_router,
-    tags=["Web Interface"]
-)
-
-# Include WebSocket routes
-app.include_router(
-    websocket_router,
-    tags=["WebSocket"]
-)
-
-# Mount static files (if directory exists)
-import os
-from pathlib import Path
-static_dir = Path(__file__).parent / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-
-# Root route is handled by web_router - redirects to login page
-
-
-@app.get("/favicon.ico")
-async def favicon():
-    """Favicon endpoint to prevent 404 errors."""
-    return Response(status_code=204)  # No Content
+# Backend Service - API only, no static files or web routes
 
 
 @app.get("/docs")
@@ -395,79 +340,37 @@ async def debug_auth_status(request: Request):
 # Authentication is now handled by AuthenticationMiddleware
 
 
-# Catch-all route removed - let FastAPI handle 404s naturally
-# The middleware will catch unmatched routes and redirect unauthenticated users
-
+# Backend Service - API only exception handlers
 
 @app.exception_handler(404)
-async def not_found_handler(request, exc):
-    """Custom 404 handler that returns HTML page for web requests and JSON for API requests."""
-    from fastapi.templating import Jinja2Templates
-    from pathlib import Path
-
-    # Check if this is an API request (starts with /api/ or has Accept: application/json)
-    path = str(request.url.path)
-    accept_header = request.headers.get("accept", "")
-
-    if path.startswith("/api/") or "application/json" in accept_header:
-        # Return JSON response for API requests
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": "Not Found",
-                "detail": f"The requested resource '{path}' was not found",
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-    else:
-        # Return JSON response for API requests, redirect for web requests
-        if request.url.path.startswith("/api/"):
-            return JSONResponse(
-                status_code=404,
-                content={"detail": "Not found", "path": str(request.url.path)}
-            )
-        else:
-            # Redirect web requests to React frontend
-            return RedirectResponse(url="http://localhost:5173", status_code=302)
+async def not_found_handler(request, _):
+    """API-only 404 handler."""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not Found",
+            "detail": f"The requested resource '{request.url.path}' was not found",
+            "timestamp": datetime.now().isoformat()
+        }
+    )
 
 
 @app.exception_handler(403)
-async def forbidden_handler(request, exc):
-    """Custom 403 handler that returns HTML page for web requests and JSON for API requests."""
-    from fastapi.templating import Jinja2Templates
-    from pathlib import Path
-
-    # Check if this is an API request
-    path = str(request.url.path)
-    accept_header = request.headers.get("accept", "")
-
-    if path.startswith("/api/") or "application/json" in accept_header:
-        # Return JSON response for API requests
-        return JSONResponse(
-            status_code=403,
-            content={
-                "error": "Forbidden",
-                "detail": "You don't have permission to access this resource",
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-    else:
-        # Return JSON response for API requests, redirect for web requests
-        if request.url.path.startswith("/api/"):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Forbidden", "path": str(request.url.path)}
-            )
-        else:
-            # Redirect web requests to React frontend login
-            return RedirectResponse(url="http://localhost:5173/login", status_code=302)
+async def forbidden_handler(_request, _exc):
+    """API-only 403 handler."""
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": "Forbidden",
+            "detail": "You don't have permission to access this resource",
+            "timestamp": datetime.now().isoformat()
+        }
+    )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Global handler for unhandled exceptions."""
-    from fastapi.templating import Jinja2Templates
-    from pathlib import Path
+    """API-only global exception handler."""
     import uuid
 
     # Generate error ID for tracking
@@ -478,31 +381,15 @@ async def global_exception_handler(request, exc):
                 error_id=error_id,
                 path=str(request.url) if hasattr(request, 'url') else 'unknown')
 
-    # Check if this is an API request
-    path = str(request.url.path)
-    accept_header = request.headers.get("accept", "")
-
-    if path.startswith("/api/") or "application/json" in accept_header:
-        # Return JSON response for API requests
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "Internal server error",
-                "detail": str(exc) if settings.DEBUG else "An unexpected error occurred",
-                "error_id": error_id,
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-    else:
-        # Return JSON response for API requests, redirect for web requests
-        if request.url.path.startswith("/api/"):
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Internal server error", "error_id": error_id, "path": str(request.url.path)}
-            )
-        else:
-            # Redirect web requests to React frontend
-            return RedirectResponse(url="http://localhost:5173", status_code=302)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": str(exc) if settings.DEBUG else "An unexpected error occurred",
+            "error_id": error_id,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
 
 
 async def initialize_database():
@@ -516,12 +403,10 @@ async def initialize_database():
             return False
 
         # Check if tables exist, if not, create them
-        if not database.check_table_exists("Integrations"):
+        if not database.check_table_exists("integrations"):
             logger.info("Creating database tables...")
             database.create_tables()
-
-            # Insert initial data if necessary
-            await insert_initial_data()
+            logger.info("Database tables created - use migrations for initial data")
 
         logger.info("Database initialized successfully")
         return True
@@ -531,226 +416,7 @@ async def initialize_database():
         return False
 
 
-async def insert_initial_data():
-    """Inserts initial data into the database."""
-    try:
-        from app.models.unified_models import Integration
-        from app.core.config import AppConfig
-
-        database = get_database()
-
-        with database.get_session_context() as session:
-            # Check if integrations already exist
-            existing_integrations = session.query(Integration).count()
-
-            if existing_integrations == 0:
-                logger.info("Inserting initial integration data...")
-
-                key = AppConfig.load_key()
-
-                # Create Jira integration
-                jira_integration = Integration(
-                    Name="Jira",
-                    Url=settings.JIRA_URL,
-                    Username=settings.JIRA_USERNAME,
-                    Password=AppConfig.encrypt_token(settings.JIRA_TOKEN, key),
-                    LastSyncAt=datetime(1900, 1, 1),
-                    CreatedAt=datetime.now(),
-                    LastUpdatedAt=datetime.now()
-                )
-
-                session.add(jira_integration)
-
-                # Add other integrations if configured
-                if settings.GITHUB_TOKEN:
-                    github_integration = Integration(
-                        Name="GitHub",
-                        Url="https://api.github.com",
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.GITHUB_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(github_integration)
-
-                # Add Aha! integration if configured
-                if settings.AHA_TOKEN and settings.AHA_URL:
-                    aha_integration = Integration(
-                        Name="Aha!",
-                        Url=settings.AHA_URL,
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.AHA_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(aha_integration)
-
-                # Add Azure DevOps integration if configured
-                if settings.AZDO_TOKEN and settings.AZDO_URL:
-                    azdo_integration = Integration(
-                        Name="Azure DevOps",
-                        Url=settings.AZDO_URL,
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.AZDO_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(azdo_integration)
-
-                session.commit()
-                logger.info("Initial integration data inserted successfully")
-
-    except Exception as e:
-        logger.error(f"Failed to insert initial data: {e}")
-        raise
-
-
-async def initialize_scheduler():
-    """Initializes the job scheduler with database-driven configuration."""
-    if not SCHEDULER_AVAILABLE:
-        logger.warning("APScheduler not available, jobs will not be scheduled automatically")
-        return
-
-    if not scheduler:
-        logger.warning("Scheduler not initialized")
-        return
-
-    try:
-        # Initialize default settings in database
-        from app.core.settings_manager import SettingsManager, get_orchestrator_interval, is_orchestrator_enabled
-        SettingsManager.initialize_default_settings()
-
-        # Set timezone
-        scheduler.configure(timezone=settings.SCHEDULER_TIMEZONE)
-
-        # Get orchestrator interval from database
-        interval_minutes = get_orchestrator_interval()
-        orchestrator_enabled = is_orchestrator_enabled()
-
-        if orchestrator_enabled:
-            # Add orchestrator job with database-configured interval
-            scheduler.add_job(
-                func=scheduled_orchestrator,
-                trigger=IntervalTrigger(minutes=interval_minutes),
-                id="etl_orchestrator",
-                name="ETL Job Orchestrator",
-                replace_existing=True,
-                max_instances=1  # Prevents simultaneous executions
-            )
-            logger.info(f"ETL Orchestrator scheduled to run every {interval_minutes} minutes")
-        else:
-            logger.info("ETL Orchestrator is disabled in settings")
-
-        # Note: Individual jobs (Jira, GitHub) are NOT scheduled independently
-        # They are only triggered by the orchestrator or manual Force Start
-
-        # Start scheduler
-        scheduler.start()
-
-        # Initialize orchestrator scheduler helper
-        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-        orchestrator_scheduler = get_orchestrator_scheduler()
-        orchestrator_scheduler.set_scheduler(scheduler)
-
-        # Ensure retry settings are initialized
-        from app.core.settings_manager import (
-            get_orchestrator_retry_interval, is_orchestrator_retry_enabled,
-            get_orchestrator_max_retry_attempts
-        )
-        logger.info(f"Retry settings initialized: enabled={is_orchestrator_retry_enabled()}, "
-                   f"interval={get_orchestrator_retry_interval()}min, "
-                   f"max_attempts={get_orchestrator_max_retry_attempts()}")
-
-        logger.info("Scheduler initialized successfully")
-
-    except Exception as e:
-        logger.error("Scheduler initialization failed", error=str(e))
-        logger.warning("Continuing without scheduler - jobs can still be triggered manually")
-
-
-async def scheduled_orchestrator():
-    """Scheduled orchestrator that checks for PENDING jobs every minute."""
-    try:
-        from app.jobs.orchestrator import run_orchestrator
-        await run_orchestrator()
-    except Exception as e:
-        logger.error(f"Scheduled orchestrator error: {e}")
-
-
-# Note: scheduled_jira_job function removed - jobs are only triggered by orchestrator or manual Force Start
-
-
-def get_scheduler():
-    """Returns the scheduler instance."""
-    return scheduler
-
-
-async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = True):
-    """
-    Updates the orchestrator schedule dynamically without restarting the server.
-    Preserves fast retry timing if currently active.
-
-    Args:
-        interval_minutes: New interval in minutes
-        enabled: Whether the orchestrator should be enabled
-    """
-    if not SCHEDULER_AVAILABLE or not scheduler:
-        logger.warning("Scheduler not available for schedule update")
-        return False
-
-    try:
-        from app.core.settings_manager import set_orchestrator_interval, set_orchestrator_enabled
-        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-
-        # Update database settings first
-        set_orchestrator_interval(interval_minutes)
-        set_orchestrator_enabled(enabled)
-
-        # Check if we should apply the new interval immediately
-        orchestrator_scheduler = get_orchestrator_scheduler()
-        should_apply = orchestrator_scheduler.should_apply_new_interval(interval_minutes, is_retry_setting=False)
-
-        if not should_apply:
-            current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
-            logger.info(f"Preserving current schedule - new interval ({interval_minutes} minutes) is larger than current countdown ({current_countdown:.1f} minutes)")
-            logger.info(f"New interval will apply after current schedule completes")
-            return True
-
-        # Get current countdown before removing the job (for logging)
-        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
-
-        # Remove existing orchestrator job if it exists
-        try:
-            scheduler.remove_job('etl_orchestrator')
-            logger.info("Removed existing orchestrator job")
-        except:
-            pass  # Job might not exist
-
-        if enabled:
-            # Add new orchestrator job with updated interval
-            scheduler.add_job(
-                func=scheduled_orchestrator,
-                trigger=IntervalTrigger(minutes=interval_minutes),
-                id="etl_orchestrator",
-                name="ETL Job Orchestrator",
-                replace_existing=True,
-                max_instances=1
-            )
-            if current_countdown:
-                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes (applied immediately - was {current_countdown:.1f}min, now {interval_minutes}min)")
-            else:
-                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes")
-        else:
-            logger.info("Orchestrator disabled")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to update orchestrator schedule: {e}")
-        return False
+# Backend Service - No scheduler functions needed
 
 
 async def clear_all_user_sessions():

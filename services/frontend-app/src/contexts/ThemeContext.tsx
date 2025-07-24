@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 
 type Theme = 'light' | 'dark'
 
@@ -40,7 +40,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   useEffect(() => {
     const savedTheme = localStorage.getItem('pulse_theme') as Theme
     const savedColors = localStorage.getItem('pulse_colors')
-    
+
     if (savedTheme) {
       setTheme(savedTheme)
     } else {
@@ -48,7 +48,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
       setTheme(prefersDark ? 'dark' : 'light')
     }
-    
+
     if (savedColors) {
       try {
         const parsedColors = JSON.parse(savedColors)
@@ -73,7 +73,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     root.style.setProperty('--color-3', colorSchema.color3)
     root.style.setProperty('--color-4', colorSchema.color4)
     root.style.setProperty('--color-5', colorSchema.color5)
-    
+
     localStorage.setItem('pulse_colors', JSON.stringify(colorSchema))
   }, [colorSchema])
 

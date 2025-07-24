@@ -1,0 +1,10 @@
+# Pulse Platform Requirements
+# This file installs dependencies for all services
+# Run from root directory: python scripts/install_requirements.py all
+
+# For individual services, use:
+# python scripts/install_requirements.py etl-service
+# python scripts/install_requirements.py backend-service
+
+# Note: This file is for reference only
+# Use the install_requirements.py script for proper installation

@@ -1,4 +1,4 @@
-import React from 'react'
+
 import { motion } from 'framer-motion'
 
 const metrics = [
@@ -56,19 +56,17 @@ export default function DashboardGrid() {
         >
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-muted">{metric.title}</h3>
-            <div className={`w-3 h-3 rounded-full ${
-              metric.color === 'emerald' ? 'bg-emerald-400' :
-              metric.color === 'blue' ? 'bg-blue-400' :
-              metric.color === 'violet' ? 'bg-violet-400' :
-              'bg-amber-400'
-            }`}></div>
+            <div className={`w-3 h-3 rounded-full ${metric.color === 'emerald' ? 'bg-emerald-400' :
+                metric.color === 'blue' ? 'bg-blue-400' :
+                  metric.color === 'violet' ? 'bg-violet-400' :
+                    'bg-amber-400'
+              }`}></div>
           </div>
-          
+
           <div className="space-y-2">
             <div className="text-2xl font-bold text-primary">{metric.value}</div>
-            <div className={`flex items-center space-x-1 text-sm ${
-              metric.trend === 'up' ? 'text-emerald-600' : 'text-red-600'
-            }`}>
+            <div className={`flex items-center space-x-1 text-sm ${metric.trend === 'up' ? 'text-emerald-600' : 'text-red-600'
+              }`}>
               <span>{metric.trend === 'up' ? '↗️' : '↘️'}</span>
               <span>{metric.change}</span>
               <span className="text-muted">vs last month</span>
@@ -96,7 +94,7 @@ export default function DashboardGrid() {
               </button>
             </div>
           </div>
-          
+
           {/* Simple Chart Visualization */}
           <div className="h-32 flex items-end space-x-2">
             {chartData.map((item, index) => (
@@ -138,11 +136,10 @@ export default function DashboardGrid() {
               transition={{ delay: 0.7 + index * 0.1 }}
               className="flex items-center space-x-3 p-3 rounded-lg bg-tertiary"
             >
-              <div className={`w-2 h-2 rounded-full ${
-                activity.status === 'success' ? 'bg-emerald-400' :
-                activity.status === 'info' ? 'bg-blue-400' :
-                'bg-amber-400'
-              }`}></div>
+              <div className={`w-2 h-2 rounded-full ${activity.status === 'success' ? 'bg-emerald-400' :
+                  activity.status === 'info' ? 'bg-blue-400' :
+                    'bg-amber-400'
+                }`}></div>
               <div className="flex-1">
                 <p className="text-sm text-primary">{activity.action}</p>
                 <p className="text-xs text-muted">{activity.time}</p>

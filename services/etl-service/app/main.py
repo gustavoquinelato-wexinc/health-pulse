@@ -77,7 +77,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     # Routes that don't require authentication
     PUBLIC_ROUTES = {
         "/", "/login", "/health", "/healthz", "/redoc", "/openapi.json",
-        "/logout", "/auth/login"
+        "/logout", "/auth/login", "/favicon.ico", "/.well-known/appspecific/com.chrome.devtools.json"
     }
 
     # Routes that should redirect to login if not authenticated
@@ -94,7 +94,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Skip authentication for public routes
-        if path in self.PUBLIC_ROUTES or path.startswith("/static/"):
+        if (path in self.PUBLIC_ROUTES or
+            path.startswith("/static/") or
+            path.startswith("/.well-known/") or
+            path.endswith(".ico") or
+            path.endswith(".json")):
+            logger.debug(f"Skipping auth for public route: {path}")
             return await call_next(request)
 
         # Skip authentication for API routes (they handle their own auth)
@@ -102,9 +107,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # For protected web routes and unknown routes, check authentication
-        is_authenticated = await self.check_authentication(request)
+        logger.debug(f"Checking authentication for protected route: {path}")
+        auth_result = await self.check_authentication_detailed(request)
 
-        if not is_authenticated:
+        if not auth_result["authenticated"]:
             # Determine redirect reason
             is_protected_route = (
                 path in self.PROTECTED_WEB_ROUTES or
@@ -112,18 +118,30 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             )
 
             if is_protected_route:
+                logger.debug(f"Redirecting protected route {path} to login (auth required)")
                 return RedirectResponse(url="/login?error=authentication_required", status_code=302)
             else:
                 # For unknown/404 routes, redirect with page_not_found error
+                logger.debug(f"Redirecting unknown route {path} to login (page not found)")
                 return RedirectResponse(url="/login?error=page_not_found", status_code=302)
+
+        # User is authenticated, check if they have permission for admin routes
+        if path.startswith("/admin") and not auth_result["user_data"].get("is_admin", False):
+            logger.debug(f"User lacks admin permission for {path}, redirecting to dashboard")
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         # User is authenticated, proceed with request
         return await call_next(request)
 
     async def check_authentication(self, request: Request) -> bool:
-        """Check if user is authenticated."""
+        """Check if user is authenticated via centralized auth service."""
+        result = await self.check_authentication_detailed(request)
+        return result["authenticated"]
+
+    async def check_authentication_detailed(self, request: Request) -> dict:
+        """Check authentication and return detailed result with user data."""
         try:
-            from app.auth.auth_service import get_auth_service
+            from app.auth.centralized_auth_service import get_centralized_auth_service
 
             # Try to get token from cookies first
             token = request.cookies.get("pulse_token")
@@ -135,16 +153,24 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     token = auth_header.split(" ")[1]
 
             if not token:
-                return False
+                logger.debug(f"No token found for path: {request.url.path}")
+                return {"authenticated": False, "user_data": None, "reason": "no_token"}
 
-            # Verify token
-            auth_service = get_auth_service()
-            user = await auth_service.verify_token(token)
-            return user is not None
+            logger.debug(f"Validating token for path: {request.url.path}")
+            # Verify token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+
+            if user_data:
+                logger.debug(f"Token validation successful for {request.url.path}: user={user_data.get('email')}, admin={user_data.get('is_admin')}")
+                return {"authenticated": True, "user_data": user_data, "reason": "success"}
+            else:
+                logger.debug(f"Token validation failed for {request.url.path}")
+                return {"authenticated": False, "user_data": None, "reason": "invalid_token"}
 
         except Exception as e:
-            logger.error(f"Authentication check failed: {e}")
-            return False
+            logger.error(f"Authentication check failed for {request.url.path}: {e}")
+            return {"authenticated": False, "user_data": None, "reason": "error"}
 
 
 @asynccontextmanager
@@ -499,12 +525,10 @@ async def initialize_database():
             return False
 
         # Check if tables exist, if not, create them
-        if not database.check_table_exists("Integrations"):
+        if not database.check_table_exists("integrations"):
             logger.info("Creating database tables...")
             database.create_tables()
-
-            # Insert initial data if necessary
-            await insert_initial_data()
+            logger.info("Database tables created - use migrations for initial data")
 
         logger.info("Database initialized successfully")
         return True
@@ -512,83 +536,6 @@ async def initialize_database():
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         return False
-
-
-async def insert_initial_data():
-    """Inserts initial data into the database."""
-    try:
-        from app.models.unified_models import Integration
-        from app.core.config import AppConfig
-
-        database = get_database()
-
-        with database.get_session_context() as session:
-            # Check if integrations already exist
-            existing_integrations = session.query(Integration).count()
-
-            if existing_integrations == 0:
-                logger.info("Inserting initial integration data...")
-
-                key = AppConfig.load_key()
-
-                # Create Jira integration
-                jira_integration = Integration(
-                    Name="Jira",
-                    Url=settings.JIRA_URL,
-                    Username=settings.JIRA_USERNAME,
-                    Password=AppConfig.encrypt_token(settings.JIRA_TOKEN, key),
-                    LastSyncAt=datetime(1900, 1, 1),
-                    CreatedAt=datetime.now(),
-                    LastUpdatedAt=datetime.now()
-                )
-
-                session.add(jira_integration)
-
-                # Add other integrations if configured
-                if settings.GITHUB_TOKEN:
-                    github_integration = Integration(
-                        Name="GitHub",
-                        Url="https://api.github.com",
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.GITHUB_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(github_integration)
-
-                # Add Aha! integration if configured
-                if settings.AHA_TOKEN and settings.AHA_URL:
-                    aha_integration = Integration(
-                        Name="Aha!",
-                        Url=settings.AHA_URL,
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.AHA_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(aha_integration)
-
-                # Add Azure DevOps integration if configured
-                if settings.AZDO_TOKEN and settings.AZDO_URL:
-                    azdo_integration = Integration(
-                        Name="Azure DevOps",
-                        Url=settings.AZDO_URL,
-                        Username=None,
-                        Password=AppConfig.encrypt_token(settings.AZDO_TOKEN, key),
-                        LastSyncAt=datetime(1900, 1, 1),
-                        CreatedAt=datetime.now(),
-                        LastUpdatedAt=datetime.now()
-                    )
-                    session.add(azdo_integration)
-
-                session.commit()
-                logger.info("Initial integration data inserted successfully")
-
-    except Exception as e:
-        logger.error(f"Failed to insert initial data: {e}")
-        raise
 
 
 async def initialize_scheduler():
@@ -737,47 +684,37 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
 
 
 async def clear_all_user_sessions():
-    """Clear all user sessions on startup for security."""
+    """
+    ETL Service startup - authentication is now centralized in Backend Service.
+    This function is kept for compatibility but no longer manages sessions directly.
+    """
     try:
-        # Invalidate all existing tokens by updating the JWT secret
-        logger.info("Invalidating all existing JWT tokens on startup for security")
+        logger.info("ETL Service startup - authentication is centralized in Backend Service")
+        logger.info("Session management is handled by Backend Service, not ETL Service")
 
-        # Method 1: Reset the auth service to pick up current configuration
-        from app.auth.auth_service import get_auth_service, reset_auth_service
+        # Test connection to Backend Service
+        from app.auth.centralized_auth_service import get_centralized_auth_service
+        auth_service = get_centralized_auth_service()
 
-        # Reset the auth service instance to force reinitialization with current settings
-        reset_auth_service()
-        auth_service = get_auth_service()
+        # Verify we can connect to Backend Service
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{auth_service.backend_service_url}/api/v1/health")
+                if response.status_code == 401:
+                    logger.info("Backend Service is running and authentication is required (expected)")
+                elif response.status_code == 200:
+                    logger.info("Backend Service is running and accessible")
+                else:
+                    logger.warning(f"Backend Service returned unexpected status: {response.status_code}")
+        except httpx.RequestError as e:
+            logger.warning(f"Could not connect to Backend Service: {e}")
+            logger.warning("ETL Service will continue but authentication may not work")
 
-        # Generate new JWT secret and update it in the auth service
-        import secrets
-        new_secret = secrets.token_urlsafe(32)
-        auth_service.jwt_secret = new_secret
-
-        # Method 2: Also update environment variable for consistency
-        import os
-        os.environ['JWT_SECRET_KEY'] = new_secret
-
-        # Method 3: Clear all user sessions from database
-        from app.core.database import get_database
-        database = get_database()
-
-        with database.get_session() as session:
-            from app.models.unified_models import UserSession
-            # Mark all existing sessions as inactive
-            session.query(UserSession).update({
-                'active': False,
-                'last_updated_at': datetime.now()
-            })
-            session.commit()
-
-            session_count = session.query(UserSession).filter(UserSession.active == False).count()
-            logger.info(f"Marked {session_count} user sessions as inactive")
-
-        logger.info("All existing authentication tokens have been invalidated")
+        logger.info("ETL Service authentication setup complete")
 
     except Exception as e:
-        logger.warning(f"Failed to clear user sessions: {e}")
+        logger.warning(f"Failed to verify Backend Service connection: {e}")
         import traceback
         traceback.print_exc()
 

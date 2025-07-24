@@ -22,13 +22,12 @@ from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
 from app.core.database import get_database
-from app.models.unified_models import JobSchedule, User
-from app.auth.auth_service import get_auth_service
-from app.auth.auth_middleware import (
-    get_current_user, require_authentication, require_admin, require_permission,
-    require_web_authentication, require_web_permission,
-    get_client_ip, get_user_agent
+from app.models.unified_models import JobSchedule
+from app.auth.centralized_auth_middleware import (
+    UserData, require_authentication, require_admin_authentication,
+    require_web_authentication, get_current_user_optional
 )
+from app.auth.centralized_auth_service import get_centralized_auth_service
 
 logger = get_logger(__name__)
 
@@ -56,7 +55,7 @@ class JobExecutionParams(BaseModel):
     target_projects: Optional[List[str]] = None
 
 # Legacy function for backward compatibility - now uses proper authentication
-async def verify_token(user: User = Depends(require_authentication)):
+async def verify_token(user: UserData = Depends(require_authentication)):
     """Verify JWT token - now uses proper authentication system"""
     # Return user for routes that need it, but maintain backward compatibility
     # for routes that just need authentication verification
@@ -71,7 +70,10 @@ async def root():
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page"""
-    return templates.TemplateResponse("login.html", {"request": request})
+    response = templates.TemplateResponse("login.html", {"request": request})
+    # Clear any existing tokens when showing login page
+    response.delete_cookie("pulse_token", path="/")
+    return response
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
@@ -83,33 +85,27 @@ async def dashboard_page(request: Request):
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    """Serve admin panel page (authentication handled by middleware, check permissions here)"""
+    """Serve admin panel page (authentication and permissions handled by middleware)"""
     try:
-        # Get user from token (middleware ensures we're authenticated)
+        # Get user data for template (middleware ensures we're authenticated and admin)
         token = request.cookies.get("pulse_token")
         if not token:
             auth_header = request.headers.get("Authorization")
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header.split(" ")[1]
 
-        # Get user info
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
+        if token:
+            auth_service = get_centralized_auth_service()
+            user = await auth_service.verify_token(token)
+            return templates.TemplateResponse("admin.html", {"request": request, "user": user})
 
-        # Check admin permission
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
-
-        database = get_database()
-        with database.get_session() as session:
-            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
-
-        return templates.TemplateResponse("admin.html", {"request": request, "user": user})
+        # Fallback if no token (shouldn't happen due to middleware)
+        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
 
     except Exception as e:
         logger.error(f"Admin page error: {e}")
-        return RedirectResponse(url="/login?error=server_error", status_code=302)
+        # Fallback with minimal user data
+        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
 
 
 @router.get("/admin/status-mappings", response_class=HTMLResponse)
@@ -124,17 +120,12 @@ async def status_mappings_page(request: Request):
                 token = auth_header.split(" ")[1]
 
         # Get user info
-        auth_service = get_auth_service()
+        auth_service = get_centralized_auth_service()
         user = await auth_service.verify_token(token)
 
-        # Check admin permission
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
-
-        database = get_database()
-        with database.get_session() as session:
-            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         return templates.TemplateResponse("admin_status_mappings.html", {"request": request, "user": user})
 
@@ -155,17 +146,12 @@ async def issuetype_mappings_page(request: Request):
                 token = auth_header.split(" ")[1]
 
         # Get user info
-        auth_service = get_auth_service()
+        auth_service = get_centralized_auth_service()
         user = await auth_service.verify_token(token)
 
-        # Check admin permission
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
-
-        database = get_database()
-        with database.get_session() as session:
-            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         return templates.TemplateResponse("admin_issuetype_mappings.html", {"request": request, "user": user})
 
@@ -186,17 +172,12 @@ async def issuetype_hierarchies_page(request: Request):
                 token = auth_header.split(" ")[1]
 
         # Get user info
-        auth_service = get_auth_service()
+        auth_service = get_centralized_auth_service()
         user = await auth_service.verify_token(token)
 
-        # Check admin permission
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
-
-        database = get_database()
-        with database.get_session() as session:
-            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         return templates.TemplateResponse("admin_issuetype_hierarchies.html", {"request": request, "user": user})
 
@@ -217,17 +198,12 @@ async def flow_steps_page(request: Request):
                 token = auth_header.split(" ")[1]
 
         # Get user info
-        auth_service = get_auth_service()
+        auth_service = get_centralized_auth_service()
         user = await auth_service.verify_token(token)
 
-        # Check admin permission
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
-
-        database = get_database()
-        with database.get_session() as session:
-            if not has_permission(user, Resource.ADMIN_PANEL, Action.READ, session):
-                return RedirectResponse(url="/login?error=permission_denied&resource=admin_panel", status_code=302)
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
         return templates.TemplateResponse("admin_flow_steps.html", {"request": request, "user": user})
 
@@ -238,7 +214,7 @@ async def flow_steps_page(request: Request):
 
 @router.get("/logout", response_class=HTMLResponse)
 async def logout_page(request: Request):
-    """Handle web logout - clear all cookies and redirect to login"""
+    """Handle web logout - invalidate session and clear all cookies"""
 
     logger.info("=== LOGOUT PROCESS STARTED ===")
 
@@ -247,7 +223,21 @@ async def logout_page(request: Request):
         token = request.cookies.get("pulse_token")
         if token:
             logger.info(f"Found token during logout: {token[:20]}...")
-            logger.info(f"Logging out user with token: {token[:20]}...")
+
+            # Invalidate session using centralized auth service
+            try:
+                logger.info("Attempting to invalidate session in Backend Service...")
+                from app.auth.centralized_auth_service import get_centralized_auth_service
+                auth_service = get_centralized_auth_service()
+                success = await auth_service.invalidate_session(token)
+                if success:
+                    logger.info("✅ Session invalidated successfully in Backend Service")
+                else:
+                    logger.warning("❌ Failed to invalidate session in Backend Service")
+            except Exception as e:
+                logger.error(f"❌ Error invalidating session: {e}")
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
         else:
             logger.info("No token found in cookies during logout")
     except Exception as e:
@@ -300,125 +290,38 @@ async def logout_page(request: Request):
 
     return response
 
-# Authentication API routes
+# Authentication API routes - Now redirected to Backend Service
 @router.post("/auth/login")
-async def login(login_request: LoginRequest, request: Request):
-    """Handle login authentication"""
-    try:
-        email = login_request.email.lower().strip()
-        password = login_request.password
+async def login_redirect():
+    """Redirect login requests to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-        # Get client info for session tracking
-        ip_address = get_client_ip(request)
-        user_agent = get_user_agent(request)
-
-        # Authenticate user
-        auth_service = get_auth_service()
-        result = await auth_service.authenticate_local(email, password, ip_address, user_agent)
-
-        if result:
-            logger.info(f"Successful login for user: {email}")
-
-            # Create response with token cookie
-            response_data = {
-                "success": True,
-                "token": result["token"],
-                "user": result["user"]
-            }
-
-            from fastapi.responses import JSONResponse
-            response = JSONResponse(content=response_data)
-
-            # Set secure cookie with token (expires in 24 hours)
-            logger.info(f"Setting pulse_token cookie for user: {email}")
-            response.set_cookie(
-                key="pulse_token",
-                value=result["token"],
-                max_age=86400,  # 24 hours
-                path="/",  # Explicitly set path
-                httponly=True,  # Prevent XSS
-                secure=False,   # Set to True in production with HTTPS
-                samesite="lax"
-            )
-            logger.info("Cookie set successfully")
-
-            return response
-        else:
-            logger.warning(f"Failed login attempt for email: {email}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Login failed"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Authentication is now handled by Backend Service. Please use: {backend_url}/auth/login",
+        headers={"Location": f"{backend_url}/auth/login"}
+    )
 
 
 @router.post("/auth/logout")
-async def logout(request: Request, user: User = Depends(require_authentication)):
-    """Handle user logout"""
-    try:
-        # Get token from Authorization header
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]  # Remove "Bearer " prefix
+async def logout_redirect():
+    """Redirect logout requests to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            auth_service = get_auth_service()
-            success = await auth_service.invalidate_session(token)
-
-            if success:
-                logger.info(f"User logged out: {user.email}")
-
-                # Create response and clear cookie with exact same parameters
-                from fastapi.responses import JSONResponse
-                response = JSONResponse(content={"success": True, "message": "Logged out successfully"})
-                response.delete_cookie(
-                    key="pulse_token",
-                    path="/",
-                    httponly=True,
-                    secure=False,
-                    samesite="lax"
-                )
-                return response
-            else:
-                logger.warning(f"Failed to invalidate session for user: {user.email}")
-
-                # Still clear the cookie even if session invalidation failed
-                from fastapi.responses import JSONResponse
-                response = JSONResponse(content={"success": False, "message": "Session not found"})
-                response.delete_cookie(
-                    key="pulse_token",
-                    path="/",
-                    httponly=True,
-                    secure=False,
-                    samesite="lax"
-                )
-                return response
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No token provided"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Logout error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Logout failed"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Authentication is now handled by Backend Service. Please use: {backend_url}/auth/logout",
+        headers={"Location": f"{backend_url}/auth/logout"}
+    )
 
 
 @router.get("/api/v1/auth/validate")
-async def validate_token(user: User = Depends(require_authentication)):
-    """Validate JWT token - returns 200 if valid, 401 if invalid"""
+async def validate_token(user: UserData = Depends(require_authentication)):
+    """Validate JWT token via centralized auth - returns 200 if valid, 401 if invalid"""
     try:
         # If we reach here, the token is valid (require_authentication succeeded)
         return {
@@ -426,8 +329,11 @@ async def validate_token(user: User = Depends(require_authentication)):
             "user": {
                 "id": user.id,
                 "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
                 "role": user.role,
-                "is_admin": user.is_admin
+                "is_admin": user.is_admin,
+                "active": user.active
             },
             "expires_in_hours": 24  # Let frontend know when token expires
         }
@@ -440,42 +346,22 @@ async def validate_token(user: User = Depends(require_authentication)):
 
 
 @router.post("/api/v1/auth/refresh")
-async def refresh_token(user: User = Depends(require_authentication)):
-    """Refresh JWT token to extend session"""
-    try:
-        from app.auth.auth_service import get_auth_service
-        auth_service = get_auth_service()
+async def refresh_token_redirect():
+    """Redirect token refresh requests to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-        # Create a new session for the user (this generates a new token)
-        from app.core.database import get_database
-        database = get_database()
-
-        with database.get_session() as session:
-            # Get the user from database to ensure fresh data
-            fresh_user = session.query(User).filter(User.id == user.id).first()
-            if not fresh_user:
-                raise HTTPException(status_code=404, detail="User not found")
-
-            # Create new session
-            new_session = await auth_service._create_session(fresh_user, session)
-
-            return {
-                "token": new_session["token"],
-                "user": new_session["user"],
-                "message": "Token refreshed successfully"
-            }
-
-    except Exception as e:
-        logger.error(f"Token refresh error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to refresh token"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Authentication is now handled by Backend Service. Please use: {backend_url}/api/v1/auth/refresh",
+        headers={"Location": f"{backend_url}/api/v1/auth/refresh"}
+    )
 
 
 # Job management API routes
 @router.get("/api/v1/jobs/{job_name}/schedule-details")
-async def get_job_schedule_details(job_name: str, user: User = Depends(require_permission("etl_jobs", "read"))):
+async def get_job_schedule_details(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Get detailed job schedule information for a specific job"""
     try:
         from app.core.database import get_database
@@ -527,7 +413,7 @@ async def get_job_schedule_details(job_name: str, user: User = Depends(require_p
         raise HTTPException(status_code=500, detail=f"Failed to get job schedule details: {str(e)}")
 
 @router.get("/api/v1/github/rate-limits")
-async def get_github_rate_limits(user: User = Depends(require_permission("etl_jobs", "read"))):
+async def get_github_rate_limits(user: UserData = Depends(require_admin_authentication)):
     """Get current GitHub API rate limits"""
     try:
         from app.core.database import get_database
@@ -579,7 +465,7 @@ async def get_github_rate_limits(user: User = Depends(require_permission("etl_jo
         raise HTTPException(status_code=500, detail=f"Failed to get GitHub rate limits: {str(e)}")
 
 @router.get("/api/v1/jobs/status")
-async def get_jobs_status(user: User = Depends(verify_token)):
+async def get_jobs_status(user: UserData = Depends(verify_token)):
     """Get current status of all jobs with detailed information"""
     try:
         # Get basic job status
@@ -624,7 +510,7 @@ async def get_jobs_status(user: User = Depends(verify_token)):
 async def start_job(
     job_name: str,
     execution_params: Optional[JobExecutionParams] = None,
-    user: User = Depends(require_permission("etl_jobs", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Force start a specific job with optional execution parameters"""
     try:
@@ -689,7 +575,7 @@ async def start_job(
         )
 
 @router.post("/api/v1/jobs/{job_name}/stop")
-async def stop_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
+async def stop_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Force stop a specific job - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
@@ -751,7 +637,7 @@ async def stop_job(job_name: str, user: User = Depends(require_permission("etl_j
 
 
 @router.get("/api/v1/jobs/status")
-async def get_jobs_status(user: User = Depends(require_permission("etl_jobs", "read"))):
+async def get_jobs_status(user: UserData = Depends(require_admin_authentication)):
     """Get status of all jobs including running state"""
     try:
         from app.core.job_manager import get_job_manager
@@ -805,7 +691,7 @@ async def get_jobs_status(user: User = Depends(require_permission("etl_jobs", "r
 
 
 @router.post("/api/v1/jobs/{job_name}/toggle")
-async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User = Depends(require_permission("etl_jobs", "execute"))):
+async def toggle_job_active(job_name: str, request: JobToggleRequest, user: UserData = Depends(require_admin_authentication)):
     """Toggle job active/inactive status - requires admin privileges"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
@@ -847,7 +733,7 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User
 
 
 @router.post("/api/v1/jobs/{job_name}/pause")
-async def pause_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
+async def pause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Pause a specific job"""
     try:
         database = get_database()
@@ -889,7 +775,7 @@ async def pause_job(job_name: str, user: User = Depends(require_permission("etl_
 
 
 @router.post("/api/v1/jobs/{job_name}/unpause")
-async def unpause_job(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
+async def unpause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Unpause a specific job"""
     try:
         database = get_database()
@@ -937,7 +823,7 @@ async def unpause_job(job_name: str, user: User = Depends(require_permission("et
 
 # Orchestrator Control Endpoints
 @router.post("/api/v1/orchestrator/start")
-async def force_start_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
+async def force_start_orchestrator(user: UserData = Depends(require_admin_authentication)):
     """Force start the orchestrator to check for PENDING jobs"""
     try:
         from app.jobs.orchestrator import run_orchestrator
@@ -962,7 +848,7 @@ async def force_start_orchestrator(user: User = Depends(require_permission("orch
 
 
 @router.post("/api/v1/orchestrator/pause")
-async def pause_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
+async def pause_orchestrator(user: UserData = Depends(require_admin_authentication)):
     """Pause the scheduled orchestrator"""
     try:
         from app.main import scheduler
@@ -986,7 +872,7 @@ async def pause_orchestrator(user: User = Depends(require_permission("orchestrat
 
 
 @router.post("/api/v1/orchestrator/resume")
-async def resume_orchestrator(user: User = Depends(require_permission("orchestrator", "execute"))):
+async def resume_orchestrator(user: UserData = Depends(require_admin_authentication)):
     """Resume the scheduled orchestrator - requires admin privileges"""
     try:
         from app.main import scheduler
@@ -1010,7 +896,7 @@ async def resume_orchestrator(user: User = Depends(require_permission("orchestra
 
 
 @router.post("/api/v1/jobs/{job_name}/set-active")
-async def set_job_active(job_name: str, user: User = Depends(require_permission("etl_jobs", "execute"))):
+async def set_job_active(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Set a specific job as active (PENDING) and set the other job as FINISHED"""
     try:
         if job_name not in ['jira_sync', 'github_sync']:
@@ -1086,7 +972,7 @@ async def set_job_active(job_name: str, user: User = Depends(require_permission(
 
 
 @router.get("/api/v1/orchestrator/status")
-async def get_orchestrator_status(user: User = Depends(require_permission("orchestrator", "read"))):
+async def get_orchestrator_status(user: UserData = Depends(require_admin_authentication)):
     """Get orchestrator status"""
     try:
         from app.main import scheduler
@@ -1145,7 +1031,7 @@ async def get_orchestrator_status(user: User = Depends(require_permission("orche
 @router.post("/api/v1/orchestrator/schedule")
 async def update_orchestrator_schedule(
     request: dict,
-    user: User = Depends(require_permission("orchestrator", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update orchestrator schedule interval - requires admin privileges"""
     try:
@@ -1188,7 +1074,7 @@ async def update_orchestrator_schedule(
 @router.post("/api/v1/orchestrator/retry")
 async def update_orchestrator_retry_config(
     request: dict,
-    user: User = Depends(require_permission("orchestrator", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update orchestrator retry configuration - requires admin privileges"""
     try:
@@ -1272,7 +1158,7 @@ async def update_orchestrator_retry_config(
 
 
 @router.get("/api/v1/settings")
-async def get_system_settings(user: User = Depends(require_permission("settings", "read"))):
+async def get_system_settings(user: UserData = Depends(require_admin_authentication)):
     """Get all system settings"""
     try:
         from app.core.settings_manager import SettingsManager
@@ -1294,7 +1180,7 @@ async def get_system_settings(user: User = Depends(require_permission("settings"
 @router.post("/api/v1/settings")
 async def update_system_setting(
     request: dict,
-    user: User = Depends(require_permission("settings", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update a system setting - requires admin privileges"""
     try:

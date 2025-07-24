@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 
 export default function ColorSchemaPanel() {
@@ -114,7 +114,7 @@ export default function ColorSchemaPanel() {
       {/* Component Showcase */}
       <div className="space-y-4 border-t border-default pt-6">
         <h3 className="text-lg font-medium text-primary">Component Examples</h3>
-        
+
         {/* Button Showcase */}
         <div className="space-y-3">
           <h4 className="text-sm font-medium text-secondary">Buttons</h4>

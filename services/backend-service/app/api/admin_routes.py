@@ -6,7 +6,7 @@ and system configuration. Only accessible to admin users.
 """
 
 from typing import List, Optional, Dict
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from pydantic import BaseModel, EmailStr
@@ -20,6 +20,7 @@ from app.models.unified_models import (
     ProjectsIssuetypes, ProjectsStatuses
 )
 from app.auth.auth_middleware import require_permission
+from app.auth.auth_service import get_auth_service
 from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
 from app.core.logging_config import get_logger
 
@@ -335,13 +336,13 @@ async def get_system_stats(
             total_users = session.query(User).count()
             active_users = session.query(User).filter(User.active == True).count()
 
-            # Count logged users (users with recent login activity - within last 30 days)
-            from datetime import datetime, timedelta
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            logged_users = session.query(User).filter(
+            # Count logged users (users with active sessions)
+            from app.core.utils import DateTimeHelper
+            logged_users = session.query(User).join(UserSession).filter(
                 User.active == True,
-                User.last_login_at >= thirty_days_ago
-            ).count()
+                UserSession.active == True,
+                UserSession.expires_at > DateTimeHelper.now_utc()
+            ).distinct().count()
 
             admin_users = session.query(User).filter(User.is_admin == True, User.active == True).count()
 
@@ -435,6 +436,142 @@ async def get_system_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch system statistics"
         )
+
+
+@router.post("/auth/invalidate-session")
+async def invalidate_session_endpoint(request: Request):
+    """Invalidate a session using JWT token - for centralized auth system"""
+    logger.info("🔄 Backend Service: invalidate-session endpoint called")
+
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    logger.info(f"Authorization header present: {bool(auth_header)}")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("❌ Missing or invalid authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header"
+        )
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    logger.info(f"Token extracted (first 20 chars): {token[:20]}...")
+
+    try:
+        # Use the same auth service that created the token
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            logger.warning("❌ Token verification failed via auth service")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token"
+            )
+
+        logger.info(f"✅ Token verified successfully via auth service, user: {user.email}")
+
+        # Use the auth service to invalidate the session
+        success = await auth_service.invalidate_session(token)
+
+        if success:
+            logger.info(f"✅ Session invalidated successfully for user: {user.email}")
+            return {"success": True, "message": "Session invalidated successfully"}
+        else:
+            logger.warning(f"❌ Failed to invalidate session for user: {user.email}")
+            return {"success": False, "message": "Failed to invalidate session"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error invalidating session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to invalidate session"
+        )
+
+
+@router.get("/current-session")
+async def get_current_session(request: Request):
+    """Get current session information for the authenticated user"""
+
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header"
+        )
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+
+    try:
+        # Use the auth service to verify token and get user info
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token"
+            )
+
+        # Find the current session for this token
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import UserSession
+
+            # Hash the token to find the matching session
+            import hashlib
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+            user_session = session.query(UserSession).filter(
+                UserSession.user_id == user.id,
+                UserSession.token_hash == token_hash,
+                UserSession.active == True
+            ).first()
+
+            if user_session:
+                return {
+                    "session_id": user_session.id,
+                    "user_id": user_session.user_id,
+                    "email": user.email,
+                    "login_time": user_session.created_at.isoformat() if user_session.created_at else None,
+                    "last_activity": user_session.last_updated_at.isoformat() if user_session.last_updated_at else None,
+                    "expires_at": user_session.expires_at.isoformat() if user_session.expires_at else None,
+                    "ip_address": user_session.ip_address,
+                    "user_agent": user_session.user_agent,
+                    "active": user_session.active
+                }
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Current session not found"
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get current session"
+        )
+
+
+@router.get("/debug/config")
+async def debug_config():
+    """Debug endpoint to show current configuration"""
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    return {
+        "jwt_secret_key": settings.JWT_SECRET_KEY,
+        "jwt_algorithm": settings.JWT_ALGORITHM,
+        "debug": settings.DEBUG,
+        "backend_service_url": settings.BACKEND_SERVICE_URL if hasattr(settings, 'BACKEND_SERVICE_URL') else "Not set",
+        "env_file_loaded": "Check logs for 'Loading configuration from:' message"
+    }
 
 
 @router.get("/integrations", response_model=List[IntegrationResponse])
