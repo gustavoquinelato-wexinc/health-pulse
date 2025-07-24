@@ -29,6 +29,12 @@
             </div>
             <h1 class="text-3xl font-bold text-white mb-2">Pulse ETL</h1>
             <p class="text-white text-opacity-80">Data Pipeline Management</p>
+            <div class="mt-4 p-3 bg-blue-500 bg-opacity-20 border border-blue-500 border-opacity-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-info-circle text-blue-300 mr-2"></i>
+                    <span class="text-blue-100 text-sm">Authentication powered by centralized Backend Service.</span>
+                </div>
+            </div>
         </div>
 
         <!-- Error Message -->
@@ -183,7 +189,10 @@
             errorDiv.classList.add('hidden');
 
             try {
-                const response = await fetch('/auth/login', {
+                // Authenticate with Backend Service API
+                const backendUrl = 'http://localhost:3001'; // This should be configured properly
+
+                const response = await fetch(`${backendUrl}/auth/login`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -194,8 +203,12 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Store token and redirect
+                    // Store token and redirect to dashboard
                     localStorage.setItem('pulse_token', data.token);
+
+                    // Also set cookie for compatibility
+                    document.cookie = `pulse_token=${data.token}; path=/; max-age=86400`; // 24 hours
+
                     window.location.href = '/dashboard';
                 } else {
                     // Show error
@@ -204,7 +217,7 @@
                 }
             } catch (error) {
                 console.error('Login error:', error);
-                document.getElementById('errorText').textContent = 'Connection error. Please try again.';
+                document.getElementById('errorText').textContent = 'Connection error. Please check if the backend service is running.';
                 errorDiv.classList.remove('hidden');
             } finally {
                 // Reset button state

@@ -2,11 +2,23 @@
 
 **For Augment Code Agents working on the Pulse Platform**
 
-This document provides essential context, architectural decisions, and operational guidelines for agents working on this codebase. Read this document first before making any changes.
+This document provides essential context, architectural decisions, and operational guidelines for agents working on this codebase.
 
-## 📖 **Required Reading - MANDATORY**
+## 🆕 **NEW: Domain-Specific AI Coaching Documents**
 
-Before starting any work on the Pulse Platform, agents **MUST** familiarize themselves with the system architecture and design principles by reading these essential documents:
+**For detailed, domain-specific guidance, use the new AI Coaching Documents:**
+
+### 📁 [AI Coaching Documents](./ai_coaching_documents/)
+- **[Cross-Domain Guide](./ai_coaching_documents/01_cross_domain_guide.md)** - Platform-wide patterns (authentication, database, security)
+- **[ETL Service Guide](./ai_coaching_documents/02_etl_service_guide.md)** - Job orchestration, data processing, integrations
+- **[Backend Service Guide](./ai_coaching_documents/03_backend_service_guide.md)** - User management, session handling, permissions
+- **[Frontend App Guide](./ai_coaching_documents/04_frontend_app_guide.md)** - UI/UX standards, authentication flow, real-time features
+
+**🔑 Key Rule: Start with the relevant domain-specific guide for your work area.**
+
+## 📖 **Legacy Documentation (Being Migrated)**
+
+This document contains historical context and will be gradually migrated to the domain-specific guides above. Before starting any work on the Pulse Platform, agents should familiarize themselves with the system architecture:
 
 ### **Primary Documentation (READ FIRST)**
 1. **[README.md](../README.md)** - Complete platform overview including:
@@ -217,6 +229,18 @@ pulse-platform/
 
 ## 🎨 **Frontend Development**
 
+### **Hover Submenu Implementation (Critical Pattern)**
+**For complex UI interactions like hover submenus, ALWAYS use React state management instead of vanilla JavaScript DOM manipulation.**
+
+**Key Requirements:**
+- **React State Coordination**: Use `hoveredItem`, `openSubmenu`, `tooltipPosition`, `isHoveringSubmenu`
+- **Precise Timing**: 200ms grace period for mouse movement, 100ms submenu exit delay, 50ms post-click delay
+- **Fast Response**: Use `onMouseDown` instead of `onClick` for submenu items
+- **Event Prevention**: Always `preventDefault()` and `stopPropagation()` for submenu clicks
+- **Proper Cleanup**: Clear timeouts and handle outside clicks with useEffect
+
+**Reference**: See `services/frontend-app/docs/SIDEBAR_IMPLEMENTATION.md` for complete technical guide.
+
 ### **UI Consistency for ETL Service**
 1. **Dark Theme**: All modals and admin interfaces use dark theme (`#1a1a1a` background)
 2. **Bootstrap 5**: Use Bootstrap 5 components and utilities consistently
@@ -233,12 +257,16 @@ pulse-platform/
 
 ## 🔒 **Security and Permissions**
 
-### **Authentication**
-1. **Token-Based**: Use Bearer tokens for API authentication
-2. **Session Management**: Implement proper session handling and expiration
-3. **Permission Checks**: Always verify permissions before allowing operations
-4. **Client Isolation**: Ensure users only access their client's data
-5. **Audit Logging**: Log all administrative actions
+### **Authentication (UPDATED - Centralized Architecture)**
+1. **Centralized System**: All authentication handled by Backend Service (port 3001)
+2. **Service Communication**: ETL Service validates tokens through Backend Service
+3. **Multiple Sessions**: Users can have concurrent sessions across devices
+4. **JWT Tokens**: Bearer tokens with 24-hour expiration (configurable)
+5. **Session Management**: Backend Service provides session list/revoke endpoints
+6. **User Management**: All user CRUD operations in Backend Service only
+7. **Migration Compatibility**: ETL auth endpoints redirect to Backend Service
+8. **Configuration**: Use BACKEND_SERVICE_URL for inter-service communication
+9. **Documentation**: See `docs/CENTRALIZED_AUTHENTICATION.md` for complete details
 
 ### **Role-Based Access Control (RBAC)**
 1. **Admin-Only Features**: Health endpoints (`/api/v1/health`), API docs (`/docs`), and System Health UI section are restricted to admin users only
@@ -311,6 +339,9 @@ pulse-platform/
 3. **Don't**: Use different authentication patterns - always copy from working admin pages
 4. **Don't**: Skip the middleware protection check - ensure all admin routes are properly protected
 5. **Don't**: Create custom styling that breaks the design system - use existing Bootstrap classes
+6. **Don't**: Use vanilla JavaScript DOM manipulation for complex UI interactions - use React state management
+7. **Don't**: Use onClick for submenu items - use onMouseDown for faster response
+8. **Don't**: Forget timeout management - always clear timeouts to prevent race conditions
 
 ### **Authentication in Admin Pages**
 1. **CRITICAL**: Always copy the `getAuthToken()` function from working admin pages (e.g., Flow Steps)
@@ -336,6 +367,19 @@ pulse-platform/
    }
    ```
 5. **Why**: The authentication system uses cookies (`pulse_token`), not localStorage. Pages that only check localStorage will fail authentication even when users are properly logged in.
+
+### **Centralized Authentication Architecture (2025-07-24)**
+1. **NEW ARCHITECTURE**: All authentication now centralized in Backend Service
+2. **ETL Service Changes**: No longer has local authentication - validates through Backend Service
+3. **Frontend Changes**: Authenticates directly with Backend Service (real auth, not mock)
+4. **Multiple Sessions**: Users can have concurrent sessions across devices/browsers
+5. **Service Communication**: ETL Service uses `BACKEND_SERVICE_URL` for token validation
+6. **User Management**: All user CRUD operations moved to Backend Service
+7. **Migration**: ETL auth endpoints redirect to Backend Service for compatibility
+8. **New Middleware**: ETL Service uses `centralized_auth_middleware.py` for authentication
+9. **Session Management**: Backend Service provides endpoints to list/revoke sessions
+10. **Database Management**: Migration-based approach - removed reset scripts in favor of proper migrations
+11. **Documentation**: Complete details in `docs/CENTRALIZED_AUTHENTICATION.md`
 
 ### **Session Management and Termination (2025-07-23)**
 1. **Automatic Session Validation**: Implement periodic session validation (every 30 seconds) to detect expired sessions

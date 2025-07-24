@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db_session
 from app.schemas.api_schemas import HealthResponse
-from app.auth.auth_middleware import require_admin
-from app.models.unified_models import User
+from app.auth.centralized_auth_middleware import UserData, require_admin_authentication
 
 router = APIRouter()
 
@@ -20,7 +19,7 @@ router = APIRouter()
 )
 async def health_check(
     db: Session = Depends(get_db_session),
-    current_user: User = Depends(require_admin)
+    current_user: UserData = Depends(require_admin_authentication)
 ):
     """
     Comprehensive health check for the ETL service.

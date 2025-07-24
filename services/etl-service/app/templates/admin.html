@@ -396,7 +396,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="userEmail" class="form-label">Email *</label>
-                            <input type="email" class="form-control" id="userEmail" required>
+                            <input type="email" class="form-control" id="userEmail" autocomplete="username" required>
                         </div>
                         <div class="mb-3">
                             <label for="userRole" class="form-label">Role *</label>
@@ -453,7 +453,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Email</label>
-                            <input type="email" class="form-control" id="editUserEmail" readonly>
+                            <input type="email" class="form-control" id="editUserEmail" autocomplete="username" readonly>
                         </div>
                         <div class="mb-3">
                             <label for="editUserRole" class="form-label">Role</label>
@@ -587,7 +587,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="editUsername" class="form-label">Username</label>
-                            <input type="text" class="form-control" id="editUsername">
+                            <input type="text" class="form-control" id="editUsername" autocomplete="username">
                             <small class="text-muted">Optional - leave empty if not required</small>
                         </div>
                         <div class="mb-3">
@@ -703,18 +703,18 @@
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', async function () {
-            // Immediate session validation before loading any content
-            const isValid = await validateSession();
-            if (!isValid) {
-                return; // Session invalid, already redirected
-            }
+            // Authentication is handled by middleware, load all admin data
+            console.log('Admin page loaded, loading all data...');
 
+            // Load all admin sections
             loadSystemStats();
+            loadUserStats(); // Load user statistics from Backend Service
             loadUsers();
             loadIntegrations();
             loadActiveSessions();
             loadPermissionMatrix();
-            startSessionValidation();
+
+            // Note: Session validation disabled - middleware handles authentication
         });
 
         // Cleanup on page unload
@@ -830,8 +830,17 @@
         // Active Sessions Management Functions
         async function loadActiveSessions() {
             try {
-                const response = await authenticatedFetch('/api/v1/admin/active-sessions');
-                if (!response) return; // Authentication failed, already redirected
+                const token = getAuthToken();
+                if (!token) {
+                    console.error('No authentication token found');
+                    return;
+                }
+
+                const response = await fetch('http://localhost:3001/api/v1/admin/active-sessions', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
 
                 if (response.ok) {
                     activeSessions = await response.json();
@@ -922,10 +931,21 @@
 
         async function confirmTerminateAllSessions() {
             try {
-                const response = await authenticatedFetch('/api/v1/admin/terminate-all-sessions', {
-                    method: 'POST'
+                const token = getAuthToken();
+                if (!token) {
+                    console.error('No authentication token found');
+                    alert('Authentication required');
+                    return;
+                }
+
+                // Call Backend Service directly to terminate all sessions
+                const response = await fetch('http://localhost:3001/api/v1/admin/terminate-all-sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
-                if (!response) return; // Authentication failed, already redirected
 
                 if (response.ok) {
                     const result = await response.json();
@@ -937,8 +957,9 @@
                     // Close modal first
                     bootstrap.Modal.getInstance(document.getElementById('terminateAllSessionsModal')).hide();
 
-                    // Redirect current user to login since their session was also terminated
-                    redirectToLogin('All sessions terminated including your own');
+                    // Clear localStorage and redirect to login
+                    localStorage.removeItem('pulse_token');
+                    window.location.href = '/login?message=all_sessions_terminated';
                 } else {
                     const error = await response.json();
                     alert(error.detail || 'Failed to terminate all sessions');
@@ -964,10 +985,21 @@
             }
 
             try {
-                const response = await authenticatedFetch(`/api/v1/admin/terminate-session/${sessionId}`, {
-                    method: 'POST'
+                const token = getAuthToken();
+                if (!token) {
+                    console.error('No authentication token found');
+                    alert('Authentication required');
+                    return;
+                }
+
+                // Call Backend Service directly to terminate individual session
+                const response = await fetch(`http://localhost:3001/api/v1/admin/terminate-session/${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
-                if (!response) return; // Authentication failed, already redirected
 
                 if (response.ok) {
                     const result = await response.json();
@@ -975,7 +1007,8 @@
                     if (isOwnSession) {
                         // User terminated their own session - immediate redirect
                         alert('Your session has been terminated. You will be redirected to the login page.');
-                        redirectToLogin('User terminated own session');
+                        localStorage.removeItem('pulse_token');
+                        window.location.href = '/login?message=session_terminated';
                     } else {
                         alert(result.message || 'Session terminated successfully');
                         loadActiveSessions();
@@ -990,17 +1023,37 @@
             }
         }
 
-        // Helper function to check if a session belongs to the current user
+        // Helper function to check if a session is the current browser session
         async function isCurrentUserSession(session) {
             try {
                 const token = getAuthToken();
-                if (!token) return false;
+                if (!token) {
+                    console.log('No token found for session comparison');
+                    return false;
+                }
 
-                // Decode the JWT token to get current user info
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                const currentUserEmail = payload.email;
+                console.log(`Checking if session ${session.session_id} is current session...`);
 
-                return session.email === currentUserEmail;
+                // Get current session info from Backend Service
+                const response = await fetch('http://localhost:3001/api/v1/admin/current-session', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const currentSession = await response.json();
+                    console.log(`Current session ID: ${currentSession.session_id}, Comparing with: ${session.session_id}`);
+
+                    // Compare session IDs to identify the exact current session
+                    const isCurrentSession = session.session_id === currentSession.session_id.toString();
+                    console.log(`Session ${session.session_id} is current: ${isCurrentSession}`);
+                    return isCurrentSession;
+                } else {
+                    console.warn('Failed to get current session info:', response.status, response.statusText);
+                    return false;
+                }
             } catch (error) {
                 console.error('Error checking current user session:', error);
                 return false;
@@ -1010,6 +1063,7 @@
         // Refresh stats
         function refreshStats() {
             loadSystemStats();
+            loadUserStats();
         }
 
         // Load system statistics
@@ -1029,13 +1083,58 @@
                 });
 
                 if (response.ok) {
-                    stats = await response.json();
+                    const etlStats = await response.json();
+                    // Preserve existing user stats and only update ETL-specific stats
+                    stats = {
+                        ...stats, // Keep existing stats (including user stats)
+                        ...etlStats, // Add ETL stats
+                        // Explicitly preserve user stats if they exist
+                        total_users: stats.total_users || etlStats.total_users || 0,
+                        active_users: stats.active_users || etlStats.active_users || 0,
+                        logged_users: stats.logged_users || etlStats.logged_users || 0,
+                        admin_users: stats.admin_users || etlStats.admin_users || 0,
+                    };
                     updateStatsDisplay();
                 } else {
                     console.error('Failed to load system stats');
                 }
             } catch (error) {
                 console.error('Error loading system stats:', error);
+            }
+        }
+
+        // Load user statistics from Backend Service
+        async function loadUserStats() {
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    console.error('No authentication token found');
+                    return;
+                }
+
+                const response = await fetch('http://localhost:3001/api/v1/admin/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const backendStats = await response.json();
+                    // Extract user statistics and merge with existing stats
+                    stats = {
+                        ...stats,
+                        total_users: backendStats.total_users,
+                        active_users: backendStats.active_users,
+                        logged_users: backendStats.logged_users,
+                        admin_users: backendStats.admin_users,
+                        roles_distribution: backendStats.roles_distribution
+                    };
+                    updateStatsDisplay();
+                } else {
+                    console.error('Failed to load user stats from Backend Service');
+                }
+            } catch (error) {
+                console.error('Error loading user stats:', error);
             }
         }
 
@@ -1313,7 +1412,7 @@
                     return;
                 }
 
-                const response = await fetch('/api/v1/admin/users', {
+                const response = await fetch('http://localhost:3001/api/v1/admin/users', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -1324,6 +1423,10 @@
                     updateUsersTable();
                 } else {
                     console.error('Failed to load users');
+                    if (response.status === 401) {
+                        window.location.href = '/login?error=authentication_required';
+                        return;
+                    }
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
@@ -1430,7 +1533,7 @@
                     return;
                 }
 
-                const response = await fetch('/api/v1/admin/users', {
+                const response = await fetch('http://localhost:3001/api/v1/admin/users', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1489,7 +1592,7 @@
                     return;
                 }
 
-                const response = await fetch(`/api/v1/admin/users/${userId}`, {
+                const response = await fetch(`http://localhost:3001/api/v1/admin/users/${userId}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1528,7 +1631,7 @@
                     return;
                 }
 
-                const response = await fetch(`/api/v1/admin/users/${userId}`, {
+                const response = await fetch(`http://localhost:3001/api/v1/admin/users/${userId}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -1559,7 +1662,7 @@
                 const token = getAuthToken();
                 if (!token) return;
 
-                const response = await fetch('/api/v1/admin/permissions/matrix', {
+                const response = await fetch('http://localhost:3001/api/v1/admin/permissions/matrix', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -1688,7 +1791,7 @@
                 const token = getAuthToken();
                 if (!token) return;
 
-                const response = await fetch(`/api/v1/admin/users/${currentDeactivationUserId}`, {
+                const response = await fetch(`http://localhost:3001/api/v1/admin/users/${currentDeactivationUserId}`, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -1717,7 +1820,7 @@
                 const token = getAuthToken();
                 if (!token) return;
 
-                const response = await fetch(`/api/v1/admin/users/${id}`, {
+                const response = await fetch(`http://localhost:3001/api/v1/admin/users/${id}`, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -1853,11 +1956,13 @@
         // Logout function
         async function logout() {
             try {
-                // First, call API logout to invalidate session in database
+                // Get token before clearing localStorage
                 const token = getAuthToken();
+
                 if (token) {
-                    console.log('Admin logout: Calling API logout to invalidate session...');
-                    const response = await fetch('/auth/logout', {
+                    console.log('Admin logout: Calling Backend Service to invalidate session...');
+                    // Call Backend Service directly to invalidate session
+                    const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${token}`,
@@ -1866,19 +1971,21 @@
                     });
 
                     if (response.ok) {
-                        console.log('Admin logout: API logout successful');
+                        console.log('✅ Admin logout: Session invalidated successfully');
                     } else {
-                        console.warn('Admin logout: API logout failed with status:', response.status);
+                        console.warn('❌ Admin logout: Session invalidation failed:', response.status);
                     }
+                } else {
+                    console.log('Admin logout: No token found for session invalidation');
                 }
             } catch (error) {
-                console.warn('Admin logout: API logout failed, proceeding with client-side cleanup:', error);
+                console.warn('Admin logout: Session invalidation error:', error);
             }
 
             // Clear localStorage
             localStorage.removeItem('pulse_token');
 
-            // Call server-side logout to clear cookies properly
+            // ETL service logout to clear cookies and redirect
             window.location.href = '/logout';
         }
 

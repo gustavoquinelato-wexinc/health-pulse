@@ -1,0 +1,18 @@
+# ETL Service specific dependencies
+-r common.txt
+
+# Job scheduling and orchestration
+APScheduler
+
+# Data processing and external APIs
+jira>=3.8.0
+
+# Caching and session management
+redis
+
+# Web interface
+jinja2
+python-multipart
+
+# System monitoring
+psutil

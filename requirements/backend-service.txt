@@ -1,0 +1,8 @@
+# Backend Service specific dependencies
+-r common.txt
+
+# HTTP client for service communication
+httpx
+
+# Additional security and encryption
+cryptography

@@ -12,8 +12,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from typing import Optional, List, Iterator
 from datetime import datetime, timedelta
 import io
-from app.auth.auth_middleware import require_authentication
-from app.models.unified_models import User
+from app.auth.centralized_auth_middleware import UserData, require_authentication
 
 router = APIRouter()
 
@@ -42,7 +41,7 @@ async def get_recent_logs(
     lines: int = Query(100, ge=1, le=10000, description="Number of recent log lines to return"),
     level: Optional[str] = Query(None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"),
     search: Optional[str] = Query(None, description="Search for specific text in logs"),
-    user: User = Depends(require_authentication)
+    user: UserData = Depends(require_authentication)
 ):
     """
     Get recent log entries with optional filtering.
@@ -141,7 +140,7 @@ async def download_logs(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format for specific log file"),
     compress: bool = Query(True, description="Compress log file as ZIP (recommended for large files)"),
     clean: bool = Query(True, description="Remove ANSI color codes for better readability"),
-    user: User = Depends(require_authentication)
+    user: UserData = Depends(require_authentication)
 ):
     """
     Download log files with optional ZIP compression and ANSI cleaning.
@@ -252,7 +251,7 @@ async def download_logs(
 @router.get("/logs/tail")
 async def tail_logs(
     lines: int = Query(50, ge=1, le=1000, description="Number of lines to tail"),
-    user: User = Depends(require_authentication)
+    user: UserData = Depends(require_authentication)
 ):
     """
     Get live tail of log file (last N lines).
@@ -281,7 +280,7 @@ async def tail_logs(
 
 
 @router.get("/logs/files")
-async def list_log_files(user: User = Depends(require_authentication)):
+async def list_log_files(user: UserData = Depends(require_authentication)):
     """
     List available log files.
     
@@ -322,7 +321,7 @@ async def list_log_files(user: User = Depends(require_authentication)):
 @router.delete("/logs/cleanup")
 async def cleanup_old_logs(
     days: int = Query(30, ge=0, le=365, description="Delete log files older than N days (0 = all logs)"),
-    user: User = Depends(require_authentication)
+    user: UserData = Depends(require_authentication)
 ):
     """
     Clean up old log files.
@@ -414,7 +413,7 @@ async def cleanup_old_logs(
 @router.delete("/logs/file/{filename}")
 async def delete_log_file(
     filename: str,
-    user: User = Depends(require_authentication)
+    user: UserData = Depends(require_authentication)
 ):
     """
     Delete a specific log file.

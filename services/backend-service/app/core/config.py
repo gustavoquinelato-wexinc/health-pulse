@@ -4,6 +4,7 @@ Manages all configurations through environment variables.
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional, List
 
 
@@ -11,15 +12,15 @@ class Settings(BaseSettings):
     """Application settings using Pydantic Settings."""
     
     # Application Settings
-    APP_NAME: str = "Backend Service"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = False
-    LOG_LEVEL: str = "INFO"
+    APP_NAME: str = Field(default="Backend Service", env="APP_NAME")
+    APP_VERSION: str = Field(default="1.0.0", env="APP_VERSION")
+    DEBUG: bool = Field(default=False, env="DEBUG")
+    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
 
     # API Settings
-    API_V1_STR: str = "/api/v1"
-    HOST: str = "0.0.0.0"
-    PORT: int = 3001
+    API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
+    HOST: str = Field(default="0.0.0.0", env="BACKEND_HOST")
+    PORT: int = Field(default=3001, env="BACKEND_PORT")
     
     # PostgreSQL Configuration
     POSTGRES_HOST: str
@@ -67,23 +68,34 @@ class Settings(BaseSettings):
     AHA_TOKEN: Optional[str] = None
     
     # Job Scheduling Configuration
-    SCHEDULER_TIMEZONE: str = "UTC"
+    SCHEDULER_TIMEZONE: str = Field(default="UTC", env="SCHEDULER_TIMEZONE")
     
     # Security Configuration
-    SECRET_KEY: str = "your-secret-key-change-this-in-production"
-    ENCRYPTION_KEY: str = "your-secret-encryption-key-here"
+    SECRET_KEY: str = Field(default="your-secret-key-change-this-in-production", env="SECRET_KEY")
+    ENCRYPTION_KEY: str = Field(default="your-secret-encryption-key-here", env="ENCRYPTION_KEY")
 
     # JWT Configuration
-    JWT_SECRET_KEY: str = "pulse-dev-secret-key-2024"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    JWT_SECRET_KEY: str = Field(default="pulse-dev-secret-key-2024", env="JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, env="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
 
     # Cache Configuration
-    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
-    CACHE_TTL_SECONDS: int = 3600
+    REDIS_URL: Optional[str] = Field(default="redis://localhost:6379/0", env="REDIS_URL")
+    CACHE_TTL_SECONDS: int = Field(default=3600, env="CACHE_TTL_SECONDS")
 
+    # Service Communication URLs
+    ETL_SERVICE_URL: str = Field(default="http://localhost:8000", env="ETL_SERVICE_URL")
+    AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
+    FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
 
-    
+    # CORS Configuration
+    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173", env="CORS_ORIGINS")
+
+    @property
+    def cors_origins_list(self) -> list:
+        """Convert CORS_ORIGINS string to list."""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+
     @property
     def postgres_connection_string(self) -> str:
         """Builds the PostgreSQL connection string."""

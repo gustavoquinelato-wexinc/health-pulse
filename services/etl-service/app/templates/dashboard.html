@@ -1079,11 +1079,13 @@
 
         async function logout() {
             try {
-                // First, call API logout to invalidate session in database
+                // Get token before clearing localStorage
                 const token = getAuthToken();
+
                 if (token) {
-                    console.log('Calling API logout to invalidate session...');
-                    const response = await fetch('/auth/logout', {
+                    console.log('Calling Backend Service to invalidate session...');
+                    // Call Backend Service directly to invalidate session
+                    const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${token}`,
@@ -1092,19 +1094,21 @@
                     });
 
                     if (response.ok) {
-                        console.log('API logout successful');
+                        console.log('✅ Session invalidated successfully');
                     } else {
-                        console.warn('API logout failed with status:', response.status);
+                        console.warn('❌ Session invalidation failed:', response.status);
                     }
+                } else {
+                    console.log('No token found for session invalidation');
                 }
             } catch (error) {
-                console.warn('API logout failed, proceeding with client-side cleanup:', error);
+                console.warn('Session invalidation error:', error);
             }
 
             // Clear localStorage
             localStorage.removeItem('pulse_token');
 
-            // Call server-side logout to clear cookies properly
+            // ETL service logout to clear cookies and redirect
             window.location.href = '/logout';
         }
 

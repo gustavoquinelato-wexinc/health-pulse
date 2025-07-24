@@ -1,5 +1,5 @@
 """
-Structured logging configuration for ETL Service application.
+Structured logging configuration for Backend Service application.
 Uses structlog for organized and traceable logs.
 """
 
@@ -226,7 +226,7 @@ def setup_logging(force_reconfigure=False):
             return self.ansi_escape.sub('', formatted)
 
     # Add the clean file handler
-    file_handler = AnsiCleaningFileHandler("logs/etl_service.log")
+    file_handler = AnsiCleaningFileHandler("logs/backend_service.log")
     file_handler.setLevel(logging.INFO)
 
     # Create a clean formatter

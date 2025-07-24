@@ -13,14 +13,13 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    User, UserPermission, UserSession, Integration, Project, Issue, Client, IssueChangelog,
+    Integration, Project, Issue, Client, IssueChangelog,
     Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
     JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings,
     StatusMapping, FlowStep, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
     ProjectsIssuetypes, ProjectsStatuses
 )
-from app.auth.auth_middleware import require_permission
-from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
+from app.auth.centralized_auth_middleware import UserData, require_admin_authentication
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -28,33 +27,8 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 # Pydantic models for API
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    first_name: Optional[str]
-    last_name: Optional[str]
-    role: str
-    is_admin: bool
-    active: bool
-    last_login_at: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-class UserCreateRequest(BaseModel):
-    email: EmailStr
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    role: str = "user"
-    is_admin: bool = False
-    password: Optional[str] = None
-
-class UserUpdateRequest(BaseModel):
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    role: Optional[str] = None
-    is_admin: Optional[bool] = None
-    active: Optional[bool] = None
+# NOTE: User management models moved to Backend Service
+# User management is now centralized in Backend Service
 
 class SystemStatsResponse(BaseModel):
     total_users: int
@@ -94,298 +68,131 @@ class PermissionMatrixResponse(BaseModel):
     matrix: Dict[str, Dict[str, List[str]]]  # role -> resource -> actions
 
 
-@router.get("/users", response_model=List[UserResponse])
-async def get_all_users(
-    skip: int = 0,
-    limit: int = 100,
-    user: User = Depends(require_permission("admin_panel", "read"))
-):
-    """Get all users with pagination"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            users = session.query(User).offset(skip).limit(limit).all()
+# User Management Endpoints - Redirected to Backend Service
+@router.get("/users")
+async def get_users_redirect():
+    """Redirect user management to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            return [
-                UserResponse(
-                    id=u.id,
-                    email=u.email,
-                    first_name=u.first_name,
-                    last_name=u.last_name,
-                    role=u.role,
-                    is_admin=u.is_admin,
-                    active=u.active,
-                    last_login_at=u.last_login_at.isoformat() if u.last_login_at else None
-                )
-                for u in users
-            ]
-    except Exception as e:
-        logger.error(f"Error fetching users: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch users"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"User management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/users",
+        headers={"Location": f"{backend_url}/api/v1/admin/users"}
+    )
 
 
-@router.post("/users", response_model=UserResponse)
-async def create_user(
-    user_data: UserCreateRequest,
-    admin_user: User = Depends(require_permission("users", "execute"))
-):
-    """Create a new user"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            # Check if user already exists
-            existing_user = session.query(User).filter(User.email == user_data.email).first()
-            if existing_user:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="User with this email already exists"
-                )
+@router.post("/users")
+async def create_user_redirect():
+    """Redirect user creation to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Validate role
-            if user_data.role not in [r.value for r in Role]:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid role. Must be one of: {[r.value for r in Role]}"
-                )
-
-            # Create new user
-            new_user = User(
-                email=user_data.email,
-                first_name=user_data.first_name,
-                last_name=user_data.last_name,
-                role=user_data.role,
-                is_admin=user_data.is_admin,
-                client_id=admin_user.client_id,
-                active=True
-            )
-
-            # Set password if provided (for local auth)
-            if user_data.password:
-                from app.auth.auth_service import AuthService
-                auth_service = AuthService(database)
-                new_user.password_hash = auth_service._hash_password(user_data.password)
-                new_user.auth_provider = 'local'
-
-            session.add(new_user)
-            session.commit()
-            session.refresh(new_user)
-
-            logger.info(f"Admin {admin_user.email} created user {new_user.email} with role {new_user.role}")
-
-            return UserResponse(
-                id=new_user.id,
-                email=new_user.email,
-                first_name=new_user.first_name,
-                last_name=new_user.last_name,
-                role=new_user.role,
-                is_admin=new_user.is_admin,
-                active=new_user.active,
-                last_login_at=None
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"User management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/users",
+        headers={"Location": f"{backend_url}/api/v1/admin/users"}
+    )
 
 
-@router.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: int,
-    user_data: UserUpdateRequest,
-    admin_user: User = Depends(require_permission("users", "execute"))
-):
-    """Update an existing user"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
+@router.put("/users/{user_id}")
+async def update_user_redirect(user_id: int):
+    """Redirect user update to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Update fields if provided
-            if user_data.first_name is not None:
-                user.first_name = user_data.first_name
-            if user_data.last_name is not None:
-                user.last_name = user_data.last_name
-            if user_data.role is not None:
-                if user_data.role not in [r.value for r in Role]:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid role. Must be one of: {[r.value for r in Role]}"
-                    )
-                user.role = user_data.role
-            if user_data.is_admin is not None:
-                user.is_admin = user_data.is_admin
-            if user_data.active is not None:
-                user.active = user_data.active
-
-            session.commit()
-            session.refresh(user)
-
-            logger.info(f"Admin {admin_user.email} updated user {user.email}")
-
-            return UserResponse(
-                id=user.id,
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                role=user.role,
-                is_admin=user.is_admin,
-                active=user.active,
-                last_login_at=user.last_login_at.isoformat() if user.last_login_at else None
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update user"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"User management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/users/{user_id}",
+        headers={"Location": f"{backend_url}/api/v1/admin/users/{user_id}"}
+    )
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(
-    user_id: int,
-    admin_user: User = Depends(require_permission("users", "delete"))
-):
-    """Delete a user (hard delete - permanently removes user)"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
+async def delete_user_redirect(user_id: int):
+    """Redirect user deletion to Backend Service"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Prevent self-deletion
-            if user.id == admin_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot delete your own account"
-                )
-
-            # Check for dependencies (user sessions, permissions, etc.)
-            from app.models.unified_models import UserSession, UserPermission
-
-            # Count active sessions
-            active_sessions = session.query(UserSession).filter(
-                UserSession.user_id == user_id,
-                UserSession.active == True
-            ).count()
-
-            # Count permissions
-            user_permissions = session.query(UserPermission).filter(
-                UserPermission.user_id == user_id
-            ).count()
-
-            if active_sessions > 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot delete user: {active_sessions} active session(s) exist. Please deactivate the user instead."
-                )
-
-            # Delete user permissions first (foreign key constraint)
-            session.query(UserPermission).filter(UserPermission.user_id == user_id).delete()
-
-            # Delete inactive user sessions
-            session.query(UserSession).filter(UserSession.user_id == user_id).delete()
-
-            # Hard delete the user
-            session.delete(user)
-            session.commit()
-
-            logger.info(f"Admin {admin_user.email} permanently deleted user {user.email}")
-
-            return {"message": "User permanently deleted successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete user"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"User management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/users/{user_id}",
+        headers={"Location": f"{backend_url}/api/v1/admin/users/{user_id}"}
+    )
 
 
 @router.get("/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
-    admin_user: User = Depends(require_permission("admin_panel", "read"))
+    admin_user: UserData = Depends(require_admin_authentication)
 ):
     """Get system statistics"""
     try:
         database = get_database()
         with database.get_session() as session:
-            # User statistics
-            total_users = session.query(User).count()
-            active_users = session.query(User).filter(User.active == True).count()
+            # User statistics - now handled by Backend Service
+            # Placeholder values - should be fetched from Backend Service
+            total_users = 0
+            active_users = 0
+            logged_users = 0
+            admin_users = 0
 
-            # Count logged users (users with recent login activity - within last 30 days)
-            from datetime import datetime, timedelta
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            logged_users = session.query(User).filter(
-                User.active == True,
-                User.last_login_at >= thirty_days_ago
-            ).count()
-
-            admin_users = session.query(User).filter(User.is_admin == True, User.active == True).count()
-
-            # Role distribution
-            roles_distribution = {}
-            for role in Role:
-                count = session.query(User).filter(
-                    User.role == role.value,
-                    User.active == True
-                ).count()
-                roles_distribution[role.value] = count
+            # Role distribution - now handled by Backend Service
+            roles_distribution = {
+                "admin": 0,  # Placeholder - should be fetched from Backend Service
+                "user": 0,   # Placeholder - should be fetched from Backend Service
+                "view": 0    # Placeholder - should be fetched from Backend Service
+            }
 
             # Comprehensive database statistics - count all main tables
             database_stats = {}
             total_records = 0
 
-            # Define all tables to count
-            table_models = {
-                "users": User,
-                "user_sessions": UserSession,
-                "user_permissions": UserPermission,
-                "clients": Client,
-                "integrations": Integration,
-                "projects": Project,
-                "issues": Issue,
-                "issue_changelogs": IssueChangelog,
-                "repositories": Repository,
-                "pull_requests": PullRequest,
-                "pull_request_commits": PullRequestCommit,
-                "pull_request_reviews": PullRequestReview,
-                "pull_request_comments": PullRequestComment,
-                "jira_pull_request_links": JiraPullRequestLinks,
-                "issuetypes": Issuetype,
-                "statuses": Status,
-                "status_mappings": StatusMapping,
-                "flow_steps": FlowStep,
-                "issuetype_mappings": IssuetypeMapping,
-                "issuetype_hierarchies": IssuetypeHierarchy,
-                "projects_issuetypes": ProjectsIssuetypes,
-                "projects_statuses": ProjectsStatuses,
-                "job_schedules": JobSchedule,
-                "system_settings": SystemSettings,
-                "migration_history": MigrationHistory
-            }
+            # Define ETL-specific tables to count (exclude user management tables)
+            try:
+                from app.models.unified_models import (
+                    Integration, Project, Issue, IssueChangelog, Repository,
+                    PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
+                    JiraPullRequestLinks, Issuetype, Status, StatusMapping, FlowStep,
+                    IssuetypeMapping, IssuetypeHierarchy, ProjectsIssuetypes, ProjectsStatuses,
+                    JobSchedule, SystemSettings, MigrationHistory
+                )
+
+                table_models = {
+                    "integrations": Integration,
+                    "projects": Project,
+                    "issues": Issue,
+                    "issue_changelogs": IssueChangelog,
+                    "repositories": Repository,
+                    "pull_requests": PullRequest,
+                    "pull_request_commits": PullRequestCommit,
+                    "pull_request_reviews": PullRequestReview,
+                    "pull_request_comments": PullRequestComment,
+                    "jira_pull_request_links": JiraPullRequestLinks,
+                    "issuetypes": Issuetype,
+                    "statuses": Status,
+                    "status_mappings": StatusMapping,
+                    "flow_steps": FlowStep,
+                    "issuetype_mappings": IssuetypeMapping,
+                    "issuetype_hierarchies": IssuetypeHierarchy,
+                    "projects_issuetypes": ProjectsIssuetypes,
+                    "projects_statuses": ProjectsStatuses,
+                    "job_schedules": JobSchedule,
+                    "system_settings": SystemSettings,
+                    "migration_history": MigrationHistory
+                }
+            except ImportError as e:
+                logger.warning(f"Could not import some models: {e}")
+                # Fallback to basic models only
+                from app.models.unified_models import Integration, JobSchedule, SystemSettings
+                table_models = {
+                    "integrations": Integration,
+                    "job_schedules": JobSchedule,
+                    "system_settings": SystemSettings,
+                }
 
             # Count records in each table
             for table_name, model in table_models.items():
@@ -439,7 +246,7 @@ async def get_system_stats(
 
 @router.get("/integrations", response_model=List[IntegrationResponse])
 async def get_integrations(
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get all integrations"""
     try:
@@ -470,7 +277,7 @@ async def get_integrations(
 @router.get("/integrations/{integration_id}", response_model=IntegrationDetailResponse)
 async def get_integration_details(
     integration_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get integration details for editing"""
     try:
@@ -511,7 +318,7 @@ async def get_integration_details(
 async def update_integration(
     integration_id: int,
     update_data: IntegrationUpdateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update an integration"""
     try:
@@ -559,7 +366,7 @@ async def update_integration(
 @router.patch("/integrations/{integration_id}/activate")
 async def activate_integration(
     integration_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Activate an integration"""
     try:
@@ -599,7 +406,7 @@ async def activate_integration(
 @router.patch("/integrations/{integration_id}/deactivate")
 async def deactivate_integration(
     integration_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate an integration"""
     try:
@@ -639,7 +446,7 @@ async def deactivate_integration(
 @router.delete("/integrations/{integration_id}")
 async def delete_integration(
     integration_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Delete an integration"""
     try:
@@ -696,7 +503,7 @@ async def delete_integration(
 
 @router.get("/status-mappings")
 async def get_status_mappings(
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get all status mappings"""
     try:
@@ -743,7 +550,7 @@ class StatusMappingCreateRequest(BaseModel):
 @router.post("/status-mappings")
 async def create_status_mapping(
     create_data: StatusMappingCreateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Create a new status mapping"""
     try:
@@ -782,7 +589,7 @@ async def create_status_mapping(
 @router.get("/status-mappings/{mapping_id}")
 async def get_status_mapping_details(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get status mapping details for editing"""
     try:
@@ -826,7 +633,7 @@ class StatusMappingUpdateRequest(BaseModel):
 async def update_status_mapping(
     mapping_id: int,
     update_data: StatusMappingUpdateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update a status mapping"""
     try:
@@ -870,7 +677,7 @@ async def update_status_mapping(
 @router.delete("/status-mappings/{mapping_id}")
 async def delete_status_mapping(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Delete a status mapping (soft delete to preserve referential integrity)"""
     try:
@@ -918,7 +725,7 @@ async def delete_status_mapping(
 @router.patch("/status-mappings/{mapping_id}/activate")
 async def activate_status_mapping(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Activate a status mapping"""
     try:
@@ -961,7 +768,7 @@ async def activate_status_mapping(
 @router.get("/status-mappings/{mapping_id}/dependencies")
 async def get_status_mapping_dependencies(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get dependencies for a status mapping"""
     try:
@@ -1039,7 +846,7 @@ class StatusMappingDeactivationRequest(BaseModel):
 async def deactivate_status_mapping_with_dependencies(
     mapping_id: int,
     deactivation_data: StatusMappingDeactivationRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate a status mapping with options for handling dependencies"""
     try:
@@ -1144,7 +951,7 @@ async def deactivate_status_mapping_with_dependencies(
 
 @router.get("/flow-steps")
 async def get_flow_steps(
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get all flow steps"""
     try:
@@ -1177,7 +984,7 @@ async def get_flow_steps(
 @router.get("/flow-steps/{step_id}")
 async def get_flow_step_details(
     step_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get flow step details for editing"""
     try:
@@ -1212,7 +1019,7 @@ async def get_flow_step_details(
 @router.get("/flow-steps/{step_id}/dependencies")
 async def check_flow_step_dependencies(
     step_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Check dependencies for a flow step before deactivation/deletion"""
     try:
@@ -1328,7 +1135,7 @@ class FlowStepDeactivationRequest(BaseModel):
 async def update_flow_step(
     step_id: int,
     update_data: FlowStepUpdateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update a flow step"""
     try:
@@ -1377,7 +1184,7 @@ class FlowStepCreateRequest(BaseModel):
 @router.post("/flow-steps")
 async def create_flow_step(
     create_data: FlowStepCreateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Create a new flow step"""
     try:
@@ -1416,7 +1223,7 @@ async def create_flow_step(
 async def deactivate_flow_step(
     step_id: int,
     deactivation_data: FlowStepDeactivationRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate a flow step with options for handling dependencies"""
     try:
@@ -1519,7 +1326,7 @@ async def deactivate_flow_step(
 @router.patch("/flow-steps/{step_id}/toggle-active")
 async def toggle_flow_step_active(
     step_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Toggle the active status of a flow step (simple activate/deactivate)"""
     try:
@@ -1566,7 +1373,7 @@ async def toggle_flow_step_active(
 @router.delete("/flow-steps/{step_id}")
 async def delete_flow_step(
     step_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Delete a flow step (only allows true deletion when no dependencies exist)"""
     try:
@@ -1617,7 +1424,7 @@ async def delete_flow_step(
 
 @router.get("/issuetype-mappings")
 async def get_issuetype_mappings(
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get all issue type mappings"""
     try:
@@ -1662,7 +1469,7 @@ async def get_issuetype_mappings(
 @router.patch("/issuetype-mappings/{mapping_id}/activate")
 async def activate_issuetype_mapping(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Activate an issue type mapping"""
     try:
@@ -1709,7 +1516,7 @@ class IssuetypeMappingDeactivationRequest(BaseModel):
 async def deactivate_issuetype_mapping(
     mapping_id: int,
     deactivation_data: IssuetypeMappingDeactivationRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate an issue type mapping with options for handling dependencies"""
     try:
@@ -1814,7 +1621,7 @@ async def deactivate_issuetype_mapping(
 @router.post("/issuetype-mappings")
 async def create_issuetype_mapping(
     create_data: dict,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Create a new issue type mapping"""
     try:
@@ -1880,7 +1687,7 @@ async def create_issuetype_mapping(
 async def update_issuetype_mapping(
     mapping_id: int,
     update_data: dict,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update an issue type mapping"""
     try:
@@ -1951,7 +1758,7 @@ async def update_issuetype_mapping(
 @router.delete("/issuetype-mappings/{mapping_id}")
 async def delete_issuetype_mapping(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Delete an issue type mapping"""
     try:
@@ -2015,7 +1822,7 @@ async def delete_issuetype_mapping(
 @router.get("/issuetype-mappings/{mapping_id}/dependencies")
 async def get_issuetype_mapping_dependencies(
     mapping_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get dependencies for an issue type mapping"""
     try:
@@ -2112,7 +1919,7 @@ async def get_issuetype_mapping_dependencies(
 
 
 @router.get("/issuetype-hierarchies")
-async def get_issuetype_hierarchies(user: User = Depends(require_permission("admin_panel", "read"))):
+async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authentication)):
     """Get all issue type hierarchies"""
     try:
         database = get_database()
@@ -2155,7 +1962,7 @@ class IssuetypeHierarchyUpdateRequest(BaseModel):
 @router.post("/issuetype-hierarchies")
 async def create_issuetype_hierarchy(
     create_data: IssuetypeHierarchyCreateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Create a new issuetype hierarchy"""
     try:
@@ -2208,7 +2015,7 @@ async def create_issuetype_hierarchy(
 async def update_issuetype_hierarchy(
     hierarchy_id: int,
     update_data: IssuetypeHierarchyUpdateRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Update an issuetype hierarchy"""
     try:
@@ -2267,7 +2074,7 @@ async def update_issuetype_hierarchy(
 @router.delete("/issuetype-hierarchies/{hierarchy_id}")
 async def delete_issuetype_hierarchy(
     hierarchy_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Delete an issuetype hierarchy"""
     try:
@@ -2317,7 +2124,7 @@ async def delete_issuetype_hierarchy(
 @router.get("/issuetype-hierarchies/{hierarchy_id}/dependencies")
 async def get_issuetype_hierarchy_dependencies(
     hierarchy_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Get dependencies for an issue type hierarchy"""
     try:
@@ -2403,7 +2210,7 @@ class IssuetypeHierarchyDeactivationRequest(BaseModel):
 async def deactivate_issuetype_hierarchy(
     hierarchy_id: int,
     deactivation_data: IssuetypeHierarchyDeactivationRequest,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate an issue type hierarchy with options for handling dependencies"""
     try:
@@ -2508,7 +2315,7 @@ async def deactivate_issuetype_hierarchy(
 @router.patch("/issuetype-hierarchies/{hierarchy_id}/activate")
 async def activate_issuetype_hierarchy(
     hierarchy_id: int,
-    user: User = Depends(require_permission("admin_panel", "admin"))
+    user: UserData = Depends(require_admin_authentication)
 ):
     """Activate an issue type hierarchy"""
     try:
@@ -2547,195 +2354,69 @@ async def activate_issuetype_hierarchy(
 
 # Permission Management Endpoints
 
-@router.get("/permissions/matrix", response_model=PermissionMatrixResponse)
+@router.get("/permissions/matrix")
 async def get_permission_matrix(
-    admin_user: User = Depends(require_permission("admin_panel", "read"))
+    admin_user: UserData = Depends(require_admin_authentication)
 ):
-    """Get the complete permission matrix for all roles and resources"""
-    try:
-        # Get all available roles, resources, and actions
-        roles = [role.value for role in Role]
-        resources = [resource.value for resource in Resource]
-        actions = [action.value for action in Action]
+    """Redirect to Backend Service for permission matrix"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-        # Build the permission matrix from DEFAULT_ROLE_PERMISSIONS
-        matrix = {}
-        for role in Role:
-            matrix[role.value] = {}
-            for resource in Resource:
-                if resource in DEFAULT_ROLE_PERMISSIONS[role]:
-                    matrix[role.value][resource.value] = [
-                        action.value for action in DEFAULT_ROLE_PERMISSIONS[role][resource]
-                    ]
-                else:
-                    matrix[role.value][resource.value] = []
-
-        return PermissionMatrixResponse(
-            roles=roles,
-            resources=resources,
-            actions=actions,
-            matrix=matrix
-        )
-
-    except Exception as e:
-        logger.error(f"Error fetching permission matrix: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch permission matrix"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Permission management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/permissions/matrix",
+        headers={"Location": f"{backend_url}/api/v1/admin/permissions/matrix"}
+    )
 
 
-# Active Sessions Management Endpoints
+# Active Sessions Management Endpoints - Redirected to Backend Service
 
-class ActiveSessionResponse(BaseModel):
-    session_id: str
-    user_name: str
-    email: str
-    role: str
-    login_time: Optional[str]
-    last_activity: Optional[str]
-    ip_address: Optional[str]
-    user_agent: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-@router.get("/active-sessions", response_model=List[ActiveSessionResponse])
+@router.get("/active-sessions")
 async def get_active_sessions(
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: UserData = Depends(require_admin_authentication)
 ):
-    """Get all active user sessions"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            from app.core.utils import DateTimeHelper
+    """Redirect to Backend Service for active sessions"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Query active sessions with user information
-            active_sessions = session.query(
-                UserSession,
-                User.first_name,
-                User.last_name,
-                User.email,
-                User.role
-            ).join(
-                User, UserSession.user_id == User.id
-            ).filter(
-                and_(
-                    UserSession.active == True,
-                    UserSession.expires_at > DateTimeHelper.now_utc(),
-                    User.active == True
-                )
-            ).order_by(UserSession.created_at.desc()).all()
-
-            return [
-                ActiveSessionResponse(
-                    session_id=str(session_obj.id),
-                    user_name=f"{first_name or ''} {last_name or ''}".strip() or email.split('@')[0],
-                    email=email,
-                    role=role,
-                    login_time=session_obj.created_at.isoformat() if session_obj.created_at else None,
-                    last_activity=session_obj.last_updated_at.isoformat() if session_obj.last_updated_at else None,
-                    ip_address=session_obj.ip_address,
-                    user_agent=session_obj.user_agent
-                )
-                for session_obj, first_name, last_name, email, role in active_sessions
-            ]
-
-    except Exception as e:
-        logger.error(f"Error fetching active sessions: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch active sessions"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Session management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/active-sessions",
+        headers={"Location": f"{backend_url}/api/v1/admin/active-sessions"}
+    )
 
 
 @router.post("/terminate-all-sessions")
 async def terminate_all_sessions(
-    user: User = Depends(require_permission("admin_panel", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
-    """Terminate all active user sessions (including current user's session)"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            from app.core.utils import DateTimeHelper
+    """Redirect to Backend Service for session termination"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Deactivate ALL active sessions (including current user's)
-            sessions_to_terminate = session.query(UserSession).filter(
-                UserSession.active == True
-            )
-
-            terminated_count = sessions_to_terminate.count()
-            sessions_to_terminate.update({
-                'active': False,
-                'last_updated_at': DateTimeHelper.now_utc()
-            })
-
-            session.commit()
-
-            logger.info(f"Admin {user.email} terminated {terminated_count} user sessions")
-
-            return {
-                "message": f"Successfully terminated {terminated_count} user sessions",
-                "terminated_count": terminated_count
-            }
-
-    except Exception as e:
-        logger.error(f"Error terminating all sessions: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to terminate all sessions"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Session management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/terminate-all-sessions",
+        headers={"Location": f"{backend_url}/api/v1/admin/terminate-all-sessions"}
+    )
 
 
 @router.post("/terminate-session/{session_id}")
 async def terminate_user_session(
     session_id: int,
-    user: User = Depends(require_permission("admin_panel", "execute"))
+    user: UserData = Depends(require_admin_authentication)
 ):
-    """Terminate a specific user session"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            from app.core.utils import DateTimeHelper
+    """Redirect to Backend Service for session termination"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    backend_url = settings.BACKEND_SERVICE_URL
 
-            # Find the session to terminate
-            user_session = session.query(UserSession).filter(
-                and_(
-                    UserSession.id == session_id,
-                    UserSession.active == True
-                )
-            ).first()
-
-            if not user_session:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Session not found or already terminated"
-                )
-
-            # Get session user info for logging
-            session_user = session.query(User).filter(User.id == user_session.user_id).first()
-
-            # Deactivate the session
-            user_session.active = False
-            user_session.last_updated_at = DateTimeHelper.now_utc()
-
-            session.commit()
-
-            logger.info(f"Admin {user.email} terminated session {session_id} for user {session_user.email if session_user else 'unknown'}")
-
-            return {
-                "message": "Session terminated successfully",
-                "session_id": session_id,
-                "terminated_user": session_user.email if session_user else "unknown"
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error terminating session {session_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to terminate session"
-        )
+    raise HTTPException(
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        detail=f"Session management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/terminate-session/{session_id}",
+        headers={"Location": f"{backend_url}/api/v1/admin/terminate-session/{session_id}"}
+    )
 

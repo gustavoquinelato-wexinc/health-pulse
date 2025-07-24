@@ -1,26 +1,22 @@
-import React from 'react'
 import { motion } from 'framer-motion'
-import { useAuth } from '../contexts/AuthContext'
-import { useTheme } from '../contexts/ThemeContext'
+import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
-import Sidebar from '../components/Sidebar'
-import DashboardGrid from '../components/DashboardGrid'
-import ColorSchemaPanel from '../components/ColorSchemaPanel'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function HomePage() {
-  const { user } = useAuth()
+  const { user: _user } = useAuth()
 
   return (
     <div className="min-h-screen bg-primary">
       {/* Header */}
       <Header />
-      
+
       <div className="flex">
-        {/* Sidebar */}
-        <Sidebar />
-        
+        {/* Collapsed Sidebar */}
+        <CollapsedSidebar />
+
         {/* Main Content */}
-        <main className="flex-1 p-6 ml-64">
+        <main className="flex-1 p-6 ml-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -30,18 +26,12 @@ export default function HomePage() {
             {/* Welcome Section */}
             <div className="space-y-2">
               <h1 className="text-3xl font-bold text-primary">
-                Welcome back, {user?.name || user?.email}! 👋
+                Welcome to Pulse Platform! 👋
               </h1>
               <p className="text-secondary">
-                Here's your analytics dashboard showcasing the modern design system
+                Your engineering analytics dashboard
               </p>
             </div>
-
-            {/* Dashboard Grid */}
-            <DashboardGrid />
-            
-            {/* Color Schema Panel */}
-            <ColorSchemaPanel />
           </motion.div>
         </main>
       </div>

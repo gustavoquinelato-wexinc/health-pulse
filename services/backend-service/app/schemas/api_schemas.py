@@ -1,27 +1,17 @@
 """
-Pydantic schemas for API requests and responses.
-Defines data models for REST API input and output.
+Pydantic schemas for Backend Service API requests and responses.
+Defines data models for authentication, user management, and admin APIs.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 from datetime import datetime
-from enum import Enum
-
-
-class JobStatus(str, Enum):
-    """Possible job statuses."""
-    NOT_STARTED = "not_started"
-    RUNNING = "running"
-    SUCCESS = "success"
-    ERROR = "error"
-    CANCELLED = "cancelled"
 
 
 class HealthResponse(BaseModel):
     """Response for health check."""
     status: str = "healthy"
-    message: str = "ETL Service is running"
+    message: str = "Backend Service is running"
     database_status: str
     database_message: str
     version: str
@@ -32,209 +22,65 @@ class HealthResponse(BaseModel):
         }
 
 
-class JobRunRequest(BaseModel):
-    """Request to execute a job."""
-    force_full_sync: Optional[bool] = Field(
-        default=False,
-        description="If True, forces complete sync ignoring last sync date",
-        example=False
-    )
-    projects: Optional[List[str]] = Field(
-        default=None,
-        description="List of project keys to synchronize. If None, syncs all",
-        example=["PROJ", "TEST", "DEMO"]
-    )
-    include_dev_data: Optional[bool] = Field(
-        default=True,
-        description="If True, includes development data extraction",
-        example=True
-    )
+# Authentication and User Management Schemas
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "force_full_sync": False,
-                "projects": ["PROJ", "TEST"],
-                "include_dev_data": True
-            }
-        }
+class LoginRequest(BaseModel):
+    """Request for user login."""
+    email: str = Field(description="User email address")
+    password: str = Field(description="User password")
 
+class LoginResponse(BaseModel):
+    """Response for successful login."""
+    success: bool = Field(default=True, description="Login success status")
+    token: str = Field(description="JWT authentication token")
+    user: Dict = Field(description="User information")
 
-class JobRunResponse(BaseModel):
-    """Response for job execution."""
-    job_id: str = Field(description="Unique ID of the executed job")
-    status: JobStatus
-    message: str
-    started_at: datetime
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+class TokenValidationResponse(BaseModel):
+    """Response for token validation."""
+    valid: bool = Field(description="Whether the token is valid")
+    user: Optional[Dict] = Field(description="User information if token is valid")
 
+# Admin API Schemas
 
-class JobStatusResponse(BaseModel):
-    """Response for job status."""
-    job_id: str
-    status: JobStatus
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    issues_processed: Optional[int] = None
-    commits_extracted: Optional[int] = None
-    pull_requests_extracted: Optional[int] = None
-    errors: Optional[List[str]] = None
-    progress_percentage: Optional[float] = None
-    current_step: Optional[str] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+class UserCreateRequest(BaseModel):
+    """Request to create a new user."""
+    email: str = Field(description="User email address")
+    password: str = Field(description="User password")
+    first_name: Optional[str] = Field(description="User first name")
+    last_name: Optional[str] = Field(description="User last name")
+    role: str = Field(description="User role")
+    is_admin: bool = Field(default=False, description="Whether user is admin")
 
+class UserUpdateRequest(BaseModel):
+    """Request to update user information."""
+    first_name: Optional[str] = Field(description="User first name")
+    last_name: Optional[str] = Field(description="User last name")
+    role: Optional[str] = Field(description="User role")
+    is_admin: Optional[bool] = Field(description="Whether user is admin")
+    active: Optional[bool] = Field(description="Whether user is active")
 
-# Note: Individual job scheduling schemas removed
-# Only the orchestrator is scheduled - individual jobs are triggered by the orchestrator
+# Session Management Schemas
 
+class SessionResponse(BaseModel):
+    """Response for session information."""
+    session_id: int
+    user_id: int
+    email: str
+    login_time: Optional[str] = None
+    last_activity: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    active: bool
 
-class IntegrationInfo(BaseModel):
-    """Information about an integration."""
-    id: int
-    name: str
-    url: str
-    username: Optional[str] = None
-    last_sync_at: Optional[datetime] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-class ProjectInfo(BaseModel):
-    """Information about a project."""
-    id: int
-    key: str
-    name: str
-    integration_id: int
-    tool_internal_id: Optional[int] = None
-
-
-class IssueInfo(BaseModel):
-    """Information about an issue."""
-    id: int
-    key: str
-    summary: str
-    project_id: Optional[int] = None
-    issuetype_id: Optional[int] = None
-    status_id: Optional[int] = None
-    assignee: Optional[str] = None
-    created: Optional[datetime] = None
-    updated: Optional[datetime] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-class CommitInfo(BaseModel):
-    """Information about a commit."""
-    sha: str
-    issue_id: int
-    repository_url: Optional[str] = None
-    author_name: Optional[str] = None
-    message: Optional[str] = None
-    commit_date: Optional[datetime] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-class PullRequestInfo(BaseModel):
-    """Information about a pull request."""
-    id: int
-    issue_id: int
-    status: Optional[str] = None
-    author_name: Optional[str] = None
-    title: Optional[str] = None
-    url: Optional[str] = None
-    pr_created_at: Optional[datetime] = None
-    merged_at: Optional[datetime] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-class DataSummaryResponse(BaseModel):
-    """Response with data summary in the system."""
-    integrations_count: int
-    projects_count: int
-    issues_count: int
-    commits_count: int
-    pull_requests_count: int
-    last_sync_at: Optional[datetime] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
+# Error Response Schema
 
 class ErrorResponse(BaseModel):
     """Standard response for errors."""
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
-    
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
-
-
-class DatabaseStatsResponse(BaseModel):
-    """Response with database statistics."""
-    tables: Dict[str, int] = Field(description="Record count per table")
-    last_updated: datetime
-    database_size_mb: Optional[float] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-# Schemas for listing with pagination
-class PaginationParams(BaseModel):
-    """Pagination parameters."""
-    page: int = Field(default=1, ge=1, description="Page number")
-    page_size: int = Field(default=50, ge=1, le=1000, description="Page size")
-
-
-class IssuesListResponse(BaseModel):
-    """Response for issues listing."""
-    issues: List[IssueInfo]
-    total_count: int
-    page: int
-    page_size: int
-
-
-class CommitsListResponse(BaseModel):
-    """Response for commits listing."""
-    commits: List[CommitInfo]
-    total_count: int
-    page: int
-    page_size: int
-
-
-class PullRequestsListResponse(BaseModel):
-    """Response for pull requests listing."""
-    pull_requests: List[PullRequestInfo]
-    total_count: int
-    page: int
-    page_size: int

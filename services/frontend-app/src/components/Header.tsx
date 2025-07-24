@@ -1,23 +1,50 @@
-import React, { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
+
+const quickActions = [
+  { name: 'Run ETL Job', icon: '🚀', action: () => console.log('Run ETL Job') },
+  { name: 'Generate Report', icon: '📊', action: () => console.log('Generate Report') }
+]
+
+const recentItems = [
+  'Q4 Performance Review',
+  'Team Velocity Analysis',
+  'Deployment Frequency Report'
+]
 
 export default function Header() {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showQuickActions, setShowQuickActions] = useState(false)
+  const [showRecentItems, setShowRecentItems] = useState(false)
 
   return (
     <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
       {/* Logo and Title */}
       <div className="flex items-center space-x-4">
-        <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-violet-600 rounded-lg flex items-center justify-center">
-          <span className="text-sm font-bold text-white">P</span>
+        {/* WEX Logo */}
+        <div className="h-8">
+          <img
+            src="/wex-logo-image.png"
+            alt="WEX Logo"
+            className="h-full object-contain"
+          />
         </div>
-        <div>
-          <h1 className="text-lg font-semibold text-primary">Pulse Analytics</h1>
-          <p className="text-xs text-muted">Modern Dashboard</p>
+
+        {/* Divider */}
+        <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+
+        {/* Pulse Brand */}
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-violet-600 rounded-lg flex items-center justify-center">
+            <span className="text-sm font-bold text-white">P</span>
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-primary">Pulse</h1>
+          </div>
         </div>
       </div>
 
@@ -39,6 +66,86 @@ export default function Header() {
 
       {/* Right Side Actions */}
       <div className="flex items-center space-x-4">
+        {/* Quick Actions */}
+        <div className="relative">
+          <motion.button
+            onClick={() => setShowQuickActions(!showQuickActions)}
+            className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="Quick Actions"
+          >
+            <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </motion.button>
+
+          {/* Quick Actions Dropdown */}
+          {showQuickActions && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="absolute right-0 mt-2 w-48 card p-2 space-y-1"
+            >
+              <div className="px-3 py-2 border-b border-default">
+                <p className="text-sm font-medium text-primary">Quick Actions</p>
+              </div>
+              {quickActions.map((action, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    action.action()
+                    setShowQuickActions(false)
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-secondary hover:bg-tertiary rounded-md transition-colors flex items-center space-x-2"
+                >
+                  <span>{action.icon}</span>
+                  <span>{action.name}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </div>
+
+        {/* Recent Items */}
+        <div className="relative">
+          <motion.button
+            onClick={() => setShowRecentItems(!showRecentItems)}
+            className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors relative"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="Recent Items"
+          >
+            <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+          </motion.button>
+
+          {/* Recent Items Dropdown */}
+          {showRecentItems && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="absolute right-0 mt-2 w-64 card p-2 space-y-1"
+            >
+              <div className="px-3 py-2 border-b border-default">
+                <p className="text-sm font-medium text-primary">Recent</p>
+              </div>
+              {recentItems.map((item, index) => (
+                <button
+                  key={index}
+                  onClick={() => setShowRecentItems(false)}
+                  className="w-full text-left px-3 py-2 text-sm text-secondary hover:bg-tertiary rounded-md transition-colors flex items-center space-x-2"
+                >
+                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                  <span className="truncate">{item}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </div>
+
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
@@ -48,18 +155,6 @@ export default function Header() {
           aria-label="Toggle theme"
         >
           {theme === 'light' ? '🌙' : '☀️'}
-        </motion.button>
-
-        {/* Notifications */}
-        <motion.button
-          className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors relative"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM9 7h6m0 0V3m0 4l4-4M9 7L5 3m4 4v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2z" />
-          </svg>
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full text-xs"></span>
         </motion.button>
 
         {/* User Menu */}

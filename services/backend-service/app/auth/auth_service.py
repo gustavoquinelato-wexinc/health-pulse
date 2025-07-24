@@ -36,7 +36,8 @@ class AuthService:
         self.token_expiry = timedelta(minutes=expire_minutes)
         self.database = get_database()
 
-        # Log token expiry configuration
+        # Debug: Log the JWT secret key being used
+        logger.info(f"🔑 Backend Service JWT_SECRET_KEY: {self.jwt_secret}")
         logger.info(f"JWT token expiry configured: {expire_minutes} minutes ({self.token_expiry})")
     
     async def authenticate_local(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
@@ -148,37 +149,57 @@ class AuthService:
     async def invalidate_session(self, token: str) -> bool:
         """Invalidate a user session"""
         try:
+            logger.info(f"🔄 Invalidating session for token: {token[:50]}...")
             with self.database.get_session_context() as session:
                 token_hash = self._hash_token(token)
+                logger.info(f"🔍 Looking for session with token_hash: {token_hash[:50]}...")
+
+                # Count total sessions
+                total_sessions = session.query(UserSession).count()
+                active_sessions = session.query(UserSession).filter(UserSession.active == True).count()
+                logger.info(f"📊 Total sessions: {total_sessions}, Active sessions: {active_sessions}")
+
                 user_session = session.query(UserSession).filter(
                     UserSession.token_hash == token_hash
                 ).first()
 
                 if user_session:
+                    logger.info(f"✅ Found session for user_id: {user_session.user_id}, active: {user_session.active}")
                     # Mark session as inactive instead of deleting for audit purposes
                     user_session.active = False
                     user_session.last_updated_at = DateTimeHelper.now_utc()
                     session.commit()
-                    logger.info(f"Session invalidated for user: {user_session.user_id}")
+                    logger.info(f"✅ Session invalidated for user: {user_session.user_id}")
                     return True
+                else:
+                    logger.warning(f"❌ No session found with token_hash: {token_hash[:50]}...")
+                    # Debug: Show all active sessions
+                    all_active = session.query(UserSession).filter(UserSession.active == True).all()
+                    for s in all_active:
+                        logger.info(f"🔍 Active session: user_id={s.user_id}, token_hash={s.token_hash[:50]}...")
 
                 return False
 
         except Exception as e:
             logger.error(f"Session invalidation error: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     async def _create_session(self, user: User, session: Session, ip_address: str = None, user_agent: str = None) -> Dict[str, Any]:
-        """Create JWT session for user"""
+        """Create JWT session for user - allows multiple concurrent sessions"""
         try:
-            # Clean up any existing sessions for this user (both active and inactive)
-            # This ensures only one active session per user at a time
-            deleted_count = session.query(UserSession).filter(
-                UserSession.user_id == user.id
+            # Clean up only expired sessions for this user (allow multiple active sessions)
+            from sqlalchemy import and_
+            expired_sessions = session.query(UserSession).filter(
+                and_(
+                    UserSession.user_id == user.id,
+                    UserSession.expires_at <= DateTimeHelper.now_utc()
+                )
             ).delete()
 
-            if deleted_count > 0:
-                logger.info(f"Cleaned up {deleted_count} existing sessions for user {user.id} during login")
+            if expired_sessions > 0:
+                logger.info(f"Cleaned up {expired_sessions} expired sessions for user {user.id} during login")
 
             # Create JWT payload
             payload = {
@@ -191,7 +212,10 @@ class AuthService:
             }
 
             # Generate JWT token
+            logger.info(f"🔑 Creating JWT token with secret: {self.jwt_secret}")
+            logger.info(f"🔑 JWT payload: {payload}")
             token = jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
+            logger.info(f"🔑 Generated JWT token: {token[:50]}...")
 
             # Store session in database
             token_hash = self._hash_token(token)
