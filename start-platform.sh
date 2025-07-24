@@ -76,15 +76,15 @@ start_all() {
     docker-compose ps
     
     print_header "🌐 Access URLs:"
-    echo -e "  Frontend:     ${GREEN}http://localhost:3001${NC}"
-    echo -e "  Backend API:  ${GREEN}http://localhost:3000${NC}"
-    echo -e "  ETL Service:  ${GREEN}http://localhost:8000${NC}"
-    echo -e "  AI Service:   ${GREEN}http://localhost:8001${NC}"
+    echo -e "  Frontend:           ${GREEN}http://localhost:5173${NC}"
+    echo -e "  Backend Service:    ${GREEN}http://localhost:3001${NC}"
+    echo -e "  ETL Service:        ${GREEN}http://localhost:8000${NC}"
+    echo -e "  AI Service:         ${GREEN}http://localhost:8001${NC}"
     echo ""
     echo -e "  API Docs:"
-    echo -e "    ETL:        ${BLUE}http://localhost:8000/docs${NC}"
-    echo -e "    AI:         ${BLUE}http://localhost:8001/docs${NC}"
-    echo -e "    Backend:    ${BLUE}http://localhost:3000/api-docs${NC}"
+    echo -e "    Backend Service:   ${BLUE}http://localhost:3001/docs${NC}"
+    echo -e "    ETL Service:       ${BLUE}http://localhost:8000/docs${NC}"
+    echo -e "    AI Service:        ${BLUE}http://localhost:8001/docs${NC}"
 }
 
 # Function to start individual service
@@ -98,30 +98,30 @@ start_service() {
     case $service in
         "etl"|"etl-service")
             print_status "Starting ETL Service..."
-            docker-compose up -d etl-service redis postgres
+            docker-compose up -d etl redis postgres
             print_status "ETL Service available at: http://localhost:8000"
             print_status "API Documentation: http://localhost:8000/docs"
             ;;
         "ai"|"ai-service")
             print_status "Starting AI Service..."
-            docker-compose up -d ai-service
+            docker-compose up -d ai
             print_status "AI Service available at: http://localhost:8001"
             print_status "API Documentation: http://localhost:8001/docs"
             ;;
         "backend"|"backend-service")
             print_status "Starting Backend Service..."
             docker-compose up -d backend-service postgres redis
-            print_status "Backend Service available at: http://localhost:3000"
-            print_status "API Documentation: http://localhost:3000/api-docs"
+            print_status "Backend Service available at: http://localhost:3001"
+            print_status "API Documentation: http://localhost:3001/docs"
             ;;
         "frontend"|"frontend-app")
             print_status "Starting Frontend App..."
-            docker-compose up -d frontend-app
-            print_status "Frontend App available at: http://localhost:3001"
+            docker-compose up -d frontend
+            print_status "Frontend App available at: http://localhost:5173"
             ;;
         *)
             print_error "Unknown service: $service"
-            print_status "Available services: etl, ai, backend, frontend"
+            print_status "Available services: etl, ai, analytics, frontend"
             exit 1
             ;;
     esac
@@ -163,31 +163,31 @@ show_status() {
     print_status "Service Health Checks:"
     
     # Check ETL Service
-    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-        echo -e "  ETL Service:     ${GREEN}✓ Healthy${NC} (http://localhost:8000)"
+    if curl -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
+        echo -e "  ETL Service:        ${GREEN}✓ Healthy${NC} (http://localhost:8000)"
     else
-        echo -e "  ETL Service:     ${RED}✗ Unhealthy${NC}"
+        echo -e "  ETL Service:        ${RED}✗ Unhealthy${NC}"
     fi
-    
+
+    # Check Backend Service
+    if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
+        echo -e "  Backend Service:    ${GREEN}✓ Healthy${NC} (http://localhost:3001)"
+    else
+        echo -e "  Backend Service:    ${RED}✗ Unhealthy${NC}"
+    fi
+
     # Check AI Service
     if curl -s http://localhost:8001/health > /dev/null 2>&1; then
-        echo -e "  AI Service:      ${GREEN}✓ Healthy${NC} (http://localhost:8001)"
+        echo -e "  AI Service:         ${GREEN}✓ Healthy${NC} (http://localhost:8001)"
     else
-        echo -e "  AI Service:      ${RED}✗ Unhealthy${NC}"
+        echo -e "  AI Service:         ${RED}✗ Unhealthy${NC}"
     fi
-    
-    # Check Backend Service
-    if curl -s http://localhost:3000/health > /dev/null 2>&1; then
-        echo -e "  Backend Service: ${GREEN}✓ Healthy${NC} (http://localhost:3000)"
-    else
-        echo -e "  Backend Service: ${RED}✗ Unhealthy${NC}"
-    fi
-    
+
     # Check Frontend App
-    if curl -s http://localhost:3001 > /dev/null 2>&1; then
-        echo -e "  Frontend App:    ${GREEN}✓ Healthy${NC} (http://localhost:3001)"
+    if curl -s http://localhost:5173 > /dev/null 2>&1; then
+        echo -e "  Frontend App:       ${GREEN}✓ Healthy${NC} (http://localhost:5173)"
     else
-        echo -e "  Frontend App:    ${RED}✗ Unhealthy${NC}"
+        echo -e "  Frontend App:       ${RED}✗ Unhealthy${NC}"
     fi
 }
 
@@ -207,13 +207,14 @@ show_help() {
     echo ""
     echo "Services:"
     echo "  etl               ETL Service (Port 8000)"
+    echo "  backend           Backend Service (Port 3001)"
     echo "  ai                AI Service (Port 8001)"
-    echo "  backend           Backend Service (Port 3000)"
-    echo "  frontend          Frontend App (Port 3001)"
+    echo "  frontend          Frontend App (Port 5173)"
     echo ""
     echo "Examples:"
     echo "  $0 start                 # Start all services"
     echo "  $0 start etl            # Start only ETL service"
+    echo "  $0 start backend        # Start only Backend Service"
     echo "  $0 logs backend         # Show backend service logs"
     echo "  $0 status               # Show all service status"
 }

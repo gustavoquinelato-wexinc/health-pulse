@@ -76,9 +76,9 @@ POSTGRES_USER=pulse_user
 POSTGRES_PASSWORD=secure_password
 
 # Security Configuration
-SECRET_KEY=your-super-secure-jwt-key-256-bits
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+JWT_SECRET_KEY=your-super-secure-jwt-key-256-bits
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 
 # External API Configuration
 JIRA_BASE_URL=https://your-domain.atlassian.net
@@ -209,7 +209,8 @@ metadata:
 type: Opaque
 data:
   POSTGRES_PASSWORD: <base64-encoded-password>
-  SECRET_KEY: <base64-encoded-jwt-key>
+  JWT_SECRET_KEY: <base64-encoded-jwt-key>
+  SECRET_KEY: <base64-encoded-secret-key>
   JIRA_API_TOKEN: <base64-encoded-jira-token>
   GITHUB_TOKEN: <base64-encoded-github-token>
 ```
@@ -318,9 +319,9 @@ spec:
 ### **Health Checks**
 ```bash
 # Service health endpoints
-curl http://localhost:8000/health    # ETL Service
-curl http://localhost:3001/health    # Backend Service
-curl http://localhost:8001/health    # AI Service
+curl http://localhost:8000/api/v1/health    # ETL Service
+curl http://localhost:3001/health           # Backend Service
+curl http://localhost:8001/health           # AI Service
 ```
 
 ### **Logging**

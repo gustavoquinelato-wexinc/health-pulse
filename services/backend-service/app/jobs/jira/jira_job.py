@@ -1,0 +1,591 @@
+"""
+Jira Passive Job
+
+Implements the Jira sync portion of the Active/Passive Job Model.
+This job:
+1. Extracts all relevant issues from Jira
+2. For each issue, calls the /dev_status endpoint
+3. Stores raw dev_status JSON in JiraDevDetailsStaging table
+4. On success: Sets GitHub job to PENDING and itself to FINISHED
+5. On failure: Sets itself to PENDING with checkpoint data
+"""
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.core.logging_config import get_logger
+from app.core.config import AppConfig, get_settings
+from app.core.utils import DateTimeHelper
+from app.core.websocket_manager import get_websocket_manager
+
+from app.models.unified_models import JobSchedule, Integration, Issue
+from typing import Dict, Any, Optional, List
+from enum import Enum
+import asyncio
+
+
+class JiraExecutionMode(Enum):
+    """Jira job execution modes."""
+    ISSUETYPES = "issuetypes"      # Extract issue types and projects only
+    STATUSES = "statuses"          # Extract statuses and project links only
+    ISSUES = "issues"              # Extract issues, changelogs, dev_status
+    CUSTOM_QUERY = "custom_query"  # Execute custom JQL query
+    ALL = "all"                    # Full extraction (current production behavior)
+import os
+
+logger = get_logger(__name__)
+
+
+async def execute_jira_extraction_by_mode(
+    session, jira_integration, jira_client, job_schedule,
+    execution_mode: JiraExecutionMode, custom_query: Optional[str], target_projects: Optional[List[str]],
+    update_sync_timestamp: bool = True, update_job_schedule: bool = True
+) -> Dict[str, Any]:
+    """
+    Execute Jira extraction based on the specified mode.
+
+    Args:
+        session: Database session
+        jira_integration: Jira integration instance
+        jira_client: Jira API client
+        job_schedule: Job schedule instance
+        execution_mode: Execution mode
+        custom_query: Custom JQL query (for custom_query mode)
+        target_projects: Target projects filter
+
+    Returns:
+        Extraction result dictionary
+    """
+    try:
+        if execution_mode == JiraExecutionMode.ISSUETYPES:
+            logger.info("Executing ISSUETYPES mode - extracting issue types and projects")
+            from app.jobs.jira.jira_extractors import extract_projects_and_issuetypes
+            from app.core.logging_config import JobLogger
+            job_logger = JobLogger("jira_sync")
+            result = extract_projects_and_issuetypes(session, jira_client, jira_integration, job_logger)
+            return {'success': True, **result}
+
+        elif execution_mode == JiraExecutionMode.STATUSES:
+            logger.info("Executing STATUSES mode - extracting statuses and project links")
+            from app.jobs.jira.jira_extractors import extract_projects_and_statuses
+            from app.core.logging_config import JobLogger
+            job_logger = JobLogger("jira_sync")
+            result = extract_projects_and_statuses(session, jira_client, jira_integration, job_logger)
+            return {'success': True, **result}
+
+        elif execution_mode == JiraExecutionMode.ISSUES:
+            logger.info("Executing ISSUES mode - extracting issues, changelogs, and dev_status")
+            from app.jobs.jira.jira_extractors import extract_work_items_and_changelogs
+            from app.core.logging_config import JobLogger
+            job_logger = JobLogger("jira_sync")
+            websocket_manager = get_websocket_manager()
+            result = await extract_work_items_and_changelogs(
+                session, jira_client, jira_integration, job_logger,
+                websocket_manager=websocket_manager,
+                update_sync_timestamp=update_sync_timestamp
+            )
+            return {'success': True, **result}
+
+        elif execution_mode == JiraExecutionMode.CUSTOM_QUERY:
+            logger.info("Executing CUSTOM_QUERY mode - using provided JQL query")
+            if not custom_query:
+                return {'success': False, 'error': 'Custom query mode requires a JQL query'}
+            return await extract_jira_custom_query(session, jira_integration, jira_client, job_schedule, custom_query, update_sync_timestamp)
+
+        elif execution_mode == JiraExecutionMode.ALL:
+            logger.info("Executing ALL mode - full extraction (production behavior)")
+            return await extract_jira_issues_and_dev_status(session, jira_integration, jira_client, job_schedule)
+
+        else:
+            return {'success': False, 'error': f'Unknown execution mode: {execution_mode}'}
+
+    except Exception as e:
+        logger.error(f"Error in Jira extraction mode {execution_mode}: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def extract_jira_custom_query(session, jira_integration, jira_client, job_schedule, custom_query: str, update_sync_timestamp: bool = True) -> Dict[str, Any]:
+    """
+    Extract Jira issues using a custom JQL query.
+
+    Args:
+        session: Database session
+        jira_integration: Jira integration instance
+        jira_client: Jira API client
+        job_schedule: Job schedule instance
+        custom_query: Custom JQL query string
+
+    Returns:
+        Extraction result dictionary
+    """
+    try:
+        logger.info(f"Executing custom JQL query: {custom_query}")
+
+        from app.jobs.jira.jira_extractors import extract_work_items_and_changelogs
+        from app.core.logging_config import JobLogger
+
+        job_logger = JobLogger("jira_sync")
+        websocket_manager = get_websocket_manager()
+
+        # Store original JQL query method and replace with custom query
+        original_get_issues = jira_client.get_issues_updated_since
+
+        def custom_get_issues(start_date=None, max_results=50, start_at=0):
+            """Custom issues getter that uses the provided JQL query."""
+            try:
+                # Use the custom query instead of the default date-based query
+                import requests
+                response = requests.get(
+                    f"{jira_client.base_url}/rest/api/2/search",
+                    auth=(jira_client.username, jira_client.token),
+                    params={
+                        'jql': custom_query,
+                        'maxResults': max_results,
+                        'startAt': start_at,
+                        'expand': 'changelog',
+                        'fields': 'key,summary,description,status,assignee,reporter,creator,priority,labels,components,versions,fixVersions,issuetype,project,created,updated,resolutiondate,resolution,environment,attachment,customfield_10020'
+                    },
+                    timeout=30
+                )
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                logger.error(f"Error executing custom JQL query: {e}")
+                raise
+
+        # Temporarily replace the method
+        jira_client.get_issues_updated_since = custom_get_issues
+
+        try:
+            # Execute the extraction with the custom query
+            result = await extract_work_items_and_changelogs(
+                session, jira_client, jira_integration, job_logger,
+                start_date=None,  # Not used with custom query
+                websocket_manager=websocket_manager,
+                update_sync_timestamp=update_sync_timestamp
+            )
+
+            logger.info(f"Custom query extraction completed: {result.get('issues_processed', 0)} issues processed")
+            return {'success': True, **result}
+
+        finally:
+            # Restore original method
+            jira_client.get_issues_updated_since = original_get_issues
+
+    except Exception as e:
+        logger.error(f"Error in custom JQL query extraction: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def run_jira_sync(
+    session: Session,
+    job_schedule: JobSchedule,
+    execution_mode: JiraExecutionMode = JiraExecutionMode.ALL,
+    custom_query: Optional[str] = None,
+    target_projects: Optional[List[str]] = None,
+    update_sync_timestamp: bool = True,
+    update_job_schedule: bool = True
+):
+    """
+    Main Jira sync function with execution mode support.
+
+    Args:
+        session: Database session
+        job_schedule: JobSchedule record for this job
+        execution_mode: Execution mode (issuetypes, statuses, issues, custom_query, all)
+        custom_query: Custom JQL query (for custom_query mode)
+        target_projects: Specific projects to process (optional filter)
+        update_sync_timestamp: Whether to update integration.last_sync_at (default: True)
+        update_job_schedule: Whether to update job_schedule.status (default: True)
+    """
+    try:
+        logger.info(f"Starting Jira sync job (ID: {job_schedule.id}, Mode: {execution_mode.value})")
+
+        # Send status update that job is running
+        if update_job_schedule:
+            from app.core.websocket_manager import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.send_status_update(
+                "jira_sync",
+                "RUNNING",
+                {"message": "Jira sync job is now running"}
+            )
+
+        # Log execution parameters
+        if execution_mode == JiraExecutionMode.CUSTOM_QUERY:
+            logger.info(f"Custom JQL Query: {custom_query}")
+        if target_projects:
+            logger.info(f"Target Projects: {target_projects}")
+
+        # Get Jira integration
+        jira_integration = session.query(Integration).filter(
+            func.upper(Integration.name) == "JIRA"
+        ).first()
+
+        if not jira_integration:
+            error_msg = "No Jira integration found. Please run initialize_integrations.py first."
+            logger.error(f"ERROR: {error_msg}")
+            job_schedule.set_pending_with_checkpoint(error_msg)
+            session.commit()
+            return
+        
+        # Setup Jira client
+        from app.jobs.jira import JiraAPIClient
+        
+        key = AppConfig.load_key()
+        jira_token = AppConfig.decrypt_token(jira_integration.password, key)
+        jira_client = JiraAPIClient(
+            username=jira_integration.username,
+            token=jira_token,
+            base_url=get_settings().JIRA_URL
+        )
+        
+        # Execute based on mode
+        result = await execute_jira_extraction_by_mode(
+            session, jira_integration, jira_client, job_schedule,
+            execution_mode, custom_query, target_projects,
+            update_sync_timestamp, update_job_schedule
+        )
+        
+        if result['success']:
+            # Success: Handle job status transitions based on GitHub job status
+            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+
+            if github_job and github_job.status == 'PAUSED':
+                # GitHub is PAUSED: Keep Jira as PENDING for next run
+                job_schedule.status = 'PENDING'
+                logger.info(f"   • GitHub job is PAUSED - keeping Jira job as PENDING")
+            else:
+                # GitHub is not PAUSED: Set GitHub to PENDING and Jira to FINISHED
+                if github_job:
+                    github_job.status = 'PENDING'
+                job_schedule.set_finished()
+
+                # Reset retry attempts and restore normal schedule on success
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.reset_retry_attempts('jira_sync')
+                orchestrator_scheduler.restore_normal_schedule()
+
+                logger.info(f"   • GitHub job set to PENDING, Jira job set to FINISHED")
+
+                # Send status update that job is finished
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "jira_sync",
+                    "FINISHED",
+                    {"message": "Jira sync job completed successfully"}
+                )
+
+            session.commit()
+
+            logger.info(f"Jira sync completed successfully")
+            logger.info(f"   • Issues processed: {result['issues_processed']}")
+            logger.info(f"   • PR links created: {result['pr_links_created']}")
+            
+        else:
+            # Failure: Set this job back to PENDING with checkpoint
+            error_msg = result.get('error', 'Unknown error')
+            checkpoint = result.get('last_processed_updated_at')
+
+            job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
+            session.commit()
+
+            # Schedule fast retry if enabled
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+
+            # Send status update that job failed and is now pending
+            from app.core.websocket_manager import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.send_status_update(
+                "jira_sync",
+                "PENDING",
+                {"message": f"Jira sync failed - {error_msg[:100]}..."}
+            )
+
+            # Send error progress update (short message for progress bar)
+            await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync failed - check Issues & Warnings below")
+
+            logger.error(f"Jira sync failed: {error_msg}")
+            if checkpoint:
+                logger.info(f"   • Checkpoint saved: {checkpoint}")
+            if fast_retry_scheduled:
+                retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+                logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
+
+    except Exception as e:
+        logger.error(f"Jira sync job error: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # Send error progress update (short message for progress bar)
+        from app.core.websocket_manager import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync error - check Issues & Warnings below")
+
+        # Set job back to PENDING on unexpected error
+        job_schedule.set_pending_with_checkpoint(str(e))
+
+        # Schedule fast retry if enabled
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+
+        session.commit()
+
+        if fast_retry_scheduled:
+            retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+            logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
+
+
+async def extract_jira_issues_and_dev_status(session: Session, integration: Integration, jira_client, job_schedule: JobSchedule) -> Dict[str, Any]:
+    """
+    Extract Jira issues and their dev_status data.
+
+    Args:
+        session: Database session
+        integration: Jira integration object
+        jira_client: Jira API client
+        job_schedule: Job schedule for checkpoint management
+
+    Returns:
+        Dictionary with extraction results
+    """
+    try:
+        from app.jobs.jira.jira_extractors import extract_projects_and_issuetypes, extract_projects_and_statuses, extract_work_items_and_changelogs
+        from app.core.logging_config import JobLogger
+
+        job_logger = JobLogger("jira_sync")
+        websocket_manager = get_websocket_manager()
+
+        # Clear any previous progress and notify start
+        websocket_manager.clear_job_progress("jira_sync")
+        
+        # Step 1: Extract projects and issue types
+        logger.info("Step 1: Extracting projects and issue types...")
+        await websocket_manager.send_progress_update("jira_sync", 10.0, "Extracting projects and issue types...")
+        projects_result = extract_projects_and_issuetypes(session, jira_client, integration, job_logger)
+        if not projects_result.get('projects_processed', 0):
+            logger.warning("No projects found or processed")
+            await websocket_manager.send_exception("jira_sync", "WARNING", "No projects found or processed")
+
+        # Step 2: Extract projects and statuses
+        logger.info("Step 2: Extracting projects and statuses...")
+        await websocket_manager.send_progress_update("jira_sync", 20.0, "Extracting projects and statuses...")
+        statuses_result = extract_projects_and_statuses(session, jira_client, integration, job_logger)
+        if not statuses_result.get('statuses_processed', 0):
+            logger.warning("No statuses found or processed")
+            await websocket_manager.send_exception("jira_sync", "WARNING", "No statuses found or processed")
+
+        # Step 3: Extract issues and changelogs
+        logger.info("Step 3: Extracting issues and changelogs...")
+        await websocket_manager.send_progress_update("jira_sync", 30.0, "Extracting issues and changelogs...")
+
+        # Determine start date for incremental sync
+        start_date = job_schedule.last_repo_sync_checkpoint or integration.last_sync_at
+        if not start_date:
+            # Default to 30 days ago for first run
+            from datetime import timedelta
+            start_date = DateTimeHelper.now_utc() - timedelta(days=30)
+
+        # Start the extraction with periodic progress updates
+        await websocket_manager.send_progress_update("jira_sync", 35.0, "Starting issue and changelog processing...")
+
+        # Run the extraction (progress updates are handled within the extractors)
+        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager)
+
+        if not issues_result['success']:
+            return {
+                'success': False,
+                'error': f"Issues extraction failed: {issues_result.get('error', 'Unknown error')}",
+                'issues_processed': 0,
+                'pr_links_created': 0
+            }
+
+        # Send progress update after issues and changelogs are processed
+        issues_processed = issues_result.get('issues_processed', 0)
+        changelogs_processed = issues_result.get('changelogs_processed', 0)
+        await websocket_manager.send_progress_update(
+            "jira_sync",
+            50.0,
+            f"Completed processing {issues_processed:,} issues and {changelogs_processed:,} changelogs"
+        )
+
+        # Step 3.5: Issues and changelogs completed
+        await websocket_manager.send_progress_update("jira_sync", 45.0, f"Processed {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs")
+
+        # Step 4: Extract dev_status and create PR links
+        logger.info("Step 4: Extracting dev_status data and creating PR links...")
+        await websocket_manager.send_progress_update("jira_sync", 50.0, "Extracting dev_status data and creating PR links...")
+
+        # Get issues with code_changed = True from the current extraction
+        # Use hybrid approach: current extraction + recently updated issues
+        current_issue_keys = set(issues_result.get('issue_keys', []))
+
+        # Get recently updated issues with code changes (since last sync)
+        recent_code_changed_issues = []
+        if integration.last_sync_at:
+            recent_code_changed_issues = session.query(Issue.key).filter(
+                Issue.integration_id == integration.id,
+                Issue.code_changed == True,
+                Issue.last_updated_at > integration.last_sync_at
+            ).all()
+
+        recent_keys = {issue.key for issue in recent_code_changed_issues}
+        all_keys_to_process = current_issue_keys | recent_keys
+
+        # Get the actual Issue objects for processing
+        issues_with_code_changes = session.query(Issue).filter(
+            Issue.integration_id == integration.id,
+            Issue.key.in_(all_keys_to_process),
+            Issue.code_changed == True
+        ).all()
+
+        logger.info(f"Found {len(issues_with_code_changes)} issues with code changes")
+        logger.info(f"   • From current extraction: {len(current_issue_keys)}")
+        logger.info(f"   • Recently updated: {len(recent_keys)}")
+        total_issues = len(issues_with_code_changes)
+
+        pr_links_created = 0
+        dev_status_skipped = 0
+        issues_processed = 0
+
+        for issue in issues_with_code_changes:
+            try:
+                if not issue.external_id:
+                    logger.warning(f"Issue {issue.key} has no external_id, skipping")
+                    continue
+
+                # Delete existing PR links for this issue (as per your requirement)
+                from app.models.unified_models import JiraPullRequestLinks
+                existing_links_count = session.query(JiraPullRequestLinks).filter(
+                    JiraPullRequestLinks.issue_id == issue.id
+                ).count()
+
+                if existing_links_count > 0:
+                    logger.debug(f"Issue {issue.key}: Deleting {existing_links_count} existing PR links")
+
+                session.query(JiraPullRequestLinks).filter(
+                    JiraPullRequestLinks.issue_id == issue.id
+                ).delete()
+
+                # Fetch dev_status data from Jira
+                dev_details = jira_client.get_issue_dev_details(issue.external_id)
+                if dev_details:
+                    # Import here to avoid circular imports
+                    from app.jobs.jira.jira_extractors import has_useful_dev_status_data, extract_pr_links_from_dev_status
+
+                    # Filter: Only process if contains actual PR or repository data
+                    if has_useful_dev_status_data(dev_details):
+                        # Debug: Log the dev_status structure for the first few issues (DEBUG level only)
+                        if issues_processed < 3:
+                            logger.debug(f"Issue {issue.key} dev_status structure: {dev_details}")
+
+                        # Extract PR links from dev_status data
+                        pr_links = extract_pr_links_from_dev_status(dev_details)
+
+                        # Log only every 10th issue to reduce noise
+                        if issues_processed % 10 == 0 or len(pr_links) > 0:
+                            logger.debug(f"Issue {issue.key}: Extracted {len(pr_links)} PR links from dev_status")
+
+                        # Create JiraPullRequestLinks records
+                        for pr_link in pr_links:
+                            logger.debug(f"Creating PR link: Issue {issue.key} -> Repo {pr_link['repo_full_name']} PR #{pr_link['pr_number']}")
+                            link_record = JiraPullRequestLinks(
+                                issue_id=issue.id,
+                                external_repo_id=pr_link['repo_id'],
+                                repo_full_name=pr_link['repo_full_name'],
+                                pull_request_number=pr_link['pr_number'],
+                                branch_name=pr_link.get('branch'),
+                                commit_sha=pr_link.get('commit'),
+                                pr_status=pr_link.get('status'),
+                                client_id=integration.client_id,
+                                active=True
+                            )
+                            session.add(link_record)
+                            pr_links_created += 1
+
+                        # Log creation only for issues with many PR links (reduce noise)
+                        if len(pr_links) > 2:
+                            logger.info(f"Created {len(pr_links)} PR links for issue {issue.key}")
+                    else:
+                        dev_status_skipped += 1
+                        logger.debug(f"Skipped dev_status for issue {issue.key} (no useful data)")
+                else:
+                    dev_status_skipped += 1
+                    logger.debug(f"No dev_status data for issue {issue.key}")
+
+                issues_processed += 1
+
+                # Update progress every 10 issues
+                if issues_processed % 10 == 0:
+                    progress = 50.0 + (issues_processed / total_issues) * 40.0  # 50% to 90%
+                    percentage = (issues_processed / total_issues) * 100 if total_issues > 0 else 0
+                    await websocket_manager.send_progress_update(
+                        "jira_sync",
+                        progress,
+                        f"Processing dev_status: {issues_processed:,} of {total_issues:,} issues ({percentage:.1f}%)"
+                    )
+                    logger.info(f"Processed dev_status for {issues_processed}/{total_issues} issues")
+                    session.commit()  # Commit periodically
+
+            except Exception as e:
+                error_msg = f"Error processing dev_status for issue {issue.key}: {e}"
+                logger.error(error_msg)
+                await websocket_manager.send_exception("jira_sync", "ERROR", error_msg, str(e))
+                continue
+
+        # Final commit
+        session.commit()
+
+        # Summary of dev_status processing
+        logger.info(f"Dev_status processing complete: {issues_processed} issues processed, {pr_links_created} PR links created, {dev_status_skipped} issues skipped")
+
+        # Verify PR links were saved
+        from app.models.unified_models import JiraPullRequestLinks
+        total_pr_links_in_db = session.query(JiraPullRequestLinks).filter(
+            JiraPullRequestLinks.client_id == integration.client_id
+        ).count()
+        logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.client_id}")
+
+        # Step 5: All processing completed - send final progress update
+        await websocket_manager.send_progress_update("jira_sync", 100.0, f"✅ Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
+
+        # Small delay to ensure progress update is processed before completion notification
+        import asyncio
+        await asyncio.sleep(0.5)
+
+        # Send completion notification
+        await websocket_manager.send_completion(
+            "jira_sync",
+            True,
+            {
+                'issues_processed': issues_result['issues_processed'],
+                'changelogs_processed': issues_result['changelogs_processed'],
+                'pr_links_created': pr_links_created
+            }
+        )
+
+        logger.info(f"Jira extraction completed")
+        logger.info(f"   • Issues processed: {issues_result['issues_processed']}")
+        logger.info(f"   • Changelogs processed: {issues_result['changelogs_processed']}")
+        logger.info(f"   • PR links created: {pr_links_created}")
+        logger.info(f"   • Dev status items skipped (empty): {dev_status_skipped}")
+
+        return {
+            'success': True,
+            'issues_processed': issues_result['issues_processed'],
+            'changelogs_processed': issues_result['changelogs_processed'],
+            'pr_links_created': pr_links_created
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in Jira extraction: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'issues_processed': 0,
+            'pr_links_created': 0
+        }
