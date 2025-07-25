@@ -3,7 +3,7 @@ Unified data models for ETL Service.
 Based on existing snowflake_db_manager.py model with additions for development data.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text
 from sqlalchemy.orm import declarative_base, relationship
 from typing import Dict, Any
 
@@ -28,7 +28,7 @@ class Client(Base):
     issuetypes = relationship("Issuetype", back_populates="client")
     statuses = relationship("Status", back_populates="client")
     status_mappings = relationship("StatusMapping", back_populates="client")
-    flow_steps = relationship("FlowStep", back_populates="client")
+    workflows = relationship("Workflow", back_populates="client")
     issuetype_mappings = relationship("IssuetypeMapping", back_populates="client")
     issuetype_hierarchies = relationship("IssuetypeHierarchy", back_populates="client")
     issues = relationship("Issue", back_populates="client")
@@ -38,10 +38,21 @@ class Client(Base):
     pull_request_reviews = relationship("PullRequestReview", back_populates="client")
     pull_request_commits = relationship("PullRequestCommit", back_populates="client")
     pull_request_comments = relationship("PullRequestComment", back_populates="client")
+    jira_pull_request_links = relationship("JiraPullRequestLinks", back_populates="client")
+    system_settings = relationship("SystemSettings", back_populates="client")
 
 
 class BaseEntity:
-    """Base class with audit fields for all entities."""
+    """Base class with audit fields for client-level entities (no integration)."""
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, quote=False, name="client_id")
+    active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
+    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+
+class IntegrationBaseEntity:
+    """Base class with audit fields for integration-specific entities."""
+    integration_id = Column(Integer, ForeignKey('integrations.id'), nullable=False, quote=False, name="integration_id")
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, quote=False, name="client_id")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
@@ -127,14 +138,25 @@ class Integration(Base, BaseEntity):
     issuetypes = relationship("Issuetype", back_populates="integration")
     statuses = relationship("Status", back_populates="integration")
     issues = relationship("Issue", back_populates="integration")
+    issue_changelogs = relationship("IssueChangelog", back_populates="integration")
+    workflows = relationship("Workflow", back_populates="integration")
+    repositories = relationship("Repository", back_populates="integration")
+    pull_requests = relationship("PullRequest", back_populates="integration")
+    pull_request_reviews = relationship("PullRequestReview", back_populates="integration")
+    pull_request_commits = relationship("PullRequestCommit", back_populates="integration")
+    pull_request_comments = relationship("PullRequestComment", back_populates="integration")
+    jira_pull_request_links = relationship("JiraPullRequestLinks", back_populates="integration")
+    job_schedules = relationship("JobSchedule", back_populates="integration")
+    status_mappings = relationship("StatusMapping", back_populates="integration")
+    issuetype_hierarchies = relationship("IssuetypeHierarchy", back_populates="integration")
+    issuetype_mappings = relationship("IssuetypeMapping", back_populates="integration")
 
-class Project(Base, BaseEntity):
+class Project(Base, IntegrationBaseEntity):
     """Projects table"""
     __tablename__ = 'projects'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     key = Column(String, quote=False, unique=True, nullable=False, name="key")
     name = Column(String, quote=False, nullable=False, name="name")
@@ -163,13 +185,12 @@ class ProjectsStatuses(Base):
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
 
-class Issuetype(Base, BaseEntity):
+class Issuetype(Base, IntegrationBaseEntity):
     """Issue types table"""
     __tablename__ = 'issuetypes'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
     issuetype_mapping_id = Column(Integer, ForeignKey('issuetype_mappings.id'), quote=False, nullable=True, name="issuetype_mapping_id")
@@ -183,7 +204,7 @@ class Issuetype(Base, BaseEntity):
     issuetype_mapping = relationship("IssuetypeMapping", back_populates="issuetypes")
     issues = relationship("Issue", back_populates="issuetype")
 
-class StatusMapping(Base, BaseEntity):
+class StatusMapping(Base, IntegrationBaseEntity):
     """Status Mapping table - maps raw status names to standardized flow steps"""
     __tablename__ = 'status_mappings'
     __table_args__ = {'quote': False}
@@ -192,14 +213,15 @@ class StatusMapping(Base, BaseEntity):
     status_from = Column(String, quote=False, nullable=False, name="status_from")
     status_to = Column(String, quote=False, nullable=False, name="status_to")
     status_category = Column(String, quote=False, nullable=False, name="status_category")
-    flow_step_id = Column(Integer, ForeignKey('flow_steps.id'), quote=False, nullable=True, name="flow_step_id")
+    workflow_id = Column(Integer, ForeignKey('workflows.id'), quote=False, nullable=True, name="workflow_id")
 
     # Relationships
     client = relationship("Client", back_populates="status_mappings")
-    flow_step = relationship("FlowStep", back_populates="status_mappings")
+    integration = relationship("Integration", back_populates="status_mappings")
+    workflow = relationship("Workflow", back_populates="status_mappings")
     statuses = relationship("Status", back_populates="status_mapping")
 
-class IssuetypeHierarchy(Base, BaseEntity):
+class IssuetypeHierarchy(Base, IntegrationBaseEntity):
     """Issue Type Hierarchies table - defines hierarchy levels and their properties"""
     __tablename__ = 'issuetype_hierarchies'
     __table_args__ = {'quote': False}
@@ -211,10 +233,11 @@ class IssuetypeHierarchy(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="issuetype_hierarchies")
+    integration = relationship("Integration", back_populates="issuetype_hierarchies")
     issuetype_mappings = relationship("IssuetypeMapping", back_populates="issuetype_hierarchy")
 
 
-class IssuetypeMapping(Base, BaseEntity):
+class IssuetypeMapping(Base, IntegrationBaseEntity):
     """Issue Type Mapping table - maps raw issue type names to standardized issue types"""
     __tablename__ = 'issuetype_mappings'
     __table_args__ = {'quote': False}
@@ -226,30 +249,37 @@ class IssuetypeMapping(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="issuetype_mappings")
+    integration = relationship("Integration", back_populates="issuetype_mappings")
     issuetypes = relationship("Issuetype", back_populates="issuetype_mapping")
     issuetype_hierarchy = relationship("IssuetypeHierarchy", back_populates="issuetype_mappings")
 
-class FlowStep(Base, BaseEntity):
-    """Flow Steps table - client-specific workflow steps"""
-    __tablename__ = 'flow_steps'
-    __table_args__ = {'quote': False}
+class Workflow(Base, IntegrationBaseEntity):
+    """Workflows table - client and integration-specific workflow steps"""
+    __tablename__ = 'workflows'
+    __table_args__ = (
+        # Ensure only one commitment point per client/integration combination
+        Index('idx_unique_commitment_point_per_client_integration', 'client_id', 'integration_id',
+              postgresql_where=text('is_commitment_point = true')),
+        {'quote': False}
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    name = Column(String, quote=False, nullable=False, name="name")  # Renamed from mapped_name
+    step_name = Column(String, quote=False, nullable=False, name="step_name")  # Renamed from name
     step_number = Column(Integer, quote=False, nullable=True, name="step_number")
     step_category = Column(String, quote=False, nullable=False, name="step_category")
+    is_commitment_point = Column(Boolean, quote=False, nullable=False, default=False, name="is_commitment_point")  # Commitment point for lead time calculation
 
     # Relationships
-    client = relationship("Client", back_populates="flow_steps")
-    status_mappings = relationship("StatusMapping", back_populates="flow_step")
+    client = relationship("Client", back_populates="workflows")
+    integration = relationship("Integration", back_populates="workflows")
+    status_mappings = relationship("StatusMapping", back_populates="workflow")
 
-class Status(Base, BaseEntity):
+class Status(Base, IntegrationBaseEntity):
     """Statuses table"""
     __tablename__ = 'statuses'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
     status_mapping_id = Column(Integer, ForeignKey('status_mappings.id'), quote=False, nullable=True, name="status_mapping_id")
@@ -263,13 +293,12 @@ class Status(Base, BaseEntity):
     status_mapping = relationship("StatusMapping", back_populates="statuses")
     issues = relationship("Issue", back_populates="status")
 
-class Issue(Base, BaseEntity):
+class Issue(Base, IntegrationBaseEntity):
     """Main issues table"""
     __tablename__ = 'issues'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     external_id = Column(String, quote=False, name="external_id")
     key = Column(String, quote=False, name="key")
     project_id = Column(Integer, ForeignKey('projects.id'), quote=False, name="project_id")
@@ -283,10 +312,6 @@ class Issue(Base, BaseEntity):
     labels = Column(String, quote=False, name="labels")
     created = Column(DateTime, quote=False, name="created")
     updated = Column(DateTime, quote=False, name="updated")
-
-    # Legacy columns (keep temporarily for validation)
-    started = Column(DateTime, quote=False, name="started")
-    completed = Column(DateTime, quote=False, name="completed")
 
     # Enhanced workflow timing columns
     work_first_committed_at = Column(DateTime, quote=False, name="work_first_committed_at")
@@ -351,13 +376,12 @@ class Issue(Base, BaseEntity):
     changelogs = relationship("IssueChangelog", back_populates="issue")
     pr_links = relationship("JiraPullRequestLinks", back_populates="issue")
 
-class IssueChangelog(Base, BaseEntity):
+class IssueChangelog(Base, IntegrationBaseEntity):
     """Issue status change history table"""
     __tablename__ = 'issue_changelogs'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    integration_id = Column(Integer, ForeignKey('integrations.id'), quote=False, nullable=False, name="integration_id")
     issue_id = Column(Integer, ForeignKey('issues.id'), quote=False, nullable=False, name="issue_id")
     external_id = Column(String, quote=False, name="external_id")  # e.g., "BEX-123-456"
 
@@ -375,12 +399,12 @@ class IssueChangelog(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="changelogs")
-    integration = relationship("Integration")
+    integration = relationship("Integration", back_populates="issue_changelogs")
     issue = relationship("Issue", back_populates="changelogs")
     from_status = relationship("Status", foreign_keys=[from_status_id])
     to_status = relationship("Status", foreign_keys=[to_status_id])
 
-class Repository(Base, BaseEntity):
+class Repository(Base, IntegrationBaseEntity):
     """Repositories table"""
     __tablename__ = 'repositories'
     __table_args__ = {'quote': False}
@@ -401,9 +425,10 @@ class Repository(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="repositories")
+    integration = relationship("Integration", back_populates="repositories")
     pull_requests = relationship("PullRequest", back_populates="repository")
 
-class PullRequest(Base, BaseEntity):
+class PullRequest(Base, IntegrationBaseEntity):
     """Pull Requests table - can be updated by both Jira and GitHub integrations"""
     __tablename__ = 'pull_requests'
     __table_args__ = {'quote': False}
@@ -441,13 +466,14 @@ class PullRequest(Base, BaseEntity):
     repository = relationship("Repository", back_populates="pull_requests")
     issue = relationship("Issue", back_populates="pull_requests")
     client = relationship("Client", back_populates="pull_requests")
+    integration = relationship("Integration", back_populates="pull_requests")
 
     # New relationships for detailed PR conversation tracking
     reviews = relationship("PullRequestReview", back_populates="pull_request")
     commits = relationship("PullRequestCommit", back_populates="pull_request")
     comments = relationship("PullRequestComment", back_populates="pull_request")
 
-class PullRequestReview(Base, BaseEntity):
+class PullRequestReview(Base, IntegrationBaseEntity):
     """Pull Request Reviews table - stores each formal review submission"""
     __tablename__ = 'pull_request_reviews'
     __table_args__ = {'quote': False}
@@ -463,8 +489,9 @@ class PullRequestReview(Base, BaseEntity):
     # Relationships
     pull_request = relationship("PullRequest", back_populates="reviews")
     client = relationship("Client", back_populates="pull_request_reviews")
+    integration = relationship("Integration", back_populates="pull_request_reviews")
 
-class PullRequestCommit(Base, BaseEntity):
+class PullRequestCommit(Base, IntegrationBaseEntity):
     """Pull Request Commits table - stores each individual commit associated with a PR"""
     __tablename__ = 'pull_request_commits'
     __table_args__ = {'quote': False}
@@ -483,8 +510,9 @@ class PullRequestCommit(Base, BaseEntity):
     # Relationships
     pull_request = relationship("PullRequest", back_populates="commits")
     client = relationship("Client", back_populates="pull_request_commits")
+    integration = relationship("Integration", back_populates="pull_request_commits")
 
-class PullRequestComment(Base, BaseEntity):
+class PullRequestComment(Base, IntegrationBaseEntity):
     """Pull Request Comments table - stores all comments made on the PR's main thread and on specific lines of code"""
     __tablename__ = 'pull_request_comments'
     __table_args__ = {'quote': False}
@@ -504,8 +532,9 @@ class PullRequestComment(Base, BaseEntity):
     # Relationships
     pull_request = relationship("PullRequest", back_populates="comments")
     client = relationship("Client", back_populates="pull_request_comments")
+    integration = relationship("Integration", back_populates="pull_request_comments")
 
-class SystemSettings(Base):
+class SystemSettings(Base, BaseEntity):
     """
     System-wide configuration settings stored in database.
 
@@ -525,9 +554,8 @@ class SystemSettings(Base):
     setting_type = Column(String, nullable=False, default='string', quote=False, name="setting_type")  # 'string', 'integer', 'boolean', 'json'
     description = Column(String, nullable=True, quote=False, name="description")
 
-    # Audit fields
-    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
-    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+    # Relationships
+    client = relationship("Client", back_populates="system_settings")
 
     def get_typed_value(self):
         """Returns the setting value converted to its proper type."""
@@ -554,7 +582,7 @@ class SystemSettings(Base):
             self.setting_value = str(value)
 
 
-class JobSchedule(Base, BaseEntity):
+class JobSchedule(Base, IntegrationBaseEntity):
     """
     Orchestration table for managing ETL job execution with state management.
 
@@ -570,7 +598,7 @@ class JobSchedule(Base, BaseEntity):
 
     # Job identification
     job_name = Column(String, unique=True, nullable=False, quote=False, name="job_name")  # 'jira_sync', 'github_sync'
-    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED', 'PAUSED'
+    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED', 'PAUSED', 'INACTIVE'
 
     # Checkpoint management for graceful failure recovery
     last_repo_sync_checkpoint = Column(DateTime, nullable=True, quote=False, name="last_repo_sync_checkpoint")
@@ -592,7 +620,8 @@ class JobSchedule(Base, BaseEntity):
     error_message = Column(Text, nullable=True, quote=False, name="error_message")
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
 
-
+    # Relationships
+    integration = relationship("Integration", back_populates="job_schedules")
 
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
@@ -617,8 +646,6 @@ class JobSchedule(Base, BaseEntity):
             self.last_comment_cursor is not None,
             self.last_review_thread_cursor is not None
         ])
-        self.error_message = None
-        self.retry_count = 0
 
     def set_running(self):
         """Mark job as running."""
@@ -798,7 +825,7 @@ class JobSchedule(Base, BaseEntity):
         return [repo for repo in queue if not repo.get("finished", False)]
 
 
-class JiraPullRequestLinks(Base, BaseEntity):
+class JiraPullRequestLinks(Base, IntegrationBaseEntity):
     """
     Permanent table storing Jira issue to PR links from dev_status API.
 
@@ -826,6 +853,8 @@ class JiraPullRequestLinks(Base, BaseEntity):
 
     # Relationships
     issue = relationship("Issue", back_populates="pr_links")
+    client = relationship("Client", back_populates="jira_pull_request_links")
+    integration = relationship("Integration", back_populates="jira_pull_request_links")
 
 class MigrationHistory(Base):
     """Migration history tracking table for database migrations."""

@@ -3,6 +3,7 @@ GitHub GraphQL Extractor
 Handles the core logic for extracting PR data using GraphQL with nested pagination.
 """
 
+import asyncio
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
@@ -18,7 +19,7 @@ from app.jobs.github.github_graphql_pagination import (
 logger = get_logger(__name__)
 
 
-def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLClient,
+async def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLClient,
                                        repository: Repository, owner: str, repo_name: str,
                                        integration: Integration, job_schedule: JobSchedule,
                                        websocket_manager=None) -> Dict[str, Any]:
@@ -105,7 +106,14 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
 
             import time
             start_time = time.time()
+
+            # Make GraphQL call with yielding to prevent UI blocking
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
+
+            # Yield control after API call to prevent UI blocking
+            import asyncio
+            await asyncio.sleep(0)
+
             request_time = time.time() - start_time
             logger.info(f"[{owner}/{repo_name}] GraphQL request completed in {request_time:.2f}s")
             
@@ -217,9 +225,20 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
                         bulk_reviews.clear()
                         bulk_comments.clear()
 
+                        # Yield control after bulk operations to prevent UI blocking
+                        await asyncio.sleep(0.01)  # 10ms yield
+
+                    # Yield control after each PR to keep UI responsive
+                    if prs_processed % 5 == 0:  # Yield every 5 PRs instead of 10
+                        await asyncio.sleep(0.003)  # 3ms yield
+
                     # Log progress every 10 PRs
                     if prs_processed % 10 == 0:
                         logger.info(f"[{owner}/{repo_name}] Processed {prs_processed} PRs so far...")
+
+                    # Yield control every 3 PRs to prevent UI blocking
+                    if prs_processed % 3 == 0:
+                        await asyncio.sleep(0)  # Yield control to prevent blocking
 
                 except Exception as e:
                     logger.error(f"[{owner}/{repo_name}] Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
@@ -234,6 +253,9 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
             prev_cursor = pr_cursor
             pr_cursor = page_info['endCursor']
             logger.info(f"[{owner}/{repo_name}] Page completed, moving to next page: prev_cursor={prev_cursor} -> next_cursor={pr_cursor}")
+
+            # Yield control between pages to keep UI responsive
+            await asyncio.sleep(0.02)  # 20ms yield between pages
 
         # Final bulk insert for remaining data
         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
@@ -305,7 +327,7 @@ def process_repository_prs_with_graphql(session: Session, graphql_client: GitHub
         }
 
 
-def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLClient, 
+async def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLClient,
                                                 repository: Repository, owner: str, repo_name: str,
                                                 integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -389,8 +411,12 @@ def process_repository_prs_with_graphql_recovery(session: Session, graphql_clien
                     'message': f'Rate limit reached during recovery, processed {prs_processed} PRs, state saved'
                 }
             
-            # Fetch batch of PRs with nested data
+            # Fetch batch of PRs with nested data with yielding
             response = graphql_client.get_pull_requests_with_details(owner, repo_name, pr_cursor)
+
+            # Yield control after API call to prevent UI blocking
+            import asyncio
+            await asyncio.sleep(0)
             
             if not response or 'data' not in response:
                 logger.error(f"Failed to fetch PR data for {owner}/{repo_name}")
@@ -828,6 +854,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'message': commit.message,
                     'authored_date': commit.authored_date,
                     'committed_date': commit.committed_date,
+                    'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
                     'client_id': commit.client_id,
                     'active': commit.active,
                     'created_at': commit.created_at,
@@ -847,6 +874,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'state': review.state,
                     'body': review.body,
                     'submitted_at': review.submitted_at,
+                    'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
                     'client_id': review.client_id,
                     'active': review.active,
                     'created_at': review.created_at,
@@ -867,6 +895,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'comment_type': comment.comment_type,
                     'created_at_github': comment.created_at_github,
                     'updated_at_github': comment.updated_at_github,
+                    'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
                     'client_id': comment.client_id,
                     'active': comment.active,
                     'created_at': comment.created_at,
@@ -887,6 +916,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'comment_type': comment.comment_type,
                     'created_at_github': comment.created_at_github,
                     'updated_at_github': comment.updated_at_github,
+                    'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
                     'client_id': comment.client_id,
                     'active': comment.active,
                     'created_at': comment.created_at,
@@ -957,14 +987,19 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                     prs_to_insert.append(pr_data)
 
             # Perform bulk operations
-            if prs_to_insert:
-                logger.info(f"{context_prefix}Bulk inserting {len(prs_to_insert)} new PRs...")
-                session.bulk_insert_mappings(PullRequest, prs_to_insert)
+            try:
+                if prs_to_insert:
+                    logger.info(f"{context_prefix}Bulk inserting {len(prs_to_insert)} new PRs...")
+                    session.bulk_insert_mappings(PullRequest, prs_to_insert)
 
-            if prs_to_update:
-                logger.info(f"{context_prefix}Updated {len(prs_to_update)} existing PRs...")
+                if prs_to_update:
+                    logger.info(f"{context_prefix}Updated {len(prs_to_update)} existing PRs...")
 
-            session.flush()  # Ensure PRs are processed before nested data
+                session.flush()  # Ensure PRs are processed before nested data
+            except Exception as e:
+                logger.error(f"{context_prefix}Error during PR bulk operations: {e}")
+                session.rollback()
+                raise  # Re-raise the exception to be handled by the calling function
 
         # Now we need to get the PR IDs for the nested data
         # We'll update the nested data with actual PR IDs
@@ -1018,17 +1053,23 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
 
         # Bulk insert nested data (fresh data after cleanup)
         context_prefix = f"[{repo_context}] " if repo_context else ""
-        if bulk_commits:
-            logger.info(f"{context_prefix}Bulk inserting {len(bulk_commits)} commits...")
-            session.bulk_insert_mappings(PullRequestCommit, bulk_commits)
+        try:
+            if bulk_commits:
+                logger.info(f"{context_prefix}Bulk inserting {len(bulk_commits)} commits...")
+                session.bulk_insert_mappings(PullRequestCommit, bulk_commits)
 
-        if bulk_reviews:
-            logger.info(f"{context_prefix}Bulk inserting {len(bulk_reviews)} reviews...")
-            session.bulk_insert_mappings(PullRequestReview, bulk_reviews)
+            if bulk_reviews:
+                logger.info(f"{context_prefix}Bulk inserting {len(bulk_reviews)} reviews...")
+                session.bulk_insert_mappings(PullRequestReview, bulk_reviews)
 
-        if bulk_comments:
-            logger.info(f"{context_prefix}Bulk inserting {len(bulk_comments)} comments...")
-            session.bulk_insert_mappings(PullRequestComment, bulk_comments)
+            if bulk_comments:
+                logger.info(f"{context_prefix}Bulk inserting {len(bulk_comments)} comments...")
+                session.bulk_insert_mappings(PullRequestComment, bulk_comments)
+
+        except Exception as e:
+            logger.error(f"{context_prefix}Error during bulk insert operations: {e}")
+            session.rollback()
+            raise  # Re-raise the exception to be handled by the calling function
 
         logger.info(f"{context_prefix}Bulk insert completed: {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
 

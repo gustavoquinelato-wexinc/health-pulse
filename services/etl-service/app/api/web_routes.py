@@ -186,9 +186,9 @@ async def issuetype_hierarchies_page(request: Request):
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/admin/flow-steps", response_class=HTMLResponse)
-async def flow_steps_page(request: Request):
-    """Serve flow steps management page"""
+@router.get("/admin/workflows", response_class=HTMLResponse)
+async def workflows_page(request: Request):
+    """Serve workflows management page"""
     try:
         # Get user from token (middleware ensures we're authenticated)
         token = request.cookies.get("pulse_token")
@@ -205,10 +205,10 @@ async def flow_steps_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("admin_flow_steps.html", {"request": request, "user": user})
+        return templates.TemplateResponse("admin_workflows.html", {"request": request, "user": user})
 
     except Exception as e:
-        logger.error(f"Flow steps page error: {e}")
+        logger.error(f"Workflows page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
@@ -412,14 +412,26 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
         logger.error(f"Error getting job schedule details for {job_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get job schedule details: {str(e)}")
 
+# Simple cache for GitHub rate limits
+_github_rate_limits_cache = {}
+
 @router.get("/api/v1/github/rate-limits")
 async def get_github_rate_limits(user: UserData = Depends(require_admin_authentication)):
-    """Get current GitHub API rate limits"""
+    """Get current GitHub API rate limits with caching"""
     try:
         from app.core.database import get_database
         from app.models.unified_models import Integration
         from app.core.config import AppConfig
         import requests
+        from datetime import datetime, timedelta
+
+        # Check cache first (2-minute TTL)
+        cache_key = "rate_limits"
+        if cache_key in _github_rate_limits_cache:
+            cached_data, cached_time = _github_rate_limits_cache[cache_key]
+            if datetime.now() - cached_time < timedelta(minutes=2):
+                logger.debug("Returning cached GitHub rate limits")
+                return cached_data
 
         database = get_database()
 
@@ -441,7 +453,12 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
                 'User-Agent': 'ETL-Service/1.0'
             }
 
-            response = requests.get('https://api.github.com/rate_limit', headers=headers)
+            # Make request with timeout to prevent hanging
+            response = requests.get(
+                'https://api.github.com/rate_limit',
+                headers=headers,
+                timeout=5  # 5 second timeout
+            )
 
             if not response.ok:
                 raise HTTPException(status_code=response.status_code, detail=f"GitHub API error: {response.text}")
@@ -456,8 +473,14 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
                 'timestamp': rate_limit_data.get('rate', {}).get('reset', None)
             }
 
+            # Cache the result
+            _github_rate_limits_cache[cache_key] = (filtered_data, datetime.now())
+
             return filtered_data
 
+    except requests.exceptions.Timeout:
+        logger.warning("GitHub rate limits request timed out")
+        raise HTTPException(status_code=408, detail="GitHub API request timed out")
     except HTTPException:
         raise
     except Exception as e:
@@ -466,21 +489,21 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 
 @router.get("/api/v1/jobs/status")
 async def get_jobs_status(user: UserData = Depends(verify_token)):
-    """Get current status of all jobs with detailed information"""
+    """Get current status of all jobs with optimized queries"""
     try:
         # Get basic job status
         status_data = get_job_status()
 
-        # Enhance with checkpoint data
+        # Enhance with checkpoint data using optimized query
         database = get_database()
         with database.get_session() as session:
+            # Get full job objects but only active ones
             jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
 
             for job in jobs:
                 if job.job_name in status_data:
-                    # Add checkpoint data
-                    checkpoint_state = job.get_checkpoint_state()
-                    status_data[job.job_name]['checkpoint_data'] = checkpoint_state
+                    # Add checkpoint data efficiently using the model method
+                    status_data[job.job_name]['checkpoint_data'] = job.get_checkpoint_state()
                     status_data[job.job_name]['active'] = job.active
 
         # Ensure consistent ordering: Jira first, then GitHub
@@ -645,15 +668,26 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
 
         database = get_database()
         with database.get_session() as session:
+            # Single optimized query for both jobs
+            jobs = session.query(
+                JobSchedule.job_name,
+                JobSchedule.id,
+                JobSchedule.status,
+                JobSchedule.last_success_at,
+                JobSchedule.error_message,
+                JobSchedule.retry_count
+            ).filter(
+                JobSchedule.job_name.in_(['jira_sync', 'github_sync']),
+                JobSchedule.active == True
+            ).all()
+
+            # Create a lookup dict for faster access
+            job_lookup = {job.job_name: job for job in jobs}
             jobs_status = {}
 
             for job_name in ['jira_sync', 'github_sync']:
-                job = session.query(JobSchedule).filter(
-                    JobSchedule.job_name == job_name,
-                    JobSchedule.active == True
-                ).first()
-
-                if job:
+                if job_name in job_lookup:
+                    job = job_lookup[job_name]
                     is_running = job.status == 'RUNNING'
 
                     jobs_status[job_name] = {

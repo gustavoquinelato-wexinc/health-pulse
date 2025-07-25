@@ -135,7 +135,8 @@ async def validate_token(request: Request):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "role": user.role,
-                    "is_admin": user.is_admin
+                    "is_admin": user.is_admin,
+                    "client_id": user.client_id  # ✅ Added missing client_id
                 }
             )
         else:
@@ -161,7 +162,8 @@ async def validate_service_token(user: User = Depends(require_authentication)):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "role": user.role,
-                "is_admin": user.is_admin
+                "is_admin": user.is_admin,
+                "client_id": user.client_id  # ✅ Added missing client_id
             }
         }
     except Exception as e:

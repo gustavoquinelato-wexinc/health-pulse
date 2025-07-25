@@ -63,6 +63,7 @@ class GitHubGraphQLProcessor:
                 'repo_updated_at': repo_updated_at,
                 'pushed_at': pushed_at,
                 'archived': repo_data.get('archived', False),
+                'integration_id': getattr(self.integration, 'id', None) if self.integration else None,
                 'client_id': getattr(self.integration, 'client_id', None) if self.integration else None,
                 'active': True,
                 'created_at': DateTimeHelper.now_utc(),
@@ -128,6 +129,7 @@ class GitHubGraphQLProcessor:
                 'first_review_at': None,  # Will be calculated from reviews
                 'rework_commit_count': 0,  # Will be calculated from commits
                 'review_cycles': 0,  # Will be calculated from reviews
+                'integration_id': getattr(self.integration, 'id', None) if self.integration else None,
                 'client_id': getattr(self.integration, 'client_id', None) if self.integration else None,
                 'active': True,
                 'created_at': DateTimeHelper.now_utc(),
@@ -175,6 +177,7 @@ class GitHubGraphQLProcessor:
                     message=commit_data.get('message'),
                     authored_date=authored_date,
                     committed_date=committed_date,
+                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
                     client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
                     active=True,
                     created_at=DateTimeHelper.now_utc(),
@@ -216,6 +219,7 @@ class GitHubGraphQLProcessor:
                     state=review_node.get('state'),
                     body=review_node.get('body'),
                     submitted_at=submitted_at,
+                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
                     client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
                     active=True,
                     created_at=DateTimeHelper.now_utc(),
@@ -267,6 +271,7 @@ class GitHubGraphQLProcessor:
                     line=comment_node.get('line'),  # Only for review comments
                     created_at_github=created_at_github,
                     updated_at_github=updated_at_github,
+                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
                     client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
                     active=True,
                     created_at=DateTimeHelper.now_utc(),

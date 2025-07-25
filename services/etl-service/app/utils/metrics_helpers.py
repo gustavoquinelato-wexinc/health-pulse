@@ -11,8 +11,8 @@ CRITICAL: All metrics calculations must use these helpers to ensure data integri
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.models.unified_models import (
-    Issue, Status, StatusMapping, FlowStep,
-    IssueType, IssuetypeMapping, IssuetypeHierarchy
+    Issue, Status, StatusMapping, Workflow,
+    Issuetype, IssuetypeMapping, IssuetypeHierarchy
 )
 
 
@@ -27,15 +27,15 @@ def get_active_issues_query(session: Session, include_inactive: bool = False):
     Returns:
         SQLAlchemy query object with proper active-only filtering
     """
-    query = session.query(Issue).join(Status).join(StatusMapping).join(FlowStep)
-    
+    query = session.query(Issue).join(Status).join(StatusMapping).join(Workflow)
+
     if not include_inactive:
         query = query.filter(
             and_(
                 Issue.active == True,
                 Status.active == True,
                 StatusMapping.active == True,
-                FlowStep.active == True
+                Workflow.active == True
             )
         )
     
@@ -54,17 +54,17 @@ def get_workflow_metrics(session: Session, include_inactive: bool = False):
         List of dictionaries with flow step metrics
     """
     query = session.query(
-        FlowStep.id,
-        FlowStep.name,
-        FlowStep.step_number,
-        FlowStep.step_category,
-        FlowStep.active.label('flow_step_active')
+        Workflow.id,
+        Workflow.step_name,
+        Workflow.step_number,
+        Workflow.step_category,
+        Workflow.active.label('workflow_active')
     ).join(StatusMapping).join(Status).join(Issue)
-    
+
     if not include_inactive:
         query = query.filter(
             and_(
-                FlowStep.active == True,
+                Workflow.active == True,
                 StatusMapping.active == True,
                 Status.active == True,
                 Issue.active == True
@@ -75,20 +75,20 @@ def get_workflow_metrics(session: Session, include_inactive: bool = False):
     from sqlalchemy import func
     query = query.add_column(func.count(Issue.id).label('issue_count'))
     query = query.group_by(
-        FlowStep.id, FlowStep.name, FlowStep.step_number, 
-        FlowStep.step_category, FlowStep.active
+        Workflow.id, Workflow.step_name, Workflow.step_number,
+        Workflow.step_category, Workflow.active
     )
-    query = query.order_by(FlowStep.step_number)
+    query = query.order_by(Workflow.step_number)
     
     results = query.all()
     
     return [
         {
-            'flow_step_id': result.id,
-            'flow_step_name': result.name,
+            'workflow_id': result.id,
+            'workflow_name': result.step_name,
             'step_number': result.step_number,
             'step_category': result.step_category,
-            'flow_step_active': result.flow_step_active,
+            'workflow_active': result.workflow_active,
             'issue_count': result.issue_count,
             'data_quality_note': 'Includes inactive chain data' if include_inactive else 'Active data only'
         }
@@ -162,13 +162,13 @@ def get_data_quality_report(session: Session):
     total_issues = session.query(Issue).count()
     active_chain_issues = get_active_issues_query(session, include_inactive=False).count()
     
-    # Count issues connected to inactive flow steps
-    inactive_flow_step_issues = session.query(Issue).join(Status).join(StatusMapping).join(FlowStep).filter(
+    # Count issues connected to inactive workflows
+    inactive_workflow_issues = session.query(Issue).join(Status).join(StatusMapping).join(Workflow).filter(
         and_(
             Issue.active == True,
             Status.active == True,
             StatusMapping.active == True,
-            FlowStep.active == False  # Flow step is inactive
+            Workflow.active == False  # Workflow is inactive
         )
     ).count()
     
@@ -194,7 +194,7 @@ def get_data_quality_report(session: Session):
         'active_chain_issues': active_chain_issues,
         'excluded_from_metrics': total_issues - active_chain_issues,
         'exclusion_breakdown': {
-            'inactive_flow_step_chain': inactive_flow_step_issues,
+            'inactive_workflow_chain': inactive_workflow_issues,
             'inactive_status_mapping_chain': inactive_mapping_issues,
             'inactive_status_chain': inactive_status_issues,
         },
@@ -241,12 +241,12 @@ METRICS_EXAMPLES = {
         from app.utils.metrics_helpers import validate_metrics_query
         
         # Your custom query here
-        query = session.query(Issue).join(Status).join(StatusMapping).join(FlowStep).filter(
+        query = session.query(Issue).join(Status).join(StatusMapping).join(Workflow).filter(
             and_(
                 Issue.active == True,
                 Status.active == True,
                 StatusMapping.active == True,
-                FlowStep.active == True,
+                Workflow.active == True,
                 # Your additional filters here
             )
         )

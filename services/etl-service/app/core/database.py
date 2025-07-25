@@ -9,6 +9,7 @@ from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
 from typing import Generator
 import logging
+import asyncio
 
 from app.core.config import get_settings
 from app.models.unified_models import Base
@@ -72,7 +73,45 @@ class PostgreSQLDatabase:
             raise
         finally:
             session.close()
-    
+
+    @contextmanager
+    def get_job_session_context(self) -> Generator[Session, None, None]:
+        """
+        Context manager for long-running job sessions with optimized settings.
+        Uses shorter timeouts and autocommit for better concurrency.
+        """
+        session = self.get_session()
+        try:
+            # Configure session for job execution
+            session.execute(text("SET statement_timeout = '30s'"))  # Prevent long-running queries
+            session.execute(text("SET idle_in_transaction_session_timeout = '60s'"))  # Prevent idle locks
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Job session error: {e}")
+            raise
+        finally:
+            session.close()
+
+    @contextmanager
+    def get_admin_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for admin operations with aggressive timeouts to prevent blocking."""
+        session = self.get_session()
+        try:
+            # Set aggressive timeouts for admin operations during job execution
+            session.execute(text("SET statement_timeout = '10s'"))  # Quick timeout for admin ops
+            session.execute(text("SET idle_in_transaction_session_timeout = '15s'"))  # Prevent idle locks
+            session.execute(text("SET lock_timeout = '5s'"))  # Don't wait long for locks
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Admin session error: {e}")
+            raise
+        finally:
+            session.close()
+
     def is_connection_alive(self) -> bool:
         """Checks if the connection is alive."""
         try:
@@ -168,3 +207,46 @@ def get_db_session() -> Generator[Session, None, None]:
     database = get_database()
     with database.get_session_context() as session:
         yield session
+
+
+async def get_async_job_session():
+    """
+    Get a database session optimized for async job execution.
+    Returns a session that can be used with asyncio.sleep() for yielding control.
+    """
+    database = get_database()
+    session = database.get_session()
+
+    try:
+        # Configure session for async job execution
+        session.execute(text("SET statement_timeout = '30s'"))
+        session.execute(text("SET idle_in_transaction_session_timeout = '60s'"))
+        return session
+    except Exception as e:
+        session.close()
+        raise e
+
+
+async def commit_async_session(session: Session):
+    """
+    Commit a session asynchronously, yielding control to the event loop.
+    """
+    try:
+        # Yield control before committing
+        await asyncio.sleep(0)
+        session.commit()
+        await asyncio.sleep(0)  # Yield control after commit
+    except Exception as e:
+        session.rollback()
+        raise e
+
+
+async def close_async_session(session: Session):
+    """
+    Close a session asynchronously, yielding control to the event loop.
+    """
+    try:
+        await asyncio.sleep(0)
+        session.close()
+    except Exception as e:
+        logger.error(f"Error closing async session: {e}")

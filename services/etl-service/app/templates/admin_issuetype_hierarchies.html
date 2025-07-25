@@ -134,8 +134,8 @@
                                 <i class="fas fa-layer-group me-2"></i>Issue Type Hierarchies
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/admin/flow-steps">
-                                <i class="fas fa-stream me-2"></i>Flow Steps
+                            <li><a class="dropdown-item" href="/admin/workflows">
+                                <i class="fas fa-stream me-2"></i>Workflows
                             </a></li>
                             <li><a class="dropdown-item" href="/admin/status-mappings">
                                 <i class="fas fa-exchange-alt me-2"></i>Status Mappings
@@ -188,18 +188,24 @@
                     <div class="card-body">
                         <!-- Search and Filters -->
                         <div class="row mb-3">
-                            <div class="col-md-4">
-                                <label for="searchHierarchy" class="form-label text-dark fw-bold">Search Hierarchies</label>
-                                <input type="text" class="form-control" id="searchHierarchy" placeholder="Type to search..." onkeyup="applyFilters()">
+                            <div class="col-lg-4 col-md-5">
+                                <label for="searchHierarchy" class="form-label text-dark fw-bold">Search Issue Type Hierarchies</label>
+                                <input type="text" class="form-control" id="searchHierarchy" placeholder="Search hierarchies..." onkeyup="applyFilters()">
                             </div>
-                            <div class="col-md-4">
-                                <label for="filterLevel" class="form-label text-dark fw-bold">Filter Level</label>
+                            <div class="col-lg-3 col-md-3">
+                                <label for="filterLevel" class="form-label text-dark fw-bold">Hierarchy Level</label>
                                 <select class="form-select" id="filterLevel" onchange="applyFilters()">
                                     <option value="">All Levels</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label for="filterActive" class="form-label text-dark fw-bold">Filter Status</label>
+                            <div class="col-lg-3 col-md-3">
+                                <label for="filterIntegration" class="form-label text-dark fw-bold">Integration</label>
+                                <select class="form-select" id="filterIntegration" onchange="applyFilters()">
+                                    <option value="">All Integrations</option>
+                                </select>
+                            </div>
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterActive" class="form-label text-dark fw-bold">Status</label>
                                 <select class="form-select" id="filterActive" onchange="applyFilters()">
                                     <option value="">All Statuses</option>
                                     <option value="true">Active</option>
@@ -220,6 +226,9 @@
                                         </th>
                                         <th class="sortable" onclick="sortTable('description')">
                                             Description <i class="fas fa-sort" id="sort-description"></i>
+                                        </th>
+                                        <th class="sortable text-center" onclick="sortTable('integration_name')">
+                                            Integration <i class="fas fa-sort" id="sort-integration_name"></i>
                                         </th>
                                         <th class="sortable text-center" onclick="sortTable('active')">
                                             Status <i class="fas fa-sort" id="sort-active"></i>
@@ -273,6 +282,13 @@
                             <label for="description" class="form-label">Description</label>
                             <textarea class="form-control" id="description" rows="3" placeholder="Optional description"></textarea>
                         </div>
+
+                        <div class="mb-3">
+                            <label for="integration" class="form-label">Integration</label>
+                            <select class="form-control" id="integration">
+                                <option value="">Select Integration</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -313,12 +329,77 @@
         // Global variables
         let issuetypeHierarchies = [];
         let filteredHierarchies = [];
+        let integrations = [];
         let editingHierarchyId = null;
         let currentSort = { column: 'level_name', direction: 'asc' };
+
+        // Load integrations
+        async function loadIntegrations() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch('/api/v1/admin/integrations', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    integrations = await response.json();
+                    populateIntegrationDropdown();
+                }
+            } catch (error) {
+                console.error('Error loading integrations:', error);
+            }
+        }
+
+        function populateIntegrationDropdown() {
+            const integrationSelect = document.getElementById('integration');
+            const filterSelect = document.getElementById('filterIntegration');
+
+            integrationSelect.innerHTML = '<option value="">Select Integration</option>';
+            filterSelect.innerHTML = '<option value="">All Integrations</option>';
+
+            integrations.forEach(integration => {
+                if (integration.active) {
+                    const option = new Option(integration.name, integration.id);
+                    const filterOption = new Option(integration.name, integration.name);
+                    integrationSelect.appendChild(option);
+                    filterSelect.appendChild(filterOption);
+                }
+            });
+        }
+
+        // Get integration icon and color
+        function getIntegrationIcon(integrationName) {
+            if (!integrationName) return '<i class="fas fa-plug text-secondary"></i>';
+
+            const name = integrationName.toUpperCase();
+            let icon = 'fas fa-plug';
+            let iconColor = 'text-secondary';
+
+            if (name === 'GITHUB') {
+                icon = 'fab fa-github';
+                iconColor = 'text-dark';
+            } else if (name === 'JIRA') {
+                icon = 'fab fa-atlassian';
+                iconColor = 'text-primary';
+            } else if (name === 'AHA!') {
+                icon = 'fas fa-lightbulb';
+                iconColor = 'text-warning';
+            } else if (name === 'AZURE DEVOPS') {
+                icon = 'fab fa-microsoft';
+                iconColor = 'text-info';
+            }
+
+            return `<i class="${icon} ${iconColor}"></i>`;
+        }
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', function () {
             loadIssuetypeHierarchies();
+            loadIntegrations();
             updateSortIndicators();
         });
 
@@ -456,6 +537,7 @@
                     <td><span class="hierarchy-badge ${hierarchyClass}">${hierarchy.level_name}</span></td>
                     <td>${hierarchy.level_number}</td>
                     <td>${hierarchy.description || '<em class="text-muted">No description</em>'}</td>
+                    <td class="text-center">${getIntegrationIcon(hierarchy.integration_name)}</td>
                     <td class="text-center">${statusBadge}</td>
                     <td class="text-end">
                         <button class="btn btn-sm btn-outline-primary me-1" onclick="editHierarchy(${hierarchy.id})" title="Edit">
@@ -476,6 +558,7 @@
             const searchTerm = document.getElementById('searchHierarchy').value.toLowerCase();
             const filterActive = document.getElementById('filterActive').value;
             const filterLevel = document.getElementById('filterLevel').value;
+            const filterIntegration = document.getElementById('filterIntegration').value;
 
             filteredHierarchies = issuetypeHierarchies.filter(hierarchy => {
                 const matchesSearch = !searchTerm ||
@@ -495,7 +578,10 @@
                     matchesLevel = hierarchy.level_number.toString() === filterLevel;
                 }
 
-                return matchesSearch && matchesActive && matchesLevel;
+                const matchesIntegration = !filterIntegration ||
+                    hierarchy.integration_name === filterIntegration;
+
+                return matchesSearch && matchesActive && matchesLevel && matchesIntegration;
             });
 
             // Re-apply current sort to filtered data
@@ -560,6 +646,10 @@
             editingHierarchyId = null;
             document.getElementById('hierarchyModalTitle').textContent = 'Add Hierarchy';
             document.getElementById('hierarchyForm').reset();
+
+            // Populate integration dropdown
+            populateIntegrationDropdown();
+
             new bootstrap.Modal(document.getElementById('hierarchyModal')).show();
         }
 
@@ -577,6 +667,7 @@
             document.getElementById('levelName').value = hierarchy.level_name;
             document.getElementById('levelNumber').value = hierarchy.level_number;
             document.getElementById('description').value = hierarchy.description || '';
+            document.getElementById('integration').value = hierarchy.integration_id || '';
 
             new bootstrap.Modal(document.getElementById('hierarchyModal')).show();
         }
@@ -988,6 +1079,7 @@
             const levelName = document.getElementById('levelName').value;
             const levelNumber = parseInt(document.getElementById('levelNumber').value);
             const description = document.getElementById('description').value;
+            const integrationId = document.getElementById('integration').value;
 
             if (!levelName || isNaN(levelNumber)) {
                 alert('Please fill in all required fields');
@@ -1001,7 +1093,8 @@
                 const data = {
                     level_name: levelName,
                     level_number: levelNumber,
-                    description: description || null
+                    description: description || null,
+                    integration_id: integrationId || null
                 };
 
                 let response;

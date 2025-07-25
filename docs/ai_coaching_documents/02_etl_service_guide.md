@@ -145,12 +145,19 @@ const refreshTimer = setInterval(() => {
 }
 ```
 
-## ⚙️ Flow Management
+## ⚙️ Workflow Management
 
-### **Status Mapping Architecture**
-- **Flow Steps**: Define workflow stages (To Do, In Progress, Done)
-- **Status Mappings**: Map Jira statuses to flow steps
-- **Issue Type Mappings**: Different flows for different issue types
+### **Workflow Architecture**
+- **Workflow Steps**: Define workflow stages (To Do, In Progress, Done, Discarded)
+- **Commitment Points**: Mark the initial commitment point for lead time calculation (Kanban principles)
+- **Integration Assignment**: Associate workflows with specific integrations or apply globally
+- **Status Mappings**: Map Jira statuses to workflow steps
+- **Issue Type Mappings**: Different workflows for different issue types
+
+### **Commitment Point Validation**
+- Only one commitment point allowed per client/integration combination
+- Validation occurs at both frontend and backend levels
+- Clear error messages guide users to resolve conflicts
 
 ### **Dependency Management**
 ```python

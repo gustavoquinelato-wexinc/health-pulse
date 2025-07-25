@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflows - Pulse ETL Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .admin-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+        }
+        .stats-card {
+            transition: transform 0.2s ease-in-out;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stats-card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Sortable column styles */
+        .sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sortable:hover {
+            background-color: #e9ecef;
+        }
+
+        .sortable i {
+            margin-left: 5px;
+            opacity: 0.5;
+        }
+
+        .sortable.sort-asc i:before {
+            content: "\f0de";
+            opacity: 1;
+        }
+
+        .sortable.sort-desc i:before {
+            content: "\f0dd";
+            opacity: 1;
+        }
+
+        /* Category badge colors */
+        .category-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .category-todo {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .category-inprogress {
+            background-color: #0d6efd;
+            color: white;
+        }
+
+        .category-waiting {
+            background-color: #ffc107;
+            color: black;
+        }
+
+        .category-done {
+            background-color: #198754;
+            color: white;
+        }
+
+        .category-discarded {
+            background-color: #dc3545;
+            color: white;
+        }
+
+
+
+        /* Modal styles */
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .modal-header .btn-close {
+            filter: invert(1);
+        }
+
+        /* Deactivation modal styles */
+        .deactivation-modal .modal-header {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        /* Table styles */
+        .table th {
+            border-top: none;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,0,0,.02);
+        }
+
+        /* Button styles */
+        .btn-outline-primary:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn-outline-danger:hover {
+            transform: translateY(-1px);
+        }
+
+        /* Loading spinner */
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+        }
+
+        /* Alert styles */
+        .alert {
+            border: none;
+            border-radius: 0.5rem;
+        }
+
+        /* Form styles */
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+
+        .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+    </style>
+</head>
+
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/dashboard">
+                <i class="fas fa-tachometer-alt me-2"></i>Pulse ETL
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/dashboard">
+                    <i class="fas fa-chart-line me-1"></i>Dashboard
+                </a>
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle active" href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-cog me-1"></i>Admin
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminDropdown">
+                        <li><a class="dropdown-item" href="/admin">
+                            <i class="fas fa-tachometer-alt me-2"></i>Admin Panel
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="/admin/issuetype-mappings">
+                            <i class="fas fa-sitemap me-2"></i>Issue Type Mappings
+                        </a></li>
+                        <li><a class="dropdown-item" href="/admin/issuetype-hierarchies">
+                            <i class="fas fa-layer-group me-2"></i>Issue Type Hierarchies
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item active" href="/admin/workflows">
+                            <i class="fas fa-stream me-2"></i>Workflows
+                        </a></li>
+                        <li><a class="dropdown-item" href="/admin/status-mappings">
+                            <i class="fas fa-exchange-alt me-2"></i>Status Mappings
+                        </a></li>
+                    </ul>
+                </div>
+                <a class="nav-link" href="/logout">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <div class="admin-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h1 class="mb-0">
+                        <i class="fas fa-stream me-3"></i>Workflow Management
+                    </h1>
+                    <p class="mb-0 mt-2 opacity-75">Manage workflow steps and their configurations</p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button class="btn btn-outline-secondary me-2" onclick="loadWorkflows()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button class="btn btn-primary" onclick="showCreateWorkflowModal()">
+                        <i class="fas fa-plus"></i> Add Workflow
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container my-5">
+        <!-- Workflows Management -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light border-bottom">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 text-dark">
+                                <i class="fas fa-stream me-2"></i>Workflows
+                            </h5>
+                            <div>
+                                <button class="btn btn-outline-secondary btn-sm me-2" onclick="loadWorkflows()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="showCreateWorkflowModal()">
+                                    <i class="fas fa-plus"></i> Add Workflow
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Search and Filters -->
+                        <div class="row mb-3">
+                            <div class="col-lg-4 col-md-5">
+                                <label for="searchWorkflows" class="form-label text-dark fw-bold">Search Workflows</label>
+                                <input type="text" class="form-control" id="searchWorkflows" placeholder="Search workflows..." onkeyup="filterWorkflows()">
+                            </div>
+                            <div class="col-lg-3 col-md-3">
+                                <label for="filterCategory" class="form-label text-dark fw-bold">Category</label>
+                                <select class="form-select" id="filterCategory" onchange="filterWorkflows()">
+                                    <option value="">All Categories</option>
+                                    <option value="To Do">To Do</option>
+                                    <option value="In Progress">In Progress</option>
+                                    <option value="Done">Done</option>
+                                    <option value="Discarded">Discarded</option>
+                                </select>
+                            </div>
+                            <div class="col-lg-3 col-md-3">
+                                <label for="filterIntegration" class="form-label text-dark fw-bold">Integration</label>
+                                <select class="form-select" id="filterIntegration" onchange="filterWorkflows()">
+                                    <option value="">All Integrations</option>
+                                </select>
+                            </div>
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterStatus" class="form-label text-dark fw-bold">Status</label>
+                                <select class="form-select" id="filterStatus" onchange="filterWorkflows()">
+                                    <option value="">All Status</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Workflows Table -->
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable text-center" data-sort="step_number">
+                                            Step # <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th class="sortable" data-sort="step_name">
+                                            Name <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th class="sortable text-center" data-sort="step_category">
+                                            Category <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th class="text-center">Commitment Point</th>
+                                        <th class="sortable text-center" data-sort="integration_name">
+                                            Integration <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th class="sortable text-center" data-sort="active">
+                                            Status <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="workflows-table-body">
+                                    <!-- Workflows will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Loading State -->
+                        <div id="loadingState" class="text-center py-4" style="display: none;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Loading workflows...</p>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div id="emptyState" class="text-center py-5" style="display: none;">
+                            <i class="fas fa-stream fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No workflows found</h5>
+                            <p class="text-muted">Create your first workflow to get started.</p>
+                            <button class="btn btn-primary" onclick="showCreateWorkflowModal()">
+                                <i class="fas fa-plus me-2"></i>Create Workflow
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create/Edit Workflow Modal -->
+    <div class="modal fade" id="workflowModal" tabindex="-1" aria-labelledby="workflowModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="workflowModalLabel">
+                        <i class="fas fa-plus me-2"></i>Add New Workflow
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="workflowForm">
+                        <input type="hidden" id="editWorkflowId">
+                        
+                        <div class="mb-3">
+                            <label for="workflowName" class="form-label">Workflow Name *</label>
+                            <input type="text" class="form-control" id="workflowName" required>
+                            <div class="form-text">Enter a descriptive name for this workflow step</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="workflowNumber" class="form-label">Step Number</label>
+                            <input type="number" class="form-control" id="workflowNumber" min="1">
+                            <div class="form-text">Optional: Order number for this step</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="workflowCategory" class="form-label">Category *</label>
+                            <select class="form-select" id="workflowCategory" required>
+                                <option value="">Select category...</option>
+                                <option value="To Do">To Do</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Done">Done</option>
+                                <option value="Discarded">Discarded</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="integration" class="form-label">Integration</label>
+                            <select class="form-select" id="integration">
+                                <option value="">Select Integration</option>
+                            </select>
+                            <div class="form-text">Associate this workflow with a specific integration</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="isCommitmentPoint">
+                                <label class="form-check-label" for="isCommitmentPoint">
+                                    Commitment Point
+                                </label>
+                                <div class="form-text">Mark this step as the initial commitment point for lead time calculation (Kanban principles)</div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveWorkflow()">
+                        <i class="fas fa-save me-2"></i>Save Workflow
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Global variables
+        let workflows = [];
+        let filteredWorkflows = [];
+        let integrations = [];
+        let currentSort = { field: 'step_number', direction: 'asc' };
+
+        // Load integrations
+        async function loadIntegrations() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch('/api/v1/admin/integrations', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    integrations = await response.json();
+                    populateIntegrationDropdown();
+                }
+            } catch (error) {
+                console.error('Error loading integrations:', error);
+            }
+        }
+
+        function populateIntegrationDropdown() {
+            const integrationSelect = document.getElementById('integration');
+            const filterSelect = document.getElementById('filterIntegration');
+
+            integrationSelect.innerHTML = '<option value="">Select Integration</option>';
+            filterSelect.innerHTML = '<option value="">All Integrations</option>';
+
+            integrations.forEach(integration => {
+                if (integration.active) {
+                    const option = new Option(integration.name, integration.id);
+                    const filterOption = new Option(integration.name, integration.name);
+                    integrationSelect.appendChild(option);
+                    filterSelect.appendChild(filterOption);
+                }
+            });
+        }
+
+        // Get integration icon and color
+        function getIntegrationIcon(integrationName) {
+            if (!integrationName) return '<i class="fas fa-plug text-secondary"></i>';
+
+            const name = integrationName.toUpperCase();
+            let icon = 'fas fa-plug';
+            let iconColor = 'text-secondary';
+
+            if (name === 'GITHUB') {
+                icon = 'fab fa-github';
+                iconColor = 'text-dark';
+            } else if (name === 'JIRA') {
+                icon = 'fab fa-atlassian';
+                iconColor = 'text-primary';
+            } else if (name === 'AHA!') {
+                icon = 'fas fa-lightbulb';
+                iconColor = 'text-warning';
+            } else if (name === 'AZURE DEVOPS') {
+                icon = 'fab fa-microsoft';
+                iconColor = 'text-info';
+            }
+
+            return `<i class="${icon} ${iconColor}"></i>`;
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadWorkflows();
+            loadIntegrations();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // Search functionality
+            document.getElementById('searchWorkflows').addEventListener('input', filterWorkflows);
+            
+            // Filter functionality
+            document.getElementById('filterCategory').addEventListener('change', filterWorkflows);
+            document.getElementById('filterIntegration').addEventListener('change', filterWorkflows);
+            document.getElementById('filterStatus').addEventListener('change', filterWorkflows);
+            
+            // Sort functionality
+            document.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', function() {
+                    const field = this.dataset.sort;
+                    sortWorkflows(field);
+                });
+            });
+        }
+
+        // Authentication helper
+        function getAuthToken() {
+            // Check localStorage first
+            let token = localStorage.getItem('pulse_token');
+            if (token) return token;
+            
+            // Check cookies as fallback
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'pulse_token') {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        async function loadWorkflows() {
+            try {
+                showLoading(true);
+                
+                const token = getAuthToken();
+                if (!token) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const response = await fetch('/api/v1/admin/workflows', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    workflows = await response.json();
+                    filteredWorkflows = [...workflows];
+                    updateWorkflowsDisplay();
+                } else if (response.status === 401) {
+                    window.location.href = '/login';
+                } else {
+                    throw new Error('Failed to load workflows');
+                }
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+                showError('Failed to load workflows. Please try again.');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function updateWorkflowsDisplay() {
+            const tbody = document.getElementById('workflows-table-body');
+            tbody.innerHTML = '';
+
+            if (!filteredWorkflows || filteredWorkflows.length === 0) {
+                const message = workflows.length === 0 ? 'No workflows found' : 'No workflows match the current search';
+                tbody.innerHTML = `
+                    <tr><td colspan="6" class="text-center text-muted">${message}</td></tr>
+                `;
+                return;
+            }
+
+            filteredWorkflows.forEach(workflow => {
+                const row = document.createElement('tr');
+
+                // Get category color class
+                const categoryClass = getCategoryColorClass(workflow.step_category);
+
+                // Add inactive styling if workflow is not active
+                if (!workflow.active) {
+                    row.classList.add('table-secondary');
+                    row.style.opacity = '0.7';
+                }
+
+                row.innerHTML = `
+                    <td class="text-center">${workflow.step_number || '-'}</td>
+                    <td>${workflow.step_name}</td>
+                    <td class="text-center"><span class="category-badge ${categoryClass}">${workflow.step_category}</span></td>
+                    <td class="text-center">
+                        ${workflow.is_commitment_point ?
+                            '<span class="badge bg-success"><i class="fas fa-flag me-1"></i>Yes</span>' :
+                            '<span class="badge bg-secondary">No</span>'
+                        }
+                    </td>
+                    <td class="text-center">${getIntegrationIcon(workflow.integration_name)}</td>
+                    <td class="text-center">
+                        <span class="badge ${workflow.active ? 'bg-success' : 'bg-secondary'}">
+                            <i class="fas ${workflow.active ? 'fa-check-circle' : 'fa-pause-circle'} me-1"></i>
+                            ${workflow.active ? 'Active' : 'Inactive'}
+                        </span>
+                    </td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="editWorkflow(${workflow.id})" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning me-1" onclick="showDeactivationModal(${workflow.id})" title="Deactivate">
+                            <i class="fas fa-pause"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteWorkflow(${workflow.id})" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function getCategoryColorClass(category) {
+            const categoryLower = category.toLowerCase();
+
+            if (categoryLower === 'to do') {
+                return 'category-todo';
+            } else if (categoryLower === 'in progress') {
+                return 'category-inprogress';
+            } else if (categoryLower === 'waiting') {
+                return 'category-waiting';
+            } else if (categoryLower === 'done') {
+                return 'category-done';
+            } else if (categoryLower === 'discarded') {
+                return 'category-discarded';
+            } else {
+                // Default to a neutral color for unknown categories
+                return 'category-todo';
+            }
+        }
+
+
+
+        function filterWorkflows() {
+            const searchTerm = document.getElementById('searchWorkflows').value.toLowerCase();
+            const categoryFilter = document.getElementById('filterCategory').value;
+            const integrationFilter = document.getElementById('filterIntegration').value;
+            const statusFilter = document.getElementById('filterStatus').value;
+
+            filteredWorkflows = workflows.filter(workflow => {
+                const matchesSearch = !searchTerm ||
+                    workflow.step_name.toLowerCase().includes(searchTerm) ||
+                    workflow.step_category.toLowerCase().includes(searchTerm);
+
+                const matchesCategory = !categoryFilter || workflow.step_category === categoryFilter;
+
+                const matchesIntegration = !integrationFilter || workflow.integration_name === integrationFilter;
+
+                const matchesStatus = !statusFilter ||
+                    (statusFilter === 'active' && workflow.active) ||
+                    (statusFilter === 'inactive' && !workflow.active);
+
+                return matchesSearch && matchesCategory && matchesIntegration && matchesStatus;
+            });
+
+            updateWorkflowsDisplay();
+        }
+
+
+
+        function sortWorkflows(field) {
+            if (currentSort.field === field) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.field = field;
+                currentSort.direction = 'asc';
+            }
+
+            filteredWorkflows.sort((a, b) => {
+                let aVal = a[field];
+                let bVal = b[field];
+
+                // Handle null/undefined values
+                if (aVal == null) aVal = '';
+                if (bVal == null) bVal = '';
+
+                // Convert to string for comparison
+                aVal = aVal.toString().toLowerCase();
+                bVal = bVal.toString().toLowerCase();
+
+                if (currentSort.direction === 'asc') {
+                    return aVal.localeCompare(bVal);
+                } else {
+                    return bVal.localeCompare(aVal);
+                }
+            });
+
+            updateWorkflowsDisplay();
+            updateSortHeaders();
+        }
+
+        function updateSortHeaders() {
+            document.querySelectorAll('.sortable').forEach(header => {
+                header.classList.remove('sort-asc', 'sort-desc');
+                if (header.dataset.sort === currentSort.field) {
+                    header.classList.add(`sort-${currentSort.direction}`);
+                }
+            });
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingState').style.display = show ? 'block' : 'none';
+            document.querySelector('.table-responsive').style.display = show ? 'none' : 'block';
+        }
+
+        function showError(message) {
+            // You can implement a toast notification here
+            alert(message);
+        }
+
+        function refreshWorkflows() {
+            loadWorkflows();
+        }
+
+        function showCreateWorkflowModal() {
+            document.getElementById('workflowModalLabel').innerHTML = '<i class="fas fa-plus me-2"></i>Add New Workflow';
+            document.getElementById('workflowForm').reset();
+            document.getElementById('editWorkflowId').value = '';
+
+            // Populate integration dropdown
+            populateIntegrationDropdown();
+
+            new bootstrap.Modal(document.getElementById('workflowModal')).show();
+        }
+
+        async function editWorkflow(id) {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch(`/api/v1/admin/workflows/${id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const workflow = await response.json();
+
+                    // Populate integration dropdown first
+                    populateIntegrationDropdown();
+
+                    // Populate the modal
+                    document.getElementById('editWorkflowId').value = workflow.id;
+                    document.getElementById('workflowName').value = workflow.step_name;
+                    document.getElementById('workflowNumber').value = workflow.step_number || '';
+                    document.getElementById('workflowCategory').value = workflow.step_category || '';
+                    document.getElementById('integration').value = workflow.integration_id || '';
+                    document.getElementById('isCommitmentPoint').checked = workflow.is_commitment_point || false;
+
+                    // Update modal title
+                    document.getElementById('workflowModalLabel').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Workflow';
+
+                    // Show the modal
+                    new bootstrap.Modal(document.getElementById('workflowModal')).show();
+                } else {
+                    alert('Failed to load workflow details');
+                }
+            } catch (error) {
+                console.error('Error loading workflow:', error);
+                alert('Failed to load workflow details');
+            }
+        }
+
+        async function saveWorkflow() {
+            const id = document.getElementById('editWorkflowId').value;
+            const stepName = document.getElementById('workflowName').value.trim();
+            const stepNumber = document.getElementById('workflowNumber').value;
+            const stepCategory = document.getElementById('workflowCategory').value;
+            const integrationId = document.getElementById('integration').value;
+            const isCommitmentPoint = document.getElementById('isCommitmentPoint').checked;
+
+            if (!stepName || !stepCategory) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+
+
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const data = {
+                    step_name: stepName,
+                    step_number: stepNumber ? parseInt(stepNumber) : null,
+                    step_category: stepCategory,
+                    integration_id: integrationId || null,
+                    is_commitment_point: isCommitmentPoint
+                };
+
+                let response;
+                if (id) {
+                    // Update existing workflow
+                    response = await fetch(`/api/v1/admin/workflows/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    // Create new workflow
+                    response = await fetch('/api/v1/admin/workflows', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(data)
+                    });
+                }
+
+                if (response.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('workflowModal')).hide();
+                    loadWorkflows(); // Refresh the list
+
+                    // Show success message
+                    const action = id ? 'updated' : 'created';
+                    showSuccess(`Workflow ${action} successfully!`);
+                } else {
+                    try {
+                        const errorData = await response.json();
+                        alert(`Failed to save workflow: ${errorData.detail || 'Unknown error'}`);
+                    } catch (parseError) {
+                        const errorText = await response.text();
+                        alert(`Failed to save workflow: ${errorText}`);
+                    }
+                }
+            } catch (error) {
+                console.error('Error saving workflow:', error);
+                alert('Failed to save workflow');
+            }
+        }
+
+        function showSuccess(message) {
+            // You can implement a toast notification here
+            alert(message);
+        }
+
+        async function deleteWorkflow(id) {
+            if (!confirm('Are you sure you want to delete this workflow? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch(`/api/v1/admin/workflows/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    loadWorkflows(); // Refresh the list
+                    showSuccess('Workflow deleted successfully!');
+                } else {
+                    try {
+                        const errorData = await response.json();
+                        alert(`Failed to delete workflow: ${errorData.detail || 'Unknown error'}`);
+                    } catch (parseError) {
+                        const errorText = await response.text();
+                        alert(`Failed to delete workflow: ${errorText}`);
+                    }
+                }
+            } catch (error) {
+                console.error('Error deleting workflow:', error);
+                alert('Failed to delete workflow');
+            }
+        }
+
+        function showDeactivationModal(id) {
+            // This would show a deactivation modal similar to the original
+            // For now, just toggle the active status
+            if (confirm('Are you sure you want to deactivate this workflow?')) {
+                // Implementation would go here
+                alert('Deactivation functionality to be implemented');
+            }
+        }
+    </script>
+</body>
+</html>

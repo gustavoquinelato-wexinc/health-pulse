@@ -135,6 +135,42 @@ logger.info(f"✅ Session invalidated successfully for user: {email}")
 logger.error(f"Backend Service returned status {response.status_code}")
 ```
 
+## 🔄 Workflow Management
+
+### **Workflow Architecture**
+- **Service Ownership**: ETL Service manages all workflow operations
+- **Database Constraints**: Unique commitment points per client/integration
+- **Validation Strategy**: Pre-validation before database operations
+- **Error Handling**: User-friendly messages for constraint violations
+
+### **Commitment Point Rules**
+```python
+# Database constraint (PostgreSQL)
+CREATE UNIQUE INDEX idx_unique_commitment_point_per_client_integration
+ON workflows(client_id, integration_id)
+WHERE is_commitment_point = true;
+
+# API validation pattern
+if update_data.is_commitment_point:
+    existing = session.query(Workflow).filter(
+        Workflow.client_id == user.client_id,
+        Workflow.integration_id == update_data.integration_id,
+        Workflow.is_commitment_point == True,
+        Workflow.id != workflow_id
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only one commitment point allowed per integration..."
+        )
+```
+
+### **Frontend Integration**
+- **Modal Population**: Always populate dropdowns before setting values
+- **Error Display**: Parse JSON error responses properly
+- **Validation**: Backend validation takes precedence over frontend
+
 ## 🔧 Development Patterns
 
 ### **Package Management**
@@ -166,6 +202,14 @@ logger.error(f"Backend Service returned status {response.status_code}")
 - ❌ **Don't** use string comparisons without .lower()
 - ✅ **Do** use proper FK relationships
 - ✅ **Do** exclude deactivated records from metrics
+
+### **Workflow Management**
+- ❌ **Don't** rely only on frontend validation for constraints
+- ❌ **Don't** use generic error messages for constraint violations
+- ❌ **Don't** forget to populate dropdowns before setting values
+- ✅ **Do** validate at API level before database operations
+- ✅ **Do** provide clear, actionable error messages
+- ✅ **Do** include integration/workflow names in error context
 
 ### **Service Communication**
 - ❌ **Don't** call ETL endpoints for user management

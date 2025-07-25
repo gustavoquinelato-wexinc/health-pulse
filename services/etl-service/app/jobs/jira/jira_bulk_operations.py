@@ -11,8 +11,8 @@ from app.core.logging_config import JobLogger
 
 def perform_bulk_insert(session, model_class, data_list, table_name, job_logger: JobLogger, batch_size=100):
     """
-    Perform true bulk insert using raw SQL for optimal performance with Snowflake.
-    
+    Perform true bulk insert using raw SQL for optimal performance with async yielding.
+
     Args:
         session: Database session
         model_class: SQLAlchemy model class
@@ -23,17 +23,22 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
     """
     if not data_list:
         return
-    
+
+    import asyncio
+
     # Get column names from the first record
     columns = list(data_list[0].keys())
-    
+
     # Create the base INSERT statement
     columns_str = ', '.join(columns)
-    
+
     job_logger.progress(f"Starting bulk insert for {len(data_list)} {table_name} records...")
-    
+
     # Process in batches
     for i in range(0, len(data_list), batch_size):
+        # Add small delay to prevent blocking (synchronous)
+        import time
+        time.sleep(0.001)  # 1ms delay
         batch = data_list[i:i + batch_size]
         
         # Create VALUES clause for bulk insert
@@ -101,7 +106,7 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
 
 def perform_bulk_delete_relationships(session, table_name, relationships_to_delete, job_logger: JobLogger, batch_size=100):
     """
-    Perform bulk delete of relationship records using raw SQL for optimal performance.
+    Perform bulk delete of relationship records using raw SQL with async yielding.
 
     Args:
         session: Database session
@@ -112,6 +117,8 @@ def perform_bulk_delete_relationships(session, table_name, relationships_to_dele
     """
     if not relationships_to_delete:
         return
+
+    import asyncio
 
     relationships_list = list(relationships_to_delete)
     job_logger.progress(f"[DELETE] Starting bulk delete for {len(relationships_list)} {table_name} relationships...")
@@ -126,6 +133,9 @@ def perform_bulk_delete_relationships(session, table_name, relationships_to_dele
 
     # Process in batches
     for i in range(0, len(relationships_list), batch_size):
+        # Add small delay to prevent blocking (synchronous)
+        import time
+        time.sleep(0.001)  # 1ms delay
         batch = relationships_list[i:i + batch_size]
 
         # Create WHERE conditions for bulk delete

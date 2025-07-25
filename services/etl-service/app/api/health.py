@@ -12,6 +12,42 @@ router = APIRouter()
 
 
 @router.get(
+    "/health/quick",
+    summary="Quick Health Check",
+    description="Fast health check without authentication for system monitoring"
+)
+async def quick_health_check():
+    """
+    Quick health check for system monitoring - no authentication required.
+    Used by dashboard system health cards for fast status updates.
+    """
+    try:
+        # Quick database connection test
+        from app.core.database import get_database
+        from sqlalchemy import text
+
+        database = get_database()
+        with database.get_session() as session:
+            session.execute(text("SELECT 1"))
+
+        return {
+            "status": "healthy",
+            "database_status": "healthy",
+            "database_message": "Database connection successful",
+            "service": "ETL Service",
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "database_status": "unhealthy",
+            "database_message": f"Database connection failed: {str(e)}",
+            "service": "ETL Service",
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+
+
+@router.get(
     "/health",
     response_model=HealthResponse,
     summary="Health Check",
