@@ -110,8 +110,8 @@
                             <i class="fas fa-layer-group me-2"></i>Issue Type Hierarchies
                         </a></li>
                         <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/admin/flow-steps">
-                            <i class="fas fa-stream me-2"></i>Flow Steps
+                        <li><a class="dropdown-item" href="/admin/workflows">
+                            <i class="fas fa-stream me-2"></i>Workflows
                         </a></li>
                         <li><a class="dropdown-item active" href="/admin/status-mappings">
                             <i class="fas fa-exchange-alt me-2"></i>Status Mappings
@@ -164,19 +164,19 @@
                     <div class="card-body">
                         <!-- Search and Filters -->
                         <div class="row mb-3">
-                            <div class="col-md-2">
-                                <label for="searchFromStatus" class="form-label text-dark fw-bold">Search From Status</label>
-                                <input type="text" class="form-control form-control-sm" id="searchFromStatus" placeholder="Search..." onkeyup="applyFilters()">
+                            <div class="col-lg-3 col-md-4">
+                                <label for="searchFromStatus" class="form-label text-dark fw-bold">Search Status Mappings</label>
+                                <input type="text" class="form-control" id="searchFromStatus" placeholder="Search from status..." onkeyup="applyFilters()">
                             </div>
-                            <div class="col-md-2">
-                                <label for="filterToStatus" class="form-label text-dark fw-bold">Filter To Status</label>
-                                <select class="form-select form-select-sm" id="filterToStatus" onchange="applyFilters()">
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterToStatus" class="form-label text-dark fw-bold">To Status</label>
+                                <select class="form-select" id="filterToStatus" onchange="applyFilters()">
                                     <option value="">All To Status</option>
                                 </select>
                             </div>
-                            <div class="col-md-2">
-                                <label for="filterCategory" class="form-label text-dark fw-bold">Filter Category</label>
-                                <select class="form-select form-select-sm" id="filterCategory" onchange="applyFilters()">
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterCategory" class="form-label text-dark fw-bold">Category</label>
+                                <select class="form-select" id="filterCategory" onchange="applyFilters()">
                                     <option value="">All Categories</option>
                                     <option value="To Do">To Do</option>
                                     <option value="In Progress">In Progress</option>
@@ -185,16 +185,22 @@
                                     <option value="Discarded">Discarded</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
-                                <label for="filterFlowStep" class="form-label text-dark fw-bold">Filter Flow Step</label>
-                                <select class="form-select form-select-sm" id="filterFlowStep" onchange="applyFilters()">
-                                    <option value="">All Flow Steps</option>
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterWorkflow" class="form-label text-dark fw-bold">Workflow</label>
+                                <select class="form-select" id="filterWorkflow" onchange="applyFilters()">
+                                    <option value="">All Workflows</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
-                                <label for="filterActive" class="form-label text-dark fw-bold">Filter Status</label>
-                                <select class="form-select form-select-sm" id="filterActive" onchange="applyFilters()">
-                                    <option value="">All Statuses</option>
+                            <div class="col-lg-2 col-md-3">
+                                <label for="filterIntegration" class="form-label text-dark fw-bold">Integration</label>
+                                <select class="form-select" id="filterIntegration" onchange="applyFilters()">
+                                    <option value="">All Integrations</option>
+                                </select>
+                            </div>
+                            <div class="col-lg-1 col-md-2">
+                                <label for="filterActive" class="form-label text-dark fw-bold">Status</label>
+                                <select class="form-select" id="filterActive" onchange="applyFilters()">
+                                    <option value="">All</option>
                                     <option value="true">Active</option>
                                     <option value="false">Inactive</option>
                                 </select>
@@ -214,11 +220,14 @@
                                         <th class="sortable text-center" onclick="sortTable('status_category')">
                                             Category <i class="fas fa-sort" id="sort-status_category"></i>
                                         </th>
-                                        <th class="sortable" onclick="sortTable('flow_step')">
-                                            Flow Step Name <i class="fas fa-sort" id="sort-flow_step"></i>
+                                        <th class="sortable" onclick="sortTable('workflow_step')">
+                                            Workflow Name <i class="fas fa-sort" id="sort-workflow_step"></i>
                                         </th>
                                         <th class="sortable text-center" onclick="sortTable('step_number')">
-                                            Flow Step # <i class="fas fa-sort" id="sort-step_number"></i>
+                                            Step # <i class="fas fa-sort" id="sort-step_number"></i>
+                                        </th>
+                                        <th class="sortable text-center" onclick="sortTable('integration_name')">
+                                            Integration <i class="fas fa-sort" id="sort-integration_name"></i>
                                         </th>
                                         <th class="sortable text-center" onclick="sortTable('active')">
                                             Status <i class="fas fa-sort" id="sort-active"></i>
@@ -270,9 +279,15 @@
                             </select>
                         </div>
                         <div class="mb-3">
-                            <label for="flowStep" class="form-label">Flow Step Name</label>
-                            <select class="form-control" id="flowStep">
+                            <label for="workflow" class="form-label">Workflow</label>
+                            <select class="form-control" id="workflow">
                                 <option value="">None</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="integration" class="form-label">Integration</label>
+                            <select class="form-control" id="integration">
+                                <option value="">Select Integration</option>
                             </select>
                         </div>
                     </form>
@@ -316,9 +331,15 @@
                             </select>
                         </div>
                         <div class="mb-3">
-                            <label for="editFlowStep" class="form-label">Flow Step Name</label>
-                            <select class="form-control" id="editFlowStep">
-                                <option value="">Loading flow steps...</option>
+                            <label for="editWorkflow" class="form-label">Workflow</label>
+                            <select class="form-control" id="editWorkflow">
+                                <option value="">Loading workflows...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editIntegration" class="form-label">Integration</label>
+                            <select class="form-control" id="editIntegration">
+                                <option value="">Select Integration</option>
                             </select>
                         </div>
                     </form>
@@ -363,50 +384,121 @@
         // Global variables
         let statusMappings = [];
         let filteredMappings = [];
-        let flowSteps = [];
+        let workflows = [];
+        let integrations = [];
         let editingMappingId = null;
         let currentSort = { column: 'status_from', direction: 'asc' };
 
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function () {
-            loadFlowSteps();
-            loadStatusMappings();
-            updateSortIndicators();
-        });
-
-        // Load flow steps
-        async function loadFlowSteps() {
+        // Load integrations
+        async function loadIntegrations() {
             try {
                 const token = getAuthToken();
                 if (!token) return;
 
-                const response = await fetch('/api/v1/admin/flow-steps', {
+                const response = await fetch('/api/v1/admin/integrations', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
                 });
 
                 if (response.ok) {
-                    flowSteps = await response.json();
-                    populateFlowStepFilters();
+                    integrations = await response.json();
+                    populateIntegrationDropdowns();
                 }
             } catch (error) {
-                console.error('Error loading flow steps:', error);
+                console.error('Error loading integrations:', error);
             }
         }
 
-        function populateFlowStepFilters() {
-            const editSelect = document.getElementById('editFlowStep');
-            const filterSelect = document.getElementById('filterFlowStep');
+        function populateIntegrationDropdowns() {
+            const createSelect = document.getElementById('integration');
+            const editSelect = document.getElementById('editIntegration');
+            const filterSelect = document.getElementById('filterIntegration');
+
+            // Clear existing options
+            createSelect.innerHTML = '<option value="">Select Integration</option>';
+            editSelect.innerHTML = '<option value="">Select Integration</option>';
+            filterSelect.innerHTML = '<option value="">All Integrations</option>';
+
+            // Add integration options
+            integrations.forEach(integration => {
+                if (integration.active) {
+                    const createOption = new Option(integration.name, integration.id);
+                    const editOption = new Option(integration.name, integration.id);
+                    const filterOption = new Option(integration.name, integration.name);
+                    createSelect.appendChild(createOption);
+                    editSelect.appendChild(editOption);
+                    filterSelect.appendChild(filterOption);
+                }
+            });
+        }
+
+        // Get integration icon and color
+        function getIntegrationIcon(integrationName) {
+            if (!integrationName) return '<i class="fas fa-plug text-secondary"></i>';
+
+            const name = integrationName.toUpperCase();
+            let icon = 'fas fa-plug';
+            let iconColor = 'text-secondary';
+
+            if (name === 'GITHUB') {
+                icon = 'fab fa-github';
+                iconColor = 'text-dark';
+            } else if (name === 'JIRA') {
+                icon = 'fab fa-atlassian';
+                iconColor = 'text-primary';
+            } else if (name === 'AHA!') {
+                icon = 'fas fa-lightbulb';
+                iconColor = 'text-warning';
+            } else if (name === 'AZURE DEVOPS') {
+                icon = 'fab fa-microsoft';
+                iconColor = 'text-info';
+            }
+
+            return `<i class="${icon} ${iconColor}"></i>`;
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function () {
+            loadWorkflows();
+            loadStatusMappings();
+            loadIntegrations();
+            updateSortIndicators();
+        });
+
+        // Load workflows
+        async function loadWorkflows() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch('/api/v1/admin/workflows', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    workflows = await response.json();
+                    populateWorkflowFilters();
+                }
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+            }
+        }
+
+        function populateWorkflowFilters() {
+            const editSelect = document.getElementById('editWorkflow');
+            const filterSelect = document.getElementById('filterWorkflow');
 
             // Clear existing options
             editSelect.innerHTML = '<option value="">None</option>';
-            filterSelect.innerHTML = '<option value="">All Flow Steps</option>';
+            filterSelect.innerHTML = '<option value="">All Workflows</option>';
 
-            // Add flow step options
-            flowSteps.forEach(step => {
-                const editOption = new Option(step.name, step.id);
-                const filterOption = new Option(step.name, step.name);
+            // Add workflow options
+            workflows.forEach(workflow => {
+                const editOption = new Option(workflow.step_name, workflow.id);
+                const filterOption = new Option(workflow.step_name, workflow.step_name);
                 editSelect.add(editOption);
                 filterSelect.add(filterOption);
             });
@@ -459,7 +551,8 @@
             const searchFromStatus = document.getElementById('searchFromStatus').value.toLowerCase();
             const filterToStatus = document.getElementById('filterToStatus').value;
             const filterCategory = document.getElementById('filterCategory').value;
-            const filterFlowStep = document.getElementById('filterFlowStep').value;
+            const filterWorkflow = document.getElementById('filterWorkflow').value;
+            const filterIntegration = document.getElementById('filterIntegration').value;
             const filterActive = document.getElementById('filterActive').value;
 
             filteredMappings = statusMappings.filter(mapping => {
@@ -475,15 +568,19 @@
                 const matchesCategory = !filterCategory ||
                     mapping.status_category === filterCategory;
 
-                // Filter by flow step
-                const matchesFlowStep = !filterFlowStep ||
-                    mapping.flow_step === filterFlowStep;
+                // Filter by workflow
+                const matchesWorkflow = !filterWorkflow ||
+                    mapping.workflow_step_name === filterWorkflow;
+
+                // Filter by integration
+                const matchesIntegration = !filterIntegration ||
+                    mapping.integration_name === filterIntegration;
 
                 // Filter by active status
                 const matchesActive = !filterActive ||
                     mapping.active.toString() === filterActive;
 
-                return matchesFromStatus && matchesToStatus && matchesCategory && matchesFlowStep && matchesActive;
+                return matchesFromStatus && matchesToStatus && matchesCategory && matchesWorkflow && matchesIntegration && matchesActive;
             });
 
             // Re-apply current sort to filtered data
@@ -589,8 +686,9 @@
                     <td>${mapping.status_from}</td>
                     <td>${mapping.status_to}</td>
                     <td class="text-center"><span class="category-badge ${categoryClass}">${mapping.status_category}</span></td>
-                    <td>${mapping.flow_step}</td>
+                    <td>${mapping.workflow_step_name || '-'}</td>
                     <td class="text-center">${mapping.step_number || '-'}</td>
+                    <td class="text-center">${getIntegrationIcon(mapping.integration_name)}</td>
                     <td class="text-center">
                         ${mapping.active
                             ? '<span class="badge bg-success">Active</span>'
@@ -646,12 +744,22 @@
             document.getElementById('statusMappingModalTitle').textContent = 'Add Status Mapping';
             document.getElementById('statusMappingForm').reset();
 
-            // Populate flow steps dropdown
-            const flowStepSelect = document.getElementById('flowStep');
-            flowStepSelect.innerHTML = '<option value="">None</option>';
-            flowSteps.forEach(step => {
-                const option = new Option(step.name, step.id);
-                flowStepSelect.add(option);
+            // Populate workflows dropdown
+            const workflowSelect = document.getElementById('workflow');
+            workflowSelect.innerHTML = '<option value="">None</option>';
+            workflows.forEach(workflow => {
+                const option = new Option(workflow.step_name, workflow.id);
+                workflowSelect.add(option);
+            });
+
+            // Populate integrations dropdown
+            const integrationSelect = document.getElementById('integration');
+            integrationSelect.innerHTML = '<option value="">Select Integration</option>';
+            integrations.forEach(integration => {
+                if (integration.active) {
+                    const option = new Option(integration.name, integration.id);
+                    integrationSelect.add(option);
+                }
             });
 
             new bootstrap.Modal(document.getElementById('statusMappingModal')).show();
@@ -676,7 +784,8 @@
                     document.getElementById('editStatusFrom').value = mapping.status_from;
                     document.getElementById('editStatusTo').value = mapping.status_to;
                     document.getElementById('editStatusCategory').value = mapping.status_category;
-                    document.getElementById('editFlowStep').value = mapping.flow_step_id || '';
+                    document.getElementById('editWorkflow').value = mapping.workflow_id || '';
+                    document.getElementById('editIntegration').value = mapping.integration_id || '';
 
                     // Show the modal
                     new bootstrap.Modal(document.getElementById('editStatusMappingModal')).show();
@@ -694,7 +803,8 @@
             const statusFrom = document.getElementById('editStatusFrom').value;
             const statusTo = document.getElementById('editStatusTo').value;
             const statusCategory = document.getElementById('editStatusCategory').value;
-            const flowStepId = document.getElementById('editFlowStep').value;
+            const workflowId = document.getElementById('editWorkflow').value;
+            const integrationId = document.getElementById('editIntegration').value;
 
             if (!statusFrom || !statusTo || !statusCategory) {
                 alert('Please fill in all required fields');
@@ -709,7 +819,8 @@
                     status_from: statusFrom,
                     status_to: statusTo,
                     status_category: statusCategory,
-                    flow_step_id: flowStepId || null
+                    workflow_id: workflowId || null,
+                    integration_id: integrationId || null
                 };
 
                 const response = await fetch(`/api/v1/admin/status-mappings/${id}`, {
@@ -1139,7 +1250,8 @@
             const statusFrom = document.getElementById('statusFrom').value;
             const statusTo = document.getElementById('statusTo').value;
             const statusCategory = document.getElementById('statusCategory').value;
-            const flowStepId = document.getElementById('flowStep').value;
+            const workflowId = document.getElementById('workflow').value;
+            const integrationId = document.getElementById('integration').value;
 
             if (!statusFrom || !statusTo || !statusCategory) {
                 alert('Please fill in all required fields');
@@ -1154,7 +1266,8 @@
                     status_from: statusFrom,
                     status_to: statusTo,
                     status_category: statusCategory,
-                    flow_step_id: flowStepId || null
+                    workflow_id: workflowId || null,
+                    integration_id: integrationId || null
                 };
 
                 const response = await fetch('/api/v1/admin/status-mappings', {

@@ -320,6 +320,9 @@ async def run_jira_sync(
         import traceback
         traceback.print_exc()
 
+        # Rollback the session to clear any failed transaction state
+        session.rollback()
+
         # Send error progress update (short message for progress bar)
         from app.core.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
@@ -471,8 +474,25 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                     JiraPullRequestLinks.issue_id == issue.id
                 ).delete()
 
-                # Fetch dev_status data from Jira
-                dev_details = jira_client.get_issue_dev_details(issue.external_id)
+                # Fetch dev_status data from Jira (non-blocking)
+                import asyncio
+                import concurrent.futures
+
+                # Run the blocking API call in a thread pool to prevent UI blocking
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    try:
+                        # Timeout after 10 seconds to prevent hanging
+                        dev_details = await asyncio.wait_for(
+                            loop.run_in_executor(executor, jira_client.get_issue_dev_details, issue.external_id),
+                            timeout=10.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Dev_status fetch timed out for issue {issue.key}")
+                        dev_details = None
+                    except Exception as e:
+                        logger.warning(f"Dev_status fetch failed for issue {issue.key}: {e}")
+                        dev_details = None
                 if dev_details:
                     # Import here to avoid circular imports
                     from app.jobs.jira.jira_extractors import has_useful_dev_status_data, extract_pr_links_from_dev_status
@@ -501,6 +521,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                                 branch_name=pr_link.get('branch'),
                                 commit_sha=pr_link.get('commit'),
                                 pr_status=pr_link.get('status'),
+                                integration_id=integration.id,
                                 client_id=integration.client_id,
                                 active=True
                             )
@@ -530,6 +551,9 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                     )
                     logger.info(f"Processed dev_status for {issues_processed}/{total_issues} issues")
                     session.commit()  # Commit periodically
+
+                # Yield control after each issue to ensure UI responsiveness
+                await asyncio.sleep(0)  # Yield control to prevent blocking
 
             except Exception as e:
                 error_msg = f"Error processing dev_status for issue {issue.key}: {e}"
@@ -580,7 +604,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             'changelogs_processed': issues_result['changelogs_processed'],
             'pr_links_created': pr_links_created
         }
-        
+
     except Exception as e:
         logger.error(f"Error in Jira extraction: {e}")
         return {
@@ -589,3 +613,52 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             'issues_processed': 0,
             'pr_links_created': 0
         }
+
+
+async def run_jira_sync_optimized(
+    job_schedule_id: int,
+    execution_mode: JiraExecutionMode = JiraExecutionMode.ALL,
+    custom_query: Optional[str] = None,
+    target_projects: Optional[List[str]] = None,
+    update_sync_timestamp: bool = True,
+    update_job_schedule: bool = True
+):
+    """
+    Optimized Jira sync with proper session management to prevent UI blocking.
+    Uses the original function but ensures sessions are managed properly.
+    """
+    from app.core.database import get_database
+    from app.models.unified_models import JobSchedule
+    import asyncio
+
+    database = get_database()
+    logger.info(f"🚀 Starting optimized Jira sync (ID: {job_schedule_id})")
+
+    try:
+        # Use the original function but with better session management
+        with database.get_session() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return {'success': False, 'error': 'Job schedule not found'}
+
+            # Add periodic yielding to prevent blocking
+            await asyncio.sleep(0)
+
+            # Use the original function
+            result = await run_jira_sync(
+                session, job_schedule,
+                execution_mode=execution_mode,
+                custom_query=custom_query,
+                target_projects=target_projects,
+                update_sync_timestamp=update_sync_timestamp,
+                update_job_schedule=update_job_schedule
+            )
+
+            return result
+
+    except Exception as e:
+        logger.error(f"Optimized Jira sync error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}

@@ -41,8 +41,8 @@ class JiraDataProcessor:
                 'summary': fields.get('summary', None),
                 'created': self._parse_datetime(fields.get('created')),
                 'updated': self._parse_datetime(fields.get('updated')),
-                'started': None,  # Will be calculated from status transitions
-                'completed': None,  # Will be calculated from status transitions
+                'work_first_started_at': None,  # Will be calculated from status transitions
+                'work_first_completed_at': None,  # Will be calculated from status transitions
                 'priority': self._extract_priority(fields.get('priority')),
                 'resolution': self._extract_resolution(fields.get('resolution')),
                 'labels': fields.get('labels') if fields.get('labels') else None,  # None for empty lists
@@ -242,10 +242,10 @@ class JiraDataProcessor:
                 if status_mapping:
                     status_mapping_id = status_mapping.id
 
-                    if status_mapping.flow_step:
-                        logger.debug(f"Mapped status '{original_name}' to flow step '{status_mapping.flow_step.name}' via status mapping")
+                    if status_mapping.workflow:
+                        logger.debug(f"Mapped status '{original_name}' to workflow '{status_mapping.workflow.step_name}' via status mapping")
                     else:
-                        logger.warning(f"Status mapping found but no flow step linked for status '{original_name}' and client {client_id}")
+                        logger.warning(f"Status mapping found but no workflow linked for status '{original_name}' and client {client_id}")
                 else:
                     logger.warning(f"No status mapping found in database for status '{original_name}' and client {client_id}")
             else:

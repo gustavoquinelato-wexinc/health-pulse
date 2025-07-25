@@ -123,6 +123,13 @@ class SettingsManager:
                 ).first()
                 
                 if not setting:
+                    # Get the default client (WEX) for system settings
+                    from app.models.unified_models import Client
+                    client = session.query(Client).filter(Client.name == 'WEX').first()
+                    if not client:
+                        logger.error("Default client 'WEX' not found - cannot create setting")
+                        return False
+
                     # Determine type from DEFAULT_SETTINGS or value type
                     setting_type = 'string'
                     if setting_key in SettingsManager.DEFAULT_SETTINGS:
@@ -137,11 +144,12 @@ class SettingsManager:
                             setting_type = 'integer'
                         elif isinstance(value, (dict, list)):
                             setting_type = 'json'
-                    
+
                     setting = SystemSettings(
                         setting_key=setting_key,
                         setting_type=setting_type,
-                        description=description
+                        description=description,
+                        client_id=client.id
                     )
                     session.add(setting)
                 
@@ -198,31 +206,39 @@ class SettingsManager:
     def initialize_default_settings() -> bool:
         """
         Initialize default settings in the database if they don't exist.
-        
+
         Returns:
             True if successful, False otherwise
         """
         try:
             database = get_database()
             with database.get_session() as session:
+                # Get the default client (WEX) for system settings
+                from app.models.unified_models import Client
+                client = session.query(Client).filter(Client.name == 'WEX').first()
+                if not client:
+                    logger.error("Default client 'WEX' not found - cannot initialize settings")
+                    return False
+
                 for key, info in SettingsManager.DEFAULT_SETTINGS.items():
                     existing = session.query(SystemSettings).filter(
                         SystemSettings.setting_key == key
                     ).first()
-                    
+
                     if not existing:
                         setting = SystemSettings(
                             setting_key=key,
                             setting_type=info['type'],
-                            description=info['description']
+                            description=info['description'],
+                            client_id=client.id
                         )
                         setting.set_typed_value(info['value'])
                         session.add(setting)
-                
+
                 session.commit()
                 logger.info("Default settings initialized successfully")
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error initializing default settings: {e}")
             return False

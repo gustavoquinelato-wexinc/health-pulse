@@ -661,11 +661,20 @@
 
             // Only load content if session is valid
             try {
-                await loadUserInfo();
-                refreshData();
+                // Load critical data first, then system health in background
+                await Promise.all([
+                    loadUserInfo(),
+                    refreshData(),
+                    refreshOrchestratorStatus()
+                ]);
+
+                // Start system health check in background (non-blocking)
+                refreshSystemHealth().catch(error => {
+                    console.error('System health check failed:', error);
+                });
+
+                // Setup auto-refresh and WebSockets after initial load
                 setupAutoRefresh();
-                refreshOrchestratorStatus();
-                refreshSystemHealth();
                 initializeWebSockets();
             } catch (error) {
                 console.error('Error during dashboard initialization:', error);
@@ -756,12 +765,23 @@
             window.location.href = `/login?error=session_expired&reason=${encodeURIComponent(reason)}`;
         }
 
-        async function checkAuth() {
+        // Cache auth status to avoid redundant checks
+        let lastAuthCheck = null;
+        let lastAuthResult = false;
+        const AUTH_CACHE_TTL = 60000; // 1 minute cache
+
+        async function checkAuth(forceCheck = false) {
             const token = getAuthToken();
 
             if (!token) {
                 redirectToLogin('No authentication token found');
                 return false;
+            }
+
+            // Use cached result if recent and not forced
+            const now = Date.now();
+            if (!forceCheck && lastAuthCheck && (now - lastAuthCheck) < AUTH_CACHE_TTL && lastAuthResult) {
+                return lastAuthResult;
             }
 
             // Validate token with server
@@ -772,6 +792,9 @@
                     }
                 });
 
+                lastAuthCheck = now;
+                lastAuthResult = response.ok;
+
                 if (!response.ok) {
                     redirectToLogin('Session expired or invalid');
                     return false;
@@ -780,6 +803,8 @@
                 return true;
             } catch (error) {
                 console.error('Error validating token:', error);
+                lastAuthCheck = now;
+                lastAuthResult = false;
                 redirectToLogin('Session validation failed');
                 return false;
             }
@@ -952,6 +977,9 @@
 
                 // Refresh the entire dashboard
                 refreshData();
+
+                // Refresh orchestrator status to update countdown timer with new interval
+                refreshOrchestratorStatus();
             }, 1000);
         }
 
@@ -1115,6 +1143,11 @@
         async function refreshData() {
             try {
                 const token = getAuthToken();
+                if (!token) {
+                    logout();
+                    return;
+                }
+
                 const response = await fetch('/api/v1/jobs/status', {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -1122,23 +1155,36 @@
                 });
 
                 if (response.status === 401) {
+                    // Clear auth cache and logout
+                    lastAuthCheck = null;
+                    lastAuthResult = false;
                     logout();
                     return;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
                 const data = await response.json();
                 updateJobCards(data.jobs || data);
                 updateLastRefreshTime();
 
-
-
                 // Note: Orchestrator status refreshed separately via countdown timer
             } catch (error) {
                 console.error('Error fetching job status:', error);
+                // Don't logout on network errors, only on auth errors
             }
         }
 
         // System Health Functions
+        // Cache for system health to show immediate results
+        let systemHealthCache = {
+            db: null,
+            github: null,
+            lastUpdate: null
+        };
+
         async function refreshSystemHealth() {
             // Only refresh system health for admin users
             if (!currentUser || (!currentUser.is_admin && currentUser.role !== 'admin')) {
@@ -1146,24 +1192,84 @@
             }
 
             try {
-                // Check database health
-                const healthResponse = await fetch('/api/v1/health', {
+                // Start with immediate local status updates (no API calls needed)
+                updateHealthStatus('system', true, 'Service running normally');
+                updateHealthStatus('jiraApi', true, 'Connected');
+                updateHealthStatus('db', true, 'Checking connection...');
+                updateHealthStatus('githubApi', true, 'Checking rate limits...');
+
+                // Show cached data immediately if available and recent (< 2 minutes)
+                const now = Date.now();
+                if (systemHealthCache.lastUpdate && (now - systemHealthCache.lastUpdate) < 120000) {
+                    if (systemHealthCache.db) {
+                        updateHealthStatus('db', systemHealthCache.db.healthy, systemHealthCache.db.message);
+                    }
+                    if (systemHealthCache.github) {
+                        updateHealthStatus('githubApi', systemHealthCache.github.healthy, systemHealthCache.github.message);
+                    }
+                }
+
+                // Check database health (fast, no auth required)
+                const healthPromise = fetch('/api/v1/health/quick', {
+                    signal: AbortSignal.timeout(3000) // 3 second timeout - faster
+                }).then(async response => {
+                    if (response.ok) {
+                        const healthData = await response.json();
+                        const isHealthy = healthData.database_status === 'healthy';
+                        updateHealthStatus('db', isHealthy, healthData.database_message);
+                        // Cache the result
+                        systemHealthCache.db = { healthy: isHealthy, message: healthData.database_message };
+                        systemHealthCache.lastUpdate = Date.now();
+                    } else {
+                        updateHealthStatus('db', false, 'Health check failed');
+                        systemHealthCache.db = { healthy: false, message: 'Health check failed' };
+                    }
+                }).catch(error => {
+                    console.warn('Database health check failed:', error);
+                    updateHealthStatus('db', false, 'Connection timeout');
+                    systemHealthCache.db = { healthy: false, message: 'Connection timeout' };
+                });
+
+                // Check GitHub rate limits (runs in background, doesn't block UI)
+                const githubPromise = fetch('/api/v1/github/rate-limits', {
                     headers: {
                         'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    signal: AbortSignal.timeout(3000) // 3 second timeout - faster failure
+                }).then(async response => {
+                    if (response.ok) {
+                        const rateLimits = await response.json();
+                        const remaining = rateLimits.core?.remaining || 0;
+                        const limit = rateLimits.core?.limit || 5000;
+                        const isHealthy = remaining > 100;
+                        const message = `Rate limit: ${remaining}/${limit}`;
+                        updateHealthStatus('githubApi', isHealthy, message);
+                        // Cache the result
+                        systemHealthCache.github = { healthy: isHealthy, message: message };
+                        systemHealthCache.lastUpdate = Date.now();
+                    } else if (response.status === 408) {
+                        updateHealthStatus('githubApi', false, 'GitHub API timeout');
+                        systemHealthCache.github = { healthy: false, message: 'GitHub API timeout' };
+                    } else {
+                        updateHealthStatus('githubApi', false, 'Rate limit check failed');
+                        systemHealthCache.github = { healthy: false, message: 'Rate limit check failed' };
+                    }
+                }).catch(error => {
+                    if (error.name === 'TimeoutError') {
+                        updateHealthStatus('githubApi', false, 'GitHub API timeout');
+                        systemHealthCache.github = { healthy: false, message: 'GitHub API timeout' };
+                    } else {
+                        console.warn('GitHub rate limit check failed:', error);
+                        updateHealthStatus('githubApi', false, 'Check failed');
+                        systemHealthCache.github = { healthy: false, message: 'Check failed' };
                     }
                 });
 
-                if (healthResponse.ok) {
-                    const healthData = await healthResponse.json();
-                    updateHealthStatus('db', healthData.database_status === 'healthy', healthData.database_message);
-                } else {
-                    updateHealthStatus('db', false, 'Health check failed');
-                }
-
-                // Check system status (placeholder for now)
-                updateHealthStatus('system', true, 'Memory: 2.1GB / 8GB, CPU: 15%');
-                updateHealthStatus('jiraApi', true, 'Connected');
-                updateHealthStatus('githubApi', true, 'Rate limit: 4,850/5,000');
+                // Run checks asynchronously without blocking the UI
+                // Database check completes quickly, GitHub check runs in background
+                Promise.allSettled([healthPromise, githubPromise]).then(() => {
+                    console.log('All health checks completed');
+                });
 
             } catch (error) {
                 console.error('Error checking system health:', error);
@@ -1231,9 +1337,19 @@
 
                 const interval = parseInt(this.value);
                 if (interval > 0) {
-                    refreshTimer = setInterval(() => {
-                        refreshData();
-                        refreshSystemHealth();
+                    refreshTimer = setInterval(async () => {
+                        // Only refresh if page is visible to save resources
+                        if (!document.hidden) {
+                            try {
+                                // Refresh critical data first, system health in background
+                                await refreshData();
+                                refreshSystemHealth().catch(error => {
+                                    console.error('System health refresh failed:', error);
+                                });
+                            } catch (error) {
+                                console.error('Error during auto-refresh:', error);
+                            }
+                        }
                     }, interval);
                 }
             });
@@ -1241,9 +1357,18 @@
             // Start with default 30s refresh
             const defaultInterval = parseInt(select.value);
             if (defaultInterval > 0) {
-                refreshTimer = setInterval(() => {
-                    refreshData();
-                    refreshSystemHealth();
+                refreshTimer = setInterval(async () => {
+                    if (!document.hidden) {
+                        try {
+                            // Refresh critical data first, system health in background
+                            await refreshData();
+                            refreshSystemHealth().catch(error => {
+                                console.error('System health refresh failed:', error);
+                            });
+                        } catch (error) {
+                            console.error('Error during auto-refresh:', error);
+                        }
+                    }
                 }, defaultInterval);
             }
         }

@@ -361,15 +361,15 @@ async def custom_docs(request: Request):
             return RedirectResponse(url="/login?error=authentication_required", status_code=302)
 
         # Verify token and check admin permissions
-        from app.auth.auth_service import get_auth_service
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
+        from app.auth.centralized_auth_service import get_centralized_auth_service
+        auth_service = get_centralized_auth_service()
+        user_data = await auth_service.verify_token(token)
 
-        if not user:
+        if not user_data:
             return RedirectResponse(url="/login?error=invalid_token", status_code=302)
 
         # Check admin permission
-        if not user.is_admin and user.role != 'admin':
+        if not user_data.get('is_admin') and user_data.get('role') != 'admin':
             return RedirectResponse(url="/dashboard?error=permission_denied&resource=docs", status_code=302)
 
         # If admin, redirect to the actual docs
@@ -744,32 +744,26 @@ async def debug_token_info(request: Request):
                 "iat": payload.get("iat")
             }
 
-            # Also try to verify with current secret
-            from app.auth.auth_service import get_auth_service
-            auth_service = get_auth_service()
-            try:
-                verified_payload = jwt.decode(token_cookie, auth_service.jwt_secret, algorithms=[auth_service.jwt_algorithm])
-                token_info["token_verified_with_current_secret"] = True
-                token_info["verified_payload"] = verified_payload
-            except Exception as verify_error:
-                token_info["token_verified_with_current_secret"] = False
-                token_info["verification_error"] = str(verify_error)
+            # Note: JWT verification now handled by centralized auth service
+            # This debug info is for legacy compatibility only
+            token_info["token_verified_with_current_secret"] = False
+            token_info["verification_note"] = "Using centralized auth service"
 
         except Exception as e:
             token_info["token_decode_error"] = str(e)
 
-    # Check session in database
+    # Check session in database via centralized auth
     if token_cookie:
         try:
-            from app.auth.auth_service import get_auth_service
-            auth_service = get_auth_service()
-            user = await auth_service.verify_token(token_cookie)
-            token_info["session_valid_in_database"] = user is not None
-            if user:
+            from app.auth.centralized_auth_service import get_centralized_auth_service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token_cookie)
+            token_info["session_valid_in_database"] = user_data is not None
+            if user_data:
                 token_info["user_info"] = {
-                    "id": user.id,
-                    "email": user.email,
-                    "active": user.active
+                    "id": user_data.get("id"),
+                    "email": user_data.get("email"),
+                    "active": user_data.get("active")
                 }
         except Exception as e:
             token_info["session_check_error"] = str(e)
@@ -808,17 +802,18 @@ async def debug_force_logout():
 @app.get("/debug/jwt-info")
 async def debug_jwt_info():
     """Debug endpoint to check JWT configuration."""
-    from app.auth.auth_service import get_auth_service
     import os
+    from app.core.config import get_settings
 
-    auth_service = get_auth_service()
+    settings = get_settings()
 
     return {
-        "jwt_secret_preview": auth_service.jwt_secret[:10] + "..." if auth_service.jwt_secret else None,
-        "jwt_algorithm": auth_service.jwt_algorithm,
+        "jwt_secret_preview": settings.JWT_SECRET_KEY[:10] + "..." if settings.JWT_SECRET_KEY else None,
+        "jwt_algorithm": settings.JWT_ALGORITHM,
         "env_jwt_secret_preview": os.environ.get('JWT_SECRET_KEY', '')[:10] + "..." if os.environ.get('JWT_SECRET_KEY') else None,
-        "auth_service_id": id(auth_service),
-        "token_expiry_hours": auth_service.token_expiry.total_seconds() / 3600 if auth_service.token_expiry else None
+        "auth_service_type": "centralized",
+        "backend_service_url": settings.BACKEND_SERVICE_URL,
+        "token_expiry_minutes": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     }
 
 

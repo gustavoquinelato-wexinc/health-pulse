@@ -7,6 +7,7 @@ Each function handles a specific type of data extraction and processing.
 """
 
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
@@ -877,6 +878,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         for issue_data in all_issues:
             try:
+                # Add small delay every 10 issues to prevent blocking
+                if len(processed_issue_keys) % 10 == 0:
+                    import time
+                    time.sleep(0.001)  # 1ms delay
 
                 external_id = issue_data.get('id')
                 if not external_id:
@@ -951,8 +956,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         'team': processed_issue.get('team'),
                         'created': processed_issue.get('created'),
                         'updated': processed_issue.get('updated'),
-                        'started': processed_issue.get('started'),
-                        'completed': processed_issue.get('completed'),
+                        'work_first_started_at': processed_issue.get('work_first_started_at'),
+                        'work_first_completed_at': processed_issue.get('work_first_completed_at'),
                         'priority': processed_issue.get('priority'),
                         'resolution': processed_issue.get('resolution'),
                         'labels': ','.join(processed_issue.get('labels', [])) if isinstance(processed_issue.get('labels'), list) else str(processed_issue.get('labels', '')) if processed_issue.get('labels') is not None else None,
@@ -1088,7 +1093,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, integration: Integration,
                                  issue_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
                                  issue_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
-    """Process changelogs for a list of issues and calculate started/completed dates.
+    """Process changelogs for a list of issues and calculate enhanced workflow metrics.
 
     Args:
         session: Database session
@@ -1264,9 +1269,9 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 job_logger.progress(f"[DEBUG] First changelog data: {changelogs_to_insert[0]}")
             perform_bulk_insert(session, IssueChangelog, changelogs_to_insert, "issue_changelogs", job_logger)
 
-        # Calculate and update issue started/completed dates from database changelogs
+        # Calculate and update enhanced workflow metrics from database changelogs
         if issues_in_db:
-            job_logger.progress(f"[CALCULATING] Calculating started/completed dates for {len(issues_in_db)} issues from database changelogs...")
+            job_logger.progress(f"[CALCULATING] Calculating enhanced workflow metrics for {len(issues_in_db)} issues from database changelogs...")
 
             # Get all changelogs for the processed issues from database
             issue_ids = [issue.id for issue in issues_in_db]
@@ -1282,7 +1287,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 changelogs_by_issue[changelog.issue_id].append(changelog)
 
             # Calculate enhanced workflow metrics for each issue
-            issues_to_update_dates = []
+            issues_to_update_metrics = []
             for issue in issues_in_db:
                 issue_changelogs = changelogs_by_issue.get(issue.id, [])
 
@@ -1294,33 +1299,15 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                             current_status_category = getattr(status_obj, 'category', '').lower()
                             break
 
-                # Calculate legacy dates from changelogs (for backward compatibility)
-                if issue_changelogs:
-                    started_date, completed_date = calculate_issue_dates_from_db(issue_changelogs, statuses_dict)
-                else:
-                    started_date, completed_date = None, None
-
-                # Apply business rules based on current status category for legacy fields
-                if current_status_category == 'to do':
-                    # 'To Do' status → both dates should be null
-                    started_date = None
-                    completed_date = None
-                elif current_status_category == 'in progress':
-                    # 'In Progress' status → completed should be null, keep started if exists
-                    completed_date = None
-                elif current_status_category == 'done':
-                    # 'Done' status → completed should be filled, started can be null for To Do → Done
-                    pass  # Use calculated dates as-is
+                # Legacy date calculation removed - now using enhanced workflow metrics only
 
                 # Calculate enhanced workflow metrics
                 enhanced_metrics = calculate_enhanced_workflow_metrics(
                     issue_changelogs, statuses_dict
                 )
 
-                # Check if any values have changed (legacy or enhanced)
+                # Check if any enhanced workflow values have changed
                 needs_update = (
-                    issue.started != started_date or
-                    issue.completed != completed_date or
                     issue.work_first_committed_at != enhanced_metrics['work_first_committed_at'] or
                     issue.work_first_started_at != enhanced_metrics['work_first_started_at'] or
                     issue.work_last_started_at != enhanced_metrics['work_last_started_at'] or
@@ -1339,10 +1326,6 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 )
 
                 if needs_update:
-                    # Update legacy fields
-                    issue.started = started_date
-                    issue.completed = completed_date
-
                     # Update enhanced workflow fields
                     issue.work_first_committed_at = enhanced_metrics['work_first_committed_at']
                     issue.work_first_started_at = enhanced_metrics['work_first_started_at']
@@ -1361,23 +1344,13 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                     issue.direct_completion = enhanced_metrics['direct_completion']
 
                     issue.last_updated_at = current_time
-                    issues_to_update_dates.append(issue)
+                    issues_to_update_metrics.append(issue)
 
-            # Bulk update issue dates
-            if issues_to_update_dates:
-                job_logger.progress(f"[UPDATING] Updating started/completed dates for {len(issues_to_update_dates)} issues...")
-                update_data = []
-                for issue in issues_to_update_dates:
-                    update_data.append({
-                        'id': issue.id,
-                        'started': issue.started,
-                        'completed': issue.completed,
-                        'last_updated_at': issue.last_updated_at
-                    })
-                session.bulk_update_mappings(Issue, update_data)
+            # Enhanced workflow metrics are updated directly on the issue objects above
+            # No separate bulk update needed since SQLAlchemy tracks the changes
 
         session.commit()
-        job_logger.progress(f"[SUCCESS] Successfully processed {total_changelogs_processed} changelogs and updated {len(issues_to_update_dates)} issue dates")
+        job_logger.progress(f"[SUCCESS] Successfully processed {total_changelogs_processed} changelogs and updated {len(issues_to_update_metrics)} issue workflow metrics")
 
         return total_changelogs_processed
 
@@ -1387,69 +1360,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
         return 0
 
 
-def calculate_issue_dates(changelogs: List[Dict], statuses_dict: Dict[str, Any]) -> tuple:
-    """Calculate started and completed dates from changelog data.
-
-    Args:
-        changelogs: List of processed changelog dictionaries
-        statuses_dict: Dictionary mapping status external_ids to status objects
-
-    Returns:
-        Tuple of (started_date, completed_date)
-    """
-    started_date = None
-    completed_date = None
-
-    # Sort changelogs by date
-    status_changelogs = [
-        cl for cl in changelogs
-        if cl.get('field_name') == 'status' and cl.get('changed_at')
-    ]
-
-    if not status_changelogs:
-        return started_date, completed_date
-
-    status_changelogs.sort(key=lambda x: x['changed_at'])
-
-    # Find completed date (last transition to Done category)
-    for changelog in reversed(status_changelogs):
-        to_status_external_id = changelog.get('to_status_id')
-        if to_status_external_id and to_status_external_id in statuses_dict:
-            to_status = statuses_dict[to_status_external_id]
-            if getattr(to_status, 'category', '').lower() == 'done':
-                completed_date = changelog['changed_at']
-                break
-
-    # Find started date (first To Do -> In Progress transition, or first transition with from_status category='In Progress')
-    for changelog in status_changelogs:
-        from_status_external_id = changelog.get('from_status_id')
-        to_status_external_id = changelog.get('to_status_id')
-
-        # Check for To Do -> In Progress pattern
-        if (from_status_external_id and to_status_external_id and
-            from_status_external_id in statuses_dict and to_status_external_id in statuses_dict):
-
-            from_status = statuses_dict[from_status_external_id]
-            to_status = statuses_dict[to_status_external_id]
-
-            from_category = getattr(from_status, 'category', '').lower()
-            to_category = getattr(to_status, 'category', '').lower()
-
-            if from_category == 'to do' and to_category == 'in progress':
-                started_date = changelog['changed_at']
-                break
-
-    # If no To Do -> In Progress found, look for first transition with from_status category='In Progress'
-    if not started_date:
-        for changelog in status_changelogs:
-            from_status_external_id = changelog.get('from_status_id')
-            if from_status_external_id and from_status_external_id in statuses_dict:
-                from_status = statuses_dict[from_status_external_id]
-                if getattr(from_status, 'category', '').lower() == 'in progress':
-                    started_date = changelog['changed_at']
-                    break
-
-    return started_date, completed_date
+# Legacy calculate_issue_dates function removed - replaced by calculate_enhanced_workflow_metrics
 
 
 def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], statuses_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -1488,9 +1399,9 @@ def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], status
             return None
         for status_external_id, status_obj in statuses_dict.items():
             if status_obj.id == status_id:
-                # Get the flow step category via status_mapping relationship
-                if hasattr(status_obj, 'status_mapping') and status_obj.status_mapping and status_obj.status_mapping.flow_step:
-                    return getattr(status_obj.status_mapping.flow_step, 'step_category', '').lower()
+                # Get the workflow category via status_mapping relationship
+                if hasattr(status_obj, 'status_mapping') and status_obj.status_mapping and status_obj.status_mapping.workflow:
+                    return getattr(status_obj.status_mapping.workflow, 'step_category', '').lower()
                 # Fallback to status category for backward compatibility
                 return getattr(status_obj, 'category', '').lower()
         return None
@@ -1662,92 +1573,7 @@ def _calculate_direct_completion(metrics: Dict, changelogs: List, statuses_dict:
     return False
 
 
-def calculate_issue_dates_from_db(changelogs: List[IssueChangelog], statuses_dict: Dict[str, Any]) -> tuple:
-    """Calculate started and completed dates from database changelog objects using sophisticated business logic.
-
-    Business Rules:
-    - Completed Date: First transition TO 'Done' category in the most recent work cycle
-      (finds when work was actually completed after most recent restart)
-    - Started Date: Most recent transition FROM a 'Done' status (indicates restart after completion)
-    - Special Case: If the completion transition is 'To Do' → 'Done', started_date = None
-      (direct completion without work - no matter when it occurred in the cycle)
-
-    Args:
-        changelogs: List of IssueChangelog database objects (sorted by transition_change_date DESC)
-        statuses_dict: Dictionary mapping status external_ids to status objects
-
-    Returns:
-        Tuple of (started_date, completed_date)
-    """
-    started_date = None
-    completed_date = None
-
-    if not changelogs:
-        return started_date, completed_date
-
-    # Helper function to get status category by database ID
-    def get_status_category(status_id):
-        if not status_id:
-            return None
-        for status_external_id, status_obj in statuses_dict.items():
-            if status_obj.id == status_id:
-                return getattr(status_obj, 'category', '').lower()
-        return None
-
-    # Find completed date (first transition TO 'Done' in most recent work cycle)
-    # Strategy: Find the most recent transition FROM 'Done', then find the first TO 'Done' after that
-
-    if changelogs:
-        # First, find the most recent transition FROM 'Done' (if any)
-        restart_index = None
-        for i, changelog in enumerate(changelogs):
-            from_category = get_status_category(changelog.from_status_id)
-            if from_category == 'done':
-                restart_index = i
-                break
-
-        # Now find the first transition TO 'Done' after the restart point (or from beginning)
-        search_start = restart_index + 1 if restart_index is not None else 0
-
-        # Search from the restart point to the end (oldest entries)
-        for i in range(search_start, len(changelogs)):
-            changelog = changelogs[i]
-            to_category = get_status_category(changelog.to_status_id)
-            if to_category == 'done':
-                completed_date = changelog.transition_change_date
-                # Don't break - we want the LAST (oldest) 'Done' transition in this cycle
-
-        # If no restart point found, get the most recent transition TO 'Done'
-        if restart_index is None:
-            for changelog in changelogs:
-                to_category = get_status_category(changelog.to_status_id)
-                if to_category == 'done':
-                    completed_date = changelog.transition_change_date
-                    break
-
-    # Find started date (most recent transition FROM 'Done' status)
-    # This indicates when work was restarted after being completed
-    for changelog in changelogs:
-        from_category = get_status_category(changelog.from_status_id)
-
-        if from_category == 'done':
-            started_date = changelog.transition_change_date
-            break
-
-    # Special case: If the completed transition (first TO 'Done' in current cycle) is FROM 'To Do',
-    # then started should be None (direct completion without work)
-    if completed_date and changelogs:
-        # Find the transition that set the completed_date
-        for changelog in changelogs:
-            if changelog.transition_change_date == completed_date:
-                from_category = get_status_category(changelog.from_status_id)
-                to_category = get_status_category(changelog.to_status_id)
-
-                if from_category == 'to do' and to_category == 'done':
-                    started_date = None
-                break
-
-    return started_date, completed_date
+# Legacy date calculation functions removed - replaced by calculate_enhanced_workflow_metrics
 
 
 def extract_issue_dev_details(session: Session, integration, jira_client, issues_with_external_ids: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -1803,6 +1629,8 @@ def extract_issue_dev_details(session: Session, integration, jira_client, issues
                     prs_found_in_dev_status += len(pull_requests)
 
                 issues_processed += 1
+
+
 
                 if issues_processed % 10 == 0:
                     logger.info(f"Processed development details for {issues_processed} of {len(issues_with_external_ids)} issues so far")

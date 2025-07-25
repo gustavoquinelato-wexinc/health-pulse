@@ -141,11 +141,11 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS projects (
                 id SERIAL,
-                integration_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 key VARCHAR NOT NULL,
                 name VARCHAR NOT NULL,
                 project_type VARCHAR,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -156,13 +156,15 @@ def apply(connection):
         print("✅ Integration and project tables created")
         print("📋 Creating workflow and mapping tables...")
 
-        # 7. Flow steps table
+        # 7. Workflows table (renamed from flow_steps)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS flow_steps (
+            CREATE TABLE IF NOT EXISTS workflows (
                 id SERIAL,
-                name VARCHAR NOT NULL,
+                step_name VARCHAR NOT NULL,
                 step_number INTEGER,
                 step_category VARCHAR NOT NULL,
+                is_commitment_point BOOLEAN NOT NULL DEFAULT FALSE,
+                integration_id INTEGER,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -177,7 +179,8 @@ def apply(connection):
                 status_from VARCHAR NOT NULL,
                 status_to VARCHAR NOT NULL,
                 status_category VARCHAR NOT NULL,
-                flow_step_id INTEGER,
+                workflow_id INTEGER,
+                integration_id INTEGER,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -192,6 +195,7 @@ def apply(connection):
                 level_name VARCHAR NOT NULL,
                 level_number INTEGER NOT NULL,
                 description VARCHAR,
+                integration_id INTEGER,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -206,6 +210,7 @@ def apply(connection):
                 issuetype_from VARCHAR NOT NULL,
                 issuetype_to VARCHAR NOT NULL,
                 issuetype_hierarchy_id INTEGER NOT NULL,
+                integration_id INTEGER,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -217,12 +222,12 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issuetypes (
                 id SERIAL,
-                integration_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 original_name VARCHAR NOT NULL,
                 issuetype_mapping_id INTEGER,
                 description VARCHAR,
                 hierarchy_level INTEGER NOT NULL,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -234,12 +239,12 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS statuses (
                 id SERIAL,
-                integration_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 original_name VARCHAR NOT NULL,
                 status_mapping_id INTEGER,
                 category VARCHAR NOT NULL,
                 description VARCHAR,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -273,7 +278,6 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issues (
                 id SERIAL,
-                integration_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 key VARCHAR,
                 project_id INTEGER,
@@ -287,8 +291,6 @@ def apply(connection):
                 labels VARCHAR,
                 created TIMESTAMP,
                 updated TIMESTAMP,
-                started TIMESTAMP,
-                completed TIMESTAMP,
                 work_first_committed_at TIMESTAMP,
                 work_first_started_at TIMESTAMP,
                 work_last_started_at TIMESTAMP,
@@ -327,6 +329,7 @@ def apply(connection):
                 custom_field_18 VARCHAR,
                 custom_field_19 VARCHAR,
                 custom_field_20 VARCHAR,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -338,7 +341,6 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issue_changelogs (
                 id SERIAL,
-                integration_id INTEGER NOT NULL,
                 issue_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 from_status_id INTEGER,
@@ -347,6 +349,7 @@ def apply(connection):
                 transition_change_date TIMESTAMP,
                 time_in_status_seconds FLOAT,
                 changed_by VARCHAR,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -370,6 +373,7 @@ def apply(connection):
                 language VARCHAR,
                 default_branch VARCHAR,
                 archived BOOLEAN,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -411,6 +415,7 @@ def apply(connection):
                 first_review_at TIMESTAMP,
                 rework_commit_count INTEGER,
                 review_cycles INTEGER,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -428,6 +433,7 @@ def apply(connection):
                 state VARCHAR,
                 body TEXT,
                 submitted_at TIMESTAMP,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -448,6 +454,7 @@ def apply(connection):
                 message TEXT,
                 authored_date TIMESTAMP,
                 committed_date TIMESTAMP,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -469,6 +476,7 @@ def apply(connection):
                 line INTEGER,
                 created_at_github TIMESTAMP,
                 updated_at_github TIMESTAMP,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -484,6 +492,8 @@ def apply(connection):
                 setting_value VARCHAR NOT NULL,
                 setting_type VARCHAR NOT NULL DEFAULT 'string',
                 description VARCHAR,
+                client_id INTEGER NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
@@ -507,6 +517,7 @@ def apply(connection):
                 last_success_at TIMESTAMP,
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
+                integration_id INTEGER,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -525,6 +536,7 @@ def apply(connection):
                 branch_name VARCHAR,
                 commit_sha VARCHAR,
                 pr_status VARCHAR,
+                integration_id INTEGER NOT NULL,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -554,7 +566,7 @@ def apply(connection):
         cursor.execute("ALTER TABLE user_permissions ADD CONSTRAINT pk_user_permissions PRIMARY KEY (id);")
         cursor.execute("ALTER TABLE integrations ADD CONSTRAINT pk_integrations PRIMARY KEY (id);")
         cursor.execute("ALTER TABLE projects ADD CONSTRAINT pk_projects PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE flow_steps ADD CONSTRAINT pk_flow_steps PRIMARY KEY (id);")
+        cursor.execute("ALTER TABLE workflows ADD CONSTRAINT pk_workflows PRIMARY KEY (id);")
         cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT pk_status_mappings PRIMARY KEY (id);")
         cursor.execute("ALTER TABLE issuetype_hierarchies ADD CONSTRAINT pk_issuetype_hierarchies PRIMARY KEY (id);")
         cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT pk_issuetype_mappings PRIMARY KEY (id);")
@@ -598,11 +610,15 @@ def apply(connection):
         cursor.execute("ALTER TABLE projects ADD CONSTRAINT fk_projects_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
 
         # Workflow and mappings
-        cursor.execute("ALTER TABLE flow_steps ADD CONSTRAINT fk_flow_steps_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
-        cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT fk_status_mappings_flow_step_id FOREIGN KEY (flow_step_id) REFERENCES flow_steps(id);")
+        cursor.execute("ALTER TABLE workflows ADD CONSTRAINT fk_workflows_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE workflows ADD CONSTRAINT fk_workflows_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
+        cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT fk_status_mappings_workflow_id FOREIGN KEY (workflow_id) REFERENCES workflows(id);")
         cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT fk_status_mappings_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT fk_status_mappings_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE issuetype_hierarchies ADD CONSTRAINT fk_issuetype_hierarchies_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE issuetype_hierarchies ADD CONSTRAINT fk_issuetype_hierarchies_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT fk_issuetype_mappings_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT fk_issuetype_mappings_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT fk_issuetype_mappings_hierarchy_id FOREIGN KEY (issuetype_hierarchy_id) REFERENCES issuetype_hierarchies(id);")
 
         # Issue types and statuses
@@ -631,22 +647,30 @@ def apply(connection):
 
         # Repositories and pull requests
         cursor.execute("ALTER TABLE repositories ADD CONSTRAINT fk_repositories_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE repositories ADD CONSTRAINT fk_repositories_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE pull_requests ADD CONSTRAINT fk_pull_requests_repository_id FOREIGN KEY (repository_id) REFERENCES repositories(id);")
         cursor.execute("ALTER TABLE pull_requests ADD CONSTRAINT fk_pull_requests_issue_id FOREIGN KEY (issue_id) REFERENCES issues(id);")
         cursor.execute("ALTER TABLE pull_requests ADD CONSTRAINT fk_pull_requests_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE pull_requests ADD CONSTRAINT fk_pull_requests_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
 
         # Pull request related tables
         cursor.execute("ALTER TABLE pull_request_reviews ADD CONSTRAINT fk_pull_request_reviews_pull_request_id FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id);")
         cursor.execute("ALTER TABLE pull_request_reviews ADD CONSTRAINT fk_pull_request_reviews_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE pull_request_reviews ADD CONSTRAINT fk_pull_request_reviews_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE pull_request_commits ADD CONSTRAINT fk_pull_request_commits_pull_request_id FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id);")
         cursor.execute("ALTER TABLE pull_request_commits ADD CONSTRAINT fk_pull_request_commits_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE pull_request_commits ADD CONSTRAINT fk_pull_request_commits_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE pull_request_comments ADD CONSTRAINT fk_pull_request_comments_pull_request_id FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id);")
         cursor.execute("ALTER TABLE pull_request_comments ADD CONSTRAINT fk_pull_request_comments_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE pull_request_comments ADD CONSTRAINT fk_pull_request_comments_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
 
         # System tables
+        cursor.execute("ALTER TABLE system_settings ADD CONSTRAINT fk_system_settings_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
         cursor.execute("ALTER TABLE job_schedules ADD CONSTRAINT fk_job_schedules_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE job_schedules ADD CONSTRAINT fk_job_schedules_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
         cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_issue_id FOREIGN KEY (issue_id) REFERENCES issues(id);")
         cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
+        cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
 
         print("✅ Data table foreign key constraints created")
         print("📋 Creating relationship table constraints...")
@@ -696,9 +720,13 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_key ON projects(key);")
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_steps_client_id ON flow_steps(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_client_id ON workflows(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_integration_id ON workflows(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_is_commitment_point ON workflows(is_commitment_point);")
+        # Unique partial index to ensure only one delivery milestone per client/integration combination
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_commitment_point_per_client_integration ON workflows(client_id, integration_id) WHERE is_commitment_point = true;")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_client_id ON status_mappings(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_flow_step_id ON status_mappings(flow_step_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_workflow_id ON status_mappings(workflow_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_status_from ON status_mappings(status_from);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_hierarchies_client_id ON issuetype_hierarchies(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_hierarchies_level_number ON issuetype_hierarchies(level_number);")
@@ -759,6 +787,7 @@ def apply(connection):
         # System table indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_status ON job_schedules(status);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_last_run_started_at ON job_schedules(last_run_started_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_integration_id ON job_schedules(integration_id);")
 
         print("✅ All indexes and constraints created successfully!")
         print("📋 Inserting seed data...")
@@ -777,8 +806,9 @@ def apply(connection):
             raise Exception("Failed to create or find WEX client")
         client_id = client_result['id']
 
-        # Insert flow steps (extracted from workflow configuration)
-        flow_steps_data = [
+        # Insert workflows (extracted from workflow configuration)
+        # Note: integration_id will be set later after integrations are created
+        workflows_data = [
             ("Backlog", 1, "To Do"),
             ("Refinement", 2, "To Do"),
             ("Ready to Work", 3, "To Do"),
@@ -793,176 +823,179 @@ def apply(connection):
             ("Discarded", None, "Discarded")  # No step number for Discarded
         ]
 
-        flow_step_ids = {}
-        for name, step_number, category in flow_steps_data:
+        workflow_ids = {}
+        for step_name, step_number, category in workflows_data:
+            # Set delivery milestone for "Done" step
+            is_commitment_point = (step_name == "Done")
+
             cursor.execute("""
-                INSERT INTO flow_steps (name, step_number, step_category, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT DO NOTHING
                 RETURNING id;
-            """, (name, step_number, category, client_id))
+            """, (step_name, step_number, category, is_commitment_point, client_id))
 
             result = cursor.fetchone()
             if result:
-                flow_step_ids[name] = result['id']
+                workflow_ids[step_name] = result['id']
             else:
                 # Get existing ID if conflict occurred
-                cursor.execute("SELECT id FROM flow_steps WHERE name = %s AND client_id = %s;", (name, client_id))
+                cursor.execute("SELECT id FROM workflows WHERE step_name = %s AND client_id = %s;", (step_name, client_id))
                 result = cursor.fetchone()
                 if result:
-                    flow_step_ids[name] = result['id']
+                    workflow_ids[step_name] = result['id']
 
         # Insert status mappings (complete workflow configuration - EXACT COPY from reset_database.py)
         status_mappings_data = [
             #BACKLOG
-            {"status_from": "Backlog", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
-            {"status_from": "New", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
-            {"status_from": "Open", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
-            {"status_from": "Created", "status_to": "Backlog", "status_category": "To Do", "flow_step": "Backlog"},
+            {"status_from": "Backlog", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
+            {"status_from": "New", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
+            {"status_from": "Open", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
+            {"status_from": "Created", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
 
             #REFINEMENT
-            {"status_from": "Analysis", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Design", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Prerefinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Ready to Refine", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Refinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Refining", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Tech Review", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Waiting for refinement", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "In Triage", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Pending Approval", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Discovery", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Composting", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Onboarding Templates", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Templates", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
-            {"status_from": "Template Approval Pending", "status_to": "Refinement", "status_category": "To Do", "flow_step": "Refinement"},
+            {"status_from": "Analysis", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Design", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Prerefinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Ready to Refine", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Refinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Refining", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Tech Review", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Waiting for refinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "In Triage", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Pending Approval", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Discovery", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Composting", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Onboarding Templates", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Templates", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Template Approval Pending", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
 
             #READY TO WORK
-            {"status_from": "Approved", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Ready", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Ready for Development", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Ready to Development", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Ready to Work", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Refined", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
-            {"status_from": "Proposed", "status_to": "Ready to Work", "status_category": "To Do", "flow_step": "Ready to Work"},
+            {"status_from": "Approved", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready for Development", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready to Development", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready to Work", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Refined", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Proposed", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
 
             #TO DO
-            {"status_from": "Committed", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
-            {"status_from": "Planned", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
-            {"status_from": "Selected for development", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
-            {"status_from": "To Do", "status_to": "To Do", "status_category": "To Do", "flow_step": "To Do"},
+            {"status_from": "Committed", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "Planned", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "Selected for development", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "To Do", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
 
             #IN PROGRESS
-            {"status_from": "Active", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Applied to TRN", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Blocked", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Building", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Code Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Codereview", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Coding", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Coding Done", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Deployed to Dev", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Development", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "In Development", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "In Progress", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "In Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Peer Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Pre-readiness", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Ready for Peer Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Ready to Dep to Dev", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Review", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Training", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Validated in TRN", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Waiting Partner", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "On Hold", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Pipeline Approval Pending", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
-            {"status_from": "Merging Branches", "status_to": "In Progress", "status_category": "In Progress", "flow_step": "In Progress"},
+            {"status_from": "Active", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Applied to TRN", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Blocked", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Building", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Code Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Codereview", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Coding", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Coding Done", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Deployed to Dev", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Development", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "In Development", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "In Progress", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "In Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Peer Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Pre-readiness", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Ready for Peer Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Ready to Dep to Dev", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Training", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Validated in TRN", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Waiting Partner", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "On Hold", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Pipeline Approval Pending", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Merging Branches", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
 
             #READY FOR QA TESTING
-            {"status_from": "Ready for QA", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
-            {"status_from": "Ready for QA build", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
-            {"status_from": "Ready for Test", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
-            {"status_from": "Ready for Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
-            {"status_from": "Ready for Story Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
-            {"status_from": "Deploying Demo", "status_to": "Ready for Story Testing", "status_category": "Waiting", "flow_step": "Ready for Story Testing"},
+            {"status_from": "Ready for QA", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for QA build", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Test", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Story Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Deploying Demo", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
 
             #IN QA TEST
-            {"status_from": "Applied to QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "In Test", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "In Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "Promoted to QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "QA", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "QA in Progress", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "Test", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "Story Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
-            {"status_from": "Testing", "status_to": "Story Testing", "status_category": "In Progress", "flow_step": "Story Testing"},
+            {"status_from": "Applied to QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "In Test", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "In Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Promoted to QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "QA in Progress", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Test", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Story Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
 
             #READY FOR UAT TESTING
-            {"status_from": "Ready for Uat", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
-            {"status_from": "Ready for Stage", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
-            {"status_from": "Validated in QA", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
-            {"status_from": "Ready for Demo", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
-            {"status_from": "Ready for Acceptance", "status_to": "Ready for Acceptance", "status_category": "Waiting", "flow_step": "Ready for Acceptance"},
+            {"status_from": "Ready for Uat", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Stage", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Validated in QA", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Demo", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Acceptance", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
 
             #IN UAT TEST
-            {"status_from": "Applied to STG", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Applied to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "In Stage Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Promoted to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Regression Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Release Approval Pending", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Acceptance Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Pre Production Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Final Checks", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
-            {"status_from": "Release Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "flow_step": "Acceptance Testing"},
+            {"status_from": "Applied to STG", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Applied to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "In Stage Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Promoted to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Regression Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Release Approval Pending", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Acceptance Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Pre Production Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Final Checks", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Release Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
 
             #READY FOR PROD
-            {"status_from": "Deploy", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready for prod", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready for prd", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready for production", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready for Release", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready to Dep to Prod", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Ready to Launch", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Release Pending", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Resolved", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Validated in STG", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Validated in UAT", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Deploying Database", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Deploying Applications", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
-            {"status_from": "Awaiting Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "flow_step": "Ready for Prod"},
+            {"status_from": "Deploy", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for prod", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for prd", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for production", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for Release", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready to Dep to Prod", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready to Launch", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Release Pending", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Resolved", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Validated in STG", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Validated in UAT", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deploying Database", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deploying Applications", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Awaiting Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
 
             #DONE
-            {"status_from": "Applied to Prod", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Applied to Prod/TRN", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Closed", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Done", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Validated in Prod", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Released", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Deployed to Production", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Release Deployed", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
-            {"status_from": "Closure", "status_to": "Done", "status_category": "Done", "flow_step": "Done"},
+            {"status_from": "Applied to Prod", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Applied to Prod/TRN", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Closed", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Done", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Validated in Prod", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Released", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Deployed to Production", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Release Deployed", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Closure", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
 
             #REMOVED
-            {"status_from": "Cancelled", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
-            {"status_from": "Rejected", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
-            {"status_from": "Removed", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
-            {"status_from": "Withdrawn", "status_to": "Discarded", "status_category": "Discarded", "flow_step": "Discarded"},
+            {"status_from": "Cancelled", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Rejected", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Removed", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Withdrawn", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
         ]
 
         for mapping in status_mappings_data:
-            flow_step_id = flow_step_ids.get(mapping["flow_step"])
+            workflow_id = workflow_ids.get(mapping["workflow"])
             cursor.execute("""
-                INSERT INTO status_mappings (status_from, status_to, status_category, flow_step_id, client_id, active, created_at, last_updated_at)
+                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, client_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (status_from, client_id) DO UPDATE SET
                     status_to = EXCLUDED.status_to,
                     status_category = EXCLUDED.status_category,
-                    flow_step_id = EXCLUDED.flow_step_id,
+                    workflow_id = EXCLUDED.workflow_id,
                     last_updated_at = NOW();
-            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], flow_step_id, client_id))
+            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, client_id))
 
         print("✅ Status mappings inserted")
 
@@ -1144,6 +1177,102 @@ def apply(connection):
             print(f"⚠️  Could not create integrations with encrypted credentials: {e}")
             print("💡 You can configure integrations later through the admin interface")
 
+        # Update workflows with JIRA integration_id (now that integrations are created)
+        print("📋 Linking workflows to JIRA integration...")
+
+        cursor.execute("SELECT id FROM integrations WHERE name = 'JIRA' AND client_id = %s;", (client_id,))
+        jira_integration_result = cursor.fetchone()
+        jira_integration_id = jira_integration_result['id'] if jira_integration_result else None
+
+        if jira_integration_id:
+            cursor.execute("""
+                UPDATE workflows
+                SET integration_id = %s
+                WHERE client_id = %s AND integration_id IS NULL;
+            """, (jira_integration_id, client_id))
+
+            updated_count = cursor.rowcount
+            print(f"✅ Linked {updated_count} workflows to JIRA integration (ID: {jira_integration_id})")
+        else:
+            print("⚠️ JIRA integration not found - workflows will remain unlinked to integration")
+
+        # Get GitHub integration ID for job schedule linking
+        cursor.execute("SELECT id FROM integrations WHERE name = 'GITHUB' AND client_id = %s;", (client_id,))
+        github_integration_result = cursor.fetchone()
+        github_integration_id = github_integration_result['id'] if github_integration_result else None
+
+        # Update all integration-specific tables with proper integration assignments
+        print("📋 Assigning integration IDs to all integration-specific tables...")
+
+        if jira_integration_id:
+            # JIRA Integration assignments (issue-related tables and configuration)
+            tables_for_jira = [
+                'projects', 'issuetypes', 'statuses', 'issues', 'issue_changelogs', 'jira_pull_request_links',
+                'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings', 'job_schedules'
+            ]
+
+            for table in tables_for_jira:
+                # Special handling for job_schedules - only assign JIRA jobs to JIRA integration
+                if table == 'job_schedules':
+                    cursor.execute(f"""
+                        UPDATE {table}
+                        SET integration_id = %s
+                        WHERE client_id = %s AND integration_id IS NULL AND job_name = 'jira_sync';
+                    """, (jira_integration_id, client_id))
+                else:
+                    cursor.execute(f"""
+                        UPDATE {table}
+                        SET integration_id = %s
+                        WHERE client_id = %s AND integration_id IS NULL;
+                    """, (jira_integration_id, client_id))
+
+                updated_count = cursor.rowcount
+                if updated_count > 0:
+                    print(f"   ✅ Linked {updated_count} {table} records to JIRA integration")
+
+        if github_integration_id:
+            # GITHUB Integration assignments (repository/PR-related tables)
+            tables_for_github = [
+                'repositories', 'pull_requests', 'pull_request_reviews',
+                'pull_request_commits', 'pull_request_comments'
+            ]
+
+            for table in tables_for_github:
+                cursor.execute(f"""
+                    UPDATE {table}
+                    SET integration_id = %s
+                    WHERE client_id = %s AND integration_id IS NULL;
+                """, (github_integration_id, client_id))
+
+                updated_count = cursor.rowcount
+                if updated_count > 0:
+                    print(f"   ✅ Linked {updated_count} {table} records to GITHUB integration")
+
+            # Assign GitHub job schedules to GitHub integration
+            cursor.execute("""
+                UPDATE job_schedules
+                SET integration_id = %s
+                WHERE client_id = %s AND integration_id IS NULL AND job_name = 'github_sync';
+            """, (github_integration_id, client_id))
+
+            github_jobs_updated = cursor.rowcount
+            if github_jobs_updated > 0:
+                print(f"   ✅ Linked {github_jobs_updated} GitHub job_schedules records to GITHUB integration")
+
+        print("✅ All integration-specific tables properly assigned to integrations")
+
+        # Now make integration_id NOT NULL for all IntegrationBaseEntity tables
+        print("📋 Setting integration_id columns to NOT NULL...")
+        integration_tables = [
+            'workflows', 'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings',
+            'repositories', 'pull_requests', 'pull_request_reviews',
+            'pull_request_commits', 'pull_request_comments', 'jira_pull_request_links'
+        ]
+
+        for table in integration_tables:
+            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN integration_id SET NOT NULL;")
+            print(f"   ✅ Set {table}.integration_id to NOT NULL")
+
         # Insert system settings
         print("📋 Creating system settings...")
 
@@ -1160,10 +1289,10 @@ def apply(connection):
 
         for setting in system_settings_data:
             cursor.execute("""
-                INSERT INTO system_settings (setting_key, setting_value, setting_type, description, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW())
+                INSERT INTO system_settings (setting_key, setting_value, setting_type, description, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (setting_key) DO NOTHING;
-            """, (setting["setting_key"], setting["setting_value"], setting["setting_type"], setting["description"]))
+            """, (setting["setting_key"], setting["setting_value"], setting["setting_type"], setting["description"], client_id))
 
         print("✅ System settings created")
 
@@ -1293,6 +1422,39 @@ def apply(connection):
 
         print("✅ Default job schedules created")
 
+        # Link job schedules to their corresponding integrations
+        print("📋 Linking job schedules to integrations...")
+
+        # Integration IDs already retrieved after integration creation
+
+        # Link jira_sync job to Jira integration
+        if jira_integration_id:
+            cursor.execute("""
+                UPDATE job_schedules
+                SET integration_id = %s
+                WHERE job_name = 'jira_sync' AND client_id = %s;
+            """, (jira_integration_id, client_id))
+            print(f"✅ Linked jira_sync job to JIRA integration (ID: {jira_integration_id})")
+        else:
+            print("⚠️ JIRA integration not found - jira_sync job not linked")
+
+        # Link github_sync job to GitHub integration
+        if github_integration_id:
+            cursor.execute("""
+                UPDATE job_schedules
+                SET integration_id = %s
+                WHERE job_name = 'github_sync' AND client_id = %s;
+            """, (github_integration_id, client_id))
+            print(f"✅ Linked github_sync job to GITHUB integration (ID: {github_integration_id})")
+        else:
+            print("⚠️ GITHUB integration not found - github_sync job not linked")
+
+        print("✅ Job schedules linked to integrations")
+
+        # Now make job_schedules.integration_id NOT NULL since all jobs should be linked
+        cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
+        print("✅ Set job_schedules.integration_id to NOT NULL")
+
         print("✅ All seed data inserted successfully!")
 
         # Record this migration as applied
@@ -1341,7 +1503,7 @@ def rollback(connection):
             'issuetype_hierarchies',
             'issuetype_mappings',
             'status_mappings',
-            'flow_steps',
+            'workflows',
             'projects',
             'integrations',
             'job_schedules',
@@ -1406,12 +1568,12 @@ def check_status(connection):
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'public'
-            AND table_name IN ('clients', 'users', 'integrations', 'projects', 'flow_steps', 'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings', 'issues', 'repositories', 'job_schedules')
+            AND table_name IN ('clients', 'users', 'integrations', 'projects', 'workflows', 'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings', 'issues', 'repositories', 'job_schedules')
             ORDER BY table_name;
         """)
 
         existing_tables = [row['table_name'] for row in cursor.fetchall()]
-        expected_tables = ['clients', 'flow_steps', 'integrations', 'issues', 'issuetype_hierarchies', 'issuetype_mappings', 'job_schedules', 'projects', 'repositories', 'status_mappings', 'users']
+        expected_tables = ['clients', 'workflows', 'integrations', 'issues', 'issuetype_hierarchies', 'issuetype_mappings', 'job_schedules', 'projects', 'repositories', 'status_mappings', 'users']
 
         if set(existing_tables) == set(expected_tables):
             print("✅ Migration 001: Applied (detected via table existence)")

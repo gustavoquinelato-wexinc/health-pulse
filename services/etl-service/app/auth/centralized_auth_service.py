@@ -1,9 +1,11 @@
 """
 Centralized Authentication Service for ETL Service.
-Validates authentication through the Backend Service instead of local auth.
+Validates authentication through the Backend Service with caching for performance.
 """
 
 import httpx
+import asyncio
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from app.core.logging_config import get_logger
 from app.core.config import get_settings
@@ -11,36 +13,107 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 
 
+class TokenCache:
+    """Simple in-memory token cache to reduce backend service calls."""
+
+    def __init__(self, ttl_seconds: int = 300):  # 5 minutes default TTL
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.ttl_seconds = ttl_seconds
+        self._lock = asyncio.Lock()
+
+    async def get(self, token_hash: str) -> Optional[Dict[str, Any]]:
+        """Get cached token data if not expired."""
+        async with self._lock:
+            if token_hash in self.cache:
+                entry = self.cache[token_hash]
+                if datetime.utcnow() < entry["expires_at"]:
+                    logger.debug(f"Token cache HIT for user: {entry['data'].get('email', 'unknown')}")
+                    return entry["data"]
+                else:
+                    # Remove expired entry
+                    del self.cache[token_hash]
+                    logger.debug("Token cache MISS - expired")
+            return None
+
+    async def set(self, token_hash: str, user_data: Dict[str, Any]):
+        """Cache token data with TTL."""
+        async with self._lock:
+            self.cache[token_hash] = {
+                "data": user_data,
+                "expires_at": datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
+            }
+            logger.debug(f"Token cached for user: {user_data.get('email', 'unknown')}")
+
+    async def invalidate(self, token_hash: str):
+        """Remove token from cache."""
+        async with self._lock:
+            if token_hash in self.cache:
+                del self.cache[token_hash]
+                logger.debug("Token removed from cache")
+
+    async def clear_expired(self):
+        """Clean up expired cache entries."""
+        async with self._lock:
+            now = datetime.utcnow()
+            expired_keys = [
+                key for key, entry in self.cache.items()
+                if now >= entry["expires_at"]
+            ]
+            for key in expired_keys:
+                del self.cache[key]
+            if expired_keys:
+                logger.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
+
+
 class CentralizedAuthService:
-    """Service to validate authentication through Backend Service."""
-    
+    """Service to validate authentication through Backend Service with caching."""
+
     def __init__(self):
         self.settings = get_settings()
         self.backend_service_url = self.settings.BACKEND_SERVICE_URL
-        self.timeout = 10.0
+        self.timeout = 5.0  # Reduced timeout for faster failures
+        self.cache = TokenCache(ttl_seconds=300)  # 5-minute cache
+
+        logger.info(f"🔗 Centralized Auth Service initialized with Backend URL: {self.backend_service_url}")
+        logger.info("🚀 Token caching enabled (5-minute TTL)")
+
+    def _hash_token(self, token: str) -> str:
+        """Create a hash of the token for cache key."""
+        import hashlib
+        return hashlib.sha256(token.encode()).hexdigest()
     
     async def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
-        Verify JWT token through Backend Service.
-        
+        Verify JWT token through Backend Service with caching.
+
         Args:
             token: JWT token to verify
-            
+
         Returns:
             User data if token is valid, None if invalid
         """
         try:
+            # Check cache first
+            token_hash = self._hash_token(token)
+            cached_data = await self.cache.get(token_hash)
+            if cached_data:
+                return cached_data
+
+            # Cache miss - call backend service
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/validate-service",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                
+
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("valid") and data.get("user"):
-                        logger.debug(f"Token validation successful for user: {data['user']['email']}")
-                        return data["user"]
+                        user_data = data["user"]
+                        # Cache the successful validation
+                        await self.cache.set(token_hash, user_data)
+                        logger.debug(f"Token validation successful for user: {user_data['email']}")
+                        return user_data
                     else:
                         logger.warning("Invalid response format from backend service")
                         return None
@@ -50,7 +123,7 @@ class CentralizedAuthService:
                 else:
                     logger.error(f"Backend service returned status {response.status_code}")
                     return None
-                    
+
         except httpx.TimeoutException:
             logger.error("Timeout while validating token with backend service")
             return None
@@ -98,16 +171,18 @@ class CentralizedAuthService:
             return False
 
     async def invalidate_session(self, token: str) -> bool:
-        """Invalidate a session by calling the Backend Service"""
+        """Invalidate a session by calling the Backend Service and clearing cache"""
         try:
-            import httpx
+            # Remove from cache first
+            token_hash = self._hash_token(token)
+            await self.cache.invalidate(token_hash)
 
             logger.info(f"🔄 Calling Backend Service to invalidate session...")
-            logger.info(f"Backend URL: {self.backend_url}")
+            logger.info(f"Backend URL: {self.backend_service_url}")
             logger.info(f"Token (first 20 chars): {token[:20]}...")
 
             async with httpx.AsyncClient() as client:
-                url = f"{self.backend_url}/api/v1/admin/auth/invalidate-session"
+                url = f"{self.backend_service_url}/api/v1/admin/auth/invalidate-session"
                 logger.info(f"POST {url}")
 
                 response = await client.post(

@@ -16,7 +16,7 @@ from app.models.unified_models import (
     User, UserPermission, UserSession, Integration, Project, Issue, Client, IssueChangelog,
     Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
     JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings,
-    StatusMapping, FlowStep, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
+    StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
     ProjectsIssuetypes, ProjectsStatuses
 )
 from app.auth.auth_middleware import require_permission
@@ -378,7 +378,7 @@ async def get_system_stats(
                 "issuetypes": Issuetype,
                 "statuses": Status,
                 "status_mappings": StatusMapping,
-                "flow_steps": FlowStep,
+                "workflows": Workflow,
                 "issuetype_mappings": IssuetypeMapping,
                 "issuetype_hierarchies": IssuetypeHierarchy,
                 "projects_issuetypes": ProjectsIssuetypes,
@@ -839,15 +839,15 @@ async def get_status_mappings(
     try:
         database = get_database()
         with database.get_session() as session:
-            # Query status mappings with flow step information
-            from app.models.unified_models import StatusMapping, FlowStep
+            # Query status mappings with workflow information
+            from app.models.unified_models import StatusMapping, Workflow
 
             status_mappings = session.query(
                 StatusMapping,
-                FlowStep.name.label('flow_step_name'),
-                FlowStep.step_number.label('step_number')
+                Workflow.step_name.label('workflow_step_name'),
+                Workflow.step_number.label('step_number')
             ).outerjoin(
-                FlowStep, StatusMapping.flow_step_id == FlowStep.id
+                Workflow, StatusMapping.workflow_id == Workflow.id
             ).order_by(StatusMapping.status_from).all()
 
             return [
@@ -856,7 +856,7 @@ async def get_status_mappings(
                     "status_from": mapping.StatusMapping.status_from,
                     "status_to": mapping.StatusMapping.status_to,
                     "status_category": mapping.StatusMapping.status_category,
-                    "flow_step": mapping.flow_step_name or "None",
+                    "workflow": mapping.workflow_step_name or "None",
                     "step_number": mapping.step_number,
                     "active": mapping.StatusMapping.active
                 }
@@ -874,7 +874,7 @@ class StatusMappingCreateRequest(BaseModel):
     status_from: str
     status_to: str
     status_category: str
-    flow_step_id: Optional[int] = None
+    workflow_id: Optional[int] = None
 
 
 @router.post("/status-mappings")
@@ -894,7 +894,7 @@ async def create_status_mapping(
                 status_from=create_data.status_from,
                 status_to=create_data.status_to,
                 status_category=create_data.status_category,
-                flow_step_id=create_data.flow_step_id,
+                workflow_id=create_data.workflow_id,
                 client_id=user.client_id,
                 active=True,
                 created_at=datetime.utcnow(),
@@ -939,7 +939,7 @@ async def get_status_mapping_details(
                 "status_from": mapping.status_from,
                 "status_to": mapping.status_to,
                 "status_category": mapping.status_category,
-                "flow_step_id": mapping.flow_step_id
+                "workflow_id": mapping.workflow_id
             }
 
     except HTTPException:
@@ -956,7 +956,7 @@ class StatusMappingUpdateRequest(BaseModel):
     status_from: str
     status_to: str
     status_category: str
-    flow_step_id: Optional[int] = None
+    workflow_id: Optional[int] = None
 
 
 @router.put("/status-mappings/{mapping_id}")
@@ -982,7 +982,7 @@ async def update_status_mapping(
             mapping.status_from = update_data.status_from
             mapping.status_to = update_data.status_to
             mapping.status_category = update_data.status_category
-            mapping.flow_step_id = update_data.flow_step_id
+            mapping.workflow_id = update_data.workflow_id
 
             # Update timestamp
             from datetime import datetime
@@ -1279,352 +1279,300 @@ async def deactivate_status_mapping_with_dependencies(
         )
 
 
-@router.get("/flow-steps")
-async def get_flow_steps(
+@router.get("/workflows")
+async def get_workflows(
     user: User = Depends(require_permission("admin_panel", "read"))
 ):
-    """Get all flow steps"""
+    """Get all workflows"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep
+            from app.models.unified_models import Workflow, Integration
 
-            flow_steps = session.query(FlowStep).order_by(FlowStep.step_number.nulls_last()).all()
+            workflows = session.query(
+                Workflow,
+                Integration.name.label('integration_name')
+            ).outerjoin(
+                Integration, Workflow.integration_id == Integration.id
+            ).order_by(Workflow.step_number.nulls_last()).all()
 
             return [
                 {
-                    "id": step.id,
-                    "name": step.name,
-                    "step_number": step.step_number,
-                    "step_category": step.step_category,
-                    "active": step.active,
-                    "created_at": step.created_at,
-                    "last_updated_at": step.last_updated_at
+                    "id": workflow.Workflow.id,
+                    "step_name": workflow.Workflow.step_name,
+                    "step_number": workflow.Workflow.step_number,
+                    "step_category": workflow.Workflow.step_category,
+                    "is_delivery_milestone": workflow.Workflow.is_delivery_milestone,
+                    "integration_name": workflow.integration_name or "All Integrations",
+                    "integration_id": workflow.Workflow.integration_id,
+                    "active": workflow.Workflow.active,
+                    "created_at": workflow.Workflow.created_at,
+                    "last_updated_at": workflow.Workflow.last_updated_at
                 }
-                for step in flow_steps
+                for workflow in workflows
             ]
     except Exception as e:
-        logger.error(f"Error fetching flow steps: {e}")
+        logger.error(f"Error fetching workflows: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch flow steps"
+            detail="Failed to fetch workflows"
         )
 
 
-@router.get("/flow-steps/{step_id}")
-async def get_flow_step_details(
-    step_id: int,
+@router.get("/workflows/{workflow_id}")
+async def get_workflow_details(
+    workflow_id: int,
     user: User = Depends(require_permission("admin_panel", "read"))
 ):
-    """Get flow step details for editing"""
+    """Get workflow details for editing"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep
+            from app.models.unified_models import Workflow
 
-            step = session.query(FlowStep).filter(FlowStep.id == step_id).first()
-            if not step:
+            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
+                    detail="Workflow not found"
                 )
 
             return {
-                "id": step.id,
-                "name": step.name,
-                "step_number": step.step_number,
-                "step_category": step.step_category
+                "id": workflow.id,
+                "step_name": workflow.step_name,
+                "step_number": workflow.step_number,
+                "step_category": workflow.step_category,
+                "is_delivery_milestone": workflow.is_delivery_milestone,
+                "integration_id": workflow.integration_id
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching flow step details: {e}")
+        logger.error(f"Error fetching workflow details: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch flow step details"
+            detail="Failed to fetch workflow details"
         )
 
 
-@router.get("/flow-steps/{step_id}/dependencies")
-async def check_flow_step_dependencies(
-    step_id: int,
-    user: User = Depends(require_permission("admin_panel", "read"))
-):
-    """Check dependencies for a flow step before deactivation/deletion"""
-    try:
-        database = get_database()
-        with database.get_session() as session:
-            from app.models.unified_models import FlowStep, StatusMapping, Status
 
-            # Verify flow step exists and belongs to user's client
-            flow_step = session.query(FlowStep).filter(
-                FlowStep.id == step_id,
-                FlowStep.client_id == user.client_id
-            ).first()
-
-            if not flow_step:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
-                )
-
-            # Get dependent status mappings
-            dependent_mappings = session.query(StatusMapping).filter(
-                StatusMapping.flow_step_id == step_id,
-                StatusMapping.active == True
-            ).all()
-
-            # Count statuses and issues that depend on these mappings
-            total_affected_statuses = 0
-            total_affected_issues = 0
-            mapping_details = []
-
-            for mapping in dependent_mappings:
-                # Count statuses using this mapping
-                statuses = session.query(Status).filter(
-                    Status.status_mapping_id == mapping.id,
-                    Status.active == True
-                ).all()
-
-                status_count = len(statuses)
-                total_affected_statuses += status_count
-
-                # Count issues using these statuses
-                mapping_issue_count = 0
-                for status in statuses:
-                    from app.models.unified_models import Issue
-                    issue_count = session.query(Issue).filter(
-                        Issue.status_id == status.id,
-                        Issue.active == True
-                    ).count()
-                    mapping_issue_count += issue_count
-
-                total_affected_issues += mapping_issue_count
-
-                mapping_details.append({
-                    "id": mapping.id,
-                    "status_from": mapping.status_from,
-                    "status_to": mapping.status_to,
-                    "status_category": mapping.status_category,
-                    "affected_statuses": status_count,
-                    "affected_issues": mapping_issue_count
-                })
-
-            # Get available reassignment targets (active flow steps, excluding current)
-            reassignment_targets = session.query(FlowStep).filter(
-                FlowStep.active == True,
-                FlowStep.id != step_id,
-                FlowStep.client_id == user.client_id
-            ).order_by(FlowStep.step_number).all()
-
-            return {
-                "flow_step": {
-                    "id": flow_step.id,
-                    "name": flow_step.name,
-                    "step_category": flow_step.step_category
-                },
-                "can_delete_safely": len(dependent_mappings) == 0,
-                "dependency_count": len(dependent_mappings),
-                "affected_statuses_count": total_affected_statuses,
-                "affected_issues_count": total_affected_issues,
-                "dependent_mappings": mapping_details,
-                "reassignment_targets": [
-                    {
-                        "id": target.id,
-                        "name": target.name,
-                        "step_category": target.step_category,
-                        "step_number": target.step_number
-                    }
-                    for target in reassignment_targets
-                ]
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error checking flow step dependencies: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to check dependencies"
-        )
-
-
-class FlowStepUpdateRequest(BaseModel):
-    name: str
+class WorkflowUpdateRequest(BaseModel):
+    step_name: str
     step_number: Optional[int] = None
     step_category: str
+    is_delivery_milestone: bool = False
+    integration_id: Optional[int] = None
 
 
-class FlowStepDeactivationRequest(BaseModel):
+class WorkflowDeactivationRequest(BaseModel):
     action: str  # "keep_mappings", "reassign_mappings"
-    target_flow_step_id: Optional[int] = None  # Required if action is "reassign_mappings"
+    target_workflow_id: Optional[int] = None  # Required if action is "reassign_mappings"
 
 
-@router.put("/flow-steps/{step_id}")
-async def update_flow_step(
-    step_id: int,
-    update_data: FlowStepUpdateRequest,
+@router.put("/workflows/{workflow_id}")
+async def update_workflow(
+    workflow_id: int,
+    update_data: WorkflowUpdateRequest,
     user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Update a flow step"""
+    """Update a workflow"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep
+            from app.models.unified_models import Workflow
 
-            step = session.query(FlowStep).filter(FlowStep.id == step_id).first()
-            if not step:
+            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
+                    detail="Workflow not found"
                 )
 
+            # Validate single delivery milestone constraint
+            if update_data.is_delivery_milestone:
+                existing_milestone = session.query(Workflow).filter(
+                    Workflow.client_id == user.client_id,
+                    Workflow.integration_id == update_data.integration_id,
+                    Workflow.is_delivery_milestone == True,
+                    Workflow.active == True,
+                    Workflow.id != workflow_id  # Exclude current workflow
+                ).first()
+
+                if existing_milestone:
+                    integration_name = "All Integrations" if update_data.integration_id is None else f"Integration ID {update_data.integration_id}"
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"A delivery milestone already exists for {integration_name}. Only one delivery milestone is allowed per client/integration combination."
+                    )
+
             # Update fields
-            step.name = update_data.name
-            step.step_number = update_data.step_number
-            step.step_category = update_data.step_category
+            workflow.step_name = update_data.step_name
+            workflow.step_number = update_data.step_number
+            workflow.step_category = update_data.step_category
+            workflow.is_delivery_milestone = update_data.is_delivery_milestone
+            workflow.integration_id = update_data.integration_id
 
             # Update timestamp
             from datetime import datetime
-            step.last_updated_at = datetime.utcnow()
+            workflow.last_updated_at = datetime.utcnow()
 
             session.commit()
 
-            logger.info(f"Admin {user.email} updated flow step {step.id}")
+            logger.info(f"Admin {user.email} updated workflow {workflow.id}")
 
-            return {"message": "Flow step updated successfully"}
+            return {"message": "Workflow updated successfully"}
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating flow step: {e}")
+        logger.error(f"Error updating workflow: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update flow step"
+            detail="Failed to update workflow"
         )
 
 
-class FlowStepCreateRequest(BaseModel):
-    name: str
+class WorkflowCreateRequest(BaseModel):
+    step_name: str
     step_number: Optional[int] = None
     step_category: str
+    is_delivery_milestone: bool = False
+    integration_id: Optional[int] = None
 
 
-@router.post("/flow-steps")
-async def create_flow_step(
-    create_data: FlowStepCreateRequest,
+@router.post("/workflows")
+async def create_workflow(
+    create_data: WorkflowCreateRequest,
     user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Create a new flow step"""
+    """Create a new workflow"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep
+            from app.models.unified_models import Workflow
             from datetime import datetime
 
-            # Create new flow step
-            new_step = FlowStep(
-                name=create_data.name,
+            # Validate single delivery milestone constraint
+            if create_data.is_delivery_milestone:
+                existing_milestone = session.query(Workflow).filter(
+                    Workflow.client_id == user.client_id,
+                    Workflow.integration_id == create_data.integration_id,
+                    Workflow.is_delivery_milestone == True,
+                    Workflow.active == True
+                ).first()
+
+                if existing_milestone:
+                    integration_name = "All Integrations" if create_data.integration_id is None else f"Integration ID {create_data.integration_id}"
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"A delivery milestone already exists for {integration_name}. Only one delivery milestone is allowed per client/integration combination."
+                    )
+
+            # Create new workflow
+            new_workflow = Workflow(
+                step_name=create_data.step_name,
                 step_number=create_data.step_number,
                 step_category=create_data.step_category,
+                is_delivery_milestone=create_data.is_delivery_milestone,
+                integration_id=create_data.integration_id,
                 client_id=user.client_id,
                 active=True,
                 created_at=datetime.utcnow(),
                 last_updated_at=datetime.utcnow()
             )
 
-            session.add(new_step)
+            session.add(new_workflow)
             session.commit()
 
-            logger.info(f"Admin {user.email} created flow step {new_step.id}")
+            logger.info(f"Admin {user.email} created workflow {new_workflow.id}")
 
-            return {"message": "Flow step created successfully", "id": new_step.id}
+            return {"message": "Workflow created successfully", "id": new_workflow.id}
 
     except Exception as e:
-        logger.error(f"Error creating flow step: {e}")
+        logger.error(f"Error creating workflow: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create flow step"
+            detail="Failed to create workflow"
         )
 
 
-@router.patch("/flow-steps/{step_id}/deactivate")
-async def deactivate_flow_step(
-    step_id: int,
-    deactivation_data: FlowStepDeactivationRequest,
+@router.patch("/workflows/{workflow_id}/deactivate")
+async def deactivate_workflow(
+    workflow_id: int,
+    deactivation_data: WorkflowDeactivationRequest,
     user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Deactivate a flow step with options for handling dependencies"""
+    """Deactivate a workflow with options for handling dependencies"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep, StatusMapping
+            from app.models.unified_models import Workflow, StatusMapping
 
-            # Verify flow step exists and belongs to user's client
-            step = session.query(FlowStep).filter(
-                FlowStep.id == step_id,
-                FlowStep.client_id == user.client_id
+            # Verify workflow exists and belongs to user's client
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
             ).first()
 
-            if not step:
+            if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
+                    detail="Workflow not found"
                 )
 
             # Store original active state for messaging
-            was_originally_active = step.active
+            was_originally_active = workflow.active
 
-            # Allow reassignment for inactive steps (needed for deletion workflow)
-            # Only block if trying to deactivate an already inactive step without reassignment
-            if not step.active and deactivation_data.action != "reassign_mappings":
+            # Allow reassignment for inactive workflows (needed for deletion workflow)
+            # Only block if trying to deactivate an already inactive workflow without reassignment
+            if not workflow.active and deactivation_data.action != "reassign_mappings":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Flow step is already inactive"
+                    detail="Workflow is already inactive"
                 )
 
             # Get dependent status mappings
             dependent_mappings = session.query(StatusMapping).filter(
-                StatusMapping.flow_step_id == step_id,
+                StatusMapping.workflow_id == workflow_id,
                 StatusMapping.active == True
             ).all()
 
             # Handle dependencies based on user choice
             if deactivation_data.action == "reassign_mappings":
-                if not deactivation_data.target_flow_step_id:
+                if not deactivation_data.target_workflow_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Target flow step ID required for reassignment"
+                        detail="Target workflow ID required for reassignment"
                     )
 
-                # Verify target flow step exists and is active
-                target_step = session.query(FlowStep).filter(
-                    FlowStep.id == deactivation_data.target_flow_step_id,
-                    FlowStep.active == True,
-                    FlowStep.client_id == user.client_id
+                # Verify target workflow exists and is active
+                target_workflow = session.query(Workflow).filter(
+                    Workflow.id == deactivation_data.target_workflow_id,
+                    Workflow.active == True,
+                    Workflow.client_id == user.client_id
                 ).first()
 
-                if not target_step:
+                if not target_workflow:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Target flow step (ID: {deactivation_data.target_flow_step_id}) not found or is inactive. Please select an active flow step for reassignment."
+                        detail=f"Target workflow (ID: {deactivation_data.target_workflow_id}) not found or is inactive. Please select an active workflow for reassignment."
                     )
 
                 # Reassign all dependent mappings
                 for mapping in dependent_mappings:
-                    mapping.flow_step_id = deactivation_data.target_flow_step_id
+                    mapping.workflow_id = deactivation_data.target_workflow_id
 
                 if was_originally_active:
-                    message = f"Flow step deactivated and {len(dependent_mappings)} status mappings reassigned to '{target_step.name}'"
-                    logger.info(f"Admin {user.email} deactivated flow step {step_id} and reassigned {len(dependent_mappings)} mappings to {target_step.name}")
+                    message = f"Workflow deactivated and {len(dependent_mappings)} status mappings reassigned to '{target_workflow.step_name}'"
+                    logger.info(f"Admin {user.email} deactivated workflow {workflow_id} and reassigned {len(dependent_mappings)} mappings to {target_workflow.step_name}")
                 else:
-                    message = f"{len(dependent_mappings)} status mappings reassigned to '{target_step.name}' (flow step was already inactive)"
-                    logger.info(f"Admin {user.email} reassigned {len(dependent_mappings)} mappings from inactive flow step {step_id} to {target_step.name}")
+                    message = f"{len(dependent_mappings)} status mappings reassigned to '{target_workflow.step_name}' (workflow was already inactive)"
+                    logger.info(f"Admin {user.email} reassigned {len(dependent_mappings)} mappings from inactive workflow {workflow_id} to {target_workflow.step_name}")
 
             elif deactivation_data.action == "keep_mappings":
-                message = f"Flow step deactivated ({len(dependent_mappings)} status mappings will continue to reference this inactive step)"
-                logger.info(f"Admin {user.email} deactivated flow step {step_id}, keeping {len(dependent_mappings)} dependent mappings active")
+                message = f"Workflow deactivated ({len(dependent_mappings)} status mappings will continue to reference this inactive workflow)"
+                logger.info(f"Admin {user.email} deactivated workflow {workflow_id}, keeping {len(dependent_mappings)} dependent mappings active")
 
             else:
                 raise HTTPException(
@@ -1632,9 +1580,9 @@ async def deactivate_flow_step(
                     detail=f"Invalid action: {deactivation_data.action}. Supported actions: keep_mappings, reassign_mappings"
                 )
 
-            # Deactivate the flow step (only if it was originally active)
+            # Deactivate the workflow (only if it was originally active)
             if was_originally_active:
-                step.active = False
+                workflow.active = False
             session.commit()
 
             return {
@@ -1646,109 +1594,139 @@ async def deactivate_flow_step(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deactivating flow step: {e}")
+        logger.error(f"Error deactivating workflow: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to deactivate flow step"
+            detail="Failed to deactivate workflow"
         )
 
 
-@router.patch("/flow-steps/{step_id}/toggle-active")
-async def toggle_flow_step_active(
-    step_id: int,
+@router.patch("/workflows/{workflow_id}/toggle-active")
+async def toggle_workflow_active(
+    workflow_id: int,
     user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Toggle the active status of a flow step (simple activate/deactivate)"""
+    """Toggle the active status of a workflow (simple activate/deactivate)"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep
+            from app.models.unified_models import Workflow
 
-            # Verify flow step exists and belongs to user's client
-            step = session.query(FlowStep).filter(
-                FlowStep.id == step_id,
-                FlowStep.client_id == user.client_id
+            # Verify workflow exists and belongs to user's client
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
             ).first()
 
-            if not step:
+            if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
+                    detail="Workflow not found"
                 )
 
             # Toggle active status
-            step.active = not step.active
-            action = "activated" if step.active else "deactivated"
+            workflow.active = not workflow.active
+            action = "activated" if workflow.active else "deactivated"
 
             session.commit()
 
-            logger.info(f"Admin {user.email} {action} flow step {step_id} ({step.name})")
+            logger.info(f"Admin {user.email} {action} workflow {workflow_id} ({workflow.step_name})")
 
             return {
-                "message": f"Flow step {action} successfully",
-                "active": step.active,
-                "flow_step_name": step.name
+                "message": f"Workflow {action} successfully",
+                "active": workflow.active,
+                "workflow_step_name": workflow.step_name
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error toggling flow step active status: {e}")
+        logger.error(f"Error toggling workflow active status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to toggle flow step status"
+            detail="Failed to toggle workflow status"
         )
 
 
-@router.delete("/flow-steps/{step_id}")
-async def delete_flow_step(
-    step_id: int,
+@router.delete("/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: int,
     user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Delete a flow step (only allows true deletion when no dependencies exist)"""
+    """Delete a workflow (only allows true deletion when no dependencies exist)"""
     try:
         database = get_database()
         with database.get_session() as session:
-            from app.models.unified_models import FlowStep, StatusMapping
+            from app.models.unified_models import Workflow, StatusMapping
 
-            step = session.query(FlowStep).filter(
-                FlowStep.id == step_id,
-                FlowStep.client_id == user.client_id
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
             ).first()
 
-            if not step:
+            if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Flow step not found"
+                    detail="Workflow not found"
                 )
 
             # Check for dependent status mappings (both active and inactive)
             dependent_mappings = session.query(StatusMapping).filter(
-                StatusMapping.flow_step_id == step_id
+                StatusMapping.workflow_id == workflow_id
             ).count()
 
             if dependent_mappings > 0:
                 # Block deletion if dependencies exist
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot delete flow step: {dependent_mappings} status mappings depend on it. Use 'Deactivate' instead or reassign dependencies first."
+                    detail=f"Cannot delete workflow: {dependent_mappings} status mappings depend on it. Use 'Deactivate' instead or reassign dependencies first."
                 )
 
             # Safe to delete - no dependencies
-            session.delete(step)
+            session.delete(workflow)
             session.commit()
 
-            logger.info(f"Admin {user.email} deleted flow step {step_id} ({step.name}) - no dependencies")
+            logger.info(f"Admin {user.email} deleted workflow {workflow_id} ({workflow.step_name}) - no dependencies")
 
-            return {"message": f"Flow step '{step.name}' deleted successfully"}
+            return {"message": f"Workflow '{workflow.step_name}' deleted successfully"}
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting flow step: {e}")
+        logger.error(f"Error deleting workflow: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete flow step"
+            detail="Failed to delete workflow"
+        )
+
+
+@router.get("/workflows/integrations")
+async def get_workflow_integrations(
+    user: User = Depends(require_permission("admin_panel", "read"))
+):
+    """Get available integrations for workflow assignment"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import Integration
+
+            integrations = session.query(Integration).filter(
+                Integration.client_id == user.client_id,
+                Integration.active == True
+            ).order_by(Integration.name).all()
+
+            return [
+                {
+                    "id": integration.id,
+                    "name": integration.name
+                }
+                for integration in integrations
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching workflow integrations: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch integrations"
         )
 
 

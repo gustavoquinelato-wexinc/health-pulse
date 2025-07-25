@@ -189,9 +189,9 @@ async def extract_github_pull_requests_only(session, github_integration, github_
                 progress = 20.0 + (70.0 * repo_index / len(repositories))
                 await websocket_manager.send_progress_update("github_sync", progress, f"Processing PRs for {owner}/{repo_name}")
 
-                # Process PRs for this repository
+                # Process PRs for this repository (non-blocking)
                 from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
-                pr_result = process_repository_prs_with_graphql(
+                pr_result = await process_repository_prs_with_graphql(
                     session, graphql_client, repository, owner, repo_name, github_integration, job_schedule, websocket_manager
                 )
 
@@ -205,6 +205,10 @@ async def extract_github_pull_requests_only(session, github_integration, github_
                 if graphql_client.is_rate_limited():
                     logger.warning("Rate limit reached during PR extraction")
                     break
+
+                # Yield control after each repository to prevent UI blocking
+                import asyncio
+                await asyncio.sleep(0)  # Yield control to prevent blocking
 
             except Exception as e:
                 logger.error(f"Error processing repository {repository.full_name}: {e}")
@@ -251,7 +255,7 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
         await websocket_manager.send_progress_update("github_sync", 50.0, f"Extracting PRs from {owner}/{repo_name}")
 
         from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
-        pr_result = process_repository_prs_with_graphql(
+        pr_result = await process_repository_prs_with_graphql(
             session, graphql_client, repository, owner, repo_name, github_integration, job_schedule, websocket_manager
         )
 
@@ -610,7 +614,17 @@ async def run_github_sync(
                 # In test mode, just save the error message without changing job status
                 job_schedule.error_message = error_msg
                 logger.info("[JOB_SCHEDULE] Skipped updating job schedule status (test mode)")
-            session.commit()
+            # Handle potential session corruption from async operations
+            try:
+                session.commit()
+            except Exception as commit_error:
+                logger.warning(f"Session commit failed, attempting rollback: {commit_error}")
+                try:
+                    session.rollback()
+                    session.commit()  # Try again after rollback
+                except Exception as rollback_error:
+                    logger.error(f"Session rollback also failed: {rollback_error}")
+                    # Session is corrupted, but we'll continue since error handling is complete
 
             # Send status update that job failed and is now pending
             if update_job_schedule:
@@ -642,7 +656,10 @@ async def run_github_sync(
         logger.error(f"GitHub sync job error: {e}")
         import traceback
         traceback.print_exc()
-        
+
+        # Rollback the session to clear any failed transaction state
+        session.rollback()
+
         # Set job back to PENDING on unexpected error (only if update_job_schedule is True)
         if update_job_schedule:
             job_schedule.set_pending_with_checkpoint(str(e))
@@ -797,9 +814,12 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         logger.info(f"Processing {len(all_repos)} repositories...")
         for repo_index, repo_data in enumerate(all_repos, 1):
             try:
-                # Show progress every 50 repos
+                # Show progress every 50 repos and yield control
                 if repo_index % 50 == 0 or repo_index == len(all_repos):
                     logger.info(f"Repository progress: {repo_index}/{len(all_repos)}")
+                    # Yield control every 50 repos to keep UI responsive
+                    import asyncio
+                    await asyncio.sleep(0.01)  # 10ms yield
 
                 # Check if repository already exists
                 external_id = str(repo_data['id'])
@@ -1018,8 +1038,8 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                         f"Repository {repo_index}/{total_repos}: {owner}/{repo_name}"
                     )
 
-                    # Process PRs for this repository using GraphQL
-                    pr_result = process_repository_prs_with_graphql(
+                    # Process PRs for this repository using GraphQL (non-blocking)
+                    pr_result = await process_repository_prs_with_graphql(
                         session, graphql_client, repository, owner, repo_name, integration, job_schedule, websocket_manager
                     )
 
