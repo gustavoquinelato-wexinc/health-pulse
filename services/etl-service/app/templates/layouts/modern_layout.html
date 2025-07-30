@@ -33,11 +33,11 @@
                     if (colorSchemaMode === 'custom' && serverColorSchema.colors) {
                         const colors = serverColorSchema.colors;
                         const root = document.documentElement;
-                        root.style.setProperty('--color-1', colors.color_1);
-                        root.style.setProperty('--color-2', colors.color_2);
-                        root.style.setProperty('--color-3', colors.color_3);
-                        root.style.setProperty('--color-4', colors.color_4);
-                        root.style.setProperty('--color-5', colors.color_5);
+                        root.style.setProperty('--color-1', colors.color1);
+                        root.style.setProperty('--color-2', colors.color2);
+                        root.style.setProperty('--color-3', colors.color3);
+                        root.style.setProperty('--color-4', colors.color4);
+                        root.style.setProperty('--color-5', colors.color5);
                     }
                 } else {
                     // Fallback to localStorage
@@ -247,6 +247,17 @@
 
             // Update navigation active state
             updateActiveNavigation();
+
+            // Handle submenu mouse leave events
+            document.querySelectorAll('[id^="submenu-"]').forEach(submenu => {
+                submenu.addEventListener('mouseleave', () => {
+                    setTimeout(() => {
+                        isHoveringSubmenu = false;
+                        currentSubmenu = null;
+                        submenu.classList.add('hidden');
+                    }, 100);
+                });
+            });
         });
 
         // Generic Modal Functions
@@ -264,6 +275,63 @@
                 modal.classList.add('hidden');
                 modal.classList.remove('flex');
             }
+        }
+
+        // Sidebar Submenu functionality - Global scope
+        let hoverTimeout = null;
+        let currentSubmenu = null;
+        let isHoveringSubmenu = false;
+
+        function showSubmenu(event, menuType) {
+            clearTimeout(hoverTimeout);
+
+            const rect = event.currentTarget.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const submenuHeight = 120; // Estimate submenu height
+
+            // Calculate optimal Y position
+            let yPosition = rect.top;
+            if (rect.top + submenuHeight > viewportHeight) {
+                yPosition = rect.bottom - submenuHeight;
+            }
+
+            // Hide current submenu if different
+            if (currentSubmenu && currentSubmenu !== menuType) {
+                document.getElementById(`submenu-${currentSubmenu}`).classList.add('hidden');
+            }
+
+            // Show new submenu
+            const submenu = document.getElementById(`submenu-${menuType}`);
+            if (submenu) {
+                submenu.style.left = '4rem'; // 64px (w-16) + small gap
+                submenu.style.top = `${yPosition}px`;
+                submenu.style.zIndex = '1000';
+                submenu.style.position = 'fixed';
+                submenu.classList.remove('hidden');
+                currentSubmenu = menuType;
+            }
+        }
+
+        function hideSubmenu() {
+            clearTimeout(hoverTimeout);
+            hoverTimeout = setTimeout(() => {
+                if (!isHoveringSubmenu) {
+                    currentSubmenu = null;
+                    document.querySelectorAll('[id^="submenu-"]').forEach(el => {
+                        el.classList.add('hidden');
+                    });
+                }
+            }, 200); // 200ms delay like frontend
+        }
+
+        function keepSubmenuOpen() {
+            clearTimeout(hoverTimeout);
+            isHoveringSubmenu = true;
+        }
+
+        // Navigation function - Global scope
+        function navigateTo(path) {
+            window.location.href = path;
         }
 
         function confirmAction(modalId) {

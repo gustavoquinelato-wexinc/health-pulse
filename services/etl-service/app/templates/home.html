@@ -14,7 +14,7 @@
                 Monitor and control your data integration workflows
             </p>
         </div>
-        <button onclick="showOrchestratorSettings()" class="btn-neutral-secondary">
+        <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm">
             <i class="fas fa-cog mr-1"></i>Settings
         </button>
     </div>
@@ -79,7 +79,7 @@
 
     <!-- Control Buttons -->
     <div id="orchestratorControlButtons" class="flex justify-end space-x-2 mt-6">
-        <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="btn-status-info-sm">
+        <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="btn-crud-edit-sm">
             <i class="fas fa-play mr-1"></i>Force Run
         </button>
         <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm">
@@ -98,10 +98,13 @@
 <div id="orchestratorSettingsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
     <div class="flex items-center justify-center min-h-screen p-4">
         <div class="rounded-lg shadow-xl max-w-md w-full" style="background-color: var(--bg-secondary);">
-            <div class="px-6 py-4 border-b" style="border-color: var(--border-color);">
+            <div class="flex justify-between items-center px-6 py-4 border-b" style="border-color: var(--border-color);">
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
                     <i class="fas fa-cog mr-2"></i>Orchestrator Settings
                 </h3>
+                <button onclick="hideOrchestratorSettings()" class="hover:opacity-75" style="color: var(--text-secondary);">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
             </div>
             <div class="px-6 py-4">
                 <div class="space-y-4">
@@ -272,11 +275,14 @@
 
     /* Status Classes */
     .status-running { background-color: #10b981; color: white; }
-    .status-pending { background-color: #f59e0b; color: white; }
+    .status-pending { background-color: var(--color-2); color: white; }
     .status-finished { background-color: #6b7280; color: white; }
     .status-paused { background-color: #8b5cf6; color: white; }
     .status-not-started { background-color: #374151; color: white; }
     .status-error { background-color: #ef4444; color: white; }
+
+    /* Status Dot Classes */
+    .status-dot-color-2 { background-color: var(--color-2); }
 
     /* WebSocket Progress Styles */
     .ws-progress-container {
@@ -565,7 +571,7 @@
             orchestratorBtn.title = 'Cannot start orchestrator while jobs are running';
         } else {
             orchestratorBtn.disabled = false;
-            orchestratorBtn.className = 'btn-status-info-sm';
+            orchestratorBtn.className = 'btn-crud-edit-sm';
             orchestratorBtn.title = '';
         }
     }
@@ -608,7 +614,7 @@
         // Use proper FontAwesome icons for Jira and GitHub
         const jobIcon = jobName === 'jira_sync' ? 'atlassian' : 'github';
         const jobIconClass = 'fab'; // Both are brand icons
-        const jobColor = jobName === 'jira_sync' ? 'var(--color-4)' : '#000000'; // GitHub icon should be black
+        const jobColor = jobName === 'jira_sync' ? '#0052CC' : '#000000'; // GitHub icon should be black
         const jobTitle = jobName === 'jira_sync' ? 'Jira Sync' : 'GitHub Sync';
 
         card.innerHTML = `
@@ -984,7 +990,7 @@
                 notification.style.backgroundColor = '#ef4444';
                 break;
             case 'warning':
-                notification.style.backgroundColor = '#f59e0b';
+                notification.style.backgroundColor = 'var(--color-2)';
                 break;
             default:
                 notification.style.backgroundColor = '#3b82f6';
@@ -1093,7 +1099,7 @@
     function getStatusDotClass(status) {
         switch (status) {
             case 'RUNNING': return 'bg-green-500';
-            case 'PENDING': return 'bg-yellow-500';
+            case 'PENDING': return 'status-dot-color-2';
             case 'FINISHED': return 'bg-gray-500';
             case 'PAUSED': return 'bg-orange-500';
             case 'NOT_STARTED': return 'bg-gray-400';
@@ -1998,7 +2004,7 @@
         const jobIcon = document.getElementById('jobDetailsIcon');
         const jobTitle = document.getElementById('jobDetailsTitle');
 
-        jobIcon.innerHTML = '<i class="fab fa-jira mr-2" style="color: #0052CC;"></i>';
+        jobIcon.innerHTML = '<i class="fab fa-atlassian mr-2" style="color: #0052CC;"></i>';
         jobTitle.textContent = 'Jira Sync Job Details';
 
         // Create Jira-specific content with compact layout for Full HD screens

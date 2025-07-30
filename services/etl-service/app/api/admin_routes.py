@@ -2286,7 +2286,7 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
                 IssuetypeHierarchy.client_id == user.client_id
             ).order_by(IssuetypeHierarchy.level_number.desc()).all()
 
-            return [
+            hierarchies_list = [
                 {
                     "id": hierarchy.IssuetypeHierarchy.id,
                     "level_name": hierarchy.IssuetypeHierarchy.level_name,
@@ -2298,6 +2298,11 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
                 }
                 for hierarchy in hierarchies
             ]
+
+            return {
+                "success": True,
+                "hierarchies": hierarchies_list
+            }
 
     except Exception as e:
         logger.error(f"Error fetching issue type hierarchies: {e}")

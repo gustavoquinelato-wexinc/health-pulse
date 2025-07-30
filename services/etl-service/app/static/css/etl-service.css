@@ -418,6 +418,30 @@ body {
     transform: translateY(-1px);
 }
 
+.btn-crud-edit-sm {
+    background-color: var(--crud-edit);
+    color: white;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    min-height: 1.75rem;
+    min-width: 1.75rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-crud-edit-sm:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
 .btn-crud-delete {
     background-color: var(--crud-delete);
     color: white;
@@ -436,6 +460,76 @@ body {
 }
 
 .btn-crud-delete:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-crud-delete-sm {
+    background-color: var(--crud-delete);
+    color: white;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    min-height: 1.75rem;
+    min-width: 1.75rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-crud-delete-sm:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-crud-warning {
+    background-color: var(--status-warning);
+    color: white;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    min-height: 2rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-crud-warning:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-crud-success {
+    background-color: var(--status-success);
+    color: white;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    min-height: 2rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-crud-success:hover:not(:disabled) {
     opacity: 0.9;
     transform: translateY(-1px);
 }
@@ -482,6 +576,29 @@ body {
 }
 
 .btn-neutral-primary:hover:not(:disabled) {
+    background-color: var(--neutral-secondary);
+    transform: translateY(-1px);
+}
+
+.btn-neutral-primary-sm {
+    background-color: var(--neutral-primary) !important;
+    color: white !important;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    min-height: 2rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-neutral-primary-sm:hover:not(:disabled) {
     background-color: var(--neutral-secondary);
     transform: translateY(-1px);
 }
@@ -616,6 +733,54 @@ body {
 }
 
 .btn-status-success-sm:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-status-warning-xs {
+    background-color: var(--status-warning);
+    color: white;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    min-height: 1.75rem;
+    min-width: 1.75rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-status-warning-xs:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-status-success-xs {
+    background-color: var(--crud-create);
+    color: white;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    min-height: 1.75rem;
+    min-width: 1.75rem;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-status-success-xs:hover:not(:disabled) {
     opacity: 0.9;
     transform: translateY(-1px);
 }
@@ -976,6 +1141,16 @@ textarea:disabled {
     min-height: 3rem;
 }
 
+/* Inactive Row Styles */
+.inactive-row {
+    background-color: rgba(0, 0, 0, 0.08) !important;
+    opacity: 0.7;
+}
+
+.inactive-row td {
+    color: var(--text-muted) !important;
+}
+
 /* Enhanced Modal Styles */
 .modal-content {
     background-color: var(--bg-secondary);
@@ -1166,7 +1341,7 @@ textarea:disabled {
 .submenu-item:hover {
     background-color: var(--bg-tertiary);
     color: var(--text-primary);
-    transform: translateX(4px);
+    transform: translateX(2px);
     text-decoration: none;
 }
 
@@ -1268,6 +1443,33 @@ textarea:disabled {
 }
 
 /* Remove standalone-header override - header should always start after sidebar */
+
+/* Enhanced Sidebar Navigation Effects - Match Frontend */
+.sidebar-nav-item {
+    transform: scale(1);
+    transition: all 0.2s ease;
+    will-change: transform;
+}
+
+.sidebar-nav-item:hover {
+    transform: scale(1.02) translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar-nav-item:active {
+    transform: scale(0.98);
+}
+
+.sidebar-nav-item-with-submenu:hover {
+    transform: scale(1.02) translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Enhanced Submenu Effects - Don't interfere with positioning */
+.submenu-panel {
+    backdrop-filter: blur(10px);
+    transition: opacity 0.2s ease;
+}
 
 /* Main content adjustment - Match Frontend Layout */
 main {

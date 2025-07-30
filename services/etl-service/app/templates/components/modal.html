@@ -48,7 +48,7 @@
             <button onclick="closeModal('{{ id }}')" class="btn-crud-cancel">
                 {{ cancel_text }}
             </button>
-            <button onclick="confirmAction('{{ id }}')" class="btn-crud-create">
+            <button onclick="confirmAction('{{ id }}')" class="btn-crud-{{ 'delete' if confirm_variant == 'danger' else 'create' }}">
                 {{ confirm_text }}
             </button>
         {% endcall %}

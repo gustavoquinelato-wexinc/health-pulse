@@ -194,7 +194,7 @@ async def home_page(request: Request, token: Optional[str] = None):
 
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/user/color-schema",
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
                         headers={"Authorization": f"Bearer {token}"}
                     )
                     if response.status_code == 200:
@@ -680,7 +680,28 @@ async def issuetype_hierarchies_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("issuetype_hierarchies.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        return templates.TemplateResponse("issuetype_hierarchies.html", {"request": request, "user": user, "color_schema": color_schema_data})
 
     except Exception as e:
         logger.error(f"Issue type hierarchies page error: {e}")

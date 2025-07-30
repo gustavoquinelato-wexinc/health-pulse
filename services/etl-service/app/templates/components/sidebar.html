@@ -7,7 +7,7 @@
         <!-- Home -->
         <div class="relative">
             <button onclick="navigateTo('/home')"
-                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     data-path="/home"
                     title="Home"
                     tabindex="0"
@@ -18,7 +18,7 @@
 
         <!-- Issue Types with Hover Submenu -->
         <div class="relative" id="issuetypes-menu">
-            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     title="Issue Types"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'issuetypes')"
@@ -30,7 +30,7 @@
 
         <!-- Statuses with Hover Submenu -->
         <div class="relative" id="statuses-menu">
-            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     title="Statuses"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'statuses')"
@@ -43,7 +43,7 @@
         <!-- Admin (only for admin users) -->
         {% if user and user.role == 'admin' %}
         <div class="relative" id="admin-menu">
-            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     title="Admin"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'admin')"
@@ -61,7 +61,7 @@
         <!-- Refresh/Sync Button -->
         <div class="relative">
             <button onclick="refreshHome()"
-                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 text-secondary hover:bg-tertiary hover:text-primary hover:scale-105"
+                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 text-secondary hover:bg-tertiary hover:text-primary"
                     title="Refresh Data"
                     tabindex="0">
                 <span class="text-lg">🔄</span>
@@ -71,7 +71,7 @@
         <!-- Settings Button -->
         <div class="relative">
             <button onclick="navigateTo('/settings')"
-                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/settings' else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/settings' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     data-path="/settings"
                     title="Settings"
                     tabindex="0"
@@ -89,11 +89,11 @@
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
         Issue Types
     </div>
-    <a href="/issuetype-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+    <a href="/issuetype-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
         <i class="fas fa-layer-group mr-2"></i>
         Issue Type Hierarchies
     </a>
-    <a href="/issuetype-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+    <a href="/issuetype-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
         <i class="fas fa-sitemap mr-2"></i>
         Issue Type Mappings
     </a>
@@ -105,11 +105,11 @@
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
         Statuses
     </div>
-    <a href="/status-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+    <a href="/status-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
         <i class="fas fa-exchange-alt mr-2"></i>
         Status Mappings
     </a>
-    <a href="/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+    <a href="/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
         <i class="fas fa-project-diagram mr-2"></i>
         Workflows
     </a>
@@ -121,7 +121,7 @@
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
         Admin
     </div>
-    <a href="/admin" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+    <a href="/admin" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
         <i class="fas fa-tachometer-alt mr-2"></i>
         Admin Panel
     </a>
@@ -130,71 +130,5 @@
 
 <!-- Sidebar JavaScript Functions -->
 <script>
-    // Navigation function
-    function navigateTo(path) {
-        window.location.href = path;
-    }
-
-    // Sidebar Submenu functionality
-    let hoverTimeout = null;
-    let currentSubmenu = null;
-    let isHoveringSubmenu = false;
-
-    function showSubmenu(event, menuType) {
-        clearTimeout(hoverTimeout);
-
-        const rect = event.currentTarget.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const submenuHeight = 120; // Estimate submenu height
-
-        // Calculate optimal Y position
-        let yPosition = rect.top;
-        if (rect.top + submenuHeight > viewportHeight) {
-            yPosition = rect.bottom - submenuHeight;
-        }
-
-        // Hide current submenu if different
-        if (currentSubmenu && currentSubmenu !== menuType) {
-            document.getElementById(`submenu-${currentSubmenu}`).classList.add('hidden');
-        }
-
-        // Show new submenu
-        const submenu = document.getElementById(`submenu-${menuType}`);
-        if (submenu) {
-            submenu.style.left = '4rem'; // 64px (w-16) + small gap
-            submenu.style.top = `${yPosition}px`;
-            submenu.classList.remove('hidden');
-            currentSubmenu = menuType;
-        }
-    }
-
-    function hideSubmenu() {
-        clearTimeout(hoverTimeout);
-        hoverTimeout = setTimeout(() => {
-            if (!isHoveringSubmenu) {
-                currentSubmenu = null;
-                document.querySelectorAll('[id^="submenu-"]').forEach(el => {
-                    el.classList.add('hidden');
-                });
-            }
-        }, 200); // 200ms delay like frontend
-    }
-
-    function keepSubmenuOpen() {
-        clearTimeout(hoverTimeout);
-        isHoveringSubmenu = true;
-    }
-
-    // Handle submenu mouse leave
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('[id^="submenu-"]').forEach(submenu => {
-            submenu.addEventListener('mouseleave', () => {
-                setTimeout(() => {
-                    isHoveringSubmenu = false;
-                    currentSubmenu = null;
-                    submenu.classList.add('hidden');
-                }, 100);
-            });
-        });
-    });
+    // All sidebar functions are now in global scope (modern_layout.html)
 </script>
