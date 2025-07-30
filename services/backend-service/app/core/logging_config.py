@@ -225,17 +225,21 @@ def setup_logging(force_reconfigure=False):
             # Remove ANSI escape sequences
             return self.ansi_escape.sub('', formatted)
 
-    # Add the clean file handler
-    file_handler = AnsiCleaningFileHandler("logs/backend_service.log")
-    file_handler.setLevel(logging.INFO)
+    # Add multiple file handlers for different clients and system logs
+    # System-wide logs (startup, errors, etc.)
+    system_handler = AnsiCleaningFileHandler("logs/backend_service_system.log")
+    system_handler.setLevel(logging.INFO)
+
+    # We'll add client-specific handlers dynamically as needed
+    # This will be managed by the ClientLoggingManager
 
     # Create a clean formatter
     clean_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    file_handler.setFormatter(clean_formatter)
-    root_logger.addHandler(file_handler)
+    system_handler.setFormatter(clean_formatter)
+    root_logger.addHandler(system_handler)
 
 
 
@@ -265,10 +269,10 @@ def _configure_third_party_loggers():
 def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
     """
     Returns a structured logger.
-    
+
     Args:
         name: Logger name. If None, uses the calling module name.
-    
+
     Returns:
         Configured structured logger.
     """
@@ -277,8 +281,36 @@ def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
         import inspect
         frame = inspect.currentframe().f_back
         name = frame.f_globals.get('__name__', 'unknown')
-    
+
     return structlog.get_logger(name)
+
+
+def get_client_logger(name: str = None, client_name: str = None) -> structlog.stdlib.BoundLogger:
+    """
+    Returns a client-aware structured logger.
+
+    Args:
+        name: Logger name. If None, uses the calling module name.
+        client_name: Client name for client-specific logging.
+
+    Returns:
+        Configured structured logger with client context.
+    """
+    if name is None:
+        # Get calling module name
+        import inspect
+        frame = inspect.currentframe().f_back
+        name = frame.f_globals.get('__name__', 'unknown')
+
+    logger = structlog.get_logger(name)
+
+    if client_name:
+        # Ensure client-specific handler exists
+        ClientLoggingManager.get_client_handler(client_name)
+        # Bind client context to logger
+        logger = logger.bind(client=client_name)
+
+    return logger
 
 
 class LoggerMixin:
@@ -290,24 +322,76 @@ class LoggerMixin:
         return get_logger(self.__class__.__module__ + '.' + self.__class__.__name__)
 
 
+class ClientLoggingManager:
+    """Manages client-specific log handlers dynamically."""
+
+    _client_handlers = {}
+    _lock = None
+
+    @classmethod
+    def _get_lock(cls):
+        if cls._lock is None:
+            import threading
+            cls._lock = threading.Lock()
+        return cls._lock
+
+    @classmethod
+    def get_client_handler(cls, client_name: str) -> logging.Handler:
+        """Get or create a client-specific log handler."""
+        client_key = client_name.lower()
+
+        if client_key not in cls._client_handlers:
+            with cls._get_lock():
+                # Double-check pattern
+                if client_key not in cls._client_handlers:
+                    log_filename = f"logs/backend_service_{client_key}.log"
+                    handler = AnsiCleaningFileHandler(log_filename)
+                    handler.setLevel(logging.INFO)
+
+                    formatter = logging.Formatter(
+                        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S'
+                    )
+                    handler.setFormatter(formatter)
+
+                    # Add to root logger
+                    root_logger = logging.getLogger()
+                    root_logger.addHandler(handler)
+
+                    cls._client_handlers[client_key] = handler
+
+        return cls._client_handlers[client_key]
+
+
 class RequestLogger:
     """Utilities for HTTP request logging."""
-    
+
     @staticmethod
-    def log_request(method: str, url: str, headers: Dict = None, body: Any = None):
-        """Log HTTP request."""
-        logger = get_logger("http.request")
-        
+    def log_request(method: str, url: str, headers: Dict = None, body: Any = None, client_context: Dict = None):
+        """Log HTTP request with optional client context."""
+        if client_context and 'client_name' in client_context:
+            # Use client-specific logger
+            logger = get_client_logger("http.request", client_context['client_name'])
+        else:
+            # Use system logger
+            logger = get_logger("http.request")
+
         log_data = {
             "method": method,
             "url": url,
             "headers_count": len(headers) if headers else 0
         }
-        
-        if body and settings.DEBUG:
+
+        if client_context:
+            log_data.update({
+                "client": client_context.get('client_name', 'unknown'),
+                "user_id": client_context.get('user_id')
+            })
+
+        if body and get_settings().DEBUG:
             # In debug, include request body (be careful with sensitive data)
             log_data["body_size"] = len(str(body))
-        
+
         logger.info("HTTP request", **log_data)
     
     @staticmethod

@@ -154,7 +154,7 @@ class AuthService:
                 token_hash = self._hash_token(token)
                 logger.info(f"🔍 Looking for session with token_hash: {token_hash[:50]}...")
 
-                # Count total sessions
+                # Count total sessions (global stats for debugging)
                 total_sessions = session.query(UserSession).count()
                 active_sessions = session.query(UserSession).filter(UserSession.active == True).count()
                 logger.info(f"📊 Total sessions: {total_sessions}, Active sessions: {active_sessions}")
@@ -207,6 +207,7 @@ class AuthService:
                 "email": user.email,
                 "role": user.role,
                 "is_admin": user.is_admin,
+                "client_id": user.client_id,  # ✅ CRITICAL: Include client_id for multi-client isolation
                 "exp": DateTimeHelper.now_utc() + self.token_expiry,
                 "iat": DateTimeHelper.now_utc()
             }
@@ -283,7 +284,8 @@ class AuthService:
         """Create a new local user"""
         try:
             with self.database.get_session_context() as session:
-                # Check if user already exists
+                # Check if user already exists (check globally, not just for client)
+                # Note: Email uniqueness is enforced globally across all clients
                 existing_user = session.query(User).filter(User.email == email.lower().strip()).first()
                 if existing_user:
                     logger.warning(f"User already exists: {email}")

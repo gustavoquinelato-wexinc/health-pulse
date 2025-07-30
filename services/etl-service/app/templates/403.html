@@ -3,12 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Access Forbidden - Pulse ETL</title>
+    <title>403 - Access Forbidden | Pulse Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/etl-service.css') }}">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        .gradient-bg {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        :root {
+            /* Default color schema */
+            --color-1: #C8102E;
+            --color-2: #253746;
+            --color-3: #00C7B1;
+            --color-4: #A2DDF8;
+            --color-5: #FFBF3F;
+
+            /* Background colors */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+
+            /* Text colors */
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+
+            /* Border colors */
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, var(--color-2) 0%, var(--color-1) 100%);
         }
         
         .glass-effect {
@@ -51,7 +76,6 @@
                     <ul class="text-white text-opacity-80 space-y-2">
                         <li><i class="fas fa-arrow-right mr-2 text-yellow-300"></i>Contact your administrator for access</li>
                         <li><i class="fas fa-arrow-right mr-2 text-yellow-300"></i>Login with a different account</li>
-                        <li><i class="fas fa-arrow-right mr-2 text-yellow-300"></i>Go back to the <a href="/dashboard" class="text-yellow-300 hover:text-yellow-200 underline">Dashboard</a></li>
                     </ul>
                 </div>
                 
@@ -61,20 +85,12 @@
                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-6 py-3 rounded-lg transition duration-300 flex items-center justify-center">
                         <i class="fas fa-sign-in-alt mr-2"></i>Login
                     </a>
-                    <a href="/dashboard" 
-                       class="bg-white bg-opacity-10 hover:bg-opacity-20 text-white px-6 py-3 rounded-lg transition duration-300 flex items-center justify-center">
-                        <i class="fas fa-tachometer-alt mr-2"></i>Go to Dashboard
-                    </a>
                 </div>
             </div>
             
             <!-- Additional Help -->
             <div class="text-white text-opacity-60 text-sm">
                 <p>If you believe you should have access, please contact your system administrator.</p>
-                <p class="mt-2">
-                    <i class="fas fa-home mr-1"></i>
-                    <a href="/" class="hover:text-white transition duration-300">Return to Home</a>
-                </p>
             </div>
         </div>
     </div>

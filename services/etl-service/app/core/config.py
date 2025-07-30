@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=False, env="DEBUG")
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
 
+    # 🎯 CLIENT-SPECIFIC CONFIGURATION (Multi-Instance Approach)
+    CLIENT_NAME: str = Field(env="CLIENT_NAME", description="Client name this ETL instance serves (case-insensitive)")
+
     # API Settings
     API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
     HOST: str = Field(default="0.0.0.0", env="ETL_HOST")
@@ -39,7 +42,6 @@ class Settings(BaseSettings):
     JIRA_URL: str
     JIRA_USERNAME: str
     JIRA_TOKEN: str
-    JIRA_PROJECTS: str
 
     @property
     def jira_base_url(self) -> str:
@@ -50,11 +52,6 @@ class Settings(BaseSettings):
     def jira_dev_status_url(self) -> str:
         """Returns Jira dev status API URL."""
         return f"{self.JIRA_URL}/rest/dev-status/1.0"
-
-    @property
-    def jira_projects_list(self) -> List[str]:
-        """Returns list of Jira project keys to process."""
-        return [project.strip().upper() for project in self.JIRA_PROJECTS.split(',') if project.strip()]
     
     # GitHub Configuration (for dev status)
     GITHUB_TOKEN: Optional[str] = None
@@ -74,7 +71,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default="your-secret-key-change-this-in-production", env="SECRET_KEY")
     ENCRYPTION_KEY: str = Field(default="your-secret-encryption-key-here", env="ENCRYPTION_KEY")
 
-    # JWT Configuration
+    # JWT Configuration (loaded from shared .env but not used by ETL service)
+    # ETL Service uses centralized authentication through Backend Service
     JWT_SECRET_KEY: str = Field(default="pulse-dev-secret-key-2024", env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, env="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
@@ -213,6 +211,44 @@ def get_settings() -> Settings:
             _settings = Settings()
 
     return _settings
+
+
+def get_client_id_from_name(client_name: str) -> int:
+    """
+    Get client ID from client name using case-insensitive lookup.
+
+    Args:
+        client_name: Client name to look up
+
+    Returns:
+        Client ID
+
+    Raises:
+        Exception: If client not found or inactive
+    """
+    from app.core.database import get_database
+    from app.models.unified_models import Client
+
+    database = get_database()
+    with database.get_session() as session:
+        # Case-insensitive lookup with whitespace handling
+        client = session.query(Client).filter(
+            Client.name.ilike(client_name.strip()),  # Case-insensitive
+            Client.active == True
+        ).first()
+
+        if not client:
+            # Get available clients for error message
+            available_clients = [c.name for c in session.query(Client).filter(Client.active == True).all()]
+            raise Exception(f"Client '{client_name}' not found or inactive. Available active clients: {available_clients}")
+
+        return client.id
+
+
+def get_current_client_id() -> int:
+    """Get the current ETL instance's client ID from configuration."""
+    settings = get_settings()
+    return get_client_id_from_name(settings.CLIENT_NAME)
 
 
 # For backward compatibility

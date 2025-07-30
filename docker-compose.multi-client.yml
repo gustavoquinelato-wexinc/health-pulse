@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # 🎯 ETL Service for WEX Client
+  etl-wex:
+    build:
+      context: ./services/etl-service
+      dockerfile: Dockerfile
+    container_name: etl-wex
+    env_file:
+      - .env.shared # 🔒 Shared configuration (DB, URLs)
+      - .env.etl.wex # 🔒 WEX-specific ETL secrets
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/etl-service:/app
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    networks:
+      - pulse-network
+
+  # 🎯 ETL Service for TechCorp Client
+  etl-techcorp:
+    build:
+      context: ./services/etl-service
+      dockerfile: Dockerfile
+    container_name: etl-techcorp
+    env_file:
+      - .env.shared # 🔒 Shared configuration (DB, URLs)
+      - .env.etl.techcorp # 🔒 TechCorp-specific ETL secrets
+    ports:
+      - "8001:8000" # External port 8001 maps to internal port 8000
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/etl-service:/app
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    networks:
+      - pulse-network
+
+  # 🗄️ Shared PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_DB: pulse_platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - pulse-network
+
+  # 🌐 Backend Service (shared by both clients)
+  backend:
+    build:
+      context: ./services/backend-service
+      dockerfile: Dockerfile
+    container_name: pulse-backend
+    env_file:
+      - .env.shared # 🔒 Shared configuration (DB, URLs)
+      - .env.backend # 🔒 Backend-specific secrets (JWT, sessions)
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/backend-service:/app
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001", "--reload" ]
+    networks:
+      - pulse-network
+
+volumes:
+  postgres_data:
+
+
+networks:
+  pulse-network:
+    driver: bridge

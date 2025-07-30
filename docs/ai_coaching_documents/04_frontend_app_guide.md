@@ -1,24 +1,162 @@
 # Frontend App Guide
 
-This guide covers frontend application patterns, UI/UX standards, and client-side functionality.
+This guide covers the unified Pulse Platform frontend application, including embedded ETL management, UI/UX standards, and client-side functionality.
+
+## 🏗️ **Platform Architecture**
+
+### **Unified Frontend Platform**
+The Pulse Platform frontend is now a comprehensive engineering analytics platform that seamlessly integrates ETL management capabilities:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Pulse Platform Frontend                     │
+│                      (React + Vite + TS)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📊 DORA Metrics Dashboard                                      │
+│  📈 Engineering Analytics                                       │
+│  🔧 Settings Management                                         │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │              🔧 ETL Management (Admin Only)                │ │
+│  │                                                             │ │
+│  │  iframe: http://localhost:8000/home?embedded=true&token=... │ │
+│  │                                                             │ │
+│  │  • Job Orchestration Dashboard                             │ │
+│  │  • Data Pipeline Configuration                             │ │
+│  │  • Real-time Progress Monitoring                           │ │
+│  │  • Integration Management                                  │ │
+│  │  • Admin Panel Access                                      │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### **Key Integration Features**
+- **Seamless Authentication**: Shared JWT tokens across platform and ETL
+- **Role-Based Access**: ETL management visible only to admin users
+- **Unified Branding**: Client-specific logos and themes
+- **Responsive Design**: Consistent experience across all screen sizes
+- **Real-time Updates**: WebSocket integration for live job monitoring
+
+## 🔗 **ETL Embedding Patterns**
+
+### **iframe Integration**
+The ETL service is embedded using iframe with secure token passing:
+
+```typescript
+// ETL Component Integration
+const ETLManagement: React.FC = () => {
+  const { user, token } = useAuth();
+  const { theme, colorMode } = useTheme();
+
+  // Only render for admin users
+  if (!user?.is_admin) {
+    return <AccessDenied message="ETL Management requires administrator privileges" />;
+  }
+
+  const etlUrl = `http://localhost:8000/home?embedded=true&token=${token}&theme=${theme}&colorMode=${colorMode}`;
+
+  return (
+    <div className="h-full w-full">
+      <iframe
+        src={etlUrl}
+        className="w-full h-full border-0"
+        title="ETL Management"
+        sandbox="allow-same-origin allow-scripts allow-forms"
+      />
+    </div>
+  );
+};
+```
+
+### **Authentication Integration**
+```typescript
+// Token Management for Embedded ETL
+export const useETLAuth = () => {
+  const { token, user } = useAuth();
+
+  const getETLUrl = (page: string = 'dashboard') => {
+    const baseUrl = 'http://localhost:8000';
+    const params = new URLSearchParams({
+      embedded: 'true',
+      token: token || '',
+      theme: getCurrentTheme(),
+      colorMode: getCurrentColorMode()
+    });
+
+    return `${baseUrl}/${page}?${params.toString()}`;
+  };
+
+  return { getETLUrl, canAccessETL: user?.is_admin };
+};
+```
+
+### **Navigation Integration**
+```typescript
+// Sidebar Navigation with ETL
+const sidebarItems = [
+  { name: 'Home', path: '/home', icon: HomeIcon },
+  { name: 'DORA Metrics', path: '/dora', icon: ChartIcon,
+    submenu: [
+      { name: 'Deployment Frequency', path: '/dora/deployment-frequency' },
+      { name: 'Lead Time', path: '/dora/lead-time' },
+      { name: 'MTTR', path: '/dora/mttr' },
+      { name: 'Change Failure Rate', path: '/dora/change-failure-rate' }
+    ]
+  },
+  { name: 'Engineering Analytics', path: '/analytics', icon: AnalyticsIcon },
+  // ETL Management - Admin Only
+  ...(user?.is_admin ? [
+    { name: 'ETL Management', path: '/etl', icon: DatabaseIcon }
+  ] : []),
+  { name: 'Settings', path: '/settings', icon: SettingsIcon }
+];
+```
+
+### **Theme Synchronization**
+```typescript
+// Theme passing to embedded ETL
+useEffect(() => {
+  const iframe = document.querySelector('iframe[title="ETL Management"]') as HTMLIFrameElement;
+  if (iframe) {
+    const newUrl = getETLUrl('dashboard');
+    if (iframe.src !== newUrl) {
+      iframe.src = newUrl; // Updates theme/colorMode in real-time
+    }
+  }
+}, [theme, colorMode]);
+```
 
 ## 🎨 UI/UX Standards
 
 ### **Design System**
-- **Framework**: Bootstrap 5.3.0 for responsive components
+- **Framework**: Tailwind CSS with custom design tokens
 - **Typography**: Inter font family for modern, clean appearance
-- **Color Palette**: Professional blue/violet/emerald with client customization
-- **Theme Support**: Light/dark mode with 5-color client schemas
+- **Color System**: 5-color schema system with default and custom modes
+- **Theme Support**: Light/dark mode with database persistence
+- **Client Customization**: Per-client color schemas and theme preferences
 
-### **Brand Colors**
+### **5-Color Schema System**
+The platform uses a standardized 5-color system that provides consistency while allowing customization:
+
 ```css
-/* Core brand colors */
+/* Default 5-Color Schema */
 :root {
-    --brand-primary: #C8102E;    /* WEX Red */
-    --brand-secondary: #253746;  /* Dark Blue */
-    --brand-accent: #00C7B1;     /* Teal */
-    --brand-light: #A2DDF8;      /* Light Blue */
-    --brand-warning: #FFBF3F;    /* Yellow */
+    --color-1: #2862EB;  /* Blue - Primary */
+    --color-2: #763DED;  /* Purple - Secondary */
+    --color-3: #059669;  /* Emerald - Success */
+    --color-4: #0EA5E9;  /* Sky Blue - Info */
+    --color-5: #F59E0B;  /* Amber - Warning */
+}
+
+/* Custom Color Schema Override (WEX Brand) */
+[data-color-schema="custom"] {
+    --color-1: #C8102E;  /* WEX Red */
+    --color-2: #253746;  /* Dark Blue */
+    --color-3: #00C7B1;  /* Teal */
+    --color-4: #A2DDF8;  /* Light Blue */
+    --color-5: #FFBF3F;  /* Yellow */
 }
 ```
 
@@ -325,46 +463,77 @@ function setupAutoRefresh() {
 
 ## 🎭 Theme & Customization
 
-### **Light/Dark Mode**
+### **Light/Dark Mode with Database Persistence**
 ```javascript
-// Theme management
-class ThemeManager {
-    constructor() {
-        this.currentTheme = localStorage.getItem('theme') || 'light';
-        this.applyTheme(this.currentTheme);
-    }
-    
-    toggleTheme() {
-        this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
-        this.applyTheme(this.currentTheme);
-        localStorage.setItem('theme', this.currentTheme);
-    }
-    
-    applyTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        this.updateThemeIcon(theme);
-    }
+// Modern theme management with database persistence
+import { useTheme } from '../contexts/ThemeContext'
+
+function ThemeToggle() {
+    const { theme, toggleTheme } = useTheme()
+
+    return (
+        <button onClick={toggleTheme}>
+            {theme === 'light' ? '🌙' : '☀️'}
+        </button>
+    )
+}
+
+// Theme context automatically:
+// 1. Loads theme from database on startup
+// 2. Saves theme to database when changed
+// 3. Applies theme to document.documentElement
+// 4. Persists across browser sessions
+```
+
+### **Color Schema Modes**
+The platform supports two color schema modes:
+
+```css
+/* Default Mode - Built-in professional colors */
+:root {
+    --color-1: #2862EB;  /* Blue - Primary */
+    --color-2: #763DED;  /* Purple - Secondary */
+    --color-3: #059669;  /* Emerald - Success */
+    --color-4: #0EA5E9;  /* Sky Blue - Info */
+    --color-5: #F59E0B;  /* Amber - Warning */
+}
+
+/* Custom Mode - Client-specific brand colors */
+[data-color-schema="custom"] {
+    --color-1: #C8102E;  /* Client Primary */
+    --color-2: #253746;  /* Client Secondary */
+    --color-3: #00C7B1;  /* Client Accent */
+    --color-4: #A2DDF8;  /* Client Info */
+    --color-5: #FFBF3F;  /* Client Warning */
 }
 ```
 
-### **Client Color Schemas**
-```css
-/* 5-color client schema system */
-[data-client-schema="wex"] {
-    --primary: #C8102E;
-    --secondary: #253746;
-    --accent: #00C7B1;
-    --light: #A2DDF8;
-    --warning: #FFBF3F;
+### **Using Colors in Components**
+```jsx
+// Use the 5-color system in components
+function StatusBadge({ status, children }) {
+    const colorMap = {
+        success: 'var(--color-3)',
+        warning: 'var(--color-5)',
+        info: 'var(--color-4)',
+        primary: 'var(--color-1)',
+        secondary: 'var(--color-2)'
+    }
+
+    return (
+        <span
+            className="px-2 py-1 rounded text-white text-xs"
+            style={{ backgroundColor: colorMap[status] }}
+        >
+            {children}
+        </span>
+    )
 }
 
-[data-client-schema="custom"] {
-    --primary: var(--client-primary, #007bff);
-    --secondary: var(--client-secondary, #6c757d);
-    --accent: var(--client-accent, #28a745);
-    --light: var(--client-light, #f8f9fa);
-    --warning: var(--client-warning, #ffc107);
-}
+// Or use Tailwind classes
+<div className="bg-color-1 text-white p-4">
+    Primary colored content
+</div>
 ```
 
 ## 🔧 Performance Patterns

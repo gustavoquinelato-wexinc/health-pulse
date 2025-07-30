@@ -10,7 +10,7 @@ The ETL Service is the core data processing engine of the Pulse Platform, design
 - **Intelligent Job Orchestration**: Active/Passive model with smart scheduling
 - **Checkpoint Recovery**: Precise failure recovery with cursor-based pagination
 - **Rate Limit Handling**: Graceful API rate limit management
-- **Real-time Monitoring**: Live dashboard with job control capabilities
+- **Real-time Monitoring**: Live home page with job control capabilities
 
 ## 🏗️ Architecture
 
@@ -83,7 +83,7 @@ etl-service/
 │   │   ├── health.py           # Health check endpoints
 │   │   ├── jobs.py             # Job management endpoints
 │   │   ├── data.py             # Data access endpoints
-│   │   ├── dashboard.py        # HTML dashboard endpoints
+│   │   ├── home.py             # Home page endpoints
 │   │   ├── logs.py             # Log management endpoints
 │   │   ├── debug.py            # Debug endpoints
 │   │   ├── scheduler.py        # Scheduler control endpoints
@@ -109,7 +109,7 @@ etl-service/
 │   │   ├── __init__.py
 │   │   └── unified_models.py   # Unified database models (PostgreSQL)
 │   ├── templates/
-│   │   └── dashboard.html      # WebSocket-based real-time ETL dashboard
+│   │   └── home.html           # WebSocket-based real-time ETL home page
 │   └── utils/
 │       ├── __init__.py
 │       ├── datetime_helper.py  # DateTime utilities
@@ -273,11 +273,11 @@ ORCHESTRATOR_MAX_RETRY_ATTEMPTS=3
 
 ## 📊 API Endpoints
 
-### **Dashboard & Authentication**
-- `GET /` - ETL Dashboard (redirects to login)
+### **Home & Authentication**
+- `GET /` - ETL Home (redirects to login)
 - `GET /login` - Login page
 - `POST /auth/login` - User authentication
-- `GET /dashboard` - Main ETL dashboard
+- `GET /home` - Main ETL home page
 
 ### **Job Management**
 - `GET /api/v1/jobs/status` - Get all job statuses
@@ -400,7 +400,7 @@ curl http://localhost:8000/api/v1/health
 
 ## 📈 Monitoring & Observability
 
-### **Real-time Dashboard**
+### **Real-time Home Page**
 - **WebSocket Progress**: Real-time progress bars with instant percentage updates
 - **Enhanced Log Management**: Table-based log viewer with pagination, search, and file management
 - **Individual File Actions**: Download, delete, or clear content of specific log files

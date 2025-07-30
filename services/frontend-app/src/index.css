@@ -3,31 +3,48 @@
 @tailwind components;
 @tailwind utilities;
 
-/* CSS Custom Properties for Theme System */
+/* CSS Custom Properties - Enterprise Color System */
 :root {
-  /* Default Professional Color Palette */
-  --color-primary: #2563eb;
-  /* Blue 600 - Professional, trustworthy */
-  --color-secondary: #7c3aed;
-  /* Violet 600 - Innovation, creativity */
-  --color-accent: #059669;
-  /* Emerald 600 - Success, growth */
-  --color-warning: #d97706;
-  /* Amber 600 */
-  --color-error: #dc2626;
-  /* Red 600 */
+  /* Universal System Colors - Never change regardless of theme/client */
+  /* CRUD Operations - Universal Standards */
+  --crud-create: #059669;
+  /* Green - Create/Add/Save */
+  --crud-edit: #0ea5e9;
+  /* Blue - Edit/Modify */
+  --crud-delete: #dc2626;
+  /* Red - Delete/Remove */
+  --crud-cancel: #6b7280;
+  /* Gray - Cancel/Neutral */
 
-  /* Custom Color Schema (Client-specific) */
-  --color-1: #C8102E;
-  /* Custom Red */
-  --color-2: #253746;
-  /* Custom Dark Blue */
-  --color-3: #00C7B1;
-  /* Custom Teal */
-  --color-4: #A2DDF8;
-  /* Custom Light Blue */
-  --color-5: #FFBF3F;
-  /* Custom Yellow */
+  /* System Status - Universal Standards */
+  --status-success: #10b981;
+  /* Success states */
+  --status-warning: #f59e0b;
+  /* Warning states */
+  --status-error: #ef4444;
+  /* Error states */
+  --status-info: #3b82f6;
+  /* Information states */
+
+  /* Enterprise Neutrals - Professional UI Elements */
+  --neutral-primary: #374151;
+  /* Primary neutral actions */
+  --neutral-secondary: #6b7280;
+  /* Secondary neutral actions */
+  --neutral-tertiary: #9ca3af;
+  /* Tertiary neutral elements */
+
+  /* 5-Color Schema System - Reserved for valuable items only */
+  --color-1: #2862EB;
+  /* Blue - Primary brand/data */
+  --color-2: #763DED;
+  /* Purple - Secondary brand/data */
+  --color-3: #059669;
+  /* Emerald - Success metrics/data */
+  --color-4: #0EA5E9;
+  /* Sky Blue - Info metrics/data */
+  --color-5: #F59E0B;
+  /* Amber - Warning metrics/data */
 
   /* Light Theme Variables */
   --bg-primary: #ffffff;
@@ -54,6 +71,20 @@
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+/* Custom Color Schema Override */
+[data-color-schema="custom"] {
+  --color-1: #C8102E;
+  /* WEX Red */
+  --color-2: #253746;
+  /* Dark Blue */
+  --color-3: #00C7B1;
+  /* Teal */
+  --color-4: #A2DDF8;
+  /* Light Blue */
+  --color-5: #FFBF3F;
+  /* Yellow */
 }
 
 /* Base Styles */
@@ -205,6 +236,69 @@
 
   .bg-color-5 {
     background-color: var(--color-5);
+  }
+
+  /* Universal CRUD Button Classes - Compact Enterprise Standard */
+  .btn-crud-create {
+    @apply bg-[var(--crud-create)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-edit {
+    @apply bg-[var(--crud-edit)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-delete {
+    @apply bg-[var(--crud-delete)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-cancel {
+    @apply bg-[var(--crud-cancel)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  /* Enterprise Neutral Button Classes */
+  .btn-neutral-primary {
+    @apply bg-[var(--neutral-primary)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:bg-[var(--neutral-secondary)] hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-neutral-secondary {
+    @apply bg-[var(--neutral-secondary)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:bg-[var(--neutral-primary)] hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  /* Universal Status Button Classes */
+  .btn-status-warning {
+    @apply bg-[var(--status-warning)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-success {
+    @apply bg-[var(--status-success)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-error {
+    @apply bg-[var(--status-error)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-info {
+    @apply bg-[var(--status-info)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
   }
 
   /* Animation Classes */

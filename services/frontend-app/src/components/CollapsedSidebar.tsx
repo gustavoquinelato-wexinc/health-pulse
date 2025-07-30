@@ -1,8 +1,22 @@
-import { motion } from 'framer-motion'
-import React, { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-const navigationItems = [
+interface NavigationItem {
+  id: string;
+  label: string;
+  icon: string;
+  path: string;
+  adminOnly?: boolean;
+  subItems?: Array<{
+    id: string;
+    label: string;
+    path: string;
+  }>;
+}
+
+const navigationItems: NavigationItem[] = [
   {
     id: 'home',
     label: 'Home',
@@ -26,19 +40,40 @@ const navigationItems = [
     label: 'Engineering Analytics',
     icon: '⚙️',
     path: '/engineering'
-  }
+  },
+
 ]
 
-const secondaryItems = [
+const secondaryItems: NavigationItem[] = [
+  {
+    id: 'etl',
+    label: 'ETL Management',
+    icon: '🔄',
+    path: '/etl',
+    adminOnly: true,
+    subItems: [
+      { id: 'etl-admin', label: 'Admin Panel', path: '/etl/admin' },
+      { id: 'issuetype-mappings', label: 'Issue Type Mappings', path: '/etl/admin/issuetype-mappings' },
+      { id: 'issuetype-hierarchies', label: 'Issue Type Hierarchies', path: '/etl/admin/issuetype-hierarchies' },
+      { id: 'status-mappings', label: 'Status Mappings', path: '/etl/admin/status-mappings' },
+      { id: 'workflows', label: 'Workflows', path: '/etl/admin/workflows' }
+    ]
+  },
   {
     id: 'settings',
     label: 'Settings',
     icon: '🔧',
-    path: '/settings'
+    path: '/settings',
+    subItems: [
+      { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
+      { id: 'user-preferences', label: 'User Preferences', path: '/settings/user-preferences' },
+      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' }
+    ]
   }
 ]
 
 export default function CollapsedSidebar() {
+  const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
@@ -55,12 +90,27 @@ export default function CollapsedSidebar() {
     }
   }
 
-  // Exact gustractor_pulse approach
+  // Smart positioning approach
   const handleMouseEnter = (e: React.MouseEvent, item: any) => {
     clearHoverTimeout()
 
     const rect = e.currentTarget.getBoundingClientRect()
-    setTooltipPosition({ x: rect.right + 8, y: rect.top })
+    const viewportHeight = window.innerHeight
+    const submenuHeight = item.subItems ? (item.subItems.length * 40 + 60) : 40 // Estimate submenu height
+
+    // Calculate optimal Y position
+    let yPosition = rect.top
+
+    // If submenu would extend below viewport, position it above the item
+    if (rect.top + submenuHeight > viewportHeight) {
+      yPosition = rect.bottom - submenuHeight
+      // Ensure it doesn't go above the top of the viewport
+      if (yPosition < 0) {
+        yPosition = Math.max(0, viewportHeight - submenuHeight - 10)
+      }
+    }
+
+    setTooltipPosition({ x: rect.right + 8, y: yPosition })
     setHoveredItem(item.id)
 
     // For items with submenus, show the submenu panel immediately
@@ -171,51 +221,61 @@ export default function CollapsedSidebar() {
       >
         {/* Main Navigation */}
         <div className="flex-1 flex flex-col space-y-2 py-4 px-2">
-          {navigationItems.map((item) => (
-            <div key={item.id} className="relative">
-              <motion.button
-                onClick={() => handleNavClick(item.path)}
-                onMouseEnter={(e) => handleMouseEnter(e, item)}
-                onMouseLeave={handleMouseLeave}
-                className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                  ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-lg'
-                  : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
-                  }`}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <span className="text-lg">{item.icon}</span>
-              </motion.button>
-            </div>
-          ))}
+          {navigationItems
+            .filter(item => !item.adminOnly || isAdmin) // Filter admin-only items
+            .map((item) => (
+              <div key={item.id} className="relative">
+                <motion.button
+                  onClick={() => handleNavClick(item.path)}
+                  onMouseEnter={(e) => handleMouseEnter(e, item)}
+                  onMouseLeave={handleMouseLeave}
+                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
+                    ? 'text-white shadow-lg'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                    }`}
+                  style={isActive(item) ? {
+                    background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                  } : {}}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                </motion.button>
+              </div>
+            ))}
         </div>
 
-        {/* Settings at Bottom */}
-        <div className="border-t border-default px-2 py-4">
-          {secondaryItems.map((item) => (
-            <div key={item.id} className="relative">
-              <motion.button
-                onClick={() => handleNavClick(item.path)}
-                onMouseEnter={(e) => handleMouseEnter(e, item)}
-                onMouseLeave={handleMouseLeave}
-                className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                  ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-lg'
-                  : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
-                  }`}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <span className="text-lg">{item.icon}</span>
-              </motion.button>
-            </div>
-          ))}
-        </div>
+        {/* Settings at Bottom - Admin Only */}
+        {isAdmin && (
+          <div className="border-t border-default px-2 py-4">
+            {secondaryItems.map((item) => (
+              <div key={item.id} className="relative">
+                <motion.button
+                  onClick={() => handleNavClick(item.path)}
+                  onMouseEnter={(e) => handleMouseEnter(e, item)}
+                  onMouseLeave={handleMouseLeave}
+                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
+                    ? 'text-white shadow-lg'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                    }`}
+                  style={isActive(item) ? {
+                    background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                  } : {}}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                </motion.button>
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* Simple Tooltips for items without submenus */}
       {hoveredItem && !openSubmenu && (
         <div
-          className="fixed z-50 pointer-events-none"
+          className="fixed z-[9999] pointer-events-none"
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
@@ -226,7 +286,7 @@ export default function CollapsedSidebar() {
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-gray-900 text-white px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+                className="bg-secondary border border-default text-primary px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap shadow-lg"
               >
                 {item.label}
               </motion.div>
@@ -238,25 +298,25 @@ export default function CollapsedSidebar() {
       {/* Submenu Panels for items with subpages - gustractor_pulse approach */}
       {openSubmenu && (
         <div
-          className="fixed z-50"
+          className="fixed z-[9999]"
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = navigationItems.find(i => i.id === openSubmenu)
-            if (!item || !item.subItems) return null
+            const item = [...navigationItems, ...secondaryItems].find(i => i.id === openSubmenu)
+            if (!item || !(item as any).subItems) return null
 
             return (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, x: -10 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
-                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-2 min-w-48"
+                className="bg-secondary border border-default rounded-lg shadow-xl py-2 min-w-48"
                 onMouseEnter={handleSubmenuMouseEnter}
                 onMouseLeave={handleSubmenuMouseLeave}
               >
-                <div className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700">
+                <div className="px-3 py-2 text-sm font-medium text-primary border-b border-default">
                   {item.label}
                 </div>
-                {item.subItems.map(subItem => (
+                {(item as any).subItems.map((subItem: any) => (
                   <motion.div
                     key={subItem.id}
                     onMouseDown={(e) => {
@@ -278,9 +338,12 @@ export default function CollapsedSidebar() {
                       }, 50)
                     }}
                     className={`flex items-center px-3 py-2 text-sm cursor-pointer transition-colors ${location.pathname === subItem.path
-                      ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-sm'
-                      : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      ? 'text-white shadow-sm'
+                      : 'text-secondary hover:bg-tertiary hover:text-primary'
                       }`}
+                    style={location.pathname === subItem.path ? {
+                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                    } : {}}
                     whileHover={{ x: 4 }}
                   >
                     {subItem.label}

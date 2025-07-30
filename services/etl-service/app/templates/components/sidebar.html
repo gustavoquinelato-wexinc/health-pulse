@@ -1,0 +1,200 @@
+<!-- Modern Sidebar Component -->
+{% macro sidebar(current_path='') %}
+<aside class="modern-sidebar">
+    <!-- Main Navigation -->
+    <div class="flex-1 flex flex-col py-4 px-2">
+        <div class="flex flex-col space-y-2">
+        <!-- Home -->
+        <div class="relative">
+            <button onclick="navigateTo('/home')"
+                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    data-path="/home"
+                    title="Home"
+                    tabindex="0"
+                    {% if current_path == '/home' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">🏠</span>
+            </button>
+        </div>
+
+        <!-- Issue Types with Hover Submenu -->
+        <div class="relative" id="issuetypes-menu">
+            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    title="Issue Types"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'issuetypes')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/issuetype') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">🏷️</span>
+            </button>
+        </div>
+
+        <!-- Statuses with Hover Submenu -->
+        <div class="relative" id="statuses-menu">
+            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    title="Statuses"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'statuses')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/status') or current_path.startswith('/workflow') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">🚦</span>
+            </button>
+        </div>
+
+        <!-- Admin (only for admin users) -->
+        {% if user and user.role == 'admin' %}
+        <div class="relative" id="admin-menu">
+            <button class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    title="Admin"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'admin')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/admin') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">👤</span>
+            </button>
+        </div>
+        {% endif %}
+        </div>
+    </div>
+
+    <!-- Secondary Section at Bottom -->
+    <div class="border-t border-default px-2 py-4">
+        <!-- Refresh/Sync Button -->
+        <div class="relative">
+            <button onclick="refreshHome()"
+                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 text-secondary hover:bg-tertiary hover:text-primary hover:scale-105"
+                    title="Refresh Data"
+                    tabindex="0">
+                <span class="text-lg">🔄</span>
+            </button>
+        </div>
+
+        <!-- Settings Button -->
+        <div class="relative">
+            <button onclick="navigateTo('/settings')"
+                    class="w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/settings' else 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105' }}"
+                    data-path="/settings"
+                    title="Settings"
+                    tabindex="0"
+                    {% if current_path == '/settings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">🔧</span>
+            </button>
+        </div>
+    </div>
+</aside>
+
+<!-- Sidebar Submenu Panels -->
+<div id="submenu-issuetypes" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Issue Types
+    </div>
+    <a href="/issuetype-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+        <i class="fas fa-layer-group mr-2"></i>
+        Issue Type Hierarchies
+    </a>
+    <a href="/issuetype-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+        <i class="fas fa-sitemap mr-2"></i>
+        Issue Type Mappings
+    </a>
+</div>
+
+<div id="submenu-statuses" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Statuses
+    </div>
+    <a href="/status-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+        <i class="fas fa-exchange-alt mr-2"></i>
+        Status Mappings
+    </a>
+    <a href="/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+        <i class="fas fa-project-diagram mr-2"></i>
+        Workflows
+    </a>
+</div>
+
+<div id="submenu-admin" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Admin
+    </div>
+    <a href="/admin" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer">
+        <i class="fas fa-tachometer-alt mr-2"></i>
+        Admin Panel
+    </a>
+</div>
+{% endmacro %}
+
+<!-- Sidebar JavaScript Functions -->
+<script>
+    // Navigation function
+    function navigateTo(path) {
+        window.location.href = path;
+    }
+
+    // Sidebar Submenu functionality
+    let hoverTimeout = null;
+    let currentSubmenu = null;
+    let isHoveringSubmenu = false;
+
+    function showSubmenu(event, menuType) {
+        clearTimeout(hoverTimeout);
+
+        const rect = event.currentTarget.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const submenuHeight = 120; // Estimate submenu height
+
+        // Calculate optimal Y position
+        let yPosition = rect.top;
+        if (rect.top + submenuHeight > viewportHeight) {
+            yPosition = rect.bottom - submenuHeight;
+        }
+
+        // Hide current submenu if different
+        if (currentSubmenu && currentSubmenu !== menuType) {
+            document.getElementById(`submenu-${currentSubmenu}`).classList.add('hidden');
+        }
+
+        // Show new submenu
+        const submenu = document.getElementById(`submenu-${menuType}`);
+        if (submenu) {
+            submenu.style.left = '4rem'; // 64px (w-16) + small gap
+            submenu.style.top = `${yPosition}px`;
+            submenu.classList.remove('hidden');
+            currentSubmenu = menuType;
+        }
+    }
+
+    function hideSubmenu() {
+        clearTimeout(hoverTimeout);
+        hoverTimeout = setTimeout(() => {
+            if (!isHoveringSubmenu) {
+                currentSubmenu = null;
+                document.querySelectorAll('[id^="submenu-"]').forEach(el => {
+                    el.classList.add('hidden');
+                });
+            }
+        }, 200); // 200ms delay like frontend
+    }
+
+    function keepSubmenuOpen() {
+        clearTimeout(hoverTimeout);
+        isHoveringSubmenu = true;
+    }
+
+    // Handle submenu mouse leave
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[id^="submenu-"]').forEach(submenu => {
+            submenu.addEventListener('mouseleave', () => {
+                setTimeout(() => {
+                    isHoveringSubmenu = false;
+                    currentSubmenu = null;
+                    submenu.classList.add('hidden');
+                }, 100);
+            });
+        });
+    });
+</script>

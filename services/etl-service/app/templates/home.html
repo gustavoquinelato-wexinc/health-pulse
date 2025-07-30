@@ -1,0 +1,2316 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Pulse ETL - Job Control{% endblock %}
+
+{% block content %}
+<!-- Header Section with Title and Settings -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Welcome to Pulse ETL Management
+            </h1>
+            <p class="text-lg mt-2" style="color: var(--text-secondary);">
+                Monitor and control your data integration workflows
+            </p>
+        </div>
+        <button onclick="showOrchestratorSettings()" class="btn-neutral-primary">
+            <i class="fas fa-cog mr-1"></i>Settings
+        </button>
+    </div>
+</div>
+
+<!-- Combined Orchestrator + Job Monitor Section -->
+<div class="mb-8 p-6 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-2xl font-semibold" style="color: var(--text-primary);">
+            <i class="fas fa-robot mr-3" style="color: var(--color-1);"></i>ETL Orchestrator
+        </h2>
+        <div class="text-sm" style="color: var(--text-muted);" id="lastUpdate">
+            Last updated: Never
+        </div>
+    </div>
+
+    <!-- Three Internal Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Status Card -->
+        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-1); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
+                <i class="fas fa-circle-info text-base" style="color: var(--color-1);"></i>
+            </div>
+            <div class="pr-10">
+                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Status</h3>
+                <div class="flex items-center space-x-2">
+                    <div id="orchestratorStatusDot" class="w-2 h-2 rounded-full bg-gray-500"></div>
+                    <span id="orchestratorStatusText" class="text-lg font-semibold" style="color: var(--text-primary);">Loading...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Countdown Card -->
+        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-2); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
+                <i class="fas fa-clock text-base" style="color: var(--color-2);"></i>
+            </div>
+            <div class="pr-10">
+                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Next Run</h3>
+                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--color-2);">
+                    --:--:--
+                </div>
+            </div>
+        </div>
+
+        <!-- Execution Count Card -->
+        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-3); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
+                <i class="fas fa-chart-line text-base" style="color: var(--color-3);"></i>
+            </div>
+            <div class="pr-10">
+                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Executions</h3>
+                <div id="executionCount" class="text-xl font-bold" style="color: var(--color-3);">
+                    0
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control Buttons -->
+    <div id="orchestratorControlButtons" class="flex justify-end space-x-2 mt-6">
+        <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="btn-status-info-sm">
+            <i class="fas fa-play mr-1"></i>Force Run
+        </button>
+        <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm">
+            <i class="fas fa-pause mr-1"></i>Pause
+        </button>
+        <button onclick="showLogManagement()" class="btn-neutral-secondary">
+            <i class="fas fa-file-alt mr-1"></i>Logs
+        </button>
+        <button onclick="refreshData();" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Orchestrator Settings Modal -->
+<div id="orchestratorSettingsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="rounded-lg shadow-xl max-w-md w-full" style="background-color: var(--bg-secondary);">
+            <div class="px-6 py-4 border-b" style="border-color: var(--border-color);">
+                <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
+                    <i class="fas fa-cog mr-2"></i>Orchestrator Settings
+                </h3>
+            </div>
+            <div class="px-6 py-4">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">
+                            Run Interval
+                        </label>
+                        <select id="orchestratorInterval" class="w-full px-3 py-2 rounded-md" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                            <option value="60" selected>Every 1 hour</option>
+                            <option value="120">Every 2 hours</option>
+                            <option value="240">Every 4 hours</option>
+                            <option value="480">Every 8 hours</option>
+                            <option value="720">Every 12 hours</option>
+                            <option value="1440">Every 24 hours</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="orchestratorEnabled" checked class="mr-2 h-4 w-4 rounded" style="color: var(--color-1);">
+                            <span class="text-sm font-medium" style="color: var(--text-primary);">Enable Orchestrator</span>
+                        </label>
+                    </div>
+
+                    <!-- Retry Settings Section -->
+                    <div class="pt-4 border-t" style="border-color: var(--border-color);">
+                        <h4 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">
+                            <i class="fas fa-redo mr-2"></i>Retry Settings
+                        </h4>
+
+                        <div class="space-y-3">
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="orchestratorRetryEnabled" class="mr-2 h-4 w-4 rounded" style="color: var(--color-1);">
+                                    <span class="text-sm font-medium" style="color: var(--text-primary);">Enable Fast Retry</span>
+                                </label>
+                                <p class="text-xs mt-1 ml-6" style="color: var(--text-muted);">Retry failed jobs at shorter intervals</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">
+                                    Retry Interval
+                                </label>
+                                <select id="orchestratorRetryInterval" class="w-full px-3 py-2 rounded-md" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                    <option value="5">Every 5 minutes</option>
+                                    <option value="10" selected>Every 10 minutes</option>
+                                    <option value="15">Every 15 minutes</option>
+                                    <option value="30">Every 30 minutes</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">
+                                    Max Retry Attempts
+                                </label>
+                                <select id="orchestratorMaxRetryAttempts" class="w-full px-3 py-2 rounded-md" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                    <option value="3" selected>3 attempts</option>
+                                    <option value="5">5 attempts</option>
+                                    <option value="10">10 attempts</option>
+                                    <option value="0">Unlimited</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t flex justify-end space-x-3" style="border-color: var(--border-color);">
+                <button onclick="saveOrchestratorSettings()" class="btn-crud-create">
+                    <i class="fas fa-save mr-1"></i>Save Changes
+                </button>
+                <button onclick="hideOrchestratorSettings()" class="btn-neutral-secondary">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Job Cards Container -->
+<div id="jobsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Job cards will be dynamically inserted here -->
+</div>
+
+<!-- Job Details Modal -->
+<div id="jobDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden p-4" style="display: none;">
+    <div class="rounded-lg max-w-6xl w-full max-h-[85vh] overflow-y-auto" style="background-color: var(--bg-primary);">
+        <div class="flex justify-between items-center p-4 border-b" style="border-color: var(--border-color);">
+            <h3 class="text-xl font-bold" style="color: var(--text-primary);">
+                <span id="jobDetailsIcon"><i class="fas fa-info-circle mr-2"></i></span><span id="jobDetailsTitle">Job Details</span>
+            </h3>
+            <button onclick="closeJobDetailsModal()" class="hover:opacity-75" style="color: var(--text-secondary);">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-4">
+            <div id="jobDetailsContent">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button onclick="hideJobDetails()" class="btn-neutral-secondary">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- GitHub Rate Limits Modal -->
+<div id="rateLimitsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden p-4" style="display: none;">
+    <div class="rounded-lg max-w-5xl w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--bg-primary);">
+        <div class="flex justify-between items-center p-4 border-b" style="border-color: var(--border-color);">
+            <h2 class="text-xl font-bold" style="color: var(--text-primary);">
+                <i class="fab fa-github mr-2"></i>GitHub API Rate Limits
+            </h2>
+            <button onclick="hideGitHubRateLimits()" class="hover:opacity-75" style="color: var(--text-secondary);">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-4">
+            <div id="rateLimitsContent">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button onclick="hideGitHubRateLimits()" class="btn-neutral-secondary">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Management Modal -->
+<div id="logManagementModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden p-4" style="display: none;">
+    <div class="rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto" style="background-color: var(--bg-primary);">
+        <div class="flex justify-between items-start p-4 border-b" style="border-color: var(--border-color);">
+            <div>
+                <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
+                    <i class="fas fa-file-alt mr-2"></i>ETL Service Log Management
+                </h3>
+                <p class="text-sm mt-1" style="color: var(--text-secondary);">Manage all log files in the ETL service directory</p>
+            </div>
+            <button onclick="hideLogManagement()" class="hover:opacity-75" style="color: var(--text-secondary);">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-4">
+            <div id="logManagementContent">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button onclick="hideLogManagement()" class="btn-neutral-secondary">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Job Control Styles */
+    .glass-effect {
+        background: linear-gradient(135deg, var(--color-1), var(--color-2));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+
+    /* Status Classes */
+    .status-running { background-color: #10b981; color: white; }
+    .status-pending { background-color: #f59e0b; color: white; }
+    .status-finished { background-color: #6b7280; color: white; }
+    .status-paused { background-color: #8b5cf6; color: white; }
+    .status-not-started { background-color: #374151; color: white; }
+    .status-error { background-color: #ef4444; color: white; }
+
+    /* WebSocket Progress Styles */
+    .ws-progress-container {
+        width: 100%;
+        height: 8px;
+        background-color: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .ws-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, var(--color-3), var(--color-4));
+        transition: width 0.3s ease;
+    }
+
+    .ws-progress-text {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-top: 0.5rem;
+    }
+
+    /* Modal Styles */
+    .modal-show {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Exception Log Styles */
+    .exception-log {
+        max-height: 150px;
+        overflow-y: auto;
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .exception-item {
+        padding: 0.25rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 0.75rem;
+    }
+
+    .exception-item:last-child {
+        border-bottom: none;
+    }
+
+    .exception-item.error {
+        color: #fca5a5;
+    }
+
+    .exception-item.warning {
+        color: #fcd34d;
+    }
+
+    .exception-item.info {
+        color: #93c5fd;
+    }
+</style>
+
+<script>
+    let refreshTimer = null;
+
+    // WebSocket connections for real-time progress
+    let websockets = {
+        jira_sync: null,
+        github_sync: null,
+        orchestrator: null
+    };
+
+    // Progress and exception data
+    let jobProgress = {
+        jira_sync: { percentage: 0, step: '', exceptions: [] },
+        github_sync: { percentage: 0, step: '', exceptions: [] },
+        orchestrator: { percentage: 0, step: '', exceptions: [] }
+    };
+
+    // Initialize dashboard
+    document.addEventListener('DOMContentLoaded', function () {
+        checkAuth();
+        refreshData();
+        setupAutoRefresh();
+        refreshOrchestratorStatus();
+        initializeWebSockets();
+    });
+
+    // Authentication helper
+    function getAuthToken() {
+        let token = localStorage.getItem('pulse_token');
+        if (!token) {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'pulse_token') {
+                    token = value;
+                    break;
+                }
+            }
+        }
+        return token;
+    }
+
+    function checkAuth() {
+        const token = getAuthToken();
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+    }
+
+    // WebSocket Management
+    function initializeWebSockets() {
+        const jobs = ['jira_sync', 'github_sync'];
+        jobs.forEach(jobName => {
+            connectWebSocket(jobName);
+        });
+    }
+
+    function connectWebSocket(jobName) {
+        if (websockets[jobName]) {
+            websockets[jobName].close();
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobName}`;
+
+        try {
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = function () {
+                websockets[jobName] = ws;
+            };
+
+            ws.onmessage = function (event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(jobName, data);
+                } catch (e) {
+                    console.error(`Error parsing WebSocket message for ${jobName}:`, e);
+                }
+            };
+
+            ws.onclose = function () {
+                console.log(`WebSocket disconnected for ${jobName}`);
+                websockets[jobName] = null;
+                setTimeout(() => {
+                    if (!websockets[jobName]) {
+                        connectWebSocket(jobName);
+                    }
+                }, 5000);
+            };
+
+            ws.onerror = function (error) {
+                console.error(`WebSocket error for ${jobName}:`, error);
+            };
+
+        } catch (e) {
+            console.error(`Failed to create WebSocket for ${jobName}:`, e);
+        }
+    }
+
+    function handleWebSocketMessage(jobName, data) {
+        switch (data.type) {
+            case 'progress':
+                updateJobProgress(jobName, data.percentage, data.step);
+                break;
+            case 'exception':
+                addJobException(jobName, data.level, data.message, data.timestamp);
+                break;
+            case 'status':
+                updateJobStatus(jobName, data.status);
+                break;
+            case 'completion':
+                handleJobCompletion(jobName, data.success, data.summary);
+                break;
+            default:
+                console.log(`Unknown WebSocket message type: ${data.type}`);
+        }
+    }
+
+    function updateJobProgress(jobName, percentage, step) {
+        jobProgress[jobName].percentage = percentage;
+        jobProgress[jobName].step = step;
+
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            updateJobCardProgress(jobCard, percentage, step);
+        }
+    }
+
+    function addJobException(jobName, level, message, timestamp) {
+        const exception = {
+            level: level,
+            message: message,
+            timestamp: timestamp
+        };
+
+        jobProgress[jobName].exceptions.unshift(exception);
+
+        if (jobProgress[jobName].exceptions.length > 10) {
+            jobProgress[jobName].exceptions = jobProgress[jobName].exceptions.slice(0, 10);
+        }
+
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            updateJobCardExceptions(jobCard, jobProgress[jobName].exceptions);
+        }
+    }
+
+    function updateJobStatus(jobName, status) {
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            updateJobCardStatus(jobCard, status);
+        }
+    }
+
+    function handleJobCompletion(jobName, success, summary) {
+
+        if (success) {
+            updateJobProgress(jobName, 100, 'Completed successfully');
+        } else {
+            addJobException(jobName, 'ERROR', summary.error || 'Job failed', new Date().toISOString());
+        }
+
+        setTimeout(() => {
+            refreshData();
+        }, 2000);
+    }
+
+    // Data refresh functions
+    async function refreshData() {
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/jobs/status', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+
+            const data = await response.json();
+            updateJobCards(data.jobs || data);
+            updateLastRefreshTime();
+
+            // Also refresh orchestrator status to keep it in sync
+            refreshOrchestratorStatus();
+        } catch (error) {
+            console.error('Error fetching job status:', error);
+        }
+    }
+
+    function updateJobCards(jobsData) {
+        const container = document.getElementById('jobsContainer');
+        container.innerHTML = '';
+
+        Object.entries(jobsData).forEach(([jobName, jobData]) => {
+            const card = createJobCard(jobName, jobData, jobsData);
+            container.appendChild(card);
+        });
+
+        updateOrchestratorButtonState(jobsData);
+    }
+
+    function updateLastRefreshTime() {
+        const now = new Date();
+        const lastUpdateElement = document.getElementById('lastUpdate');
+        if (lastUpdateElement) {
+            lastUpdateElement.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        }
+    }
+
+    function updateOrchestratorButtonState(jobsData) {
+        const orchestratorBtn = document.getElementById('forceStartOrchestratorBtn');
+        if (!orchestratorBtn) return;
+
+        const anyJobRunning = Object.values(jobsData).some(jobData => jobData.status === 'RUNNING');
+
+        if (anyJobRunning) {
+            orchestratorBtn.disabled = true;
+            orchestratorBtn.className = 'bg-gray-500 cursor-not-allowed text-white px-3 py-1 rounded text-sm font-medium';
+            orchestratorBtn.title = 'Cannot start orchestrator while jobs are running';
+        } else {
+            orchestratorBtn.disabled = false;
+            orchestratorBtn.className = 'btn-status-info-sm';
+            orchestratorBtn.title = '';
+        }
+    }
+
+    function setupAutoRefresh() {
+        const select = document.getElementById('refreshInterval');
+
+        // Check if the refresh interval select exists (it was removed from the new layout)
+        if (!select) {
+            return;
+        }
+
+        select.addEventListener('change', function () {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+
+            const interval = parseInt(this.value);
+            if (interval > 0) {
+                refreshTimer = setInterval(refreshData, interval);
+            }
+        });
+
+        const defaultInterval = parseInt(select.value);
+        if (defaultInterval > 0) {
+            refreshTimer = setInterval(refreshData, defaultInterval);
+        }
+    }
+
+
+
+    function createJobCard(jobName, jobData, allJobsData) {
+        const card = document.createElement('div');
+        card.className = 'relative p-6 rounded-lg transition-all duration-200 hover:shadow-sm';
+        card.style.backgroundColor = 'var(--bg-secondary)';
+        card.style.border = '1px solid var(--border-color)';
+        card.setAttribute('data-job', jobName);
+
+        // Use proper FontAwesome icons for Jira and GitHub
+        const jobIcon = jobName === 'jira_sync' ? 'atlassian' : 'github';
+        const jobIconClass = 'fab'; // Both are brand icons
+        const jobColor = jobName === 'jira_sync' ? 'var(--color-4)' : '#000000'; // GitHub icon should be black
+        const jobTitle = jobName === 'jira_sync' ? 'Jira Sync' : 'GitHub Sync';
+
+        card.innerHTML = `
+            <!-- Job Title with Icon on Left and Status -->
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center space-x-3">
+                        <!-- Icon with background on left - bigger size -->
+                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative" style="background-color: ${jobName === 'jira_sync' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0, 0, 0, 0.15)'};">
+                            <i class="${jobIconClass} fa-${jobIcon} text-base" style="color: ${jobColor};"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
+                    </div>
+                    <!-- Status Badge -->
+                    <span class="text-sm ${getStatusClass(jobData.status)}">
+                        <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Job Details -->
+            ${createJobDetails(jobName, jobData)}
+            ${createWebSocketProgress(jobName)}
+            ${createExceptionLog(jobName)}
+
+            <!-- Action Buttons - Right Aligned with Better Grouping -->
+            <div class="mt-6 flex justify-end">
+                <div class="flex space-x-2">
+                    ${createActionButtons(jobName, jobData, allJobsData)}
+                </div>
+            </div>
+        `;
+
+        return card;
+    }
+
+    function createJobDetails(jobName, jobData) {
+        let details = `
+            <div class="space-y-3 text-sm" style="color: var(--text-secondary);">
+                <div class="flex justify-between">
+                    <span>Last Run:</span>
+                    <span>${jobData.last_run_started_at ? new Date(jobData.last_run_started_at).toLocaleString() : 'Never'}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Last Success:</span>
+                    <span>${jobData.last_success_at ? new Date(jobData.last_success_at).toLocaleString() : 'Never'}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Retry Count:</span>
+                    <span>${jobData.retry_count || 0}</span>
+                </div>
+            </div>
+        `;
+
+        // Only show recovery details for GitHub jobs - be very strict
+        if (jobName === 'github_sync' && jobData.status === 'PENDING' && jobData.checkpoint_data &&
+            jobData.checkpoint_data.repo_processing_queue) {
+            details += createRecoveryDetails(jobData.checkpoint_data);
+        }
+
+        if (jobData.error_message) {
+            details += `
+                <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3);">
+                    <div class="text-xs font-medium mb-1" style="color: #dc2626;">Error Message:</div>
+                    <div class="text-xs" style="color: var(--text-primary);">${jobData.error_message}</div>
+                </div>
+            `;
+        }
+
+        return details;
+    }
+
+    function createRecoveryDetails(checkpointData) {
+        if (!checkpointData) return '';
+
+        let recoveryHtml = `
+            <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3);">
+                <div class="text-xs font-medium mb-2" style="color: #d97706;">
+                    <i class="fas fa-redo mr-1"></i>Recovery Information:
+                </div>
+        `;
+
+        if (checkpointData.repo_processing_queue) {
+            let queue;
+            if (typeof checkpointData.repo_processing_queue === 'string') {
+                queue = JSON.parse(checkpointData.repo_processing_queue);
+            } else {
+                queue = checkpointData.repo_processing_queue;
+            }
+
+            const finished = queue.filter(r => r.finished).length;
+            const total = queue.length;
+            const remaining = total - finished;
+
+            recoveryHtml += `
+                <div class="text-xs mb-1" style="color: var(--text-secondary);">
+                    Repositories: ${finished}/${total} completed (${remaining} remaining)
+                </div>
+            `;
+        }
+
+        const cursors = ['last_pr_cursor', 'current_pr_node_id', 'last_commit_cursor', 'last_review_cursor', 'last_comment_cursor'];
+        cursors.forEach(cursor => {
+            if (checkpointData[cursor]) {
+                recoveryHtml += `
+                    <div class="text-xs mb-1" style="color: var(--text-secondary);">
+                        ${cursor.replace(/_/g, ' ')}: ${checkpointData[cursor].substring(0, 20)}...
+                    </div>
+                `;
+            }
+        });
+
+        recoveryHtml += '</div>';
+        return recoveryHtml;
+    }
+
+    function createActionButtons(jobName, jobData, allJobsData) {
+        const canActivate = ['PENDING', 'FINISHED', 'NOT_STARTED', 'PAUSED'].includes(jobData.status);
+        const canPause = !['ERROR'].includes(jobData.status); // Can pause any status except ERROR
+        const canUnpause = jobData.status === 'PAUSED';
+
+        const otherJobRunning = Object.entries(allJobsData).some(([name, data]) =>
+            name !== jobName && data.status === 'RUNNING'
+        );
+
+        const canActivateSafe = canActivate && !otherJobRunning;
+        const canPauseSafe = canPause; // Simplified - if job can be paused, it's safe to pause
+
+
+
+        let buttons = `
+            <button onclick="setJobActive('${jobName}')"
+                    ${!canActivateSafe ? 'disabled' : ''}
+                    class="${canActivateSafe ? 'btn-color-2-sm' : 'btn-neutral-disabled'}"
+                    title="${!canActivateSafe && otherJobRunning ? 'Cannot activate while another job is running' : ''}">
+                <i class="fas fa-play mr-1"></i>Force Pending
+            </button>
+            <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
+                    ${!(canPauseSafe || canUnpause) ? 'disabled' : ''}
+                    class="${canUnpause ? 'btn-status-success-sm' : (canPauseSafe ? 'btn-status-warning-sm' : 'btn-neutral-disabled')}"
+                    title="${!canPauseSafe && jobData.status === 'RUNNING' ? 'Cannot pause while job is running' : ''}">
+                <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Resume' : 'Pause'}
+            </button>
+            <button onclick="showJobDetails('${jobName}')"
+                    class="btn-neutral-secondary">
+                <i class="fas fa-info-circle mr-1"></i>Details
+            </button>
+        `;
+
+        // Add GitHub rate limits button for GitHub job only
+        if (jobName === 'github_sync') {
+            buttons += `
+            <button onclick="showGitHubRateLimits()"
+                    class="btn-neutral-secondary">
+                <i class="fas fa-tachometer-alt mr-1"></i>Rate Limits
+            </button>
+            `;
+        }
+
+        return buttons;
+    }
+
+    // Job control functions
+    async function setJobActive(jobName) {
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ active: true })
+            });
+
+            if (response.ok) {
+                setTimeout(refreshData, 1000);
+            } else {
+                const result = await response.json();
+                console.error(`Failed to set ${jobName} active: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error setting ${jobName} active: ${error.message}`);
+        }
+    }
+
+
+
+    async function showLogManagement() {
+        try {
+            // Show loading state
+            document.getElementById('logManagementContent').innerHTML = `
+                <div class="text-center py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--text-secondary);"></i>
+                    <p style="color: var(--text-secondary);">Loading log files...</p>
+                </div>
+            `;
+
+            // Show modal
+            const modal = document.getElementById('logManagementModal');
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.classList.remove('hidden');
+
+            // Fetch real log data
+            await loadLogManagementData();
+
+        } catch (error) {
+            console.error('Failed to load log management:', error);
+            showNotification('Failed to load log management: ' + error.message, 'error');
+        }
+    }
+
+    async function loadLogManagementData() {
+        try {
+            // Get client name from server for client-specific log files
+            const token = getAuthToken();
+            const clientResponse = await fetch('/api/v1/auth/validate', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            let clientName = 'default';
+            if (clientResponse.ok) {
+                // Extract client name from environment or use default
+                // For now, we'll determine this from the available log files
+            }
+
+            // Update the modal content with dynamic log files
+            document.getElementById('logManagementContent').innerHTML = `
+                <!-- Log Files List -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-md font-medium" style="color: var(--text-primary);">Current Log Files</h4>
+                        <div class="flex items-center space-x-2">
+                            <select id="bulkCleanupDays" class="px-2 py-1 rounded text-xs border" style="background-color: var(--bg-secondary); border-color: var(--border-color); color: var(--text-primary);">
+                                <option value="7">7 days</option>
+                                <option value="14">14 days</option>
+                                <option value="30" selected>30 days</option>
+                                <option value="60">60 days</option>
+                                <option value="90">90 days</option>
+                                <option value="0">All logs</option>
+                            </select>
+                            <button onclick="bulkCleanupLogs()" class="btn-crud-delete px-6 py-1 text-sm whitespace-nowrap" title="Delete files based on selected option">
+                                <i class="fas fa-trash mr-2"></i>Delete All
+                            </button>
+                        </div>
+                    </div>
+                    <div id="logFilesList" class="space-y-2 p-4 rounded-lg border max-h-48 overflow-y-auto" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <!-- Log files will be populated dynamically -->
+                    </div>
+                </div>
+            `;
+
+            // Populate log files dynamically
+            await populateLogFiles();
+
+        } catch (error) {
+            console.error('Error loading log management data:', error);
+            document.getElementById('logManagementContent').innerHTML = `
+                <div class="text-center py-8">
+                    <i class="fas fa-exclamation-triangle text-2xl mb-2 text-red-600"></i>
+                    <p class="text-red-600">Failed to load log management data</p>
+                    <p class="text-sm" style="color: var(--text-secondary);">${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    async function populateLogFiles() {
+        try {
+            // Determine client-specific log files based on CLIENT_NAME
+            // For now, we'll try both legacy and client-specific file names
+            const possibleLogFiles = [
+                'etl_service_wex.log',
+                'orchestrator_wex.log',
+                'etl_service_techcorp.log',
+                'orchestrator_techcorp.log',
+                'etl_service.log',  // Legacy fallback
+                'orchestrator.log'  // Legacy fallback
+            ];
+
+            const logFilesList = document.getElementById('logFilesList');
+            let foundFiles = [];
+
+            // Test which files exist by trying to download them
+            for (const filename of possibleLogFiles) {
+                try {
+                    const token = getAuthToken();
+                    const response = await fetch(`/api/v1/logs/download/${filename}`, {
+                        method: 'HEAD',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    // If HEAD is not supported, try GET with range header
+                    if (response.status === 405) {
+                        const getResponse = await fetch(`/api/v1/logs/download/${filename}`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Range': 'bytes=0-0'  // Just get first byte to test existence
+                            }
+                        });
+                        if (getResponse.ok || getResponse.status === 206) {
+                            foundFiles.push(filename);
+                        }
+                    } else if (response.ok) {
+                        foundFiles.push(filename);
+                    }
+                } catch (e) {
+                    // File doesn't exist or other error, skip
+                    continue;
+                }
+            }
+
+            // If no files found, show default files
+            if (foundFiles.length === 0) {
+                foundFiles = ['etl_service_wex.log', 'orchestrator_wex.log'];
+            }
+
+            // Generate HTML for found files
+            const filesHtml = foundFiles.map(filename => {
+                const isActive = !filename.includes('.1'); // Not a rotated file
+                const displayName = filename.replace('_wex', ' (WEX)').replace('_techcorp', ' (TechCorp)');
+
+                return `
+                    <div class="flex justify-between items-center p-2 rounded" style="background-color: var(--bg-tertiary);">
+                        <div>
+                            <span class="font-mono text-sm" style="color: var(--text-primary);">${displayName}</span>
+                            ${isActive ? '<span class="text-xs ml-2" style="color: var(--text-secondary);">(Current)</span>' : ''}
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="downloadLogFile('${filename}')" class="btn-neutral-secondary text-xs px-2 py-1" title="Download">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deleteLogFile('${filename}')" class="btn-crud-delete text-xs px-2 py-1" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            logFilesList.innerHTML = filesHtml;
+
+        } catch (error) {
+            console.error('Error populating log files:', error);
+            document.getElementById('logFilesList').innerHTML = `
+                <div class="text-center py-4">
+                    <p style="color: var(--text-secondary);">Unable to load log files</p>
+                </div>
+            `;
+        }
+    }
+
+    function hideLogManagement() {
+        const modal = document.getElementById('logManagementModal');
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+    }
+
+    // Simple notification system
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm max-w-sm transition-all duration-300 transform translate-x-full`;
+
+        // Set background color based on type
+        switch (type) {
+            case 'success':
+                notification.style.backgroundColor = '#10b981';
+                break;
+            case 'error':
+                notification.style.backgroundColor = '#ef4444';
+                break;
+            case 'warning':
+                notification.style.backgroundColor = '#f59e0b';
+                break;
+            default:
+                notification.style.backgroundColor = '#3b82f6';
+        }
+
+        notification.textContent = message;
+        document.body.appendChild(notification);
+
+        // Animate in
+        setTimeout(() => {
+            notification.style.transform = 'translateX(0)';
+        }, 100);
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            notification.style.transform = 'translateX(full)';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    async function downloadLogFile(filename) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                showNotification('Authentication required', 'error');
+                return;
+            }
+
+            // Use fetch with proper Authorization header first to check if file exists
+            const response = await fetch(`/api/v1/logs/download/${filename}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                // If successful, create a blob and download it
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+
+                showNotification(`Downloaded ${filename}`, 'success');
+            } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Download failed' }));
+                showNotification(`Failed to download ${filename}: ${errorData.detail}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error downloading log file:', error);
+            showNotification(`Failed to download ${filename}`, 'error');
+        }
+    }
+
+    function deleteLogFile(filename) {
+        if (confirm(`Are you sure you want to delete ${filename}? This action cannot be undone.`)) {
+            showNotification(`Deleting ${filename}...`, 'info');
+            // TODO: Implement actual delete API call
+        }
+    }
+
+    function bulkCleanupLogs() {
+        const days = document.getElementById('bulkCleanupDays').value;
+        const message = days === '0' ? 'delete ALL log files' : `delete log files older than ${days} days`;
+
+        if (confirm(`Are you sure you want to ${message}? This action cannot be undone.`)) {
+            showNotification(`Log cleanup for ${days === '0' ? 'all files' : days + ' days'} initiated`, 'info');
+            // TODO: Implement actual log cleanup API call
+        }
+    }
+
+
+
+    function getStatusClass(status) {
+        switch (status) {
+            case 'RUNNING': return 'btn-status-info'; // Blue
+            case 'PENDING': return 'btn-color-2'; // Color #2
+            case 'FINISHED': return 'btn-status-success'; // Green
+            case 'PAUSED': return 'btn-status-warning'; // Yellow/Amber
+            case 'NOT_STARTED': return 'btn-neutral-primary'; // Enterprise dark
+            default: return 'status-error';
+        }
+    }
+
+    function getStatusIcon(status) {
+        switch (status) {
+            case 'RUNNING': return 'spinner fa-spin';
+            case 'PENDING': return 'clock';
+            case 'FINISHED': return 'check-circle';
+            case 'PAUSED': return 'pause-circle';
+            case 'NOT_STARTED': return 'circle';
+            default: return 'exclamation-triangle';
+        }
+    }
+
+    function getStatusDotClass(status) {
+        switch (status) {
+            case 'RUNNING': return 'bg-green-500';
+            case 'PENDING': return 'bg-yellow-500';
+            case 'FINISHED': return 'bg-gray-500';
+            case 'PAUSED': return 'bg-orange-500';
+            case 'NOT_STARTED': return 'bg-gray-400';
+            case 'ERROR': return 'bg-red-500';
+            default: return 'bg-gray-400';
+        }
+    }
+
+    function createWebSocketProgress(jobName) {
+        const progress = jobProgress[jobName];
+        if (!progress || progress.percentage === 0) {
+            return '';
+        }
+
+        return `
+            <div class="mt-4">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-medium text-white">Real-time Progress</span>
+                    <span class="text-xs text-white">${Math.round(progress.percentage)}%</span>
+                </div>
+                <div class="ws-progress-container">
+                    <div class="ws-progress-bar" style="width: ${progress.percentage}%"></div>
+                </div>
+                <div class="ws-progress-text">${progress.step}</div>
+            </div>
+        `;
+    }
+
+    function createExceptionLog(jobName) {
+        const exceptions = jobProgress[jobName].exceptions;
+        if (!exceptions || exceptions.length === 0) {
+            return '';
+        }
+
+        const exceptionsHtml = exceptions.map(exception => `
+            <div class="exception-item ${exception.level.toLowerCase()}">
+                <div class="flex justify-between items-start">
+                    <span class="font-medium">${exception.level}:</span>
+                    <span class="text-xs opacity-75">${new Date(exception.timestamp).toLocaleTimeString()}</span>
+                </div>
+                <div class="mt-1">${exception.message}</div>
+            </div>
+        `).join('');
+
+        return `
+            <div class="mt-4">
+                <div class="text-xs font-medium text-white mb-2">Issues & Warnings</div>
+                <div class="exception-log">
+                    ${exceptionsHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function updateJobCardProgress(jobCard, percentage, step) {
+        let progressSection = jobCard.querySelector('.ws-progress-container');
+        if (!progressSection) {
+            const detailsSection = jobCard.querySelector('.space-y-3');
+            if (detailsSection) {
+                const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
+                detailsSection.insertAdjacentHTML('afterend', progressHtml);
+                progressSection = jobCard.querySelector('.ws-progress-container');
+            }
+        }
+
+        if (progressSection) {
+            const progressBar = progressSection.querySelector('.ws-progress-bar');
+            const progressText = jobCard.querySelector('.ws-progress-text');
+            const progressPercentage = progressSection.parentElement.querySelector('.text-xs:last-child');
+
+            if (progressBar) progressBar.style.width = `${percentage}%`;
+            if (progressText) progressText.textContent = step;
+            if (progressPercentage) progressPercentage.textContent = `${Math.round(percentage)}%`;
+        }
+    }
+
+    function updateJobCardExceptions(jobCard, exceptions) {
+        let exceptionSection = jobCard.querySelector('.exception-log');
+        if (!exceptionSection && exceptions.length > 0) {
+            const progressSection = jobCard.querySelector('.ws-progress-container');
+            const insertPoint = progressSection ? progressSection.parentElement : jobCard.querySelector('.space-y-3');
+            if (insertPoint) {
+                const exceptionHtml = createExceptionLog(jobCard.getAttribute('data-job'));
+                insertPoint.insertAdjacentHTML('afterend', exceptionHtml);
+                exceptionSection = jobCard.querySelector('.exception-log');
+            }
+        }
+
+        if (exceptionSection && exceptions.length > 0) {
+            const exceptionsHtml = exceptions.map(exception => `
+                <div class="exception-item ${exception.level.toLowerCase()}">
+                    <div class="flex justify-between items-start">
+                        <span class="font-medium">${exception.level}:</span>
+                        <span class="text-xs opacity-75">${new Date(exception.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="mt-1">${exception.message}</div>
+                </div>
+            `).join('');
+            exceptionSection.innerHTML = exceptionsHtml;
+        }
+    }
+
+    function updateJobCardStatus(jobCard, status) {
+        const statusSpan = jobCard.querySelector('.text-sm');
+        if (statusSpan) {
+            const statusClass = getStatusClass(status);
+            const statusIcon = getStatusIcon(status);
+            statusSpan.className = `text-sm ${statusClass}`;
+            statusSpan.innerHTML = `<i class="fas fa-${statusIcon} mr-1"></i>${status}`;
+        }
+    }
+
+    // Job action functions
+    async function forceStart(jobName) {
+        if (!confirm(`Are you sure you want to force start ${jobName}?`)) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/jobs/${jobName}/start`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                refreshData();
+            } else {
+                console.error(`Failed to start ${jobName}: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error starting ${jobName}: ${error.message}`);
+        }
+    }
+
+    async function forceStop(jobName) {
+        if (!confirm(`Are you sure you want to force stop ${jobName}?`)) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/jobs/${jobName}/stop`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.log(`${jobName} stopped successfully`);
+                refreshData();
+            } else {
+                console.error(`Failed to stop ${jobName}: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error stopping ${jobName}: ${error.message}`);
+        }
+    }
+
+    async function pauseJob(jobName) {
+        if (!confirm(`Are you sure you want to pause ${jobName}?`)) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.log(`${jobName} paused successfully`);
+                await refreshData();
+            } else {
+                console.error(`Failed to pause ${jobName}: ${result.detail || result.message}`);
+            }
+        } catch (error) {
+            console.error(`Error pausing ${jobName}: ${error.message}`);
+        }
+    }
+
+    async function unpauseJob(jobName) {
+        if (!confirm(`Are you sure you want to unpause ${jobName}?`)) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.log(`${jobName} unpaused successfully - new status: ${result.status}`);
+                await refreshData();
+            } else {
+                console.error(`Failed to unpause ${jobName}: ${result.detail || result.message}`);
+            }
+        } catch (error) {
+            console.error(`Error unpausing ${jobName}: ${error.message}`);
+        }
+    }
+
+    function showJobDetails(jobName) {
+        console.log(`Showing details for ${jobName} (feature coming soon)`);
+    }
+
+    // Orchestrator Control Functions
+    async function forceStartOrchestrator() {
+        const button = event.target.closest('button');
+
+        if (button.disabled) {
+            console.warn('Cannot start orchestrator while jobs are running');
+            return;
+        }
+
+        const originalText = button.innerHTML;
+
+        try {
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Starting...';
+            button.disabled = true;
+
+
+
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/orchestrator/start', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                setTimeout(refreshOrchestratorStatus, 1000);
+            } else {
+                console.error(`Failed to start orchestrator: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error starting orchestrator: ${error.message}`);
+        } finally {
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    }
+
+    async function pauseOrchestrator() {
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/orchestrator/pause', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.warn('Orchestrator paused');
+                setTimeout(refreshOrchestratorStatus, 500);
+            } else {
+                console.error(`Failed to pause orchestrator: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error pausing orchestrator: ${error.message}`);
+        }
+    }
+
+    async function resumeOrchestrator() {
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/orchestrator/resume', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.warn('Orchestrator resumed');
+                setTimeout(refreshOrchestratorStatus, 500);
+            } else {
+                console.error(`Failed to resume orchestrator: ${result.detail}`);
+            }
+        } catch (error) {
+            console.error(`Error resuming orchestrator: ${error.message}`);
+        }
+    }
+
+    async function toggleOrchestratorPause() {
+        // Get current status to determine action
+        const statusText = document.getElementById('orchestratorStatusText');
+        const currentStatus = statusText ? statusText.textContent.toLowerCase() : '';
+
+        if (currentStatus === 'paused') {
+            await resumeOrchestrator();
+        } else {
+            await pauseOrchestrator();
+        }
+    }
+
+    async function refreshOrchestratorStatus() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                console.error('No auth token available');
+                return;
+            }
+
+            const response = await fetch('/api/v1/orchestrator/status', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+
+            if (response.ok) {
+                const status = await response.json();
+                updateOrchestratorUI(status);
+            } else {
+                console.error('Failed to fetch orchestrator status:', response.status, response.statusText);
+            }
+        } catch (error) {
+            console.error('Error fetching orchestrator status:', error);
+        }
+    }
+
+    let countdownInterval = null;
+
+    function updateOrchestratorUI(status) {
+        const statusDot = document.getElementById('orchestratorStatusDot');
+        const statusText = document.getElementById('orchestratorStatusText');
+        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+
+        if (statusText) {
+            statusText.textContent = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+        }
+
+        if (statusDot) {
+            // Update status dot color based on status
+            statusDot.className = 'w-2 h-2 rounded-full ';
+            if (status.status === 'running') {
+                statusDot.className += 'bg-green-500';
+                if (pauseBtn) {
+                    pauseBtn.classList.remove('hidden');
+                    pauseBtn.className = 'btn-status-warning-sm';
+                    pauseBtn.innerHTML = '<i class="fas fa-pause mr-1"></i>Pause';
+                }
+                startCountdownTimer(status.next_run);
+            } else if (status.status === 'paused') {
+                statusDot.className += 'bg-yellow-500';
+                if (pauseBtn) {
+                    pauseBtn.classList.remove('hidden');
+                    pauseBtn.className = 'btn-status-success-sm';
+                    pauseBtn.innerHTML = '<i class="fas fa-play mr-1"></i>Resume';
+                }
+                stopCountdownTimer();
+            } else {
+                // Idle/finished - restart countdown for next scheduled run
+                statusDot.className += 'bg-gray-500';
+                if (pauseBtn) {
+                    pauseBtn.classList.remove('hidden');
+                    pauseBtn.className = 'btn-status-warning-sm';
+                    pauseBtn.innerHTML = '<i class="fas fa-pause mr-1"></i>Pause';
+                }
+                startCountdownTimer(status.next_run);
+            }
+        }
+    }
+
+    function startCountdownTimer(nextRunTime) {
+        stopCountdownTimer();
+
+        if (!nextRunTime) {
+            document.getElementById('countdownTimer').textContent = '--:--:--';
+            return;
+        }
+
+        const nextRun = new Date(nextRunTime);
+
+        countdownInterval = setInterval(() => {
+            const now = new Date();
+            const timeDiff = nextRun - now;
+
+            if (timeDiff <= 0) {
+                document.getElementById('countdownTimer').textContent = '00:00:00';
+                // Check status more frequently when timer expires (orchestrator should be running)
+                setTimeout(refreshOrchestratorStatus, 2000);
+                setTimeout(refreshOrchestratorStatus, 5000);
+                setTimeout(refreshOrchestratorStatus, 10000);
+                return;
+            }
+
+            const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+            const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
+
+            const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            document.getElementById('countdownTimer').textContent = timeString;
+        }, 1000);
+    }
+
+    function stopCountdownTimer() {
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+        document.getElementById('countdownTimer').textContent = '--:--:--';
+    }
+
+    // Logout function
+    async function logout() {
+        try {
+            // Get token before clearing localStorage
+            const token = getAuthToken();
+
+            if (token) {
+                console.log('Calling Backend Service to invalidate session...');
+                // Call Backend Service directly to invalidate session
+                const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    console.log('✅ Session invalidated successfully');
+                } else {
+                    console.warn('❌ Session invalidation failed:', response.status);
+                }
+            } else {
+                console.log('No token found for session invalidation');
+            }
+        } catch (error) {
+            console.warn('Session invalidation error:', error);
+        }
+
+        // Clear localStorage
+        localStorage.removeItem('pulse_token');
+
+        // ETL service logout to clear cookies and redirect
+        window.location.href = '/logout';
+    }
+
+    // Orchestrator Settings Functions
+    async function showOrchestratorSettings() {
+        try {
+            const response = await fetch('/api/v1/settings', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const settings = data.settings;
+
+                const intervalSelect = document.getElementById('orchestratorInterval');
+                const enabledCheckbox = document.getElementById('orchestratorEnabled');
+                const retryEnabledCheckbox = document.getElementById('orchestratorRetryEnabled');
+                const retryIntervalSelect = document.getElementById('orchestratorRetryInterval');
+                const maxRetryAttemptsSelect = document.getElementById('orchestratorMaxRetryAttempts');
+
+                if (settings.orchestrator_interval_minutes) {
+                    intervalSelect.value = settings.orchestrator_interval_minutes.value;
+                }
+
+                if (settings.orchestrator_enabled) {
+                    enabledCheckbox.checked = settings.orchestrator_enabled.value;
+                }
+
+                if (settings.orchestrator_retry_enabled) {
+                    retryEnabledCheckbox.checked = settings.orchestrator_retry_enabled.value;
+                }
+
+                if (settings.orchestrator_retry_interval_minutes) {
+                    retryIntervalSelect.value = settings.orchestrator_retry_interval_minutes.value;
+                }
+
+                if (settings.orchestrator_max_retry_attempts) {
+                    maxRetryAttemptsSelect.value = settings.orchestrator_max_retry_attempts.value;
+                }
+            }
+
+            document.getElementById('orchestratorSettingsModal').classList.remove('hidden');
+
+        } catch (error) {
+            console.error('Failed to load orchestrator settings:', error);
+        }
+    }
+
+    function hideOrchestratorSettings() {
+        document.getElementById('orchestratorSettingsModal').classList.add('hidden');
+    }
+
+    async function saveOrchestratorSettings() {
+        try {
+            const intervalSelect = document.getElementById('orchestratorInterval');
+            const enabledCheckbox = document.getElementById('orchestratorEnabled');
+            const retryEnabledCheckbox = document.getElementById('orchestratorRetryEnabled');
+            const retryIntervalSelect = document.getElementById('orchestratorRetryInterval');
+            const maxRetryAttemptsSelect = document.getElementById('orchestratorMaxRetryAttempts');
+
+            const intervalMinutes = parseInt(intervalSelect.value);
+            const enabled = enabledCheckbox.checked;
+            const retryEnabled = retryEnabledCheckbox.checked;
+            const retryIntervalMinutes = parseInt(retryIntervalSelect.value);
+            const maxRetryAttempts = parseInt(maxRetryAttemptsSelect.value);
+
+            // Save orchestrator schedule settings
+            const scheduleResponse = await fetch('/api/v1/orchestrator/schedule', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
+                body: JSON.stringify({
+                    interval_minutes: intervalMinutes,
+                    enabled: enabled
+                })
+            });
+
+            // Save retry settings
+            const retryResponse = await fetch('/api/v1/settings/bulk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
+                body: JSON.stringify({
+                    settings: [
+                        {
+                            key: 'orchestrator_retry_enabled',
+                            value: retryEnabled,
+                            description: 'Enable orchestrator fast retry for failed jobs'
+                        },
+                        {
+                            key: 'orchestrator_retry_interval_minutes',
+                            value: retryIntervalMinutes,
+                            description: 'Interval in minutes for orchestrator retry attempts'
+                        },
+                        {
+                            key: 'orchestrator_max_retry_attempts',
+                            value: maxRetryAttempts,
+                            description: 'Maximum number of retry attempts (0 = unlimited)'
+                        }
+                    ]
+                })
+            });
+
+            if (scheduleResponse.ok && retryResponse.ok) {
+                console.log(`Orchestrator settings updated successfully`);
+                hideOrchestratorSettings();
+                setTimeout(refreshOrchestratorStatus, 1000);
+            } else {
+                if (!scheduleResponse.ok) {
+                    const scheduleResult = await scheduleResponse.json();
+                    console.error(`Failed to update orchestrator schedule: ${scheduleResult.detail}`);
+                }
+                if (!retryResponse.ok) {
+                    const retryResult = await retryResponse.json();
+                    console.error(`Failed to update retry settings: ${retryResult.detail}`);
+                }
+            }
+
+        } catch (error) {
+            console.error('Failed to save orchestrator settings:', error);
+        }
+    }
+
+    // Job Details Modal Functions
+    async function showJobDetails(jobName) {
+        try {
+            if (jobName === 'jira_sync') {
+                // Show Jira-specific modal with summary data
+                await showJiraDetailsModal();
+                return;
+            }
+
+            // For other jobs (GitHub), show regular job details
+            const response = await fetch(`/api/v1/jobs/${jobName}/details`, {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const jobDetails = await response.json();
+
+                // Set icon and title based on job type
+                const jobIcon = document.getElementById('jobDetailsIcon');
+                const jobTitle = document.getElementById('jobDetailsTitle');
+
+                if (jobName === 'github_sync') {
+                    jobIcon.innerHTML = '<i class="fab fa-github mr-2" style="color: #333;"></i>';
+                    jobTitle.textContent = 'GitHub Sync Job Details';
+                } else {
+                    jobIcon.innerHTML = '<i class="fas fa-info-circle mr-2"></i>';
+                    jobTitle.textContent = `${jobName.replace('_', ' ').toUpperCase()} Details`;
+                }
+
+                const content = document.getElementById('jobDetailsContent');
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Basic Information -->
+                        <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                                <i class="fas fa-cog mr-2"></i>Basic Information
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Job ID:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.id || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Status:</span>
+                                    <span class="font-semibold" style="color: var(--text-primary);">${jobDetails.status}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Active:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.active ? 'Yes' : 'No'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Retry Count:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.retry_count}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Timing Information -->
+                        <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                                <i class="fas fa-clock mr-2"></i>Timing Information
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Created:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.created_at ? new Date(jobDetails.created_at).toLocaleString() : 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Last Updated:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.last_updated_at ? new Date(jobDetails.last_updated_at).toLocaleString() : 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Last Run Started:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.last_run_started_at ? new Date(jobDetails.last_run_started_at).toLocaleString() : 'Never'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Last Success:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.last_success_at ? new Date(jobDetails.last_success_at).toLocaleString() : 'Never'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Job Status Info -->
+                        <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                                <i class="fas fa-chart-line mr-2"></i>Job Status
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Is Recovery Run:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.is_recovery_run ? 'Yes' : 'No'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Has Checkpoints:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.checkpoint_data ? 'Yes' : 'No'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Additional Info -->
+                        <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                                <i class="fas fa-info-circle mr-2"></i>Additional Info
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Current PR Node:</span>
+                                    <span class="font-mono text-xs" style="color: var(--text-primary);">${jobDetails.current_pr_node_id || 'None'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Repo Checkpoint:</span>
+                                    <span style="color: var(--text-primary);">${jobDetails.last_repo_sync_checkpoint ? new Date(jobDetails.last_repo_sync_checkpoint).toLocaleString() : 'None'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Checkpoint Data -->
+                    <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                            <i class="fas fa-bookmark mr-2"></i>Checkpoint Data
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span style="color: var(--text-secondary);">PR Cursor:</span>
+                                <div class="p-2 rounded mt-1 font-mono text-xs" style="color: var(--text-primary); background-color: var(--bg-tertiary);">
+                                    ${jobDetails.last_pr_cursor || 'None'}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary);">Commit Cursor:</span>
+                                <div class="p-2 rounded mt-1 font-mono text-xs" style="color: var(--text-primary); background-color: var(--bg-tertiary);">
+                                    ${jobDetails.last_commit_cursor || 'None'}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary);">Review Cursor:</span>
+                                <div class="p-2 rounded mt-1 font-mono text-xs" style="color: var(--text-primary); background-color: var(--bg-tertiary);">
+                                    ${jobDetails.last_review_cursor || 'None'}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary);">Comment Cursor:</span>
+                                <div class="p-2 rounded mt-1 font-mono text-xs" style="color: var(--text-primary); background-color: var(--bg-tertiary);">
+                                    ${jobDetails.last_comment_cursor || 'None'}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="color: var(--text-secondary);">Review Thread Cursor:</span>
+                                <div class="p-2 rounded mt-1 font-mono text-xs" style="color: var(--text-primary); background-color: var(--bg-tertiary);">
+                                    ${jobDetails.last_review_thread_cursor || 'None'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Repository Processing Queue -->
+                    ${jobDetails.repo_processing_queue ? `
+                    <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-md font-semibold" style="color: var(--text-primary);">
+                                <i class="fas fa-list mr-2"></i>Repository Processing Queue
+                            </h3>
+                            <div class="text-sm" style="color: var(--text-secondary);" id="repoQueueStats">
+                                ${(() => {
+                                    try {
+                                        const queue = typeof jobDetails.repo_processing_queue === 'string'
+                                            ? JSON.parse(jobDetails.repo_processing_queue)
+                                            : jobDetails.repo_processing_queue;
+                                        const finished = queue.filter(repo => repo.finished).length;
+                                        const pending = queue.length - finished;
+                                        return `
+                                            <span class="text-green-600 font-medium">${finished} Finished</span>
+                                            <span class="mx-2">•</span>
+                                            <span class="text-yellow-600 font-medium">${pending} Pending</span>
+                                            <span class="mx-2">•</span>
+                                            <span class="font-medium" style="color: var(--text-secondary);">${queue.length} Total</span>
+                                        `;
+                                    } catch (e) {
+                                        return '<span class="text-red-600">Error parsing data</span>';
+                                    }
+                                })()}
+                            </div>
+                        </div>
+                        <div class="max-h-64 overflow-y-auto border rounded" style="border-color: var(--border-color);">
+                            <table class="w-full text-sm">
+                                <thead class="sticky top-0 border-b" style="background-color: var(--bg-primary); border-color: var(--border-color);">
+                                    <tr>
+                                        <th class="text-left py-2 px-3" style="color: var(--text-secondary);">Repo ID</th>
+                                        <th class="text-left py-2 px-3" style="color: var(--text-secondary);">Full Name</th>
+                                        <th class="text-center py-2 px-3" style="color: var(--text-secondary);">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(() => {
+                                        try {
+                                            const queue = typeof jobDetails.repo_processing_queue === 'string'
+                                                ? JSON.parse(jobDetails.repo_processing_queue)
+                                                : jobDetails.repo_processing_queue;
+                                            return queue.slice(0, 10).map((repo, index) => `
+                                                <tr class="border-b hover:bg-opacity-30" style="border-color: var(--border-color);">
+                                                    <td class="py-2 px-3 font-mono text-xs" style="color: var(--text-primary);">${repo.repo_id || 'N/A'}</td>
+                                                    <td class="py-2 px-3" style="color: var(--text-primary);">${repo.full_name || 'N/A'}</td>
+                                                    <td class="py-2 px-3 text-center">
+                                                        <span class="px-2 py-1 rounded-full text-xs font-medium ${repo.finished ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                                            <i class="fas fa-${repo.finished ? 'check' : 'clock'} mr-1"></i>
+                                                            ${repo.finished ? 'Finished' : 'Pending'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            `).join('');
+                                        } catch (e) {
+                                            return '<tr><td colspan="3" class="py-2 px-3 text-red-600">Error parsing queue data</td></tr>';
+                                        }
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Error Message -->
+                    ${jobDetails.error_message ? `
+                    <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <button onclick="toggleErrorMessage()" class="w-full text-left flex justify-between items-center">
+                            <h3 class="text-md font-semibold text-red-600">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Error Message
+                            </h3>
+                            <i id="errorToggleIcon" class="fas fa-chevron-down text-red-600"></i>
+                        </button>
+                        <div id="errorMessageContent" class="hidden mt-2 text-red-600 p-2 rounded text-sm max-h-32 overflow-y-auto" style="background-color: rgba(239, 68, 68, 0.1);">
+                            ${jobDetails.error_message}
+                        </div>
+                    </div>
+                    ` : ''}
+                `;
+            } else {
+                document.getElementById('jobDetailsContent').innerHTML = `
+                    <div class="text-center py-4">
+                        <span style="color: var(--text-muted);">Failed to load job details</span>
+                    </div>
+                `;
+            }
+
+            // Show modal with proper display
+            const modal = document.getElementById('jobDetailsModal');
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.classList.remove('hidden');
+            modal.classList.add('modal-show');
+
+        } catch (error) {
+            console.error('Failed to load job details:', error);
+        }
+    }
+
+    function hideJobDetails() {
+        const modal = document.getElementById('jobDetailsModal');
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+        modal.classList.remove('modal-show');
+    }
+
+    function closeJobDetailsModal() {
+        hideJobDetails();
+    }
+
+    function toggleErrorMessage() {
+        const content = document.getElementById('errorMessageContent');
+        const icon = document.getElementById('errorToggleIcon');
+
+        if (content && icon) {
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                content.classList.add('hidden');
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+    }
+
+    // Jira-specific modal functions
+    async function showJiraDetailsModal() {
+        try {
+            // Fetch Jira summary data from API
+            const response = await fetch('/api/v1/jobs/jira_sync/summary', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch Jira summary: ${response.statusText}`);
+            }
+
+            const summary = await response.json();
+            displayJiraDetailsModal(summary);
+
+        } catch (error) {
+            console.error('Error fetching Jira details:', error);
+            showNotification('Failed to load Jira details: ' + error.message, 'error');
+        }
+    }
+
+    function displayJiraDetailsModal(summary) {
+        // Set icon and title for Jira
+        const jobIcon = document.getElementById('jobDetailsIcon');
+        const jobTitle = document.getElementById('jobDetailsTitle');
+
+        jobIcon.innerHTML = '<i class="fab fa-jira mr-2" style="color: #0052CC;"></i>';
+        jobTitle.textContent = 'Jira Sync Job Details';
+
+        // Create Jira-specific content with compact layout for Full HD screens
+        const content = document.getElementById('jobDetailsContent');
+        content.innerHTML = `
+            <!-- All 6 cards in 2 rows of 3 columns for compact layout -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <!-- Projects Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-project-diagram mr-2"></i>Projects
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.projects?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.projects?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.projects?.inactive_count || 0}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Issue Types Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-tags mr-2"></i>Issue Types
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.issuetypes?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.issuetypes?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.issuetypes?.inactive_count || 0}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statuses Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-flag mr-2"></i>Statuses
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.statuses?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.statuses?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.statuses?.inactive_count || 0}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Second Row: Issues, Changelogs, PR Links -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <!-- Issues Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-ticket-alt mr-2"></i>Issues
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.issues?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.issues?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.issues?.inactive_count || 0}</span>
+                        </div>
+                        <div class="mt-2 pt-2 border-t" style="border-color: var(--border-color);">
+                            <div class="text-xs" style="color: var(--text-secondary);">Top Types:</div>
+                            ${(summary.tables?.issues?.top_types || []).slice(0, 3).map(type => `
+                                <div class="flex justify-between text-xs">
+                                    <span style="color: var(--text-muted);">${type.name}:</span>
+                                    <span class="text-blue-600">${type.count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Changelogs Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-history mr-2"></i>Changelogs
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.changelogs?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.changelogs?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Recent (30d):</span>
+                            <span class="font-medium text-blue-600">${summary.tables?.changelogs?.recent_activity_30d || 0}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PR Links Summary -->
+                <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-link mr-2"></i>PR Links
+                    </h3>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.jira_pull_request_links?.total_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.tables?.jira_pull_request_links?.active_count || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Repositories:</span>
+                            <span class="font-medium text-purple-600">${summary.tables?.jira_pull_request_links?.unique_repositories || 0}</span>
+                        </div>
+                        <div class="mt-2 pt-2 border-t" style="border-color: var(--border-color);">
+                            <div class="text-xs" style="color: var(--text-secondary);">PR Status:</div>
+                            ${(summary.tables?.jira_pull_request_links?.pr_status_breakdown || []).slice(0, 2).map(status => `
+                                <div class="flex justify-between text-xs">
+                                    <span style="color: var(--text-muted);">${status.status}:</span>
+                                    <span class="text-blue-600">${status.count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+        `;
+
+        // Show modal with proper display
+        const modal = document.getElementById('jobDetailsModal');
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.classList.remove('hidden');
+    }
+
+    // GitHub Rate Limits Modal Functions
+    async function showGitHubRateLimits() {
+        try {
+            const response = await fetch('/api/v1/github/rate-limits', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const rateLimits = await response.json();
+
+                // Helper function to get status color based on remaining vs limit
+                function getStatusColor(remaining, limit) {
+                    if (!remaining || !limit) return 'text-gray-500';
+                    const percentage = (remaining / limit) * 100;
+                    if (percentage > 50) return 'text-green-600';
+                    if (percentage > 20) return 'text-yellow-600';
+                    return 'text-red-600';
+                }
+
+                // Helper function to format reset time
+                function formatResetTime(resetTimestamp) {
+                    if (!resetTimestamp) return 'N/A';
+                    const resetDate = new Date(resetTimestamp * 1000);
+                    return resetDate.toLocaleString();
+                }
+
+                const content = document.getElementById('rateLimitsContent');
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Core API -->
+                        <div class="rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+                                <i class="fas fa-server mr-2"></i>Core API
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.core?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Used:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.core?.used || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.core?.remaining || 0, rateLimits.core?.limit || 1)}">${rateLimits.core?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.core?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search API -->
+                        <div class="rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+                                <i class="fas fa-search mr-2"></i>Search API
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.search?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Used:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.search?.used || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.search?.remaining || 0, rateLimits.search?.limit || 1)}">${rateLimits.search?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.search?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GraphQL API -->
+                        <div class="rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                            <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+                                <i class="fas fa-code mr-2"></i>GraphQL API
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.graphql?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Used:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.graphql?.used || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.graphql?.remaining || 0, rateLimits.graphql?.limit || 1)}">${rateLimits.graphql?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.graphql?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Info Section -->
+                    <div class="mt-6 rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+                            <i class="fas fa-info-circle mr-2"></i>Rate Limit Information
+                        </h3>
+                        <div class="text-sm space-y-2" style="color: var(--text-secondary);">
+                            <p><strong>Core API:</strong> General GitHub API requests (repositories, issues, etc.)</p>
+                            <p><strong>Search API:</strong> Repository and code search requests (30 requests/minute)</p>
+                            <p><strong>GraphQL API:</strong> GraphQL queries (5000 points/hour, varies by query complexity)</p>
+                            <p class="text-yellow-600"><i class="fas fa-exclamation-triangle mr-1"></i>Rate limits reset at the specified times above</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('rateLimitsContent').innerHTML = `
+                    <div class="text-center py-4">
+                        <span style="color: var(--text-muted);">Failed to load rate limit information</span>
+                    </div>
+                `;
+            }
+
+            // Show modal with proper display
+            const modal = document.getElementById('rateLimitsModal');
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.classList.remove('hidden');
+
+        } catch (error) {
+            console.error('Failed to load GitHub rate limits:', error);
+        }
+    }
+
+    function hideGitHubRateLimits() {
+        const modal = document.getElementById('rateLimitsModal');
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+        modal.classList.remove('modal-show');
+    }
+</script>
+{% endblock %}
+

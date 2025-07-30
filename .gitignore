@@ -1,12 +1,21 @@
 # Pulse Platform - Global .gitignore
 
-# Environment files
-.env
-.env.local
+# Environment files with secrets (NEVER COMMIT)
+.env.backend*           # Backend secrets (JWT, sessions)
+.env.etl.*             # Client-specific ETL secrets (API tokens, encryption keys)
+.env.production*       # Production secrets
+.env.staging*          # Staging secrets
+.env.local*            # Local overrides
 .env.development.local
 .env.test.local
-.env.production.local
-*.env
+
+# Legacy environment files (if they contain secrets)
+.env                   # Main env file (may contain secrets)
+
+# Safe environment files (can be committed - no secrets)
+# .env.shared           # Shared config only - SAFE to commit
+# .env.frontend         # Public config only - SAFE to commit
+# .env.example          # Template file - SAFE to commit
 
 # Logs
 logs/

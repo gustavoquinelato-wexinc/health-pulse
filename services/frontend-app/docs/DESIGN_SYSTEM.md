@@ -26,34 +26,50 @@ The Pulse Frontend implements a modern, accessible design system built on Tailwi
 
 ## Color System
 
-### Primary Palette
+### 5-Color Schema System
+The Pulse Platform uses a standardized 5-color system that provides consistency while allowing client customization:
+
 ```css
-/* Blue - Primary */
---primary: 221.2 83.2% 53.3%;        /* #3b82f6 */
---primary-foreground: 210 40% 98%;   /* #f8fafc */
+/* Default Professional Color Schema */
+:root {
+    --color-1: #2862EB;  /* Blue - Primary */
+    --color-2: #763DED;  /* Purple - Secondary */
+    --color-3: #059669;  /* Emerald - Success */
+    --color-4: #0EA5E9;  /* Sky Blue - Info */
+    --color-5: #F59E0B;  /* Amber - Warning */
+}
 
-/* Violet - Secondary */
---secondary: 210 40% 96%;             /* #f1f5f9 */
---secondary-foreground: 222.2 84% 4.9%; /* #0f172a */
-
-/* Emerald - Accent */
---accent: 210 40% 96%;                /* #f1f5f9 */
---accent-foreground: 222.2 84% 4.9%; /* #0f172a */
+/* Custom Color Schema (Client Branding) */
+[data-color-schema="custom"] {
+    --color-1: #C8102E;  /* WEX Red */
+    --color-2: #253746;  /* Dark Blue */
+    --color-3: #00C7B1;  /* Teal */
+    --color-4: #A2DDF8;  /* Light Blue */
+    --color-5: #FFBF3F;  /* Yellow */
+}
 ```
 
-### Semantic Colors
+### Color Usage Guidelines
+- **Color 1**: Primary actions, main branding, important CTAs
+- **Color 2**: Secondary actions, navigation, supporting elements
+- **Color 3**: Success states, positive feedback, completed items
+- **Color 4**: Information, neutral states, data visualization
+- **Color 5**: Warnings, alerts, attention-required items
+
+### Tailwind Integration
 ```css
-/* Success */
---success: 142.1 76.2% 36.3%;        /* #16a34a */
+/* Custom color classes available in Tailwind */
+.bg-color-1 { background-color: var(--color-1); }
+.bg-color-2 { background-color: var(--color-2); }
+.bg-color-3 { background-color: var(--color-3); }
+.bg-color-4 { background-color: var(--color-4); }
+.bg-color-5 { background-color: var(--color-5); }
 
-/* Warning */
---warning: 32.9 94.6% 43.7%;         /* #d97706 */
-
-/* Error */
---destructive: 0 84.2% 60.2%;        /* #ef4444 */
-
-/* Info */
---info: 204.4 94% 53.9%;             /* #3b82f6 */
+.text-color-1 { color: var(--color-1); }
+.text-color-2 { color: var(--color-2); }
+.text-color-3 { color: var(--color-3); }
+.text-color-4 { color: var(--color-4); }
+.text-color-5 { color: var(--color-5); }
 ```
 
 ### Neutral Palette
@@ -286,25 +302,56 @@ xl:   1280px  /* Extra large devices */
 - **Skip Links**: Navigation shortcuts
 - **ARIA Labels**: Proper labeling for screen readers
 
-## Dark Mode
+## Dark Mode with Database Persistence
 
 ### Implementation
+The platform uses `data-theme` attributes for dark mode with database persistence:
+
 ```css
-.dark {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
-  --card-foreground: 210 40% 98%;
-  /* ... other dark mode variables */
+/* Light Theme (Default) */
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
 }
 ```
 
-### Usage
+### Theme Management
 ```jsx
-<div className="bg-background text-foreground">
-  {/* Automatically adapts to dark mode */}
-</div>
+import { useTheme } from '../contexts/ThemeContext'
+
+function App() {
+    const { theme, toggleTheme } = useTheme()
+
+    return (
+        <div className="bg-primary text-primary">
+            <button onClick={toggleTheme}>
+                Toggle {theme === 'light' ? 'Dark' : 'Light'} Mode
+            </button>
+            {/* Theme persists to database automatically */}
+        </div>
+    )
+}
 ```
+
+### Features
+- **Database Persistence**: Theme preference saved per client
+- **Automatic Loading**: Theme restored on page refresh
+- **Instant Application**: No flash of wrong theme
+- **API Integration**: RESTful endpoints for theme management
 
 ## Best Practices
 

@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
+import clientLogger from '../utils/clientLogger'
 
 const quickActions = [
-  { name: 'Run ETL Job', icon: '🚀', action: () => console.log('Run ETL Job') },
-  { name: 'Generate Report', icon: '📊', action: () => console.log('Generate Report') }
+  { name: 'Run ETL Job', icon: '🚀', action: () => clientLogger.logUserAction('run_etl_job', 'quick_action_button') },
+  { name: 'Generate Report', icon: '📊', action: () => clientLogger.logUserAction('generate_report', 'quick_action_button') }
 ]
 
 const recentItems = [
@@ -20,6 +21,55 @@ export default function Header() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showQuickActions, setShowQuickActions] = useState(false)
   const [showRecentItems, setShowRecentItems] = useState(false)
+
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const quickActionsRef = useRef<HTMLDivElement>(null)
+  const recentItemsRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Close user menu if clicking outside
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+
+      // Close quick actions if clicking outside
+      if (quickActionsRef.current && !quickActionsRef.current.contains(event.target as Node)) {
+        setShowQuickActions(false)
+      }
+
+      // Close recent items if clicking outside
+      if (recentItemsRef.current && !recentItemsRef.current.contains(event.target as Node)) {
+        setShowRecentItems(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
+
+  // Helper function to get user initials from first and last name
+  const getUserInitials = (user: any) => {
+    if (!user) return 'U'
+
+    // Try to extract first and last name from the full name
+    const fullName = user.name || user.email
+    const nameParts = fullName.split(' ')
+
+    if (nameParts.length >= 2) {
+      // Use first letter of first name + first letter of last name
+      return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+    } else if (fullName && fullName !== user.email) {
+      // Use first letter of name
+      return fullName[0].toUpperCase()
+    } else {
+      // Fallback to email
+      return user.email?.[0]?.toUpperCase() || 'U'
+    }
+  }
 
   return (
     <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
@@ -39,7 +89,10 @@ export default function Header() {
 
         {/* Pulse Brand */}
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-violet-600 rounded-lg flex items-center justify-center">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: 'linear-gradient(to bottom right, var(--color-1), var(--color-2))' }}
+          >
             <span className="text-sm font-bold text-white">P</span>
           </div>
           <div>
@@ -67,7 +120,7 @@ export default function Header() {
       {/* Right Side Actions */}
       <div className="flex items-center space-x-4">
         {/* Quick Actions */}
-        <div className="relative">
+        <div className="relative" ref={quickActionsRef}>
           <motion.button
             onClick={() => setShowQuickActions(!showQuickActions)}
             className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors"
@@ -108,7 +161,7 @@ export default function Header() {
         </div>
 
         {/* Recent Items */}
-        <div className="relative">
+        <div className="relative" ref={recentItemsRef}>
           <motion.button
             onClick={() => setShowRecentItems(!showRecentItems)}
             className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors relative"
@@ -158,16 +211,16 @@ export default function Header() {
         </motion.button>
 
         {/* User Menu */}
-        <div className="relative">
+        <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center space-x-2 p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-blue-500 rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-3), var(--color-4))' }}>
               <span className="text-sm font-medium text-white">
-                {user?.name?.[0] || user?.email?.[0] || 'U'}
+                {getUserInitials(user)}
               </span>
             </div>
             <span className="text-sm font-medium text-primary hidden md:block">
@@ -180,10 +233,11 @@ export default function Header() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="absolute right-0 mt-2 w-48 card p-2 space-y-1"
+              className="absolute right-0 mt-2 w-64 card p-2 space-y-1"
             >
               <div className="px-3 py-2 border-b border-default">
                 <p className="text-sm font-medium text-primary">{user?.name || user?.email}</p>
+                <p className="text-xs text-muted">{user?.email}</p>
                 <p className="text-xs text-muted">{user?.role}</p>
               </div>
               <button className="w-full text-left px-3 py-2 text-sm text-secondary hover:bg-tertiary rounded-md transition-colors">

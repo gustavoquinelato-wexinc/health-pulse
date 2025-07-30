@@ -1,0 +1,74 @@
+<!-- Modern Modal Component - Matches Frontend System -->
+{% macro modal(id, title='', size='default', class='') %}
+<div id="{{ id }}" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content {{ 'max-w-md' if size == 'sm' else 'max-w-2xl' if size == 'lg' else 'max-w-4xl' if size == 'xl' else 'max-w-lg' }} w-full mx-4 max-h-[90vh] overflow-y-auto {{ class }}">
+        {% if title %}
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 class="text-xl font-semibold text-primary">{{ title }}</h2>
+            <button onclick="closeModal('{{ id }}')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        {% endif %}
+        <div class="p-6">
+            {{ caller() }}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+<!-- Modal Header -->
+{% macro modal_header(title, modal_id='', closable=true) %}
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-xl font-semibold text-primary">{{ title }}</h2>
+    {% if closable %}
+    <button onclick="closeModal('{{ modal_id }}')" class="text-muted hover:text-primary transition-colors">
+        <i class="fas fa-times text-xl"></i>
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+<!-- Modal Footer -->
+{% macro modal_footer(class='') %}
+<div class="flex items-center justify-end space-x-3 pt-6 border-t border-default {{ class }}">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+<!-- Confirmation Modal -->
+{% macro confirm_modal(id, title, message, confirm_text='Confirm', cancel_text='Cancel', confirm_variant='primary') %}
+{% call modal(id, title, 'sm') %}
+    <div class="text-center">
+        <div class="mb-6">
+            <i class="fas fa-question-circle text-4xl text-color-5 mb-4"></i>
+            <p class="text-secondary">{{ message }}</p>
+        </div>
+        {% call modal_footer() %}
+            <button onclick="closeModal('{{ id }}')" class="btn-crud-cancel">
+                {{ cancel_text }}
+            </button>
+            <button onclick="confirmAction('{{ id }}')" class="btn-crud-create">
+                {{ confirm_text }}
+            </button>
+        {% endcall %}
+    </div>
+{% endcall %}
+{% endmacro %}
+
+<!-- Alert Modal -->
+{% macro alert_modal(id, title, message, type='info') %}
+{% call modal(id, title, 'sm') %}
+    <div class="text-center">
+        <div class="mb-6">
+            <i class="fas fa-{{ 'info-circle' if type == 'info' else 'check-circle' if type == 'success' else 'exclamation-triangle' if type == 'warning' else 'times-circle' }} text-4xl text-color-{{ '4' if type == 'info' else '3' if type == 'success' else '5' if type == 'warning' else 'error' }} mb-4"></i>
+            <p class="text-secondary">{{ message }}</p>
+        </div>
+        {% call modal_footer() %}
+            <button onclick="closeModal('{{ id }}')" class="btn-neutral-primary">
+                OK
+            </button>
+        {% endcall %}
+    </div>
+{% endcall %}
+{% endmacro %}

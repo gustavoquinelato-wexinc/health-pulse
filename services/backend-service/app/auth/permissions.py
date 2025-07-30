@@ -166,16 +166,17 @@ def get_user_permissions(user: User, session: Session = None) -> Dict[Resource, 
     return permissions
 
 
-def grant_permission(user_id: int, resource: Resource, action: Action, session: Session) -> bool:
+def grant_permission(user_id: int, resource: Resource, action: Action, session: Session, client_id: int) -> bool:
     """
     Grant a custom permission to a user.
-    
+
     Args:
         user_id: User ID
         resource: Resource to grant access to
         action: Action to allow
         session: Database session
-        
+        client_id: Client ID for the permission
+
     Returns:
         bool: True if permission was granted
     """
@@ -184,9 +185,10 @@ def grant_permission(user_id: int, resource: Resource, action: Action, session: 
         existing = session.query(UserPermission).filter(
             UserPermission.user_id == user_id,
             UserPermission.resource == resource.value,
-            UserPermission.action == action.value
+            UserPermission.action == action.value,
+            UserPermission.client_id == client_id  # ✅ SECURITY: Include client_id in check
         ).first()
-        
+
         if existing:
             existing.active = True
         else:
@@ -194,14 +196,14 @@ def grant_permission(user_id: int, resource: Resource, action: Action, session: 
                 user_id=user_id,
                 resource=resource.value,
                 action=action.value,
-                client_id=1,  # Assuming single client for now
+                client_id=client_id,  # ✅ SECURITY: Use provided client_id
                 active=True
             )
             session.add(permission)
-        
+
         session.commit()
         return True
-        
+
     except Exception:
         session.rollback()
         return False

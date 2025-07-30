@@ -31,31 +31,52 @@ import asyncio
 logger = get_logger(__name__)
 
 
-async def trigger_jira_sync(force_manual=False, execution_params=None):
+async def trigger_jira_sync(force_manual=False, execution_params=None, client_id=None):
     """
-    Trigger a Jira sync job via the orchestration system.
+    Trigger a Jira sync job via the orchestration system for a specific client.
 
     Args:
         force_manual: If True, forces correct job states for manual execution
                      (jira_sync=PENDING, github_sync=NOT_STARTED).
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
+        client_id: Client ID to trigger job for (required for client isolation)
 
     Returns:
         Dict containing job execution results
     """
+    if client_id is None:
+        return {
+            'status': 'error',
+            'message': 'client_id is required for job execution',
+            'issues_processed': 0,
+            'changelogs_processed': 0
+        }
+
     try:
         database = get_database()
         with database.get_session() as session:
-            # Find or create the jobs
-            jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
-            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+            # ✅ SECURITY: Find or create jobs filtered by client_id
+            jira_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'jira_sync',
+                JobSchedule.client_id == client_id
+            ).first()
+            github_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'github_sync',
+                JobSchedule.client_id == client_id
+            ).first()
 
             if not jira_job or not github_job:
-                # Initialize job schedules if they don't exist
-                initialize_job_schedules()
-                jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
-                github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+                # Initialize job schedules if they don't exist for this client
+                initialize_job_schedules_for_client(client_id)
+                jira_job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'jira_sync',
+                    JobSchedule.client_id == client_id
+                ).first()
+                github_job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'github_sync',
+                    JobSchedule.client_id == client_id
+                ).first()
 
             if not jira_job or not github_job:
                 return {
@@ -91,8 +112,8 @@ async def trigger_jira_sync(force_manual=False, execution_params=None):
 
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - NORMAL MODE")
 
-            # Trigger the orchestrator to process the job (non-blocking)
-            asyncio.create_task(run_orchestrator())
+            # Trigger the orchestrator to process the job for this client only (non-blocking)
+            asyncio.create_task(run_orchestrator_for_client(client_id))
 
             # Return immediately - job will run in background
             return {
@@ -112,31 +133,52 @@ async def trigger_jira_sync(force_manual=False, execution_params=None):
         }
 
 
-async def trigger_github_sync(force_manual=False, execution_params=None):
+async def trigger_github_sync(force_manual=False, execution_params=None, client_id=None):
     """
-    Trigger a GitHub sync job via the orchestration system.
+    Trigger a GitHub sync job via the orchestration system for a specific client.
 
     Args:
         force_manual: If True, forces correct job states for manual execution
                      (jira_sync=FINISHED, github_sync=PENDING).
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
+        client_id: Client ID to trigger job for (required for client isolation)
 
     Returns:
         Dict containing job execution results
     """
+    if client_id is None:
+        return {
+            'status': 'error',
+            'message': 'client_id is required for job execution',
+            'pull_requests_processed': 0,
+            'commits_processed': 0
+        }
+
     try:
         database = get_database()
         with database.get_session() as session:
-            # Find or create the jobs
-            jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
-            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+            # ✅ SECURITY: Find or create jobs filtered by client_id
+            jira_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'jira_sync',
+                JobSchedule.client_id == client_id
+            ).first()
+            github_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'github_sync',
+                JobSchedule.client_id == client_id
+            ).first()
 
             if not jira_job or not github_job:
-                # Initialize job schedules if they don't exist
-                initialize_job_schedules()
-                jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
-                github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+                # Initialize job schedules if they don't exist for this client
+                initialize_job_schedules_for_client(client_id)
+                jira_job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'jira_sync',
+                    JobSchedule.client_id == client_id
+                ).first()
+                github_job = session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'github_sync',
+                    JobSchedule.client_id == client_id
+                ).first()
 
             if not jira_job or not github_job:
                 return {
@@ -172,8 +214,8 @@ async def trigger_github_sync(force_manual=False, execution_params=None):
 
                 logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - NORMAL MODE")
 
-            # Trigger the orchestrator to process the job (non-blocking)
-            asyncio.create_task(run_orchestrator())
+            # Trigger the orchestrator to process the job for this client only (non-blocking)
+            asyncio.create_task(run_orchestrator_for_client(client_id))
 
             # Return immediately - job will run in background
             return {
@@ -196,40 +238,140 @@ async def trigger_github_sync(force_manual=False, execution_params=None):
 async def run_orchestrator():
     """
     Main orchestrator function that runs on schedule.
-    
-    Checks for PENDING jobs and triggers them asynchronously.
+
+    Checks for PENDING jobs across ALL clients and triggers them asynchronously.
+    Each client's jobs are processed independently.
     """
     try:
         logger.info("STARTING: ETL Orchestrator starting...")
 
         database = get_database()
 
-        # Step 1: Quick check for pending jobs (short session)
+        # ✅ SECURITY: Get all clients and process their jobs independently
+        with database.get_session() as session:
+            from app.models.unified_models import Client
+            clients = session.query(Client).filter(Client.active == True).all()
+
+            if not clients:
+                logger.warning("No active clients found")
+                return
+
+            logger.info(f"Processing jobs for {len(clients)} active clients")
+
+        # Process each client's jobs independently based on their individual settings
+        for client in clients:
+            try:
+                # ✅ SECURITY: Check if this client's orchestrator should run based on their settings
+                should_run = await should_run_orchestrator_for_client(client.id)
+                if should_run:
+                    logger.info(f"Processing jobs for client: {client.name} (ID: {client.id}) - interval elapsed")
+                    await run_orchestrator_for_client(client.id)
+                else:
+                    logger.debug(f"Skipping client {client.name} (ID: {client.id}) - interval not elapsed or disabled")
+            except Exception as e:
+                logger.error(f"Error processing jobs for client {client.name}: {e}")
+                continue
+
+    except Exception as e:
+        logger.error(f"Orchestrator error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+
+async def should_run_orchestrator_for_client(client_id: int) -> bool:
+    """
+    Check if the orchestrator should run for a specific client based on their settings.
+
+    Args:
+        client_id: Client ID to check
+
+    Returns:
+        bool: True if orchestrator should run for this client, False otherwise
+    """
+    try:
+        from app.core.settings_manager import is_orchestrator_enabled, get_orchestrator_interval
+
+        # Check if orchestrator is enabled for this client
+        if not is_orchestrator_enabled(client_id):
+            return False
+
+        # Get client's orchestrator interval
+        interval_minutes = get_orchestrator_interval(client_id)
+
+        # Check when the last orchestrator run was for this client
+        database = get_database()
+        with database.get_session() as session:
+            # Find the most recent job run for this client
+            last_run = session.query(JobSchedule.last_run_started_at).filter(
+                JobSchedule.client_id == client_id,
+                JobSchedule.last_run_started_at.isnot(None)
+            ).order_by(JobSchedule.last_run_started_at.desc()).first()
+
+            if not last_run or not last_run[0]:
+                # No previous runs - should run now
+                logger.info(f"Client {client_id}: No previous runs found - should run")
+                return True
+
+            # Calculate time since last run
+            from datetime import timedelta
+            last_run_time = last_run[0]
+            now = DateTimeHelper.now_utc()
+            time_since_last_run = now - last_run_time
+            interval_delta = timedelta(minutes=interval_minutes)
+
+            should_run = time_since_last_run >= interval_delta
+
+            if should_run:
+                logger.info(f"Client {client_id}: Interval elapsed ({time_since_last_run.total_seconds()/60:.1f}min >= {interval_minutes}min) - should run")
+            else:
+                remaining_minutes = (interval_delta - time_since_last_run).total_seconds() / 60
+                logger.debug(f"Client {client_id}: Interval not elapsed - {remaining_minutes:.1f}min remaining")
+
+            return should_run
+
+    except Exception as e:
+        logger.error(f"Error checking if orchestrator should run for client {client_id}: {e}")
+        return False
+
+
+async def run_orchestrator_for_client(client_id: int):
+    """
+    Run orchestrator for a specific client.
+
+    Args:
+        client_id: Client ID to process jobs for
+    """
+    try:
+        database = get_database()
+
+        # Step 1: Quick check for pending jobs for this client
         pending_job_id = None
         pending_job_name = None
 
         with database.get_session() as session:
-            # Use a lightweight query to find pending jobs
+            # ✅ SECURITY: Find pending jobs filtered by client_id
             result = session.query(
                 JobSchedule.id,
                 JobSchedule.job_name
             ).filter(
+                JobSchedule.client_id == client_id,
                 JobSchedule.active == True,
                 JobSchedule.status == 'PENDING'
             ).first()
 
             if not result:
-                logger.info("INFO: No PENDING jobs found, orchestrator exiting")
+                logger.info(f"INFO: No PENDING jobs found for client {client_id}, orchestrator exiting")
                 return
 
             pending_job_id, pending_job_name = result.id, result.job_name
-            logger.info(f"FOUND: PENDING job: {pending_job_name} (ID: {pending_job_id})")
+            logger.info(f"FOUND: PENDING job for client {client_id}: {pending_job_name} (ID: {pending_job_id})")
 
         # Step 2: Quick atomic update to lock the job (separate short session)
         with database.get_session() as session:
-            # Atomic update to prevent race conditions
+            # ✅ SECURITY: Atomic update with client_id verification
             updated_rows = session.query(JobSchedule).filter(
                 JobSchedule.id == pending_job_id,
+                JobSchedule.client_id == client_id,  # Verify client_id
                 JobSchedule.status == 'PENDING'  # Double-check it's still pending
             ).update({
                 'status': 'RUNNING',
@@ -238,7 +380,7 @@ async def run_orchestrator():
             })
 
             if updated_rows == 0:
-                logger.info("INFO: Job was already picked up by another orchestrator instance")
+                logger.info(f"INFO: Job was already picked up by another orchestrator instance for client {client_id}")
                 return
 
             session.commit()
@@ -383,60 +525,96 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
 
 def initialize_job_schedules():
     """
-    Initialize the job schedules table with default jobs.
-    
-    This should be called once during setup to create the initial job records.
+    Initialize job schedules for ALL clients.
+
+    This should be called once during setup to create initial job records for all clients.
     """
     try:
         database = get_database()
         with database.get_session() as session:
-            # Check if jobs already exist
-            existing_jobs = session.query(JobSchedule).count()
-            if existing_jobs > 0:
-                logger.info(f"INFO: Job schedules already initialized ({existing_jobs} jobs found)")
-                return True
-            
-            # Get the first client (default client)
-            from app.models.unified_models import Client, Integration
-            client = session.query(Client).first()
-            if not client:
-                logger.error("No client found. Please run initialize_clients.py first")
+            from app.models.unified_models import Client
+            clients = session.query(Client).filter(Client.active == True).all()
+
+            if not clients:
+                logger.error("No active clients found. Please run initialize_clients.py first")
                 return False
 
-            # Get integrations for proper assignment
+            logger.info(f"Initializing job schedules for {len(clients)} clients")
+
+            for client in clients:
+                logger.info(f"Initializing jobs for client: {client.name} (ID: {client.id})")
+                success = initialize_job_schedules_for_client(client.id)
+                if not success:
+                    logger.error(f"Failed to initialize jobs for client {client.name}")
+                    return False
+
+            return True
+
+    except Exception as e:
+        logger.error(f"Error initializing job schedules: {e}")
+        return False
+
+
+def initialize_job_schedules_for_client(client_id: int):
+    """
+    Initialize job schedules for a specific client.
+
+    Args:
+        client_id: Client ID to initialize jobs for
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Check if jobs already exist for this client
+            existing_jobs = session.query(JobSchedule).filter(JobSchedule.client_id == client_id).count()
+            if existing_jobs > 0:
+                logger.info(f"INFO: Job schedules already initialized for client {client_id} ({existing_jobs} jobs found)")
+                return True
+
+            # Get the client
+            from app.models.unified_models import Client, Integration
+            client = session.query(Client).filter(Client.id == client_id).first()
+            if not client:
+                logger.error(f"Client {client_id} not found")
+                return False
+
+            # ✅ SECURITY: Get integrations for this specific client
             jira_integration = session.query(Integration).filter(
                 Integration.name.ilike('JIRA'),
-                Integration.client_id == client.id
+                Integration.client_id == client_id
             ).first()
 
             github_integration = session.query(Integration).filter(
                 Integration.name.ilike('GITHUB'),
-                Integration.client_id == client.id
+                Integration.client_id == client_id
             ).first()
 
-            # Create initial job schedules
+            # Create initial job schedules for this client
             jira_job = JobSchedule(
                 job_name='jira_sync',
                 status='PENDING',  # Start with Jira ready to run
                 integration_id=jira_integration.id if jira_integration else None,
-                client_id=client.id
+                client_id=client_id  # ✅ SECURITY: Use provided client_id
             )
 
             github_job = JobSchedule(
                 job_name='github_sync',
                 status='NOT_STARTED',  # Start with GitHub not started (prevents wrong execution)
                 integration_id=github_integration.id if github_integration else None,
-                client_id=client.id
+                client_id=client_id  # ✅ SECURITY: Use provided client_id
             )
 
             session.add(jira_job)
             session.add(github_job)
             session.commit()
 
-            logger.info("SUCCESS: Job schedules initialized successfully")
+            logger.info(f"SUCCESS: Job schedules initialized successfully for client {client_id}")
             logger.info("   - jira_sync: PENDING (ready to run first)")
             logger.info("   - github_sync: NOT_STARTED (will be set to PENDING when Jira finishes)")
-            
+
             return True
             
     except Exception as e:
@@ -444,18 +622,25 @@ def initialize_job_schedules():
         return False
 
 
-def get_job_status():
+def get_job_status(client_id: int = None):
     """
-    Get the current status of all jobs.
-    
+    Get the current status of jobs for a specific client.
+
+    Args:
+        client_id: Client ID to filter jobs (required for client isolation)
+
     Returns:
         Dict with job status information
     """
     try:
         database = get_database()
         with database.get_session() as session:
-            jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
-            
+            # ✅ SECURITY: Filter jobs by client_id
+            query = session.query(JobSchedule).filter(JobSchedule.active == True)
+            if client_id is not None:
+                query = query.filter(JobSchedule.client_id == client_id)
+            jobs = query.all()
+
             status = {}
             for job in jobs:
                 status[job.job_name] = {
@@ -466,7 +651,7 @@ def get_job_status():
                     'retry_count': job.retry_count,
                     'last_repo_sync_checkpoint': job.last_repo_sync_checkpoint.isoformat() if job.last_repo_sync_checkpoint else None
                 }
-            
+
             return status
             
     except Exception as e:

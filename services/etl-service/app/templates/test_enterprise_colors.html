@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Color System Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/etl-service.css" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+        }
+        
+        .test-section {
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+        }
+        
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .color-demo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin: 0.5rem 0;
+        }
+        
+        .color-swatch {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 0.25rem;
+            border: 1px solid var(--border-color);
+        }
+    </style>
+</head>
+<body>
+    <h1 class="text-3xl font-bold mb-8" style="color: var(--text-primary);">Enterprise Color System - Compact Professional Buttons</h1>
+
+    <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+        <h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">✅ Issues Fixed:</h2>
+        <ul class="text-sm space-y-1" style="color: var(--text-secondary);">
+            <li>• Removed useless "System Status" and "Completed Today" cards</li>
+            <li>• Eliminated duplicate refresh button from header</li>
+            <li>• Fixed all job control buttons to use universal colors</li>
+            <li>• Updated Force Start/Set Active → Green (create action)</li>
+            <li>• Updated Pause/Unpause → Amber (warning action)</li>
+            <li>• Updated Details buttons → Neutral gray</li>
+            <li>• Cleaned up unused JavaScript functions</li>
+            <li>• <strong>Standardized all button fonts and sizes</strong></li>
+            <li>• <strong>All buttons now use Inter font family consistently</strong></li>
+            <li>• <strong>Unified button heights and padding across all types</strong></li>
+            <li>• <strong>Fixed job buttons alignment (now right-aligned)</strong></li>
+            <li>• <strong>Fixed GitHub icon color to white in Rate Limits button</strong></li>
+            <li>• <strong>Standardized icon spacing (mr-2) across all buttons</strong></li>
+            <li>• <strong>Made buttons more compact for professional enterprise look</strong></li>
+            <li>• <strong>Reduced button height from 2.5rem to 2rem</strong></li>
+            <li>• <strong>Reduced font size to 0.8125rem for better proportions</strong></li>
+        </ul>
+    </div>
+    
+    <!-- Universal CRUD Buttons -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">Universal CRUD Buttons</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">These colors remain consistent across all themes and clients</p>
+        
+        <div class="button-grid">
+            <button class="btn-crud-create">
+                <i class="fas fa-plus mr-2"></i>Create Item
+            </button>
+            <button class="btn-crud-edit">
+                <i class="fas fa-edit mr-2"></i>Edit Item
+            </button>
+            <button class="btn-crud-delete">
+                <i class="fas fa-trash mr-2"></i>Delete Item
+            </button>
+            <button class="btn-crud-cancel">
+                <i class="fas fa-times mr-2"></i>Cancel
+            </button>
+        </div>
+    </div>
+    
+    <!-- Enterprise Neutral Buttons -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">Enterprise Neutral Buttons</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">Professional UI actions and utilities</p>
+        
+        <div class="button-grid">
+            <button class="btn-neutral-primary">
+                <i class="fas fa-cog mr-2"></i>Settings
+            </button>
+            <button class="btn-neutral-secondary">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <button class="btn-neutral-secondary">
+                <i class="fas fa-history mr-2"></i>History
+            </button>
+            <button class="btn-neutral-secondary">
+                <i class="fas fa-file-alt mr-2"></i>Logs
+            </button>
+        </div>
+    </div>
+    
+    <!-- Universal Status Buttons -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">Universal Status Buttons</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">System state actions with semantic colors</p>
+        
+        <div class="button-grid">
+            <button class="btn-status-warning">
+                <i class="fas fa-pause mr-2"></i>Pause
+            </button>
+            <button class="btn-crud-create">
+                <i class="fas fa-play mr-2"></i>Start
+            </button>
+            <button class="btn-status-error">
+                <i class="fas fa-stop mr-2"></i>Stop
+            </button>
+            <button class="btn-status-info">
+                <i class="fas fa-info mr-2"></i>Details
+            </button>
+        </div>
+    </div>
+    
+    <!-- 5-Color Schema Elements (Reserved for Valuable Items) -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">5-Color Schema (Brand/Data Elements)</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">Reserved for executive dashboards, KPIs, and brand elements</p>
+        
+        <!-- Status Indicators -->
+        <div class="mb-6">
+            <h3 class="text-lg font-medium mb-3" style="color: var(--text-primary);">System Status Indicators</h3>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="p-4 rounded-lg" style="background-color: var(--bg-tertiary);">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm" style="color: var(--text-secondary);">System Health</p>
+                            <p class="text-2xl font-bold" style="color: var(--color-1);">Healthy</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background-color: color-mix(in srgb, var(--color-1) 20%, transparent);">
+                            <i class="fas fa-heartbeat text-xl" style="color: var(--color-1);"></i>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="p-4 rounded-lg" style="background-color: var(--bg-tertiary);">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm" style="color: var(--text-secondary);">Completed Today</p>
+                            <p class="text-2xl font-bold" style="color: var(--color-3);">24</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background-color: color-mix(in srgb, var(--color-3) 20%, transparent);">
+                            <i class="fas fa-check-circle text-xl" style="color: var(--color-3);"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Color Swatches -->
+        <div>
+            <h3 class="text-lg font-medium mb-3" style="color: var(--text-primary);">Color Palette</h3>
+            <div class="space-y-2">
+                <div class="color-demo">
+                    <div class="color-swatch" style="background-color: var(--color-1);"></div>
+                    <span style="color: var(--text-primary);">Color 1 - Primary Brand/Data</span>
+                </div>
+                <div class="color-demo">
+                    <div class="color-swatch" style="background-color: var(--color-2);"></div>
+                    <span style="color: var(--text-primary);">Color 2 - Secondary Brand/Data</span>
+                </div>
+                <div class="color-demo">
+                    <div class="color-swatch" style="background-color: var(--color-3);"></div>
+                    <span style="color: var(--text-primary);">Color 3 - Success Metrics/Data</span>
+                </div>
+                <div class="color-demo">
+                    <div class="color-swatch" style="background-color: var(--color-4);"></div>
+                    <span style="color: var(--text-primary);">Color 4 - Info Metrics/Data</span>
+                </div>
+                <div class="color-demo">
+                    <div class="color-swatch" style="background-color: var(--color-5);"></div>
+                    <span style="color: var(--text-primary);">Color 5 - Warning Metrics/Data</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Button Consistency Test -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">Compact Professional Buttons</h2>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">All buttons now have consistent font (Inter), compact size (0.8125rem), height (2rem), and professional styling</p>
+
+        <div class="space-y-4">
+            <!-- Mixed button types to show consistency -->
+            <div class="flex flex-wrap gap-3">
+                <button class="btn-crud-create">
+                    <i class="fas fa-plus mr-2"></i>Create Item
+                </button>
+                <button class="btn-neutral-primary">
+                    <i class="fas fa-cog mr-2"></i>Settings
+                </button>
+                <button class="btn-status-warning">
+                    <i class="fas fa-pause mr-2"></i>Pause
+                </button>
+                <button class="btn-crud-delete">
+                    <i class="fas fa-trash mr-2"></i>Delete
+                </button>
+                <button class="btn-neutral-secondary">
+                    <i class="fas fa-sync mr-2"></i>Refresh
+                </button>
+            </div>
+
+            <!-- Small buttons -->
+            <div class="flex flex-wrap gap-3">
+                <button class="btn-crud-create btn-sm">Small Create</button>
+                <button class="btn-neutral-primary btn-sm">Small Settings</button>
+                <button class="btn-status-warning btn-sm">Small Pause</button>
+            </div>
+
+            <!-- Legacy button classes (for compatibility) -->
+            <div class="flex flex-wrap gap-3">
+                <button class="btn btn-primary">Legacy Primary</button>
+                <button class="btn btn-secondary">Legacy Secondary</button>
+                <button class="btn btn-outline">Legacy Outline</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Theme Toggle -->
+    <div class="test-section">
+        <h2 class="text-2xl font-semibold mb-4" style="color: var(--text-primary);">Theme Toggle</h2>
+        <button onclick="toggleTheme()" class="btn-neutral-primary">
+            <i class="fas fa-moon mr-2"></i>Toggle Dark Mode
+        </button>
+    </div>
+    
+    <script>
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+        }
+    </script>
+</body>
+</html>

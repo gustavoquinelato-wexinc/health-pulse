@@ -1,0 +1,565 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Workflows - Pulse ETL{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Workflows-specific styles */
+    .workflow-card {
+        transition: transform 0.2s ease-in-out;
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        background-color: var(--bg-secondary);
+    }
+    .workflow-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .workflow-section {
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .section-header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        background-color: var(--bg-tertiary);
+        border-radius: 0.75rem 0.75rem 0 0;
+    }
+    
+    .section-content {
+        padding: 1.5rem;
+    }
+    
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.2s;
+    }
+    
+    .sortable:hover {
+        background-color: var(--bg-tertiary);
+    }
+    
+    .sort-icon {
+        margin-left: 0.5rem;
+        opacity: 0.5;
+    }
+    
+    .sortable.sort-asc .sort-icon:before {
+        content: "\f0de";
+        opacity: 1;
+    }
+    
+    .sortable.sort-desc .sort-icon:before {
+        content: "\f0dd";
+        opacity: 1;
+    }
+    
+    .status-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    
+    .status-active {
+        background-color: var(--color-3);
+        color: white;
+    }
+    
+    .status-inactive {
+        background-color: var(--text-muted);
+        color: white;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                <i class="fas fa-project-diagram mr-3"></i>Workflows
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage workflow configurations and status mappings</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <button onclick="showCreateWorkflowModal()" class="btn-crud-create">
+                <i class="fas fa-plus mr-2"></i>Create Workflow
+            </button>
+            <button onclick="refreshWorkflows()" class="btn-neutral-secondary">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Workflow Statistics -->
+<div class="workflow-section">
+    <div class="section-header">
+        <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
+            <i class="fas fa-chart-bar mr-2"></i>Workflow Statistics
+        </h2>
+    </div>
+    <div class="section-content">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="workflow-card p-4 text-center">
+                <i class="fas fa-project-diagram text-2xl mb-2" style="color: var(--color-1);"></i>
+                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="total-workflows">-</h3>
+                <p class="text-xs" style="color: var(--text-muted);">Total Workflows</p>
+            </div>
+            <div class="workflow-card p-4 text-center">
+                <i class="fas fa-check-circle text-2xl mb-2" style="color: var(--color-3);"></i>
+                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="active-workflows">-</h3>
+                <p class="text-xs" style="color: var(--text-muted);">Active Workflows</p>
+            </div>
+            <div class="workflow-card p-4 text-center">
+                <i class="fas fa-exchange-alt text-2xl mb-2" style="color: var(--color-4);"></i>
+                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="total-mappings">-</h3>
+                <p class="text-xs" style="color: var(--text-muted);">Status Mappings</p>
+            </div>
+            <div class="workflow-card p-4 text-center">
+                <i class="fas fa-building text-2xl mb-2" style="color: var(--color-2);"></i>
+                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="integration-count">-</h3>
+                <p class="text-xs" style="color: var(--text-muted);">Integrations</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Workflows Table -->
+<div class="workflow-section">
+    <div class="section-header">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
+                <i class="fas fa-list mr-2"></i>All Workflows
+            </h2>
+            <div class="flex items-center space-x-3">
+                <input type="text" 
+                       id="workflow-search" 
+                       placeholder="Search workflows..." 
+                       class="px-3 py-2 border rounded-lg text-sm"
+                       style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                       onkeyup="filterWorkflows()">
+                <select id="status-filter" 
+                        class="px-3 py-2 border rounded-lg text-sm"
+                        style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                        onchange="filterWorkflows()">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <div class="section-content p-0">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead style="background-color: var(--bg-tertiary);">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
+                            style="color: var(--text-secondary);" 
+                            onclick="sortTable('name')">
+                            Name
+                            <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
+                            style="color: var(--text-secondary);" 
+                            onclick="sortTable('integration')">
+                            Integration
+                            <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
+                            style="color: var(--text-secondary);" 
+                            onclick="sortTable('status')">
+                            Status
+                            <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
+                            style="color: var(--text-secondary);" 
+                            onclick="sortTable('mappings')">
+                            Mappings
+                            <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
+                            style="color: var(--text-secondary);" 
+                            onclick="sortTable('created')">
+                            Created
+                            <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" 
+                            style="color: var(--text-secondary);">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="workflows-table-body" style="background-color: var(--bg-secondary);">
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">
+                            <i class="fas fa-spinner fa-spin mr-2"></i>Loading workflows...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Workflow Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('workflowModal', 'Create Workflow', 'lg') %}
+    <form id="workflowForm">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Workflow Name</label>
+                <input type="text" 
+                       id="workflowName" 
+                       class="w-full px-3 py-2 border rounded-lg"
+                       style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                       required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                <select id="workflowIntegration" 
+                        class="w-full px-3 py-2 border rounded-lg"
+                        style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                        required>
+                    <option value="">Select Integration</option>
+                </select>
+            </div>
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Description</label>
+            <textarea id="workflowDescription" 
+                      rows="3" 
+                      class="w-full px-3 py-2 border rounded-lg"
+                      style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+        </div>
+        <div class="flex items-center mb-4">
+            <input type="checkbox" id="workflowActive" class="mr-2">
+            <label for="workflowActive" class="text-sm" style="color: var(--text-primary);">Active</label>
+        </div>
+        <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeModal('workflowModal')" class="btn-crud-cancel">
+                Cancel
+            </button>
+            <button type="submit" class="btn-crud-create">
+                <i class="fas fa-save mr-2"></i>Save Workflow
+            </button>
+        </div>
+    </form>
+{% endcall %}
+
+<!-- Delete Confirmation Modal -->
+{% from 'components/modal.html' import confirm_modal %}
+{{ confirm_modal('deleteWorkflowModal', 'Delete Workflow', 'Are you sure you want to delete this workflow? This action cannot be undone.', 'Delete', 'Cancel', 'danger') }}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Global variables
+    let workflows = [];
+    let integrations = [];
+    let currentSort = { column: 'name', direction: 'asc' };
+    let currentWorkflowId = null;
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', async function () {
+        await loadIntegrations();
+        await loadWorkflows();
+        loadWorkflowStats();
+    });
+
+    // Authentication helper
+    function getAuthToken() {
+        let token = localStorage.getItem('pulse_token');
+        if (!token) {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'pulse_token') {
+                    token = value;
+                    break;
+                }
+            }
+        }
+        return token;
+    }
+
+    // Load workflows
+    async function loadWorkflows() {
+        try {
+            const token = getAuthToken();
+            if (!token) return;
+
+            const response = await fetch('/api/v1/admin/workflows', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                workflows = await response.json();
+                updateWorkflowsTable();
+            }
+        } catch (error) {
+            console.error('Error loading workflows:', error);
+        }
+    }
+
+    // Load integrations for dropdown
+    async function loadIntegrations() {
+        try {
+            const token = getAuthToken();
+            if (!token) return;
+
+            const response = await fetch('/api/v1/admin/integrations', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                integrations = await response.json();
+                updateIntegrationDropdown();
+            }
+        } catch (error) {
+            console.error('Error loading integrations:', error);
+        }
+    }
+
+    // Update integration dropdown
+    function updateIntegrationDropdown() {
+        const select = document.getElementById('workflowIntegration');
+        select.innerHTML = '<option value="">Select Integration</option>';
+        
+        integrations.forEach(integration => {
+            const option = document.createElement('option');
+            option.value = integration.id;
+            option.textContent = integration.name;
+            select.appendChild(option);
+        });
+    }
+
+    // Load workflow statistics
+    async function loadWorkflowStats() {
+        try {
+            const token = getAuthToken();
+            if (!token) return;
+
+            const response = await fetch('/api/v1/admin/workflow-stats', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                const stats = await response.json();
+                updateStatsDisplay(stats);
+            }
+        } catch (error) {
+            console.error('Error loading workflow stats:', error);
+        }
+    }
+
+    // Update statistics display
+    function updateStatsDisplay(stats) {
+        document.getElementById('total-workflows').textContent = stats.total || '-';
+        document.getElementById('active-workflows').textContent = stats.active || '-';
+        document.getElementById('total-mappings').textContent = stats.mappings || '-';
+        document.getElementById('integration-count').textContent = stats.integrations || '-';
+    }
+
+    // Update workflows table
+    function updateWorkflowsTable() {
+        const tbody = document.getElementById('workflows-table-body');
+        tbody.innerHTML = '';
+
+        if (!workflows || workflows.length === 0) {
+            tbody.innerHTML = `
+                <tr><td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">No workflows found</td></tr>
+            `;
+            return;
+        }
+
+        // Apply current sort
+        const sortedWorkflows = [...workflows].sort((a, b) => {
+            let aVal = a[currentSort.column] || '';
+            let bVal = b[currentSort.column] || '';
+            
+            if (typeof aVal === 'string') {
+                aVal = aVal.toLowerCase();
+                bVal = bVal.toLowerCase();
+            }
+            
+            if (currentSort.direction === 'asc') {
+                return aVal > bVal ? 1 : -1;
+            } else {
+                return aVal < bVal ? 1 : -1;
+            }
+        });
+
+        sortedWorkflows.forEach(workflow => {
+            const row = document.createElement('tr');
+            row.className = 'border-b border-default hover:bg-tertiary';
+            
+            const statusBadge = workflow.active ? 
+                '<span class="status-badge status-active">Active</span>' :
+                '<span class="status-badge status-inactive">Inactive</span>';
+            
+            const integration = integrations.find(i => i.id === workflow.integration_id);
+            const integrationName = integration ? integration.name : 'Unknown';
+            
+            row.innerHTML = `
+                <td class="px-6 py-4">
+                    <div class="text-sm font-medium" style="color: var(--text-primary);">${workflow.name}</div>
+                    <div class="text-sm" style="color: var(--text-muted);">${workflow.description || 'No description'}</div>
+                </td>
+                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${integrationName}</td>
+                <td class="px-6 py-4">${statusBadge}</td>
+                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${workflow.mapping_count || 0}</td>
+                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${workflow.created_at ? new Date(workflow.created_at).toLocaleDateString() : 'Unknown'}</td>
+                <td class="px-6 py-4 text-sm">
+                    <button onclick="editWorkflow(${workflow.id})" class="btn-neutral-secondary mr-2">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button onclick="deleteWorkflow(${workflow.id})" class="btn-crud-delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    }
+
+    // Sort table
+    function sortTable(column) {
+        if (currentSort.column === column) {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort.column = column;
+            currentSort.direction = 'asc';
+        }
+        
+        // Update sort indicators
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.classList.remove('sort-asc', 'sort-desc');
+        });
+        
+        const currentTh = document.querySelector(`[onclick="sortTable('${column}')"]`);
+        currentTh.classList.add(`sort-${currentSort.direction}`);
+        
+        updateWorkflowsTable();
+    }
+
+    // Filter workflows
+    function filterWorkflows() {
+        const searchTerm = document.getElementById('workflow-search').value.toLowerCase();
+        const statusFilter = document.getElementById('status-filter').value;
+        
+        const filteredWorkflows = workflows.filter(workflow => {
+            const matchesSearch = workflow.name.toLowerCase().includes(searchTerm) ||
+                                (workflow.description && workflow.description.toLowerCase().includes(searchTerm));
+            
+            const matchesStatus = !statusFilter || 
+                                (statusFilter === 'active' && workflow.active) ||
+                                (statusFilter === 'inactive' && !workflow.active);
+            
+            return matchesSearch && matchesStatus;
+        });
+        
+        // Temporarily replace workflows for display
+        const originalWorkflows = workflows;
+        workflows = filteredWorkflows;
+        updateWorkflowsTable();
+        workflows = originalWorkflows;
+    }
+
+    // Modal functions
+    function showCreateWorkflowModal() {
+        document.getElementById('workflowForm').reset();
+        currentWorkflowId = null;
+        openModal('workflowModal');
+    }
+
+    function editWorkflow(workflowId) {
+        const workflow = workflows.find(w => w.id === workflowId);
+        if (!workflow) return;
+        
+        document.getElementById('workflowName').value = workflow.name;
+        document.getElementById('workflowDescription').value = workflow.description || '';
+        document.getElementById('workflowIntegration').value = workflow.integration_id;
+        document.getElementById('workflowActive').checked = workflow.active;
+        
+        currentWorkflowId = workflowId;
+        openModal('workflowModal');
+    }
+
+    function deleteWorkflow(workflowId) {
+        currentWorkflowId = workflowId;
+        openModal('deleteWorkflowModal');
+    }
+
+    // Override confirmAction for delete modal
+    function confirmAction(modalId) {
+        if (modalId === 'deleteWorkflowModal' && currentWorkflowId) {
+            // Implement delete workflow logic here
+            alert(`Delete workflow ${currentWorkflowId} - implement API call`);
+            closeModal(modalId);
+        }
+    }
+
+    // Form submission
+    document.getElementById('workflowForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            name: document.getElementById('workflowName').value,
+            description: document.getElementById('workflowDescription').value,
+            integration_id: parseInt(document.getElementById('workflowIntegration').value),
+            active: document.getElementById('workflowActive').checked
+        };
+        
+        try {
+            const token = getAuthToken();
+            const url = currentWorkflowId ? 
+                `/api/v1/admin/workflows/${currentWorkflowId}` : 
+                '/api/v1/admin/workflows';
+            
+            const method = currentWorkflowId ? 'PUT' : 'POST';
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            if (response.ok) {
+                closeModal('workflowModal');
+                await loadWorkflows();
+                loadWorkflowStats();
+            } else {
+                alert('Failed to save workflow');
+            }
+        } catch (error) {
+            console.error('Error saving workflow:', error);
+            alert('Error saving workflow');
+        }
+    });
+
+    // Refresh function
+    function refreshWorkflows() {
+        loadWorkflows();
+        loadWorkflowStats();
+    }
+</script>
+{% endblock %}

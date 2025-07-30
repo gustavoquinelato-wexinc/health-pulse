@@ -20,11 +20,13 @@ from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
+from app.core.client_logging_middleware import ClientLoggingMiddleware
 # Import Backend Service API routers
 from app.api.health import router as health_router
 from app.api.debug import router as debug_router
 from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
+from app.api.frontend_logs import router as frontend_logs_router
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
 import logging
@@ -256,6 +258,7 @@ if not settings.DEBUG:
 
 # Other middleware
 app.add_middleware(ErrorHandlingMiddleware)
+app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
@@ -265,6 +268,7 @@ app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
+app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"])
 app.include_router(admin_router, tags=["Administration"])
 
 # Backend Service - API only, no static files or web routes
@@ -447,7 +451,8 @@ async def clear_all_user_sessions():
 
         with database.get_session() as session:
             from app.models.unified_models import UserSession
-            # Mark all existing sessions as inactive
+            # ✅ SECURITY: Mark all existing sessions as inactive (affects all clients on startup)
+            # Note: This is intentional on startup for security - all clients get fresh sessions
             session.query(UserSession).update({
                 'active': False,
                 'last_updated_at': datetime.now()
@@ -455,7 +460,7 @@ async def clear_all_user_sessions():
             session.commit()
 
             session_count = session.query(UserSession).filter(UserSession.active == False).count()
-            logger.info(f"Marked {session_count} user sessions as inactive")
+            logger.info(f"Marked {session_count} user sessions as inactive (all clients - startup security)")
 
         logger.info("All existing authentication tokens have been invalidated")
 

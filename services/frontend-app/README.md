@@ -29,8 +29,10 @@ The Frontend Application provides an intuitive interface for:
 
 ### **Design System**
 - **Modern Minimalist Design**: Clean, professional interface
-- **Color Palette**: Professional blue/violet/emerald scheme
+- **5-Color Schema System**: Standardized color system with default and custom modes
+- **Light/Dark Mode**: Database-persisted theme preferences
 - **Typography**: Inter font for excellent readability
+- **Client Customization**: Per-client color schemas and branding
 - **Accessibility**: WCAG compliant components
 - **Responsive**: Mobile-first responsive design
 

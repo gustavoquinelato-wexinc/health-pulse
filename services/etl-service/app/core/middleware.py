@@ -110,20 +110,32 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Middleware for security headers."""
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
-        
+
+        # Check if this is an embedded request (for iframe integration)
+        is_embedded = request.query_params.get("embedded") == "true"
+
         # Add security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+
+        # Allow iframe embedding only for embedded mode, otherwise deny
+        if is_embedded:
+            # For development: Allow embedding from any localhost origin
+            # Remove X-Frame-Options entirely to allow cross-origin iframe embedding
+            # In production, use specific origins in Content-Security-Policy
+            pass  # Don't set any frame restrictions for embedded mode
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
+
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        
+
         # Remove headers that might leak information
         if "Server" in response.headers:
             del response.headers["Server"]
-        
+
         return response
 
 

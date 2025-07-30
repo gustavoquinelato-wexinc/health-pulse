@@ -15,31 +15,54 @@ from app.schemas.api_schemas import (
     DataSummaryResponse, IssuesListResponse, CommitsListResponse,
     PullRequestsListResponse, IssueInfo, CommitInfo, PullRequestInfo
 )
+# ✅ SECURITY: Add authentication for client isolation
+from app.auth.centralized_auth_middleware import UserData, require_authentication
 
 router = APIRouter()
 
 
 @router.get("/etl/data/summary", response_model=DataSummaryResponse)
-async def get_data_summary(db: Session = Depends(get_db_session)):
+async def get_data_summary(
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
     """
-    Get a summary of all extracted data.
-    
+    Get a summary of all extracted data for current user's client.
+
     Returns:
         DataSummaryResponse: Counts and statistics for all data types
     """
     try:
-        # Get counts for each data type
-        issues_count = db.query(func.count(Issue.id)).scalar() or 0
-        commits_count = db.query(func.count(PullRequestCommit.id)).scalar() or 0
-        pull_requests_count = db.query(func.count(PullRequest.id)).scalar() or 0
-        users_count = 0  # No User model currently - could be derived from assignees/authors
-        projects_count = db.query(func.count(Project.id)).scalar() or 0
-        clients_count = db.query(func.count(Client.id)).scalar() or 0
+        # ✅ SECURITY: Get counts filtered by client_id
+        issues_count = db.query(func.count(Issue.id)).filter(Issue.client_id == user.client_id).scalar() or 0
 
-        # Get latest update timestamps
-        latest_issue = db.query(func.max(Issue.last_updated_at)).scalar()
-        latest_commit = db.query(func.max(PullRequestCommit.last_updated_at)).scalar()
-        latest_pr = db.query(func.max(PullRequest.last_updated_at)).scalar()
+        # For commits and PRs, filter through repository -> integration -> client_id
+        commits_count = db.query(func.count(PullRequestCommit.id)).join(
+            PullRequest, PullRequestCommit.pull_request_id == PullRequest.id
+        ).join(
+            Repository, PullRequest.repository_id == Repository.id
+        ).filter(Repository.client_id == user.client_id).scalar() or 0
+
+        pull_requests_count = db.query(func.count(PullRequest.id)).join(
+            Repository, PullRequest.repository_id == Repository.id
+        ).filter(Repository.client_id == user.client_id).scalar() or 0
+
+        users_count = 0  # No User model currently - could be derived from assignees/authors
+        projects_count = db.query(func.count(Project.id)).filter(Project.client_id == user.client_id).scalar() or 0
+        clients_count = 1  # Current user can only see their own client
+
+        # ✅ SECURITY: Get latest update timestamps filtered by client_id
+        latest_issue = db.query(func.max(Issue.last_updated_at)).filter(Issue.client_id == user.client_id).scalar()
+
+        latest_commit = db.query(func.max(PullRequestCommit.last_updated_at)).join(
+            PullRequest, PullRequestCommit.pull_request_id == PullRequest.id
+        ).join(
+            Repository, PullRequest.repository_id == Repository.id
+        ).filter(Repository.client_id == user.client_id).scalar()
+
+        latest_pr = db.query(func.max(PullRequest.last_updated_at)).join(
+            Repository, PullRequest.repository_id == Repository.id
+        ).filter(Repository.client_id == user.client_id).scalar()
         
         return DataSummaryResponse(
             integrations_count=0,  # TODO: Add integrations count when needed
@@ -60,7 +83,8 @@ async def get_issues(
     offset: int = Query(0, ge=0, description="Number of issues to skip"),
     project_key: Optional[str] = Query(None, description="Filter by project key"),
     status: Optional[str] = Query(None, description="Filter by issue status"),
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
 ):
     """
     Get a list of issues with optional filtering.
@@ -76,18 +100,18 @@ async def get_issues(
         IssuesListResponse: List of issues with metadata
     """
     try:
-        # Build query
-        query = db.query(Issue)
-        
-        # Apply filters
+        # ✅ SECURITY: Build query filtered by client_id
+        query = db.query(Issue).filter(Issue.client_id == user.client_id)
+
+        # Apply additional filters
         if project_key:
             query = query.filter(Issue.project_key == project_key)
         if status:
             query = query.filter(Issue.status == status)
-        
+
         # Get total count before pagination
         total_count = query.count()
-        
+
         # Apply pagination and ordering
         issues = query.order_by(desc(Issue.updated_at)).offset(offset).limit(limit).all()
         
@@ -121,7 +145,8 @@ async def get_commits(
     limit: int = Query(100, ge=1, le=1000, description="Number of commits to return"),
     offset: int = Query(0, ge=0, description="Number of commits to skip"),
     repository: Optional[str] = Query(None, description="Filter by repository name"),
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
 ):
     """
     Get a list of commits with optional filtering.
@@ -136,10 +161,12 @@ async def get_commits(
         CommitsListResponse: List of commits with metadata
     """
     try:
-        # Build query - join with PullRequest and Repository to get repository info
-        query = db.query(PullRequestCommit).join(PullRequest).join(Repository)
+        # ✅ SECURITY: Build query filtered by client_id through repository
+        query = db.query(PullRequestCommit).join(PullRequest).join(Repository).filter(
+            Repository.client_id == user.client_id
+        )
 
-        # Apply filters
+        # Apply additional filters
         if repository:
             query = query.filter(Repository.name == repository)
 
@@ -179,7 +206,8 @@ async def get_pull_requests(
     offset: int = Query(0, ge=0, description="Number of PRs to skip"),
     repository: Optional[str] = Query(None, description="Filter by repository name"),
     state: Optional[str] = Query(None, description="Filter by PR state"),
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
 ):
     """
     Get a list of pull requests with optional filtering.
@@ -195,18 +223,20 @@ async def get_pull_requests(
         PullRequestsListResponse: List of pull requests with metadata
     """
     try:
-        # Build query
-        query = db.query(PullRequest)
-        
-        # Apply filters
+        # ✅ SECURITY: Build query filtered by client_id through repository
+        query = db.query(PullRequest).join(Repository).filter(
+            Repository.client_id == user.client_id
+        )
+
+        # Apply additional filters
         if repository:
-            query = query.filter(PullRequest.repository_name == repository)
+            query = query.filter(Repository.name == repository)
         if state:
             query = query.filter(PullRequest.state == state)
-        
+
         # Get total count before pagination
         total_count = query.count()
-        
+
         # Apply pagination and ordering
         pull_requests = query.order_by(desc(PullRequest.updated_at)).offset(offset).limit(limit).all()
         

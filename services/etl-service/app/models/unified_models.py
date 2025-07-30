@@ -18,6 +18,7 @@ class Client(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     name = Column(String, nullable=False, quote=False, name="name")
     website = Column(String, nullable=True, quote=False, name="website")
+    logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
@@ -74,6 +75,7 @@ class Integration(Base, BaseEntity):
     url = Column(String, quote=False, name="url")
     username = Column(String, quote=False, name="username")
     password = Column(String, quote=False, name="password")
+    base_search = Column(String, quote=False, name="base_search")
     last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
 
     # Relationships

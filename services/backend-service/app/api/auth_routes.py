@@ -189,6 +189,7 @@ async def get_user_info(user: User = Depends(require_authentication)):
             "role": user.role,
             "is_admin": user.is_admin,
             "auth_provider": user.auth_provider,
+            "client_id": user.client_id,  # ✅ Added missing client_id for consistency
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
         }
     except Exception as e:

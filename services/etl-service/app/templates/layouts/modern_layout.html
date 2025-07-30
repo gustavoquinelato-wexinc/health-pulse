@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-color-schema="default">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Pulse ETL{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/heart-pulse.svg">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/etl-service.css?v=light-neutral-buttons" rel="stylesheet">
+
+    <!-- Server-side color schema data -->
+    {% if color_schema %}
+    <script type="application/json" id="server-color-schema">{{ color_schema | tojson }}</script>
+    {% endif %}
+
+    <!-- Load colors immediately to prevent flashing -->
+    <script>
+        // Load colors from server-side data or localStorage immediately to prevent flash
+        (function() {
+            try {
+                // First try server-side color schema data
+                const serverSchemaElement = document.getElementById('server-color-schema');
+                if (serverSchemaElement) {
+                    const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
+                    const theme = serverColorSchema.theme || 'light';
+                    const colorSchemaMode = serverColorSchema.mode || 'default';
+
+                    document.documentElement.setAttribute('data-theme', theme);
+                    document.documentElement.setAttribute('data-color-schema', colorSchemaMode);
+
+                    // Apply custom colors if available
+                    if (colorSchemaMode === 'custom' && serverColorSchema.colors) {
+                        const colors = serverColorSchema.colors;
+                        const root = document.documentElement;
+                        root.style.setProperty('--color-1', colors.color_1);
+                        root.style.setProperty('--color-2', colors.color_2);
+                        root.style.setProperty('--color-3', colors.color_3);
+                        root.style.setProperty('--color-4', colors.color_4);
+                        root.style.setProperty('--color-5', colors.color_5);
+                    }
+                } else {
+                    // Fallback to localStorage
+                    const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+                    const savedColorSchemaMode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+                    document.documentElement.setAttribute('data-theme', savedTheme);
+                    document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+                }
+            } catch (error) {
+                console.error('Error loading color schema:', error);
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.documentElement.setAttribute('data-color-schema', 'default');
+            }
+        })();
+    </script>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body style="background-color: var(--bg-primary);">
+    <div class="min-h-screen" style="background-color: var(--bg-primary);">
+        <!-- Header - Full Width at Top -->
+        {% from 'components/header.html' import header %}
+        {{ header(title='Pulse ETL Management') }}
+
+        <!-- Content Area Below Header -->
+        <div class="flex">
+            <!-- Sidebar - Fixed Position Below Header -->
+            {% from 'components/sidebar.html' import sidebar %}
+            {{ sidebar(current_path=request.path if request else '') }}
+
+            <!-- Main Content - With Left Margin for Sidebar -->
+            <main class="flex-1 p-6 ml-16">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Base JavaScript -->
+    <script>
+        // Navigation Active State (specific to layout)
+        function updateActiveNavigation() {
+            const currentPath = window.location.pathname;
+            const navItems = document.querySelectorAll('.nav-item');
+
+            navItems.forEach(item => {
+                const path = item.getAttribute('data-path');
+                if (currentPath.startsWith(path)) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        // Global user data
+        let currentUser = null;
+
+        // Authentication helper
+        function getAuthToken() {
+            let token = localStorage.getItem('pulse_token');
+            if (!token) {
+                const cookies = document.cookie.split(';');
+                for (let cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    if (name === 'pulse_token') {
+                        token = value;
+                        break;
+                    }
+                }
+            }
+            return token;
+        }
+
+        // Helper function to get user initials from first and last name
+        function getUserInitials(user) {
+            if (!user) return 'U';
+
+            // Try to extract first and last name from the full name
+            const fullName = user.name || user.email;
+            const nameParts = fullName.split(' ');
+
+            if (nameParts.length >= 2) {
+                // Use first letter of first name + first letter of last name
+                return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
+            } else if (fullName && fullName !== user.email) {
+                // Use first letter of name
+                return fullName[0].toUpperCase();
+            } else {
+                // Fallback to email
+                return user.email?.[0]?.toUpperCase() || 'U';
+            }
+        }
+
+        // Load user information
+        async function loadUserInfo() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch('/api/v1/auth/validate', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.valid && data.user) {
+                        currentUser = data.user;
+                        updateUserDisplay();
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+            }
+        }
+
+        // Update user display in header
+        function updateUserDisplay() {
+            if (!currentUser) return;
+
+            // Format user name
+            const userName = currentUser.first_name && currentUser.last_name
+                ? `${currentUser.first_name} ${currentUser.last_name}`
+                : currentUser.first_name || currentUser.last_name || currentUser.email.split('@')[0];
+
+            // Update user initials
+            const userInitialsElement = document.getElementById('user-initials');
+            if (userInitialsElement) {
+                userInitialsElement.textContent = getUserInitials({
+                    name: userName,
+                    email: currentUser.email
+                });
+            }
+
+            // Update user name in button
+            const userNameElement = document.getElementById('user-name');
+            if (userNameElement) {
+                userNameElement.textContent = userName;
+            }
+
+            // Update dropdown display
+            const userNameDisplay = document.getElementById('user-name-display');
+            if (userNameDisplay) {
+                userNameDisplay.textContent = userName;
+            }
+
+            const userEmailDisplay = document.getElementById('user-email-display');
+            if (userEmailDisplay) {
+                userEmailDisplay.textContent = currentUser.email;
+            }
+
+            const userRoleDisplay = document.getElementById('user-role-display');
+            if (userRoleDisplay) {
+                userRoleDisplay.textContent = currentUser.role;
+            }
+        }
+
+        // Theme Management
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+
+            const icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.textContent = newTheme === 'light' ? '🌙' : '☀️';
+            }
+
+            // Save to localStorage
+            localStorage.setItem('pulse_theme', newTheme);
+        }
+
+        // User Menu
+        function toggleUserMenu(event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            const menu = document.getElementById('user-menu');
+            if (menu) {
+                menu.classList.toggle('hidden');
+            }
+        }
+
+        // Close user menu on outside click
+        document.addEventListener('click', function(e) {
+            const userMenu = document.getElementById('user-menu');
+            const userButton = e.target.closest('[onclick*="toggleUserMenu"]');
+            if (userMenu && !userButton && !userMenu.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+
+        // Initialize layout
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize theme
+            const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            const icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.textContent = savedTheme === 'light' ? '🌙' : '☀️';
+            }
+
+            // Load user information
+            loadUserInfo();
+
+            // Update navigation active state
+            updateActiveNavigation();
+        });
+
+        // Generic Modal Functions
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        function confirmAction(modalId) {
+            // This function should be overridden by specific pages
+            // that need custom confirmation logic
+            console.warn(`confirmAction called for ${modalId} but no specific handler defined`);
+            closeModal(modalId);
+        }
+
+        // Close modal on ESC key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const openModals = document.querySelectorAll('.fixed.inset-0:not(.hidden)');
+                openModals.forEach(modal => {
+                    if (modal.id) {
+                        closeModal(modal.id);
+                    }
+                });
+            }
+        });
+
+        // Close modal on backdrop click
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('fixed') && e.target.classList.contains('inset-0')) {
+                const modalId = e.target.id;
+                if (modalId) {
+                    closeModal(modalId);
+                }
+            }
+        });
+    </script>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
