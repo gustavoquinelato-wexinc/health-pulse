@@ -77,12 +77,12 @@ start_all() {
     
     print_header "🌐 Access URLs:"
     echo -e "  Frontend:           ${GREEN}http://localhost:5173${NC}"
-    echo -e "  Backend Service:    ${GREEN}http://localhost:3001${NC}"
+    echo -e "  Backend Service:    ${GREEN}http://localhost:3002${NC}"
     echo -e "  ETL Service:        ${GREEN}http://localhost:8000${NC}"
     echo -e "  AI Service:         ${GREEN}http://localhost:8001${NC}"
     echo ""
     echo -e "  API Docs:"
-    echo -e "    Backend Service:   ${BLUE}http://localhost:3001/docs${NC}"
+    echo -e "    Backend Service:   ${BLUE}http://localhost:3002/docs${NC}"
     echo -e "    ETL Service:       ${BLUE}http://localhost:8000/docs${NC}"
     echo -e "    AI Service:        ${BLUE}http://localhost:8001/docs${NC}"
 }
@@ -111,8 +111,8 @@ start_service() {
         "backend"|"backend-service")
             print_status "Starting Backend Service..."
             docker-compose up -d backend-service postgres redis
-            print_status "Backend Service available at: http://localhost:3001"
-            print_status "API Documentation: http://localhost:3001/docs"
+            print_status "Backend Service available at: http://localhost:3002"
+            print_status "API Documentation: http://localhost:3002/docs"
             ;;
         "frontend"|"frontend-app")
             print_status "Starting Frontend App..."
@@ -170,8 +170,8 @@ show_status() {
     fi
 
     # Check Backend Service
-    if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
-        echo -e "  Backend Service:    ${GREEN}✓ Healthy${NC} (http://localhost:3001)"
+    if curl -s http://localhost:3002/api/v1/health > /dev/null 2>&1; then
+        echo -e "  Backend Service:    ${GREEN}✓ Healthy${NC} (http://localhost:3002)"
     else
         echo -e "  Backend Service:    ${RED}✗ Unhealthy${NC}"
     fi
@@ -207,7 +207,7 @@ show_help() {
     echo ""
     echo "Services:"
     echo "  etl               ETL Service (Port 8000)"
-    echo "  backend           Backend Service (Port 3001)"
+    echo "  backend           Backend Service (Port 3002)"
     echo "  ai                AI Service (Port 8001)"
     echo "  frontend          Frontend App (Port 5173)"
     echo ""

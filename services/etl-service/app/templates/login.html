@@ -318,7 +318,8 @@
 
             try {
                 // Authenticate with Backend Service API
-                const backendUrl = 'http://localhost:3001'; // This should be configured properly
+                // Get backend URL from server-side configuration
+                const backendUrl = 'http://localhost:3002';
 
                 const response = await fetch(`${backendUrl}/auth/login`, {
                     method: 'POST',

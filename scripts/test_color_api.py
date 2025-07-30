@@ -17,7 +17,7 @@ def test_color_api():
     """Test the color schema API endpoints"""
     
     # Backend service URL
-    backend_url = "http://localhost:3001"
+    backend_url = "http://localhost:3002"
     
     print("🧪 Testing Color Schema API...")
     
@@ -43,7 +43,7 @@ def test_color_api():
             print(f"   ❌ Error: {response.text}")
             
     except requests.exceptions.ConnectionError:
-        print("   ❌ Connection failed - is the backend service running on port 3001?")
+        print("   ❌ Connection failed - is the backend service running on port 3002?")
     except Exception as e:
         print(f"   ❌ Error: {e}")
 

@@ -181,7 +181,7 @@ async with httpx.AsyncClient() as client:
 JWT_SECRET_KEY=your-secret-key-here
 JWT_ALGORITHM=HS256
 DATABASE_URL=postgresql://...
-BACKEND_SERVICE_URL=http://localhost:3001
+BACKEND_SERVICE_URL=http://localhost:3002
 
 # Service-specific
 DEBUG=true

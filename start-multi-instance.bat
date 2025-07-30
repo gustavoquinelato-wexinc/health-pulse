@@ -18,7 +18,7 @@ if %errorlevel% == 0 (
     echo 📊 Service URLs:
     echo   • WEX ETL:      http://localhost:8000
     echo   • TechCorp ETL: http://localhost:8001
-    echo   • Backend:      http://localhost:3001
+    echo   • Backend:      http://localhost:3002
     echo   • PostgreSQL:   localhost:5432
     echo.
     echo 🔍 Check logs with:
@@ -55,7 +55,7 @@ if %errorlevel% == 0 (
     echo 📊 Service URLs:
     echo   • WEX ETL:      http://localhost:8000
     echo   • TechCorp ETL: http://localhost:8001
-    echo   • Backend:      http://localhost:3001 (start separately)
+    echo   • Backend:      http://localhost:3002 (start separately)
     echo.
     echo 🛑 To stop services, close the terminal windows
 )

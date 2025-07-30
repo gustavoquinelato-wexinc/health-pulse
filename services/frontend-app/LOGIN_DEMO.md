@@ -8,7 +8,7 @@ The application is now configured with **real authentication** connected to the 
 You need to use **valid user credentials** that exist in the database. The system will authenticate against the backend service.
 
 **To create a user account:**
-1. Make sure the backend service is running on port 3001
+1. Make sure the backend service is running on port 3002
 2. Use the admin interface or API to create user accounts
 3. Or check with your administrator for existing credentials
 
@@ -72,7 +72,7 @@ The application is now fully functional with real authentication. The frontend c
 - **Secure Logout** - Server-side session invalidation
 
 ### Prerequisites
-- Backend service must be running on port 3001
+- Backend service must be running on port 3002
 - Database must be accessible and contain user accounts
 - Valid user credentials are required for login
 

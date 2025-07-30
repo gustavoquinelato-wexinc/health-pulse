@@ -73,7 +73,7 @@ These documents should be updated whenever:
 
 ### **Recent Updates (2025-07-30)**
 - ✅ **Client-Specific Logging**: Complete implementation across all services
-- ✅ **Port Corrections**: Frontend now runs on port 3000 (not 5173)
+- ✅ **Port Corrections**: Frontend runs on port 3000, Backend on port 3002 (not 3001)
 - ✅ **Route Updates**: ETL service uses `/home` (not `/dashboard`)
 - ✅ **Job Status Accuracy**: Correct enum values (NOT_STARTED, ERROR, etc.)
 - ✅ **Authentication Clarity**: All ETL functionality requires admin credentials

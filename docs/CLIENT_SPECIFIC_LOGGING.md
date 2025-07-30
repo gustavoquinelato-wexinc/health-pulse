@@ -177,8 +177,8 @@ ls logs/etl_service_*.log
 ### **Backend Service Testing**
 ```bash
 # Test with different user contexts
-curl -H "Authorization: Bearer <wex_user_token>" http://localhost:3001/api/v1/test
-curl -H "Authorization: Bearer <techcorp_user_token>" http://localhost:3001/api/v1/test
+curl -H "Authorization: Bearer <wex_user_token>" http://localhost:3002/api/v1/test
+curl -H "Authorization: Bearer <techcorp_user_token>" http://localhost:3002/api/v1/test
 ```
 
 ## 📚 **Related Documentation**

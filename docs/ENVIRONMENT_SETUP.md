@@ -55,11 +55,11 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # Service URLs (for inter-service communication)
-BACKEND_SERVICE_URL=http://localhost:3001
+BACKEND_SERVICE_URL=http://localhost:3002
 ETL_SERVICE_URL=http://localhost:8000
 
 # Service URLs
-BACKEND_SERVICE_URL=http://localhost:3001
+BACKEND_SERVICE_URL=http://localhost:3002
 ETL_SERVICE_URL=http://localhost:8000
 
 # 🔒 SECURITY: Contains NO secrets
@@ -92,7 +92,7 @@ GITHUB_TOKEN=wex-github-api-token
 ### **`.env.frontend` - Public Configuration Only**
 ```bash
 # Public configuration (exposed to browser)
-VITE_API_BASE_URL=http://localhost:3001
+VITE_API_BASE_URL=http://localhost:3002
 VITE_APP_TITLE=Pulse Platform
 
 # 🔒 SECURITY: NO secrets in this file

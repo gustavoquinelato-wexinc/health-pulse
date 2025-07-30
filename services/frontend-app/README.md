@@ -22,7 +22,7 @@ The Frontend Application provides an intuitive interface for:
 - **Axios** for API communication
 
 ### **Backend Integration**
-- **Analytics Backend**: Python/FastAPI service on port 3001
+- **Analytics Backend**: Python/FastAPI service on port 3002
 - **Authentication**: JWT token-based authentication
 - **Real-time Updates**: WebSocket connections for live data
 - **API Communication**: RESTful APIs with comprehensive error handling
@@ -40,7 +40,7 @@ The Frontend Application provides an intuitive interface for:
 
 ### **Prerequisites**
 - Node.js 18+ and npm
-- Analytics Backend running on port 3001
+- Analytics Backend running on port 3002
 
 ### **Development Setup**
 ```bash
@@ -93,7 +93,7 @@ Configuration is managed through the **centralized `.env` file** at the root lev
 Frontend-specific variables (prefixed with `VITE_`):
 ```env
 # API Configuration
-VITE_API_BASE_URL=http://localhost:3001
+VITE_API_BASE_URL=http://localhost:3002
 VITE_ETL_SERVICE_URL=http://localhost:8000
 VITE_AI_SERVICE_URL=http://localhost:8001
 

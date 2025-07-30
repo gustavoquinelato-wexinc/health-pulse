@@ -44,7 +44,7 @@ docker-compose -f docker-compose.multi-client.yml down
    ```bash
    cd services/backend-service
    cat ../../.env.shared ../../.env.backend > .env
-   python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
+   python -m uvicorn app.main:app --host 0.0.0.0 --port 3002 --reload
    ```
 
 3. **Start ETL instances for different clients:**
@@ -73,7 +73,7 @@ docker-compose -f docker-compose.multi-client.yml down
 |---------|-----|---------|
 | **WEX ETL** | http://localhost:8000 | ETL for WEX client only |
 | **TechCorp ETL** | http://localhost:8001 | ETL for TechCorp client only |
-| **Backend** | http://localhost:3001 | Shared authentication service |
+| **Backend** | http://localhost:3002 | Shared authentication service |
 | **PostgreSQL** | localhost:5432 | Shared database |
 
 ## 🔧 **Environment Configuration**
@@ -191,7 +191,7 @@ CLIENT_NAME=TechCorp PORT=8001 python -m uvicorn app.main:app
 ### **Port Conflicts**
 - WEX ETL: Port 8000
 - TechCorp ETL: Port 8001
-- Backend: Port 3001
+- Backend: Port 3002
 
 ### **Environment Issues**
 - Ensure client environment files are copied to `services/etl-service/.env`

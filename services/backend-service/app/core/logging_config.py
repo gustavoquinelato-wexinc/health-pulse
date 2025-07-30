@@ -20,6 +20,20 @@ colorama.init(autoreset=True)
 from app.core.config import get_settings
 
 
+class AnsiCleaningFileHandler(logging.FileHandler):
+    """File handler that removes ANSI escape sequences from log messages."""
+
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+        super().__init__(filename, mode, encoding, delay)
+        # Compile ANSI escape sequence regex once
+        import re
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+    def format(self, record):
+        # Get the formatted message
+        formatted = super().format(record)
+        # Remove ANSI escape sequences
+        return self.ansi_escape.sub('', formatted)
 
 
 class ColoredConsoleRenderer:
@@ -208,22 +222,6 @@ def setup_logging(force_reconfigure=False):
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-
-    # Add file handler with ANSI cleaning
-    class AnsiCleaningFileHandler(logging.FileHandler):
-        """File handler that removes ANSI escape sequences from log messages."""
-
-        def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
-            super().__init__(filename, mode, encoding, delay)
-            # Compile ANSI escape sequence regex once
-            import re
-            self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-
-        def format(self, record):
-            # Get the formatted message
-            formatted = super().format(record)
-            # Remove ANSI escape sequences
-            return self.ansi_escape.sub('', formatted)
 
     # Add multiple file handlers for different clients and system logs
     # System-wide logs (startup, errors, etc.)

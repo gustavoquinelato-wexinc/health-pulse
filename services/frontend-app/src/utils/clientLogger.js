@@ -11,11 +11,11 @@ class ClientLogger {
         this.initialized = false;
         this.logBuffer = [];
         this.maxBufferSize = 100;
-        
+
         // Initialize client context
         this.initializeClientContext();
     }
-    
+
     /**
      * Initialize client context from authentication token
      */
@@ -28,12 +28,6 @@ class ClientLogger {
                 this.clientId = payload.client_id || null;
                 this.userId = payload.user_id || null;
                 this.initialized = true;
-                
-                // Log initialization
-                this.info('Client logger initialized', {
-                    client: this.clientName,
-                    clientId: this.clientId
-                });
             } else {
                 this.clientName = 'anonymous';
                 this.initialized = false;
@@ -44,14 +38,14 @@ class ClientLogger {
             console.error('Failed to initialize client logger:', error);
         }
     }
-    
+
     /**
      * Get authentication token from localStorage or cookies
      */
     getAuthToken() {
         // Check localStorage first
         let token = localStorage.getItem('pulse_token');
-        
+
         // Fallback to cookies
         if (!token) {
             const cookies = document.cookie.split(';');
@@ -63,10 +57,10 @@ class ClientLogger {
                 }
             }
         }
-        
+
         return token;
     }
-    
+
     /**
      * Core logging method
      */
@@ -83,38 +77,38 @@ class ClientLogger {
             userAgent: navigator.userAgent,
             ...data
         };
-        
+
         // Console logging with client prefix
         const clientPrefix = `[${this.clientName.toUpperCase()}]`;
         const consoleMethod = console[level] || console.log;
-        
+
         if (data && Object.keys(data).length > 0) {
             consoleMethod(clientPrefix, message, logEntry);
         } else {
             consoleMethod(clientPrefix, message);
         }
-        
+
         // Add to buffer for potential backend transmission
         this.addToBuffer(logEntry);
-        
+
         // Optional: Send critical errors immediately to backend
         if (level === 'error') {
             this.sendToBackend(logEntry);
         }
     }
-    
+
     /**
      * Add log entry to buffer
      */
     addToBuffer(logEntry) {
         this.logBuffer.push(logEntry);
-        
+
         // Maintain buffer size
         if (this.logBuffer.length > this.maxBufferSize) {
             this.logBuffer.shift(); // Remove oldest entry
         }
     }
-    
+
     /**
      * Send log entry to backend service
      */
@@ -122,7 +116,7 @@ class ClientLogger {
         try {
             const token = this.getAuthToken();
             if (!token) return; // Can't send without authentication
-            
+
             await fetch('/api/v1/logs/frontend', {
                 method: 'POST',
                 headers: {
@@ -136,17 +130,17 @@ class ClientLogger {
             console.warn('Failed to send log to backend:', error);
         }
     }
-    
+
     /**
      * Flush all buffered logs to backend
      */
     async flushLogs() {
         if (this.logBuffer.length === 0) return;
-        
+
         try {
             const token = this.getAuthToken();
             if (!token) return;
-            
+
             await fetch('/api/v1/logs/frontend/batch', {
                 method: 'POST',
                 headers: {
@@ -157,14 +151,14 @@ class ClientLogger {
                     logs: [...this.logBuffer]
                 })
             });
-            
+
             // Clear buffer after successful transmission
             this.logBuffer = [];
         } catch (error) {
             console.warn('Failed to flush logs to backend:', error);
         }
     }
-    
+
     /**
      * Convenience methods for different log levels
      */
@@ -172,7 +166,7 @@ class ClientLogger {
     info(message, data) { this.log('info', message, data); }
     warn(message, data) { this.log('warn', message, data); }
     error(message, data) { this.log('error', message, data); }
-    
+
     /**
      * Log API calls
      */
@@ -185,14 +179,14 @@ class ClientLogger {
             duration,
             error: error ? error.message : null
         };
-        
+
         if (error || status >= 400) {
             this.error(`API ${method} ${url} failed`, logData);
         } else {
             this.info(`API ${method} ${url} completed`, logData);
         }
     }
-    
+
     /**
      * Log user interactions
      */
@@ -204,7 +198,7 @@ class ClientLogger {
             ...data
         });
     }
-    
+
     /**
      * Log navigation events
      */
@@ -215,7 +209,7 @@ class ClientLogger {
             to
         });
     }
-    
+
     /**
      * Update client context (call when user logs in/out)
      */

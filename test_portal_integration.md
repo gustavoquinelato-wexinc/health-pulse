@@ -44,7 +44,7 @@ We've successfully implemented **Option A: Portal Shell Architecture** with ifra
 ```bash
 # Terminal 1: Backend Service
 cd services/backend-service
-python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 3002 --reload
 
 # Terminal 2: ETL Service  
 cd services/etl-service

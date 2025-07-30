@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import clientLogger from '../utils/clientLogger'
 
 interface ColorSchema {
   color1: string
@@ -37,7 +38,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 // Configure axios defaults
 // In development, use relative URLs so Vite proxy can handle routing
 // In production, use the full API URL
-const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002')
 axios.defaults.baseURL = API_BASE_URL
 
 interface AuthProviderProps {
@@ -88,13 +89,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const validateToken = async () => {
     try {
       // Make API call to validate token with backend
-      const response = await axios.post('/api/v1/auth/validate')
+      const response = await axios.post('/auth/validate')
 
       if (response.data.valid && response.data.user) {
         const { user } = response.data
-
-        // Load color schema for existing session
-        const colorSchemaData = await loadColorSchema()
 
         // Format user data to match frontend interface
         const formattedUser = {
@@ -105,10 +103,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
             : user.first_name || user.last_name || user.email.split('@')[0],
           role: user.role,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
-          colorSchemaData: colorSchemaData || undefined
+          colorSchemaData: undefined  // Will be loaded separately
         }
 
         setUser(formattedUser)
+
+        // Load color schema after user is set (non-blocking)
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          }
+        }).catch(error => {
+          console.warn('Failed to load color schema during validation:', error)
+        })
       } else {
         // Invalid response format, clear token
         localStorage.removeItem('pulse_token')
@@ -142,9 +149,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set axios default header for future requests
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-        // Load color schema after successful authentication
-        const colorSchemaData = await loadColorSchema()
-
         // Format user data to match frontend interface
         const formattedUser = {
           id: user.id.toString(),
@@ -154,11 +158,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
             : user.first_name || user.last_name || user.email.split('@')[0],
           role: user.role,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
-          colorSchemaData: colorSchemaData || undefined
+          colorSchemaData: undefined  // Will be loaded separately after login
         }
 
-        // Set user data
+        // Set user data first
         setUser(formattedUser)
+
+        // Load color schema after user is set (non-blocking)
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          }
+        }).catch(error => {
+          console.warn('Failed to load color schema after login:', error)
+        })
 
         return true
       } else {

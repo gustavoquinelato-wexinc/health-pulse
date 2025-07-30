@@ -10,7 +10,7 @@ This guide covers deployment strategies for the Pulse Platform across different 
 - **Docker:** 20.10+ with Docker Compose
 - **Memory:** 8GB+ RAM recommended
 - **Storage:** 20GB+ available disk space
-- **Network:** Ports 3001, 5173, 8000, 8001, 5432, 6379 available
+- **Network:** Ports 3002, 5173, 8000, 8001, 5432, 6379 available
 
 ### **External Dependencies**
 - **Jira Cloud:** API access with valid credentials
@@ -41,7 +41,7 @@ cp .env.example .env
 
 ### **Service URLs**
 - **Frontend:** http://localhost:5173
-- **Backend API:** http://localhost:3001
+- **Backend API:** http://localhost:3002
 - **ETL Service:** http://localhost:8000
 - **AI Service:** http://localhost:8001
 - **Database:** localhost:5432
@@ -320,7 +320,7 @@ spec:
 ```bash
 # Service health endpoints
 curl http://localhost:8000/api/v1/health    # ETL Service
-curl http://localhost:3001/health           # Backend Service
+curl http://localhost:3002/health           # Backend Service
 curl http://localhost:8001/health           # AI Service
 ```
 

@@ -85,7 +85,16 @@ async def root(request: Request):
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page"""
-    response = templates.TemplateResponse("login.html", {"request": request})
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    backend_url = settings.BACKEND_SERVICE_URL
+    logger.info(f"Login page: passing backend_service_url = {backend_url}")
+
+    response = templates.TemplateResponse("login.html", {
+        "request": request,
+        "backend_service_url": backend_url
+    })
     # Clear any existing tokens when showing login page
     response.delete_cookie("pulse_token", path="/")
     return response

@@ -12,7 +12,7 @@ The Pulse Platform is a unified engineering analytics platform that seamlessly i
 │                                                                 │
 │  ┌─────────────────┐    ┌─────────────────┐                   │
 │  │   Frontend      │    │   Backend       │                   │
-│  │   (Port 5173)   │◄──►│   (Port 3001)   │                   │
+│  │   (Port 5173)   │◄──►│   (Port 3002)   │                   │
 │  │                 │    │                 │                   │
 │  │  ┌─────────────┐│    │                 │                   │
 │  │  │ ETL iframe  ││◄───┼─────────────────┼───────────────────┤
@@ -52,14 +52,14 @@ CLIENT_NAME=WEX
 
 **Frontend `.env`:**
 ```bash
-VITE_API_BASE_URL=http://localhost:3001
+VITE_API_BASE_URL=http://localhost:3002
 VITE_ETL_BASE_URL=http://localhost:8000
 VITE_CLIENT_NAME=WEX
 ```
 
 **Backend `.env`:**
 ```bash
-PORT=3001
+PORT=3002
 DATABASE_URL=postgresql://pulse_user:pulse_password@localhost:5432/pulse_db
 JWT_SECRET_KEY=your-super-secure-jwt-secret-key-here
 CLIENT_NAME=WEX
@@ -70,7 +70,7 @@ CLIENT_NAME=WEX
 DATABASE_URL=postgresql://pulse_user:pulse_password@localhost:5432/pulse_db
 JWT_SECRET_KEY=your-super-secure-jwt-secret-key-here
 CLIENT_NAME=WEX
-BACKEND_SERVICE_URL=http://localhost:3001
+BACKEND_SERVICE_URL=http://localhost:3002
 ```
 
 ### **2. Database Setup**
@@ -109,7 +109,7 @@ npm run dev
 
 **Platform Access:**
 - Main Platform: http://localhost:5173
-- Backend API: http://localhost:3001
+- Backend API: http://localhost:3002
 - ETL Service: http://localhost:8000 (embedded only)
 
 **Test Authentication:**
@@ -176,7 +176,7 @@ services:
   backend:
     build: ./services/backend-service
     ports:
-      - "3001:3001"
+      - "3002:3002"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
@@ -188,7 +188,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - BACKEND_SERVICE_URL=http://backend:3001
+      - BACKEND_SERVICE_URL=http://backend:3002
 
   database:
     image: postgres:15
@@ -239,7 +239,7 @@ app.use(cors({
 
 ### **Health Checks**
 - Frontend: http://localhost:5173/health
-- Backend: http://localhost:3001/api/v1/health
+- Backend: http://localhost:3002/api/v1/health
 - ETL: http://localhost:8000/api/v1/health
 
 ### **Platform Metrics**

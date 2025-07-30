@@ -63,10 +63,10 @@ pip install -r requirements.txt
 # Edit the root .env file: ../../.env
 
 # Run development server
-uvicorn app.main:app --reload --port 3001
+uvicorn app.main:app --reload --port 3002
 
 # Access API documentation
-open http://localhost:3001/docs
+open http://localhost:3002/docs
 ```
 
 ## 📊 Analytics Capabilities
@@ -160,9 +160,9 @@ CORS_ORIGINS=["http://localhost:5173"]
 ## 📚 API Documentation
 
 ### **Automatic Documentation**
-- **OpenAPI/Swagger**: http://localhost:3001/docs
-- **ReDoc**: http://localhost:3001/redoc
-- **JSON Schema**: http://localhost:3001/openapi.json
+- **OpenAPI/Swagger**: http://localhost:3002/docs
+- **ReDoc**: http://localhost:3002/redoc
+- **JSON Schema**: http://localhost:3002/openapi.json
 
 ### **Key Endpoints**
 - **Authentication**: `/api/v1/auth/*`

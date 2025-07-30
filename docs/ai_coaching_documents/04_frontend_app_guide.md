@@ -200,7 +200,7 @@ async function logout() {
         
         if (token) {
             // 2. Call Backend Service to invalidate session
-            const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
+            const response = await fetch('http://localhost:3002/api/v1/admin/auth/invalidate-session', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
