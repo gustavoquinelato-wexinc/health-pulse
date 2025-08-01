@@ -132,30 +132,20 @@ export default function ColorSchemaPanel() {
       // Save mode if it changed
       const originalDatabaseMode = databaseMode
       if (tempColorSchemaMode !== originalDatabaseMode) {
-        console.log('Saving mode change:', originalDatabaseMode, '→', tempColorSchemaMode)
         const modeSuccess = await saveColorSchemaMode(tempColorSchemaMode)
-        console.log('Mode save result:', modeSuccess)
         if (!modeSuccess) {
           alert('Failed to save color schema mode to database')
           setIsSaving(false)
           return
         }
-      } else {
-        console.log('No mode change needed. Current:', originalDatabaseMode, 'Target:', tempColorSchemaMode)
       }
 
       // Save colors only if in custom mode and colors changed
       let colorSuccess = true // Default to true for default mode
 
       if (tempColorSchemaMode === 'custom' && colorsChanged) {
-        console.log('Saving custom colors to database')
         updateColorSchema(tempColorSchema)
         colorSuccess = await saveColorSchema()
-        console.log('Color save result:', colorSuccess)
-      } else if (tempColorSchemaMode === 'default') {
-        console.log('Default mode selected - not saving colors to database')
-      } else {
-        console.log('Custom mode but no color changes - not saving colors')
       }
 
       if (colorSuccess) {
@@ -166,7 +156,6 @@ export default function ColorSchemaPanel() {
           setDatabaseColors(tempColorSchema)
         }
         setDatabaseMode(tempColorSchemaMode)
-        console.log('Successfully saved. New database mode:', tempColorSchemaMode)
       } else {
         alert('Failed to save color schema to database')
       }

@@ -116,16 +116,17 @@ async def validate_token(request: Request):
     try:
         # Get token from Authorization header
         auth_header = request.headers.get("Authorization")
-        
+
         if not auth_header or not auth_header.startswith("Bearer "):
             return TokenValidationResponse(valid=False, user=None)
-        
+
         token = auth_header[7:]  # Remove "Bearer " prefix
-        
+        logger.info(f"Backend validating token: {token[:30]}... (length: {len(token)})")
+
         # Validate token
         auth_service = get_auth_service()
         user = await auth_service.verify_token(token)
-        
+
         if user:
             return TokenValidationResponse(
                 valid=True,
@@ -136,7 +137,7 @@ async def validate_token(request: Request):
                     "last_name": user.last_name,
                     "role": user.role,
                     "is_admin": user.is_admin,
-                    "client_id": user.client_id  # ✅ Added missing client_id
+                    "client_id": user.client_id
                 }
             )
         else:
@@ -145,6 +146,61 @@ async def validate_token(request: Request):
     except Exception as e:
         logger.error(f"Token validation error: {e}")
         return TokenValidationResponse(valid=False, user=None)
+
+
+@router.post("/create-navigation-session")
+async def create_navigation_session(request: Request, user: User = Depends(require_authentication)):
+    """
+    Create a proper session for navigation from frontend to ETL service.
+    This ensures the user has a valid session for subsequent ETL requests.
+    """
+    try:
+        # Get client info from request
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", "ETL Navigation")
+
+        # Get the token from the Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid authorization header"
+            )
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        # Create/refresh session in database
+        auth_service = get_auth_service()
+        session_created = await auth_service.create_or_refresh_session(
+            user=user,
+            token=token,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        if session_created:
+            logger.info(f"✅ Navigation session created for user: {user.email}")
+            return {
+                "success": True,
+                "message": "Navigation session created successfully",
+                "user_id": user.id,
+                "email": user.email
+            }
+        else:
+            logger.warning(f"❌ Failed to create navigation session for user: {user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create navigation session"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Navigation session creation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Navigation session creation failed"
+        )
 
 
 @router.post("/validate-service")

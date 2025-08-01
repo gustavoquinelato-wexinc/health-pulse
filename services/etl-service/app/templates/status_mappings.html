@@ -3,6 +3,7 @@
 {% block title %}Pulse ETL Management - Status Mappings{% endblock %}
 
 {% block content %}
+{% if not embedded %}
 <!-- Page Header -->
 <div class="mb-8">
     <div class="flex items-center justify-between mb-6">
@@ -17,6 +18,16 @@
         </button>
     </div>
 </div>
+{% else %}
+<!-- Embedded Header - Minimal -->
+<div class="mb-6">
+    <div class="flex items-center justify-end">
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Mapping
+        </button>
+    </div>
+</div>
+{% endif %}
 
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
@@ -440,27 +451,30 @@
                 '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
 
             // Create integration icon based on integration name
-            let integrationIcon = '<i class="fas fa-question-circle" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+            let integrationIcon = '<i class="fas fa-question-circle text-lg" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
 
             if (mapping.integration_name) {
-                switch (mapping.integration_name.toLowerCase()) {
-                    case 'jira':
-                        integrationIcon = '<i class="fab fa-atlassian" style="color: #0052CC;" title="Jira"></i>';
-                        break;
-                    case 'github':
-                        integrationIcon = '<i class="fab fa-github" style="color: #333;" title="GitHub"></i>';
-                        break;
+                const integrationName = mapping.integration_name.toLowerCase();
+
+                if (integrationName.includes('jira')) {
+                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                } else if (integrationName.includes('github')) {
+                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                } else if (integrationName.includes('aha')) {
+                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                } else if (integrationName.includes('azure') || integrationName.includes('devops')) {
+                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
                 }
             }
 
             row.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.status_from}</td>
-                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.status_to}</td>
-                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.workflow_step_name || 'None'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-center" style="color: var(--text-primary);">${mapping.step_number || '-'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-center">${integrationIcon}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-center">
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.status_from}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.status_to}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.workflow_step_name || 'None'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${mapping.step_number || '-'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">${integrationIcon}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">${statusBadge}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
                     <div class="flex justify-center space-x-1">
                         <button onclick="editStatusMapping(${mapping.id})" class="btn-crud-edit-sm" title="Edit">
                             <i class="fas fa-edit"></i>

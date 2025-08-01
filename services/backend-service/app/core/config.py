@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # API Settings
     API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
     HOST: str = Field(default="0.0.0.0", env="BACKEND_HOST")
-    PORT: int = Field(default=3002, env="BACKEND_PORT")
+    PORT: int = Field(default=3001, env="BACKEND_PORT")
     
     # PostgreSQL Configuration
     POSTGRES_HOST: str

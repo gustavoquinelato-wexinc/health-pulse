@@ -22,6 +22,48 @@ export default function Header() {
   const [showQuickActions, setShowQuickActions] = useState(false)
   const [showRecentItems, setShowRecentItems] = useState(false)
 
+  // POST-based ETL navigation function
+  const handleETLDirectNavigation = async (openInNewTab = false) => {
+    const token = localStorage.getItem('pulse_token')
+    if (!token) {
+      console.error('No authentication token found')
+      return
+    }
+
+    try {
+      const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+
+      // POST token to ETL service
+      const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: token,
+          return_url: window.location.href
+        }),
+        credentials: 'include' // Important for cookies
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.redirect_url) {
+          // Navigate to ETL service
+          if (openInNewTab) {
+            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+          } else {
+            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
+          }
+        }
+      } else {
+        console.error('ETL navigation failed:', response.statusText)
+      }
+    } catch (error) {
+      console.error('Failed to navigate to ETL service:', error)
+    }
+  }
+
   const userMenuRef = useRef<HTMLDivElement>(null)
   const quickActionsRef = useRef<HTMLDivElement>(null)
   const recentItemsRef = useRef<HTMLDivElement>(null)
@@ -96,7 +138,7 @@ export default function Header() {
             <span className="text-sm font-bold text-white">P</span>
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-primary">Pulse</h1>
+            <h1 className="text-lg font-semibold text-primary">PULSE</h1>
           </div>
         </div>
       </div>
@@ -127,6 +169,7 @@ export default function Header() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             aria-label="Quick Actions"
+            title="Quick Actions"
           >
             <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -168,6 +211,7 @@ export default function Header() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             aria-label="Recent Items"
+            title="Recent Items"
           >
             <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -199,6 +243,33 @@ export default function Header() {
           )}
         </div>
 
+        {/* ETL Management */}
+        {user?.role === 'admin' && (
+          <motion.a
+            href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home?token=${encodeURIComponent(localStorage.getItem('pulse_token') || '')}`}
+            onClick={(e) => {
+              e.preventDefault();
+              // Check if Ctrl/Cmd key is pressed (indicates "open in new tab" intent)
+              const openInNewTab = e.ctrlKey || e.metaKey;
+              handleETLDirectNavigation(openInNewTab);
+            }}
+            onAuxClick={(e) => {
+              // Middle click: open in new tab
+              if (e.button === 1) {
+                e.preventDefault();
+                handleETLDirectNavigation(true);
+              }
+            }}
+            className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors inline-block"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="ETL Management"
+            title="ETL Management"
+          >
+            <img src="/archive-solid-svgrepo-com.svg" alt="ETL Management" width="20" height="20" />
+          </motion.a>
+        )}
+
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
@@ -206,6 +277,7 @@ export default function Header() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           aria-label="Toggle theme"
+          title="Toggle Theme"
         >
           {theme === 'light' ? '🌙' : '☀️'}
         </motion.button>

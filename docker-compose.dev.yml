@@ -35,12 +35,12 @@ services:
       - .env.shared # 🔒 Shared config (DB, URLs)
       - .env.backend # 🔒 Backend secrets (JWT, sessions)
     ports:
-      - "3002:3002"
+      - "3001:3001"
     depends_on:
       - postgres
     volumes:
       - ./services/backend-service:/app
-    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3002", "--reload" ]
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001", "--reload" ]
     networks:
       - pulse-network
 

@@ -56,20 +56,24 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body style="background-color: var(--bg-primary);">
+<body style="background-color: var(--bg-primary);" {% if embedded %}class="embedded"{% endif %}>
     <div class="min-h-screen" style="background-color: var(--bg-primary);">
+        {% if not embedded %}
         <!-- Header - Full Width at Top -->
         {% from 'components/header.html' import header %}
-        {{ header(title='Pulse ETL Management') }}
+        {{ header(title='PULSE ETL MANAGEMENT') }}
+        {% endif %}
 
         <!-- Content Area Below Header -->
         <div class="flex">
+            {% if not embedded %}
             <!-- Sidebar - Fixed Position Below Header -->
             {% from 'components/sidebar.html' import sidebar %}
             {{ sidebar(current_path=request.path if request else '') }}
+            {% endif %}
 
-            <!-- Main Content - With Left Margin for Sidebar -->
-            <main class="flex-1 p-6 ml-16">
+            <!-- Main Content - Conditional margin for sidebar -->
+            <main class="flex-1 {% if not embedded %}p-6 ml-16{% else %}embedded{% endif %}">
                 {% block content %}{% endblock %}
             </main>
         </div>
@@ -303,7 +307,7 @@
             // Show new submenu
             const submenu = document.getElementById(`submenu-${menuType}`);
             if (submenu) {
-                submenu.style.left = '4rem'; // 64px (w-16) + small gap
+                submenu.style.left = `${rect.right + 8}px`; // Position to the right of the icon with 8px gap
                 submenu.style.top = `${yPosition}px`;
                 submenu.style.zIndex = '1000';
                 submenu.style.position = 'fixed';
@@ -332,6 +336,66 @@
         // Navigation function - Global scope
         function navigateTo(path) {
             window.location.href = path;
+        }
+
+        // Return to Dashboard function
+        function returnToDashboard() {
+            // Get the token from cookies and pass it as URL parameter
+            const token = getCookie('pulse_token');
+            const FRONTEND_URL = 'http://localhost:3000';
+
+            if (token) {
+                // Pass token as URL parameter so frontend can use it
+                window.location.href = `${FRONTEND_URL}/home?token=${encodeURIComponent(token)}`;
+            } else {
+                // Fallback to direct navigation without token
+                window.location.href = `${FRONTEND_URL}/home`;
+            }
+        }
+
+        // Handle token parameter and clean up URL
+        function handleTokenParameter() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlToken = urlParams.get('token');
+
+            if (urlToken) {
+                // Store token in cookie (it should already be there from POST navigation, but just in case)
+                document.cookie = `pulse_token=${urlToken}; path=/; max-age=3600; SameSite=Lax`;
+
+                // Clean up URL by removing token parameter
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('token');
+                window.history.replaceState({}, document.title, newUrl.toString());
+
+                console.log('Token parameter processed and URL cleaned');
+            }
+        }
+
+        // Update the pulse link href dynamically when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle token parameter first
+            handleTokenParameter();
+
+            // Update pulse link href
+            const pulseLink = document.getElementById('pulse-link');
+            if (pulseLink) {
+                const token = getCookie('pulse_token');
+                const FRONTEND_URL = 'http://localhost:3000';
+
+                if (token) {
+                    pulseLink.href = `${FRONTEND_URL}/home?token=${encodeURIComponent(token)}`;
+                } else {
+                    pulseLink.href = `${FRONTEND_URL}/home`;
+                }
+            }
+        });
+
+        // Helper function to get cookie value
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
         }
 
         function confirmAction(modalId) {

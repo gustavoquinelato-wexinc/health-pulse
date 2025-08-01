@@ -3,12 +3,13 @@
 {% block title %}Pulse ETL Management - Issue Type Mappings{% endblock %}
 
 {% block content %}
+{% if not embedded %}
 <!-- Page Header -->
 <div class="mb-8">
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
-                Issue Type Mappings
+                ISSUE TYPE MAPPINGS
             </h1>
             <p class="text-lg" style="color: var(--text-secondary);">Manage issue type mappings between integrations</p>
         </div>
@@ -17,6 +18,16 @@
         </button>
     </div>
 </div>
+{% else %}
+<!-- Embedded Header - Minimal -->
+<div class="mb-6">
+    <div class="flex items-center justify-end">
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Mapping
+        </button>
+    </div>
+</div>
+{% endif %}
 
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">

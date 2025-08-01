@@ -832,7 +832,7 @@ def apply(connection):
         workflow_ids = {}
         for step_name, step_number, category in workflows_data:
             # Set delivery milestone for "Done" step
-            is_commitment_point = (step_name == "Done")
+            is_commitment_point = (step_name == "To Do")
 
             cursor.execute("""
                 INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, client_id, active, created_at, last_updated_at)

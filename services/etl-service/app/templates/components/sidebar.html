@@ -4,39 +4,37 @@
     <!-- Main Navigation -->
     <div class="flex-1 flex flex-col py-4 px-2">
         <div class="flex flex-col space-y-2">
-        <!-- Home -->
-        <div class="relative">
-            <button onclick="navigateTo('/home')"
-                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    data-path="/home"
-                    title="Home"
+        <!-- Home with Hover Submenu -->
+        <div class="relative" id="home-menu">
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     tabindex="0"
+                    onmouseenter="showSubmenu(event, 'home')"
+                    onmouseleave="hideSubmenu()"
+                    onclick="navigateTo('/home')"
                     {% if current_path == '/home' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-                <span class="text-lg">🏠</span>
+                <span class="text-lg">⚡</span>
             </button>
         </div>
 
         <!-- Issue Types with Hover Submenu -->
         <div class="relative" id="issuetypes-menu">
             <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    title="Issue Types"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'issuetypes')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path.startswith('/issuetype') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-                <span class="text-lg">🏷️</span>
+                <span class="text-lg">📋</span>
             </button>
         </div>
 
         <!-- Statuses with Hover Submenu -->
         <div class="relative" id="statuses-menu">
             <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    title="Statuses"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'statuses')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path.startswith('/status') or current_path.startswith('/workflow') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-                <span class="text-lg">🚦</span>
+                <span class="text-lg">🔄</span>
             </button>
         </div>
 
@@ -44,7 +42,6 @@
         {% if user and user.role == 'admin' %}
         <div class="relative" id="admin-menu">
             <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    title="Admin"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'admin')"
                     onmouseleave="hideSubmenu()"
@@ -56,33 +53,18 @@
         </div>
     </div>
 
-    <!-- Secondary Section at Bottom -->
-    <div class="border-t border-default px-2 py-4">
-        <!-- Refresh/Sync Button -->
-        <div class="relative">
-            <button onclick="refreshHome()"
-                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 text-secondary hover:bg-tertiary hover:text-primary"
-                    title="Refresh Data"
-                    tabindex="0">
-                <span class="text-lg">🔄</span>
-            </button>
-        </div>
 
-        <!-- Settings Button -->
-        <div class="relative">
-            <button onclick="navigateTo('/settings')"
-                    class="sidebar-nav-item w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/settings' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    data-path="/settings"
-                    title="Settings"
-                    tabindex="0"
-                    {% if current_path == '/settings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-                <span class="text-lg">🔧</span>
-            </button>
-        </div>
-    </div>
 </aside>
 
 <!-- Sidebar Submenu Panels -->
+<div id="submenu-home" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Home
+    </div>
+</div>
+
 <div id="submenu-issuetypes" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
      onmouseenter="keepSubmenuOpen()"
      onmouseleave="hideSubmenu()">

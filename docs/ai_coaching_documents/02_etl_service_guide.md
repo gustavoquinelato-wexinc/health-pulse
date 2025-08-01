@@ -26,11 +26,11 @@ The ETL Service now operates as an embedded component within the Pulse Platform:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### **Embedded Interface Features**
-- **iframe Integration**: Designed for seamless embedding in frontend
+### **Cross-Service Navigation Features**
+- **Direct Navigation**: POST-based authentication for seamless service switching
 - **Admin-Only Access**: Restricted to users with admin privileges
 - **Shared Authentication**: Uses JWT tokens from Backend Service
-- **Theme Inheritance**: Adapts to parent application theme
+- **Return Navigation**: Pulse button provides navigation back to frontend
 - **Client Branding**: Dynamic logo loading based on user's client
 
 ### **URL Parameters for Embedding**
@@ -69,9 +69,8 @@ async def handle_embedded_auth(request: Request):
         if user_data and user_data.get('is_admin'):
             return user_data
 
-    # Redirect to platform login for non-embedded access
-    if not request.query_params.get('embedded'):
-        return RedirectResponse(url="/login?error=authentication_required")
+    # Redirect to platform login for direct access without authentication
+    return RedirectResponse(url="/login?error=authentication_required")
 
     # Return 401 for embedded access
     raise HTTPException(status_code=401, detail="Authentication required")
@@ -304,6 +303,36 @@ user_data = await auth_service.verify_token(token)
 - **Web Routes**: Redirect to login if not authenticated
 - **API Routes**: Return 401 for invalid tokens
 - **Admin Routes**: Require admin role for sensitive operations
+
+### **Cross-Service Navigation**
+```python
+# Navigation endpoint for frontend → ETL authentication
+@router.post("/auth/navigate")
+async def navigate_with_token(request: Request):
+    """Handle navigation from frontend with token authentication."""
+    data = await request.json()
+    token = data.get("token")
+    return_url = data.get("return_url")
+
+    # Validate token via Backend Service
+    auth_service = get_centralized_auth_service()
+    user_data = await auth_service.verify_token(token)
+
+    if user_data:
+        # Create session cookie and redirect
+        response = RedirectResponse(url="/home", status_code=302)
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=3600,
+            httponly=True,
+            path="/"
+        )
+        # Store return URL for pulse navigation
+        if return_url:
+            response.set_cookie(key="return_url", value=return_url, max_age=3600)
+        return response
+```
 
 ### **Session Management**
 - **No Local Sessions**: ETL Service doesn't manage sessions

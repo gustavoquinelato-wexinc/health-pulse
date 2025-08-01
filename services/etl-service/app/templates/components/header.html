@@ -13,8 +13,8 @@
 
         <!-- Pulse Brand -->
         <div class="flex items-center space-x-2">
-            <div class="w-8 h-8 flex items-center justify-center gradient-bg">
-                <span class="text-sm font-bold" style="color: white !important;">P</span>
+            <div class="w-12 h-8 flex items-center justify-center gradient-bg">
+                <span class="text-xs font-bold" style="color: white !important;">PEM</span>
             </div>
             <div>
                 <h1 class="text-lg font-semibold" style="color: var(--text-primary);">{{ title }}</h1>
@@ -24,6 +24,11 @@
 
     <!-- Right Side Actions -->
     <div class="flex items-center space-x-4">
+        <!-- Pulse Icon -->
+        <a id="pulse-link" href="http://localhost:3000/home" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg transition-colors inline-block" style="background-color: var(--bg-tertiary);" title="Pulse" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
+            <img src="/static/heart-pulse-fill-svgrepo-com.svg" alt="Pulse" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%);">
+        </a>
+
         {% if show_theme_toggle %}
         <!-- Theme Toggle -->
         <button onclick="toggleTheme()" class="p-2 rounded-lg transition-colors" style="background-color: var(--bg-tertiary);" title="Toggle Theme" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">

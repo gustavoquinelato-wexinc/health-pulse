@@ -416,7 +416,10 @@ class GitHubClient:
         # Start with health- filter if provided
         search_patterns = []
         if filter:
-            search_patterns.append(f"{filter} in:name")
+            # Handle trailing hyphens in filter - GitHub search doesn't like them
+            clean_filter = filter.rstrip('-') if filter.endswith('-') else filter
+            if clean_filter:  # Only add if there's something left after cleaning
+                search_patterns.append(f"{clean_filter} in:name")
 
         # Add specific repo names (extract just the repo name part after '/')
         if additional_repo_names:

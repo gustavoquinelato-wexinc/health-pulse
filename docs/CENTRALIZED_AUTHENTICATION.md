@@ -112,10 +112,10 @@ The Pulse Platform now uses **centralized authentication** where all authenticat
 
 ```env
 # Backend Service URL (required for ETL Service)
-BACKEND_SERVICE_URL=http://localhost:3002
+BACKEND_SERVICE_URL=http://localhost:3001
 
 # Frontend API URL (required for Frontend)
-VITE_API_BASE_URL=http://localhost:3002
+VITE_API_BASE_URL=http://localhost:3001
 
 # ETL Service URL (for Backend Service communication)
 ETL_SERVICE_URL=http://localhost:8000
@@ -130,7 +130,7 @@ VITE_API_BASE_URL=https://your-domain.com/api
 ETL_SERVICE_URL=https://your-domain.com/etl
 
 # Docker Configuration
-BACKEND_SERVICE_URL=http://backend-service:3002
+BACKEND_SERVICE_URL=http://backend-service:3001
 ETL_SERVICE_URL=http://etl:8000
 ```
 

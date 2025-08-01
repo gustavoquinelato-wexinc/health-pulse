@@ -20,14 +20,15 @@ This guide covers platform-wide concerns that affect all services in the unified
 6. Logout invalidates session across entire platform
 ```
 
-### **Embedded ETL Authentication**
+### **Cross-Service Navigation Authentication**
 ```
-Platform Frontend → ETL iframe Integration:
+Platform Frontend ↔ ETL Service Direct Navigation:
 1. Frontend checks user.is_admin before showing ETL menu
-2. If admin: Generate ETL URL with token parameter
-3. ETL iframe loads with: ?embedded=true&token=JWT_TOKEN
-4. ETL Service validates token and shows admin interface
-5. Non-admin users never see ETL management options
+2. If admin: POST token to ETL service via /auth/navigate
+3. ETL Service validates token and creates session cookie
+4. User navigates to ETL service with proper authentication
+5. ETL Service provides return navigation to frontend
+6. Non-admin users never see ETL management options
 ```
 
 ### **Token Management**
@@ -69,8 +70,9 @@ const etlConfig: EmbeddedServiceConfig = {
 ### **Cross-Service Communication**
 ```
 Frontend Platform ←→ Backend Service (Direct API calls)
-Frontend Platform ←→ ETL Service (iframe embedding)
+Frontend Platform ←→ ETL Service (POST navigation with token)
 ETL Service ←→ Backend Service (Authentication validation)
+ETL Service ←→ Frontend Platform (Return navigation with token)
 ```
 
 ### **Branding Strategy**
@@ -133,10 +135,9 @@ class UserSession(Base, BaseEntity):
 ## 🔄 Inter-Service Communication
 
 ### **Unified Platform Service Boundaries**
-- **Frontend Platform**: Primary user interface, embedded ETL management, client branding
+- **Frontend Platform**: Primary user interface, cross-service navigation, client branding
 - **Backend Service**: User identity, authentication, permissions, session management
-- **ETL Service**: Business data, analytics, job orchestration, embedded admin interface
-- **Frontend**: User interface, token management
+- **ETL Service**: Business data, analytics, job orchestration, admin interface with return navigation
 
 ### **API Patterns**
 ```python
@@ -181,7 +182,7 @@ async with httpx.AsyncClient() as client:
 JWT_SECRET_KEY=your-secret-key-here
 JWT_ALGORITHM=HS256
 DATABASE_URL=postgresql://...
-BACKEND_SERVICE_URL=http://localhost:3002
+BACKEND_SERVICE_URL=http://localhost:3001
 
 # Service-specific
 DEBUG=true

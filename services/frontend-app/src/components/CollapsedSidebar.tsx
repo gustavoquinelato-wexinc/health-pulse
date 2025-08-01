@@ -9,6 +9,7 @@ interface NavigationItem {
   icon: string;
   path: string;
   adminOnly?: boolean;
+  isAction?: boolean;
   subItems?: Array<{
     id: string;
     label: string;
@@ -45,20 +46,6 @@ const navigationItems: NavigationItem[] = [
 ]
 
 const secondaryItems: NavigationItem[] = [
-  {
-    id: 'etl',
-    label: 'ETL Management',
-    icon: '🔄',
-    path: '/etl',
-    adminOnly: true,
-    subItems: [
-      { id: 'etl-admin', label: 'Admin Panel', path: '/etl/admin' },
-      { id: 'issuetype-mappings', label: 'Issue Type Mappings', path: '/etl/admin/issuetype-mappings' },
-      { id: 'issuetype-hierarchies', label: 'Issue Type Hierarchies', path: '/etl/admin/issuetype-hierarchies' },
-      { id: 'status-mappings', label: 'Status Mappings', path: '/etl/admin/status-mappings' },
-      { id: 'workflows', label: 'Workflows', path: '/etl/admin/workflows' }
-    ]
-  },
   {
     id: 'settings',
     label: 'Settings',
@@ -158,8 +145,55 @@ export default function CollapsedSidebar() {
 
 
 
-  const handleNavClick = (path: string) => {
+  const handleNavClick = (path: string, item?: NavigationItem) => {
+    // Handle special actions
+    if (item?.isAction) {
+      if (item.id === 'etl-direct') {
+        handleETLDirectNavigation()
+        return
+      }
+    }
+
+    // Regular navigation
     navigate(path)
+  }
+
+  // POST-based ETL navigation function
+  const handleETLDirectNavigation = async () => {
+    const token = localStorage.getItem('pulse_token')
+    if (!token) {
+      console.error('No authentication token found')
+      return
+    }
+
+    try {
+      const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+
+      // POST token to ETL service
+      const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: token,
+          return_url: window.location.href
+        }),
+        credentials: 'include' // Important for cookies
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.redirect_url) {
+          // Open ETL service in new tab
+          window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+        }
+      } else {
+        console.error('ETL navigation failed:', response.statusText)
+      }
+    } catch (error) {
+      console.error('Failed to navigate to ETL service:', error)
+    }
   }
 
   const isActive = (item: any) => {
@@ -226,7 +260,7 @@ export default function CollapsedSidebar() {
             .map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
-                  onClick={() => handleNavClick(item.path)}
+                  onClick={() => handleNavClick(item.path, item)}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
                   className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
@@ -251,7 +285,7 @@ export default function CollapsedSidebar() {
             {secondaryItems.map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
-                  onClick={() => handleNavClick(item.path)}
+                  onClick={() => handleNavClick(item.path, item)}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
                   className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)

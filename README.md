@@ -36,7 +36,7 @@ The Pulse Platform is a unified engineering analytics platform that seamlessly i
 │  Backend        │              │  ETL Service    │    │  AI Service       │
 │  Service        │◄────────────►│  (Embedded)     │    │  (LangGraph)      │
 │  (Node.js)      │              │  (FastAPI)      │    │  Port: 8001       │
-│  Port: 3002     │              │  Port: 8000     │    │                   │
+│  Port: 3001     │              │  Port: 8000     │    │                   │
 │                 │              │                 │    │ • AI Orchestrator │
 │ • Authentication│              │ • Data Extract  │    │ • Agent Workflows │
 │ • User Mgmt     │              │ • Job Control   │    │ • MCP Servers     │
@@ -215,7 +215,7 @@ cd services/frontend-app && npm run dev
 - Python 3.8+ (for manual execution)
 - PostgreSQL & Redis (for manual execution)
 - 8GB+ RAM recommended
-- Ports 3002, 5173, 8000, 8001, 5432, 6379 available
+- Ports 3001, 5173, 8000, 8001, 5432, 6379 available
 
 ### **1. Clone & Setup**
 ```bash
@@ -281,7 +281,7 @@ docker-compose -f docker-compose.multi-client.yml up etl-wex -d
 # Backend Service
 cd services/backend-service
 cp ../..env.shared ../..env.backend .env
-python -m uvicorn app.main:app --host 0.0.0.0 --port 3002 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
 
 # ETL Service (WEX client)
 cd services/etl-service
@@ -297,7 +297,7 @@ npm run dev
 ### **5. Access Services**
 - **Frontend:** http://localhost:5173
 - **ETL Dashboard:** http://localhost:8000
-- **Backend Service API:** http://localhost:3002
+- **Backend Service API:** http://localhost:3001
 - **ETL API Documentation:** http://localhost:8000/docs (admin access required)
 
 ### **6. Initial Configuration**
@@ -330,7 +330,7 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 
 # Service URLs
-BACKEND_SERVICE_URL=http://localhost:3002
+BACKEND_SERVICE_URL=http://localhost:3001
 ETL_SERVICE_URL=http://localhost:8000
 ```
 
@@ -485,10 +485,10 @@ cd services/backend-service
 cat ../../.env.shared ../../.env.backend > .env
 
 # Run locally (development)
-python -m uvicorn app.main:app --reload --port 3002
+python -m uvicorn app.main:app --reload --port 3001
 
 # Test authentication endpoints
-curl -X POST http://localhost:3002/api/v1/auth/login \
+curl -X POST http://localhost:3001/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@company.com","password":"your-admin-password"}'
 ```
@@ -748,7 +748,7 @@ curl -H "Authorization: Bearer $JIRA_TOKEN" \
 grep JWT_SECRET_KEY .env
 
 # Test login endpoint
-curl -X POST http://localhost:3002/api/v1/auth/login \
+curl -X POST http://localhost:3001/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@company.com","password":"your-password"}'
 
@@ -880,14 +880,14 @@ docker-compose -f docker-compose.multi-client.yml ps
 #### **🌐 Service URLs**
 - **Frontend**: http://localhost:5173
 - **ETL Dashboard**: http://localhost:8000
-- **Backend API**: http://localhost:3002
+- **Backend API**: http://localhost:3001
 - **ETL API Docs**: http://localhost:8000/docs (admin required)
 
 ## 📚 **Additional Resources**
 
 ### **API Documentation**
 - **ETL Service:** http://localhost:8000/docs
-- **Backend Service:** http://localhost:3002/docs
+- **Backend Service:** http://localhost:3001/docs
 - **AI Service:** http://localhost:8001/docs
 
 ### **Development Tools**

@@ -34,7 +34,7 @@ This guide helps teams transition from the previous microservices architecture t
                     ▼                       ▼
 ┌─────────────────┐              ┌─────────────────┐
 │   Backend       │◄────────────►│   ETL Service   │
-│   (Port 3002)   │              │   (Port 8000)   │
+│   (Port 3001)   │              │   (Port 8000)   │
 │                 │              │                 │
 │ • Auth Hub      │              │ • Embedded UI   │
 │ • API Gateway   │              │ • Admin APIs    │

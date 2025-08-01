@@ -31,8 +31,8 @@
         </div>
     </div>
 
-    <!-- Three Internal Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <!-- Two Internal Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
         <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-1); opacity: 0.15;"></div>
@@ -58,20 +58,6 @@
                 <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Next Run</h3>
                 <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--color-2);">
                     --:--:--
-                </div>
-            </div>
-        </div>
-
-        <!-- Execution Count Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-3); opacity: 0.15;"></div>
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-chart-line text-base" style="color: var(--color-3);"></i>
-            </div>
-            <div class="pr-10">
-                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Executions</h3>
-                <div id="executionCount" class="text-xl font-bold" style="color: var(--color-3);">
-                    0
                 </div>
             </div>
         </div>
@@ -1536,7 +1522,7 @@
             if (token) {
                 console.log('Calling Backend Service to invalidate session...');
                 // Call Backend Service directly to invalidate session
-                const response = await fetch('http://localhost:3002/api/v1/admin/auth/invalidate-session', {
+                const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,

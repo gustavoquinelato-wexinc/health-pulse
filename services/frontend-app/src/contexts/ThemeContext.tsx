@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import clientLogger from '../utils/clientLogger'
 import { useAuth } from './AuthContext'
 
 type Theme = 'light' | 'dark'
@@ -40,47 +41,13 @@ const defaultColorSchema: ColorSchema = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 // API functions for color schema persistence
-interface ColorSchemaAPIResponse {
-  mode: ColorSchemaMode
-  colors: ColorSchema
-}
 
-const loadColorSchemaFromAPI = async (): Promise<ColorSchemaAPIResponse | null> => {
-  try {
-    const response = await apiClient.get('/api/v1/admin/color-schema')
-    clientLogger.info('Color schema loaded from API', {
-      type: 'api_response',
-      success: response.success
-    })
 
-    if (response.success) {
-      clientLogger.info('Successfully loaded color schema', {
-        type: 'color_schema_load',
-        mode: response.mode
-      })
-      return {
-        mode: response.mode,
-        colors: response.colors
-      }
-    } else {
-      clientLogger.warn('Color schema API response not successful', {
-        type: 'api_warning',
-        response: response
-      })
-    }
-  } catch (error) {
-    clientLogger.error('Failed to load color schema from API', {
-      type: 'api_error',
-      error: error instanceof Error ? error.message : String(error)
-    })
-  }
-  return null
-}
 
 const saveColorSchemaToAPI = async (colors: ColorSchema): Promise<boolean> => {
   try {
-    const response = await apiClient.post('/api/v1/admin/color-schema', colors)
-    return response.success
+    const response = await axios.post('/api/v1/admin/color-schema', colors)
+    return response.data.success
   } catch (error) {
     clientLogger.error('Failed to save color schema to API', {
       type: 'api_error',
@@ -110,8 +77,9 @@ const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
     }
   } catch (error) {
     console.error('Failed to load theme mode from API:', error)
-    if (error.response) {
-      console.error('API Error Response:', error.response.status, error.response.data)
+    if (error && typeof error === 'object' && 'response' in error) {
+      const axiosError = error as any
+      console.error('API Error Response:', axiosError.response?.status, axiosError.response?.data)
     }
   }
   return null
@@ -119,9 +87,7 @@ const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
 
 const saveThemeModeToAPI = async (mode: Theme): Promise<boolean> => {
   try {
-    console.log('API: Saving theme mode:', mode)
     const response = await axios.post('/api/v1/admin/theme-mode', { mode })
-    console.log('API: Theme mode save response:', response.data)
     return response.data.success
   } catch (error) {
     console.error('Failed to save theme mode to API:', error)

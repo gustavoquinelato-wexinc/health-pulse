@@ -11,7 +11,7 @@ Row 1: Unified Platform Services
 ┌─────────────────────────────────────────┐    ┌─────────────────┐    ┌───────────────────┐
 │  Pulse Platform Frontend               │◄──►│  Backend        │    │  AI Service       │
 │  (React/Vite) - Port: 5173            │    │  (Node.js)      │    │  (LangGraph)      │
-│                                        │    │  Port: 3002     │    │  Port: 8001       │
+│                                        │    │  Port: 3001     │    │  Port: 8001       │
 │ ┌─────────────────────────────────────┐ │    │                 │    │                   │
 │ │ Main Platform Features              │ │    │ • API Gateway   │    │ • AI Orchestrator │
 │ │ • DORA Metrics Dashboard           │ │    │ • Authentication│    │ • Agent Workflows │
@@ -221,7 +221,7 @@ Internal Pages (Client Branding):
 
 ### **Backend Service**
 - **Technology:** Node.js + TypeScript
-- **Port:** 3002
+- **Port:** 3001
 - **Responsibilities:**
   - API gateway and routing
   - Authentication and authorization

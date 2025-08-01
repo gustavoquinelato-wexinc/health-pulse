@@ -9,7 +9,7 @@ Provides web interface routes for the ETL service including:
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -168,8 +168,16 @@ async def home_page(request: Request, token: Optional[str] = None):
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
             if user_data:
+                # Check if this is an embedded request (iframe)
+                embedded = request.query_params.get("embedded") == "true"
+
                 # Set cookie for subsequent requests (accessible by JavaScript for API calls)
-                response = templates.TemplateResponse("home.html", {"request": request, "user": user_data, "token": token})
+                response = templates.TemplateResponse("home.html", {
+                    "request": request,
+                    "user": user_data,
+                    "token": token,
+                    "embedded": embedded
+                })
                 response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
                 logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
@@ -204,9 +212,16 @@ async def home_page(request: Request, token: Optional[str] = None):
     except Exception as e:
         logger.debug(f"Could not fetch color schema: {e}")
 
+    # Check if this is an embedded request (iframe)
+    embedded = request.query_params.get("embedded") == "true"
+
     # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
-    return templates.TemplateResponse("home.html", {"request": request, "color_schema": color_schema_data})
+    return templates.TemplateResponse("home.html", {
+        "request": request,
+        "color_schema": color_schema_data,
+        "embedded": embedded
+    })
 
 
 @router.get("/old_dashboard", response_class=HTMLResponse)
@@ -585,20 +600,42 @@ async def admin_page(request: Request, token: Optional[str] = None):
             user = await auth_service.verify_token(auth_token)
 
             if user:
+                # Check if this is an embedded request (iframe)
+                embedded = request.query_params.get("embedded") == "true"
+
                 # If token came from URL parameter, set cookie for subsequent requests
-                response = templates.TemplateResponse("admin.html", {"request": request, "user": user, "token": token if token else None})
+                response = templates.TemplateResponse("admin.html", {
+                    "request": request,
+                    "user": user,
+                    "token": token if token else None,
+                    "embedded": embedded
+                })
                 if token:  # Token came from URL parameter
                     response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
                     logger.info(f"✅ Portal embedding: Admin access granted for user {user.get('email')}")
                 return response
 
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
         # Fallback if no token (shouldn't happen due to middleware)
-        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
+        return templates.TemplateResponse("admin.html", {
+            "request": request,
+            "user": {"email": "Unknown"},
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Admin page error: {e}")
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
         # Fallback with minimal user data
-        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
+        return templates.TemplateResponse("admin.html", {
+            "request": request,
+            "user": {"email": "Unknown"},
+            "embedded": embedded
+        })
 
 
 @router.get("/status-mappings", response_class=HTMLResponse)
@@ -644,8 +681,16 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
         # Create response and set cookie if token came from URL parameter
-        response = templates.TemplateResponse("status_mappings.html", {"request": request, "user": user, "color_schema": color_schema_data})
+        response = templates.TemplateResponse("status_mappings.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
             logger.info(f"✅ Portal embedding: Status mappings access granted for user {user.get('email')}")
@@ -696,7 +741,15 @@ async def issuetype_mappings_page(request: Request):
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
-        return templates.TemplateResponse("issuetype_mappings.html", {"request": request, "user": user, "color_schema": color_schema_data})
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("issuetype_mappings.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Issue type mappings page error: {e}")
@@ -743,7 +796,15 @@ async def issuetype_hierarchies_page(request: Request):
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
-        return templates.TemplateResponse("issuetype_hierarchies.html", {"request": request, "user": user, "color_schema": color_schema_data})
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("issuetype_hierarchies.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Issue type hierarchies page error: {e}")
@@ -790,7 +851,15 @@ async def workflows_page(request: Request):
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
-        return templates.TemplateResponse("workflows.html", {"request": request, "user": user, "color_schema": color_schema_data})
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("workflows.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Workflows page error: {e}")
@@ -874,6 +943,102 @@ async def logout_page(request: Request):
     response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
 
     return response
+
+# Navigation endpoint for cross-service authentication
+@router.post("/auth/navigate")
+async def navigate_with_token(request: Request):
+    """Handle navigation from frontend with token authentication."""
+    logger.info("🚀 ETL Navigation endpoint called!")
+    try:
+        # Handle both form data and JSON
+        content_type = request.headers.get("content-type", "")
+
+        if "application/json" in content_type:
+            data = await request.json()
+            token = data.get("token")
+            return_url = data.get("return_url")
+        else:
+            # Handle form data
+            form_data = await request.form()
+            token = form_data.get("token")
+            return_url = form_data.get("return_url")
+
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token is required"
+            )
+
+        # Debug: Check token format
+        logger.info(f"Navigation token received: {token[:30]}... (length: {len(token)})")
+
+        # Validate token via centralized auth service
+        auth_service = get_centralized_auth_service()
+        user_data = await auth_service.verify_token(token)
+
+        if not user_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token"
+            )
+
+        # Create a database session for this token to ensure subsequent requests work
+        # This is needed because backend startup clears all sessions
+        session_created = await auth_service.ensure_session_exists(token, user_data)
+        if session_created:
+            logger.info(f"Navigation session ensured for user: {user_data['email']}")
+        else:
+            logger.warning(f"Failed to ensure session for user: {user_data['email']}")
+
+        logger.info(f"Navigation successful for user: {user_data['email']}")
+
+        # Create response with session cookie
+        if "application/json" in content_type:
+            # JSON request - return redirect URL
+            response = JSONResponse({
+                "success": True,
+                "redirect_url": "/home",
+                "message": "Authentication successful"
+            })
+        else:
+            # Form request - direct redirect
+            response = RedirectResponse(url="/home", status_code=302)
+
+        # Set session cookie for ETL service
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=3600,  # 1 hour
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
+            path="/"
+        )
+
+        # Store return URL in cookie for later use
+        if return_url:
+            response.set_cookie(
+                key="return_url",
+                value=return_url,
+                max_age=3600,
+                httponly=False,  # Allow JavaScript access for return navigation
+                secure=False,
+                samesite="lax",
+                path="/"
+            )
+
+        logger.info(f"Navigation successful for user: {user_data.get('email')}")
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Navigation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Navigation failed"
+        )
+
 
 # Authentication API routes - Now redirected to Backend Service
 @router.post("/auth/login")

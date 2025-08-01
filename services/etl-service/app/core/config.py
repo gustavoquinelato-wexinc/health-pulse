@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = Field(default=3600, env="CACHE_TTL_SECONDS")
 
     # Service Communication URLs
-    BACKEND_SERVICE_URL: str = Field(default="http://localhost:3002", env="BACKEND_SERVICE_URL")
+    BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
     AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
     FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
 

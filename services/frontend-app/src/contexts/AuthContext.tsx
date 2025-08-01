@@ -38,7 +38,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 // Configure axios defaults
 // In development, use relative URLs so Vite proxy can handle routing
 // In production, use the full API URL
-const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002')
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
 axios.defaults.baseURL = API_BASE_URL
 
 interface AuthProviderProps {
@@ -74,6 +74,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check for existing token on app start
   useEffect(() => {
+    // First check for token in URL parameters (from ETL service)
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlToken = urlParams.get('token')
+
+    if (urlToken) {
+      // Store token from URL parameter
+      localStorage.setItem('pulse_token', urlToken)
+      // Clean up URL by removing token parameter
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('token')
+      window.history.replaceState({}, document.title, newUrl.toString())
+
+      // Set axios default header
+      axios.defaults.headers.common['Authorization'] = `Bearer ${urlToken}`
+
+      // Validate the token from URL
+      validateToken()
+      return
+    }
+
+    // Check localStorage for existing token
     const token = localStorage.getItem('pulse_token')
     if (token) {
       // Set axios default header

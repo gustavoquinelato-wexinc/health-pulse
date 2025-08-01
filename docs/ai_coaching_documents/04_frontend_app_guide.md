@@ -1,6 +1,6 @@
 # Frontend App Guide
 
-This guide covers the unified Pulse Platform frontend application, including embedded ETL management, UI/UX standards, and client-side functionality.
+This guide covers the unified Pulse Platform frontend application, including cross-service ETL navigation, UI/UX standards, and client-side functionality.
 
 ## 🏗️ **Platform Architecture**
 
@@ -20,7 +20,7 @@ The Pulse Platform frontend is now a comprehensive engineering analytics platfor
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │              🔧 ETL Management (Admin Only)                │ │
 │  │                                                             │ │
-│  │  iframe: http://localhost:8000/home?embedded=true&token=... │ │
+│  │  POST Navigation: /auth/navigate → ETL Service             │ │
 │  │                                                             │ │
 │  │  • Job Orchestration Dashboard                             │ │
 │  │  • Data Pipeline Configuration                             │ │
@@ -39,57 +39,73 @@ The Pulse Platform frontend is now a comprehensive engineering analytics platfor
 - **Responsive Design**: Consistent experience across all screen sizes
 - **Real-time Updates**: WebSocket integration for live job monitoring
 
-## 🔗 **ETL Embedding Patterns**
+## 🔗 **ETL Navigation Patterns**
 
-### **iframe Integration**
-The ETL service is embedded using iframe with secure token passing:
+### **Cross-Service Navigation**
+The ETL service is accessed via secure POST-based navigation with token authentication:
 
 ```typescript
-// ETL Component Integration
-const ETLManagement: React.FC = () => {
-  const { user, token } = useAuth();
-  const { theme, colorMode } = useTheme();
-
-  // Only render for admin users
-  if (!user?.is_admin) {
-    return <AccessDenied message="ETL Management requires administrator privileges" />;
+// ETL Navigation Integration
+const handleETLDirectNavigation = async (openInNewTab = false) => {
+  const token = localStorage.getItem('pulse_token')
+  if (!token) {
+    console.error('No authentication token found')
+    return
   }
 
-  const etlUrl = `http://localhost:8000/home?embedded=true&token=${token}&theme=${theme}&colorMode=${colorMode}`;
+  try {
+    const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-  return (
-    <div className="h-full w-full">
-      <iframe
-        src={etlUrl}
-        className="w-full h-full border-0"
-        title="ETL Management"
-        sandbox="allow-same-origin allow-scripts allow-forms"
-      />
-    </div>
-  );
-};
+    // POST token to ETL service for authentication
+    const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token,
+        return_url: window.location.href
+      }),
+      credentials: 'include'
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      if (data.redirect_url) {
+        if (openInNewTab) {
+          window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+        } else {
+          window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to navigate to ETL service:', error)
+  }
+}
 ```
 
 ### **Authentication Integration**
 ```typescript
-// Token Management for Embedded ETL
-export const useETLAuth = () => {
-  const { token, user } = useAuth();
-
-  const getETLUrl = (page: string = 'dashboard') => {
-    const baseUrl = 'http://localhost:8000';
-    const params = new URLSearchParams({
-      embedded: 'true',
-      token: token || '',
-      theme: getCurrentTheme(),
-      colorMode: getCurrentColorMode()
-    });
-
-    return `${baseUrl}/${page}?${params.toString()}`;
-  };
-
-  return { getETLUrl, canAccessETL: user?.is_admin };
-};
+// Header Button with Cross-Service Navigation
+{user?.role === 'admin' && (
+  <motion.a
+    href={`${ETL_SERVICE_URL}/home?token=${encodeURIComponent(localStorage.getItem('pulse_token') || '')}`}
+    onClick={(e) => {
+      e.preventDefault();
+      const openInNewTab = e.ctrlKey || e.metaKey;
+      handleETLDirectNavigation(openInNewTab);
+    }}
+    onAuxClick={(e) => {
+      if (e.button === 1) { // Middle click
+        e.preventDefault();
+        handleETLDirectNavigation(true);
+      }
+    }}
+    className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors inline-block"
+    title="ETL Management"
+  >
+    <img src="/archive-solid-svgrepo-com.svg" alt="ETL Management" width="20" height="20" />
+  </motion.a>
+)}
 ```
 
 ### **Navigation Integration**
@@ -200,7 +216,7 @@ async function logout() {
         
         if (token) {
             // 2. Call Backend Service to invalidate session
-            const response = await fetch('http://localhost:3002/api/v1/admin/auth/invalidate-session', {
+            const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

@@ -9,7 +9,7 @@ import ColorSchemeSettingsPage from './pages/ColorSchemeSettingsPage'
 import DeploymentFrequencyPage from './pages/DeploymentFrequencyPage'
 import DoraOverviewPage from './pages/DoraOverviewPage'
 import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
-import ETLManagementPage from './pages/ETLManagementPage'
+
 import HomePage from './pages/HomePage'
 import HomePageBackup from './pages/HomePageBackup'
 import HomePageOptionB from './pages/HomePageOptionB'
@@ -115,31 +115,7 @@ function App() {
                   }
                 />
 
-                {/* ETL Management Routes (Admin Only) */}
-                <Route
-                  path="/etl"
-                  element={
-                    <AdminRoute>
-                      <ETLManagementPage />
-                    </AdminRoute>
-                  }
-                />
-                <Route
-                  path="/etl/:page"
-                  element={
-                    <AdminRoute>
-                      <ETLManagementPage />
-                    </AdminRoute>
-                  }
-                />
-                <Route
-                  path="/etl/admin/:page"
-                  element={
-                    <AdminRoute>
-                      <ETLManagementPage />
-                    </AdminRoute>
-                  }
-                />
+
 
                 {/* Settings Routes */}
                 <Route

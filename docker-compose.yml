@@ -51,10 +51,10 @@ services:
     build:
       context: ./services/backend-service
     ports:
-      - "3002:3002"
+      - "3001:3001"
     volumes:
       - ./services/backend-service:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 3002 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
     env_file:
       - .env
     networks:

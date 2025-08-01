@@ -748,17 +748,19 @@ async def discover_all_repositories(session: Session, integration: Integration, 
 
         # Filter out repositories that contain health- pattern (will be found by search)
         health_pattern = name_filter.replace('%20', ' ')  # Convert URL encoding back to space
+        # Clean the pattern for consistent filtering (remove trailing hyphens)
+        clean_health_pattern = health_pattern.rstrip('-') if health_pattern and health_pattern.endswith('-') else health_pattern
 
         non_health_repo_names = []
         for repo_full_name in jira_repo_names:
             if '/' in repo_full_name:
                 # Extract just the repo name part (after the '/')
                 repo_name = repo_full_name.split('/', 1)[1]
-                # Check if repo name contains health- pattern anywhere
-                if health_pattern not in repo_name:
+                # Check if repo name contains health pattern anywhere (using cleaned pattern)
+                if not clean_health_pattern or clean_health_pattern not in repo_name:
                     non_health_repo_names.append(repo_name)  # Store just the repo name for search
 
-        logger.info(f"Non-{health_pattern} repositories from Jira: {len(non_health_repo_names)}")
+        logger.info(f"Non-{clean_health_pattern or 'filtered'} repositories from Jira: {len(non_health_repo_names)}")
         if non_health_repo_names and len(non_health_repo_names) <= 5:
             logger.info(f"Non-health repos: {', '.join(sorted(non_health_repo_names))}")
         elif non_health_repo_names:

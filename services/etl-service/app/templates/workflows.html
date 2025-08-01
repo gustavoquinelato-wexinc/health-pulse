@@ -3,6 +3,7 @@
 {% block title %}Pulse ETL Management - Workflows{% endblock %}
 
 {% block content %}
+{% if not embedded %}
 <!-- Page Header -->
 <div class="mb-8">
     <div class="flex items-center justify-between mb-6">
@@ -17,6 +18,16 @@
         </button>
     </div>
 </div>
+{% else %}
+<!-- Embedded Header - Minimal -->
+<div class="mb-6">
+    <div class="flex items-center justify-end">
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Workflow
+        </button>
+    </div>
+</div>
+{% endif %}
 
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
@@ -253,9 +264,9 @@
     }
 
     // Initialize page
-    document.addEventListener('DOMContentLoaded', function() {
-        loadWorkflows();
-        loadIntegrations();
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadIntegrations(); // Load integrations first
+        await loadWorkflows(); // Then load workflows
     });
 
     async function loadWorkflows() {
@@ -277,6 +288,12 @@
             }
 
             workflows = await response.json();
+
+            // Ensure integrations are loaded before rendering
+            if (integrations.length === 0) {
+                await loadIntegrations();
+            }
+
             renderWorkflowsTable();
 
         } catch (error) {
@@ -362,6 +379,23 @@
             const integration = integrations.find(i => i.id === workflow.integration_id);
             const integrationName = integration ? integration.name : 'Unknown';
 
+            // Create integration icon based on integration name
+            let integrationIcon = '<i class="fas fa-question-circle text-lg" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+
+            if (integration && integration.name) {
+                const integrationNameLower = integration.name.toLowerCase();
+
+                if (integrationNameLower.includes('jira')) {
+                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                } else if (integrationNameLower.includes('github')) {
+                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                } else if (integrationNameLower.includes('aha')) {
+                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                } else if (integrationNameLower.includes('azure') || integrationNameLower.includes('devops')) {
+                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
+                }
+            }
+
             const textColorPrimary = workflow.active ? 'var(--text-primary)' : 'var(--text-muted)';
             const textColorSecondary = workflow.active ? 'var(--text-secondary)' : 'var(--text-muted)';
 
@@ -405,7 +439,7 @@
                     ${categoryBadge}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">
-                    <span class="text-sm" style="color: ${textColorSecondary};">${integrationName}</span>
+                    ${integrationIcon}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">
