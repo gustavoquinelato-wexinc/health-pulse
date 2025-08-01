@@ -1084,6 +1084,55 @@ async def get_workflow_details(
         )
 
 
+@router.get("/workflow-stats")
+async def get_workflow_stats(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get workflow statistics for the workflows page"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import Workflow, StatusMapping
+            from sqlalchemy import func
+
+            # Get total workflows count
+            total_workflows = session.query(func.count(Workflow.id)).filter(
+                Workflow.client_id == user.client_id
+            ).scalar() or 0
+
+            # Get active workflows count
+            active_workflows = session.query(func.count(Workflow.id)).filter(
+                Workflow.client_id == user.client_id,
+                Workflow.active == True
+            ).scalar() or 0
+
+            # Get workflows with mappings count
+            workflows_with_mappings = session.query(func.count(func.distinct(StatusMapping.workflow_id))).filter(
+                StatusMapping.client_id == user.client_id,
+                StatusMapping.active == True
+            ).scalar() or 0
+
+            # Get total status mappings count
+            total_mappings = session.query(func.count(StatusMapping.id)).filter(
+                StatusMapping.client_id == user.client_id
+            ).scalar() or 0
+
+            return {
+                "total_workflows": total_workflows,
+                "active_workflows": active_workflows,
+                "workflows_with_mappings": workflows_with_mappings,
+                "total_mappings": total_mappings,
+                "completion_rate": round((workflows_with_mappings / total_workflows * 100) if total_workflows > 0 else 0, 1)
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching workflow stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch workflow statistics"
+        )
+
+
 @router.get("/workflows/{workflow_id}/dependencies")
 async def check_workflow_dependencies(
     workflow_id: int,
@@ -1757,6 +1806,61 @@ async def delete_flow_step(
         )
 
 
+@router.get("/issuetype-mappings/options")
+async def get_issuetype_mapping_options(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get available options for issue type mapping dropdowns"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from sqlalchemy import distinct
+
+            # Get unique source types from existing mappings
+            source_types = session.query(distinct(IssuetypeMapping.issuetype_from)).filter(
+                IssuetypeMapping.client_id == user.client_id
+            ).order_by(IssuetypeMapping.issuetype_from).all()
+
+            # Get unique target types from existing mappings
+            target_types = session.query(distinct(IssuetypeMapping.issuetype_to)).filter(
+                IssuetypeMapping.client_id == user.client_id
+            ).order_by(IssuetypeMapping.issuetype_to).all()
+
+            # Also get unique original names from Issuetype table (raw data from integrations)
+            raw_issuetypes = session.query(distinct(Issuetype.original_name)).filter(
+                Issuetype.client_id == user.client_id,
+                Issuetype.active == True
+            ).order_by(Issuetype.original_name).all()
+
+            # Combine and deduplicate source options
+            all_source_options = set()
+            for (source_type,) in source_types:
+                if source_type:
+                    all_source_options.add(source_type)
+            for (raw_type,) in raw_issuetypes:
+                if raw_type:
+                    all_source_options.add(raw_type)
+
+            # Target types are typically standardized names
+            all_target_options = set()
+            for (target_type,) in target_types:
+                if target_type:
+                    all_target_options.add(target_type)
+
+            return {
+                "source_types": sorted(list(all_source_options)),
+                "target_types": sorted(list(all_target_options))
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching issue type mapping options: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch issue type mapping options"
+        )
+
+
 @router.get("/issuetype-mappings")
 async def get_issuetype_mappings(
     user: UserData = Depends(require_admin_authentication)
@@ -2109,13 +2213,15 @@ async def update_issuetype_mapping(
 @router.delete("/issuetype-mappings/{mapping_id}")
 async def delete_issuetype_mapping(
     mapping_id: int,
+    deletion_data: Optional[IssuetypeMappingDeactivationRequest] = None,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Delete an issue type mapping"""
+    """Delete an issue type mapping with options for handling dependencies"""
     try:
         database = get_database()
-        with database.get_session() as session:
-            from app.models.unified_models import IssuetypeMapping, Issue
+        with database.get_admin_session_context() as session:
+            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from datetime import datetime
 
             mapping = session.query(IssuetypeMapping).filter(
                 IssuetypeMapping.id == mapping_id,
@@ -2128,37 +2234,69 @@ async def delete_issuetype_mapping(
                     detail="Issue type mapping not found"
                 )
 
-            # Check for dependent issue types and issues (using correct relationship)
-            from app.models.unified_models import Issuetype
-
-            # Count dependent issue types
+            # Get dependent issue types
             dependent_issuetypes = session.query(Issuetype).filter(
                 Issuetype.issuetype_mapping_id == mapping_id,
                 Issuetype.active == True
-            ).count()
+            ).all()
 
-            # Count dependent issues through issue types
-            dependent_issues = session.query(Issue).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
-            ).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True,
-                Issue.active == True
-            ).count()
-
-            if dependent_issuetypes > 0 or dependent_issues > 0:
+            # If there are dependencies and no deletion data provided, block deletion
+            if dependent_issuetypes and not deletion_data:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot delete mapping: {dependent_issuetypes} active issue types and {dependent_issues} active issues are using this mapping. Use 'Deactivate' instead or reassign dependencies first."
+                    detail=f"Cannot delete mapping: {len(dependent_issuetypes)} active issue types are using this mapping. Please specify reassignment options."
                 )
+
+            # Handle dependencies if deletion data is provided
+            if deletion_data and dependent_issuetypes:
+                if deletion_data.action == "reassign_issuetypes":
+                    if not deletion_data.target_mapping_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Target mapping ID required for reassignment"
+                        )
+
+                    # Verify target mapping exists and is active
+                    target_mapping = session.query(IssuetypeMapping).filter(
+                        IssuetypeMapping.id == deletion_data.target_mapping_id,
+                        IssuetypeMapping.active == True,
+                        IssuetypeMapping.client_id == user.client_id
+                    ).first()
+
+                    if not target_mapping:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Target mapping (ID: {deletion_data.target_mapping_id}) not found or is inactive"
+                        )
+
+                    # Reassign all dependent issue types to the target mapping
+                    for issuetype in dependent_issuetypes:
+                        issuetype.issuetype_mapping_id = deletion_data.target_mapping_id
+                        issuetype.last_updated_at = datetime.utcnow()
+
+                    message = f"Issue type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
+                    logger.info(f"Admin {user.email} deleted mapping {mapping_id}, reassigned {len(dependent_issuetypes)} issue types to mapping {deletion_data.target_mapping_id}")
+
+                elif deletion_data.action == "keep_issuetypes":
+                    # Keep issue types but mark them as orphaned (they'll reference a deleted mapping)
+                    # This is generally not recommended but allowed for data preservation
+                    message = f"Issue type mapping deleted ({len(dependent_issuetypes)} issue types will reference deleted mapping)"
+                    logger.info(f"Admin {user.email} deleted mapping {mapping_id}, keeping {len(dependent_issuetypes)} dependent issue types")
+
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid action: {deletion_data.action}. Supported actions: keep_issuetypes, reassign_issuetypes"
+                    )
+            else:
+                message = "Issue type mapping deleted successfully"
+                logger.info(f"Admin {user.email} deleted issue type mapping {mapping_id}")
 
             # Delete the mapping
             session.delete(mapping)
             session.commit()
 
-            logger.info(f"Admin {user.email} deleted issue type mapping {mapping_id}")
-
-            return {"message": "Issue type mapping deleted successfully"}
+            return {"message": message}
 
     except HTTPException:
         raise

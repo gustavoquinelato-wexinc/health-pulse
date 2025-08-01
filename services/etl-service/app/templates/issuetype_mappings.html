@@ -1,6 +1,6 @@
 {% extends "layouts/modern_layout.html" %}
 
-{% block title %}Issue Type Mappings - Pulse ETL{% endblock %}
+{% block title %}Pulse ETL Management - Issue Type Mappings{% endblock %}
 
 {% block content %}
 <!-- Page Header -->
@@ -8,7 +8,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
-                <i class="fas fa-sitemap mr-3" style="color: var(--color-1);"></i>Issue Type Mappings
+                Issue Type Mappings
             </h1>
             <p class="text-lg" style="color: var(--text-secondary);">Manage issue type mappings between integrations</p>
         </div>
@@ -20,50 +20,81 @@
 
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <!-- 1. Source Type -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Type</label>
+            <input type="text" id="filterSourceType" placeholder="Filter by source type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 2. Target Type -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Type</label>
+            <input type="text" id="filterTargetType" placeholder="Filter by target type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 3. Hierarchy Level Name -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level Name</label>
+            <input type="text" id="filterHierarchyName" placeholder="Filter by level name..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 4. Hierarchy Level Number -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level Number</label>
+            <select id="filterHierarchyLevel" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Levels</option>
+                <option value="-1">Level -1</option>
+                <option value="1">Level 1</option>
+                <option value="2">Level 2</option>
+                <option value="3">Level 3</option>
+                <option value="4">Level 4</option>
+                <option value="5">Level 5</option>
+            </select>
+        </div>
+
+        <!-- 5. Integration -->
         <div>
             <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
-            <select class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <select id="filterIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
                 <option value="">All Integrations</option>
                 <option value="jira">Jira</option>
                 <option value="github">GitHub</option>
             </select>
         </div>
+
+        <!-- 6. Status -->
         <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Type</label>
-            <input type="text" placeholder="Filter by source type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-        </div>
-        <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Type</label>
-            <input type="text" placeholder="Filter by target type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-        </div>
-        <div class="flex items-end space-x-2">
-            <button onclick="applyFilters()" class="btn-neutral-primary">
-                <i class="fas fa-filter mr-2"></i>Apply
-            </button>
-            <button onclick="clearFilters()" class="btn-neutral-secondary">
-                <i class="fas fa-times mr-2"></i>Clear
-            </button>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Status</label>
+            <select id="filterStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
         </div>
     </div>
 </div>
 
 <!-- Mappings Table -->
 <div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-    <div class="px-6 py-4 border-b" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Issue Type Mappings</h2>
+        <button onclick="loadMappings()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
     </div>
     
     <div class="overflow-x-auto">
         <table class="w-full">
             <thead style="background-color: var(--bg-tertiary);">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Source Type</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Target Type</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Created</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Hierarchy Level Name</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Hierarchy Level Number</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
                 </tr>
             </thead>
             <tbody id="mappings-table-body" style="background-color: var(--bg-secondary);">
@@ -90,8 +121,15 @@
 </div>
 
 <!-- Create/Edit Mapping Modal -->
-{% from 'components/modal.html' import modal %}
-{% call modal('mappingModal', 'Create Issue Type Mapping', 'lg') %}
+<div id="mappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 id="mappingModalTitle" class="text-xl font-semibold text-primary">Create Issue Type Mapping</h2>
+            <button onclick="closeModal('mappingModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
     <form id="mappingForm">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -104,20 +142,25 @@
             </div>
             <div>
                 <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Issue Type</label>
-                <input type="text" id="sourceType" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                <select id="sourceType" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="">Select Source Issue Type</option>
+                    <!-- Options will be populated dynamically -->
+                </select>
             </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
                 <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Issue Type</label>
-                <input type="text" id="targetType" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                <select id="targetType" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="">Select Target Issue Type</option>
+                    <!-- Options will be populated dynamically -->
+                </select>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Priority</label>
-                <select id="mappingPriority" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                    <option value="1">High</option>
-                    <option value="2" selected>Medium</option>
-                    <option value="3">Low</option>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level</label>
+                <select id="mappingHierarchyLevel" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="">Select Hierarchy Level</option>
+                    <!-- Options will be populated dynamically -->
                 </select>
             </div>
         </div>
@@ -138,17 +181,75 @@
             </button>
         </div>
     </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Mapping Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deleteMappingModal', 'Delete Issue Type Mapping', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to delete the mapping: <strong id="deleteMappingName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Mapping (Optional)</label>
+        <select id="deleteReassignToMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deleteMappingModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeleteMapping()" class="btn-crud-delete">
+            <i class="fas fa-trash mr-2"></i>Delete Mapping
+        </button>
+    </div>
 {% endcall %}
 
-<!-- Delete Confirmation Modal -->
-{% from 'components/modal.html' import confirm_modal %}
-{{ confirm_modal('deleteMappingModal', 'Delete Mapping', 'Are you sure you want to delete this issue type mapping? This action cannot be undone.', 'Delete', 'Cancel', 'danger') }}
+<!-- Deactivate Mapping Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deactivateMappingModal', 'Pause Issue Type Mapping', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to pause the mapping: <strong id="deactivateMappingName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Mapping (Optional)</label>
+        <select id="reassignToMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deactivateMappingModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeactivateMapping()" class="btn-crud-warning">
+            <i class="fas fa-pause mr-2"></i>Deactivate
+        </button>
+    </div>
+{% endcall %}
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
     // Global variables
     let mappings = [];
+    let hierarchies = [];
+    let issuetypeOptions = { source_types: [], target_types: [] };
     let currentMappingId = null;
 
     // Authentication helper
@@ -169,25 +270,284 @@
 
     // Initialize page
     document.addEventListener('DOMContentLoaded', function() {
+        loadHierarchies();
         loadMappings();
+        loadIssuetypeOptions();
     });
 
-    function loadMappings() {
-        // Hide empty state and show loading
-        document.getElementById('emptyState').classList.add('hidden');
-        document.getElementById('loadingState').classList.remove('hidden');
-        
-        // Simulate loading delay - replace with actual API call
-        setTimeout(() => {
+    async function loadMappings() {
+        try {
+            // Hide empty state and show loading
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/issuetype-mappings', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            mappings = await response.json();
+
             document.getElementById('loadingState').classList.add('hidden');
-            document.getElementById('emptyState').classList.remove('hidden');
-        }, 1000);
+
+            if (mappings.length === 0) {
+                document.getElementById('emptyState').classList.remove('hidden');
+            } else {
+                renderMappingsTable();
+            }
+
+        } catch (error) {
+            console.error('Error loading mappings:', error);
+            document.getElementById('loadingState').classList.add('hidden');
+
+            // Show error state
+            const emptyState = document.getElementById('emptyState');
+            emptyState.innerHTML = `
+                <i class="fas fa-exclamation-triangle text-4xl mb-4" style="color: var(--status-error);"></i>
+                <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">Error Loading Mappings</h3>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">Unable to load issue type mappings. Please try again.</p>
+                <button onclick="loadMappings()" class="btn-neutral-primary">
+                    <i class="fas fa-redo mr-2"></i>Retry
+                </button>
+            `;
+            emptyState.classList.remove('hidden');
+        }
+    }
+
+    async function loadHierarchies() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/issuetype-hierarchies', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            hierarchies = data.hierarchies || [];
+            updateHierarchyDropdown();
+
+        } catch (error) {
+            console.error('Error loading hierarchies:', error);
+            // Set default hierarchies if API fails
+            hierarchies = [];
+            updateHierarchyDropdown();
+        }
+    }
+
+    function updateHierarchyDropdown() {
+        const dropdown = document.getElementById('mappingHierarchyLevel');
+        dropdown.innerHTML = '<option value="">Select Hierarchy Level</option>';
+
+        hierarchies.forEach(hierarchy => {
+            if (hierarchy.active) {
+                const option = document.createElement('option');
+                option.value = hierarchy.level_number;
+                option.textContent = `${hierarchy.level_name} (Level ${hierarchy.level_number})`;
+                dropdown.appendChild(option);
+            }
+        });
+    }
+
+    async function loadIssuetypeOptions() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/issuetype-mappings/options', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            issuetypeOptions = await response.json();
+            updateIssuetypeDropdowns();
+
+        } catch (error) {
+            console.error('Error loading issue type options:', error);
+            // Set empty options if API fails
+            issuetypeOptions = { source_types: [], target_types: [] };
+            updateIssuetypeDropdowns();
+        }
+    }
+
+    function updateIssuetypeDropdowns() {
+        // Update source type dropdown
+        const sourceDropdown = document.getElementById('sourceType');
+        sourceDropdown.innerHTML = '<option value="">Select Source Issue Type</option>';
+
+        issuetypeOptions.source_types.forEach(sourceType => {
+            const option = document.createElement('option');
+            option.value = sourceType;
+            option.textContent = sourceType;
+            sourceDropdown.appendChild(option);
+        });
+
+        // Update target type dropdown
+        const targetDropdown = document.getElementById('targetType');
+        targetDropdown.innerHTML = '<option value="">Select Target Issue Type</option>';
+
+        issuetypeOptions.target_types.forEach(targetType => {
+            const option = document.createElement('option');
+            option.value = targetType;
+            option.textContent = targetType;
+            targetDropdown.appendChild(option);
+        });
+    }
+
+    function renderMappingsTable(filteredMappings = null) {
+        const tableBody = document.getElementById('mappings-table-body');
+        tableBody.innerHTML = '';
+
+        const dataToRender = filteredMappings || mappings;
+
+        dataToRender.forEach(mapping => {
+            const row = document.createElement('tr');
+            row.className = 'border-b';
+            row.style.borderColor = 'var(--border-color)';
+
+            // Add darker background for inactive items
+            if (!mapping.active) {
+                row.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+                row.style.opacity = '0.7';
+                row.classList.add('inactive-row');
+            }
+
+            const statusBadge = mapping.active ?
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--status-success); color: white;">Active</span>' :
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
+
+            // Create integration icon based on integration name
+            let integrationIcon = '<i class="fas fa-question-circle" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+
+            if (mapping.integration_name) {
+                const integrationName = mapping.integration_name.toLowerCase();
+
+                if (integrationName.includes('jira')) {
+                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                } else if (integrationName.includes('github')) {
+                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                } else if (integrationName.includes('aha')) {
+                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                } else if (integrationName.includes('azure') || integrationName.includes('devops')) {
+                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
+                }
+            }
+
+            const pauseResumeButton = mapping.active ?
+                `<button onclick="showPauseModal(${mapping.id}, '${mapping.issuetype_from} → ${mapping.issuetype_to}')" class="btn-status-warning-xs" title="Pause">
+                    <i class="fas fa-pause"></i>
+                </button>` :
+                `<button onclick="resumeMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
+                    <i class="fas fa-play"></i>
+                </button>`;
+
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.issuetype_from || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.issuetype_to || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.hierarchy_name || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${mapping.hierarchy_level !== null && mapping.hierarchy_level !== undefined ? mapping.hierarchy_level : 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${integrationIcon}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <div class="flex justify-center space-x-1">
+                        <button onclick="editMapping(${mapping.id})" class="btn-crud-edit-sm" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ${pauseResumeButton}
+                        <button onclick="deleteMapping(${mapping.id})" class="btn-crud-delete-sm" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            tableBody.appendChild(row);
+        });
+    }
+
+    function applyFilters() {
+        const sourceTypeFilter = document.getElementById('filterSourceType').value.toLowerCase();
+        const targetTypeFilter = document.getElementById('filterTargetType').value.toLowerCase();
+        const hierarchyNameFilter = document.getElementById('filterHierarchyName').value.toLowerCase();
+        const hierarchyLevelFilter = document.getElementById('filterHierarchyLevel').value;
+        const integrationFilter = document.getElementById('filterIntegration').value.toLowerCase();
+        const statusFilter = document.getElementById('filterStatus').value;
+
+        const filteredMappings = mappings.filter(mapping => {
+            // Source type filter
+            if (sourceTypeFilter && !mapping.issuetype_from.toLowerCase().includes(sourceTypeFilter)) {
+                return false;
+            }
+
+            // Target type filter
+            if (targetTypeFilter && !mapping.issuetype_to.toLowerCase().includes(targetTypeFilter)) {
+                return false;
+            }
+
+            // Hierarchy name filter
+            if (hierarchyNameFilter && !mapping.hierarchy_name.toLowerCase().includes(hierarchyNameFilter)) {
+                return false;
+            }
+
+            // Hierarchy level filter
+            if (hierarchyLevelFilter && mapping.hierarchy_level.toString() !== hierarchyLevelFilter) {
+                return false;
+            }
+
+            // Integration filter
+            if (integrationFilter && (!mapping.integration_name || mapping.integration_name.toLowerCase() !== integrationFilter)) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter) {
+                const isActive = mapping.active;
+                if (statusFilter === 'active' && !isActive) return false;
+                if (statusFilter === 'inactive' && isActive) return false;
+            }
+
+            return true;
+        });
+
+        renderMappingsTable(filteredMappings);
     }
 
     function showCreateModal() {
         document.getElementById('mappingForm').reset();
         document.getElementById('mappingActive').checked = true;
         currentMappingId = null;
+        // Set modal title for create mode
+        document.getElementById('mappingModalTitle').textContent = 'Create Issue Type Mapping';
+        // Refresh dropdowns to ensure latest options are available
+        updateIssuetypeDropdowns();
         openModal('mappingModal');
     }
 
@@ -195,79 +555,411 @@
         // Find mapping and populate form
         const mapping = mappings.find(m => m.id === id);
         if (!mapping) return;
-        
-        document.getElementById('mappingIntegration').value = mapping.integration;
-        document.getElementById('sourceType').value = mapping.source_type;
-        document.getElementById('targetType').value = mapping.target_type;
-        document.getElementById('mappingPriority').value = mapping.priority;
+
+        // Set modal title for edit mode
+        document.getElementById('mappingModalTitle').textContent = 'Edit Issue Type Mapping';
+
+        // Refresh dropdowns to ensure latest options are available
+        updateIssuetypeDropdowns();
+
+        // Set integration based on integration_name or integration_id
+        if (mapping.integration_name) {
+            const integrationValue = mapping.integration_name.toLowerCase();
+            document.getElementById('mappingIntegration').value = integrationValue;
+        }
+
+        // Set form fields based on API response format
+        // For dropdowns, ensure the value exists in options, if not add it temporarily
+        const sourceValue = mapping.issuetype_from || '';
+        const targetValue = mapping.issuetype_to || '';
+
+        // Add missing source type option if needed
+        if (sourceValue && !issuetypeOptions.source_types.includes(sourceValue)) {
+            const sourceDropdown = document.getElementById('sourceType');
+            const option = document.createElement('option');
+            option.value = sourceValue;
+            option.textContent = sourceValue;
+            sourceDropdown.appendChild(option);
+        }
+
+        // Add missing target type option if needed
+        if (targetValue && !issuetypeOptions.target_types.includes(targetValue)) {
+            const targetDropdown = document.getElementById('targetType');
+            const option = document.createElement('option');
+            option.value = targetValue;
+            option.textContent = targetValue;
+            targetDropdown.appendChild(option);
+        }
+
+        document.getElementById('sourceType').value = sourceValue;
+        document.getElementById('targetType').value = targetValue;
+        document.getElementById('mappingHierarchyLevel').value = mapping.hierarchy_level || '';
         document.getElementById('mappingDescription').value = mapping.description || '';
         document.getElementById('mappingActive').checked = mapping.active;
-        
+
         currentMappingId = id;
         openModal('mappingModal');
     }
 
-    function deleteMapping(id) {
+    async function deleteMapping(id) {
         currentMappingId = id;
-        openModal('deleteMappingModal');
-    }
 
-    // Override confirmAction for delete modal
-    function confirmAction(modalId) {
-        if (modalId === 'deleteMappingModal' && currentMappingId) {
-            // Implement delete mapping logic here
-            alert(`Delete mapping ${currentMappingId} - implement API call`);
-            closeModal(modalId);
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Find the mapping name for display
+            const mapping = mappings.find(m => m.id === id);
+            const mappingName = mapping ? `${mapping.issuetype_from} → ${mapping.issuetype_to}` : 'Unknown Mapping';
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, delete directly
+            if (!dependencies.has_dependencies) {
+                await deleteMappingDirectly(id, mappingName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deleteMappingName').textContent = mappingName;
+
+            // Populate reassignment dropdown with other active mappings
+            const reassignSelect = document.getElementById('deleteReassignToMapping');
+            reassignSelect.innerHTML = '<option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = `${target.issuetype_from} → ${target.issuetype_to}`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deleteMappingModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
         }
     }
+
+    async function deleteMappingDirectly(id, mappingName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Mapping deleted successfully', 'success');
+            loadMappings();
+
+        } catch (error) {
+            console.error('Error deleting mapping:', error);
+            showNotification(`Error deleting mapping: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeleteMapping() {
+        if (!currentMappingId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('deleteReassignToMapping').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_issuetypes' : 'keep_issuetypes'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_mapping_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${currentMappingId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Mapping deleted successfully', 'success');
+            closeModal('deleteMappingModal');
+            loadMappings();
+
+        } catch (error) {
+            console.error('Error deleting mapping:', error);
+            showNotification(`Error deleting mapping: ${error.message}`, 'error');
+            closeModal('deleteMappingModal');
+        }
+    }
+
+    async function showPauseModal(id, mappingName) {
+        currentMappingId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, deactivate directly
+            if (!dependencies.has_dependencies) {
+                await pauseMappingDirectly(id, mappingName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deactivateMappingName').textContent = mappingName;
+
+            // Populate reassignment dropdown with other active mappings
+            const reassignSelect = document.getElementById('reassignToMapping');
+            reassignSelect.innerHTML = '<option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = `${target.issuetype_from} → ${target.issuetype_to}`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deactivateMappingModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
+    }
+
+    async function pauseMappingDirectly(id, mappingName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${id}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: 'keep_issuetypes'
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Mapping paused successfully', 'success');
+            loadMappings();
+
+        } catch (error) {
+            console.error('Error pausing mapping:', error);
+            showNotification(`Error pausing mapping: ${error.message}`, 'error');
+        }
+    }
+
+    async function resumeMapping(id) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${id}/activate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Mapping resumed successfully', 'success');
+            loadMappings();
+
+        } catch (error) {
+            console.error('Error resuming mapping:', error);
+            showNotification(`Error resuming mapping: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeactivateMapping() {
+        if (!currentMappingId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('reassignToMapping').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_issuetypes' : 'keep_issuetypes'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_mapping_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-mappings/${currentMappingId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Mapping paused successfully', 'success');
+            closeModal('deactivateMappingModal');
+            loadMappings();
+
+        } catch (error) {
+            console.error('Error pausing mapping:', error);
+            showNotification(`Error pausing mapping: ${error.message}`, 'error');
+        }
+    }
+
+
+
+
 
     // Form submission
     document.getElementById('mappingForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const formData = {
-            integration: document.getElementById('mappingIntegration').value,
-            source_type: document.getElementById('sourceType').value,
-            target_type: document.getElementById('targetType').value,
-            priority: parseInt(document.getElementById('mappingPriority').value),
+            issuetype_from: document.getElementById('sourceType').value,
+            issuetype_to: document.getElementById('targetType').value,
+            hierarchy_level: parseInt(document.getElementById('mappingHierarchyLevel').value),
             description: document.getElementById('mappingDescription').value,
             active: document.getElementById('mappingActive').checked
         };
         
         try {
             const token = getAuthToken();
-            const url = currentMappingId ? 
-                `/api/v1/admin/issuetype-mappings/${currentMappingId}` : 
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const url = currentMappingId ?
+                `/api/v1/admin/issuetype-mappings/${currentMappingId}` :
                 '/api/v1/admin/issuetype-mappings';
-            
+
             const method = currentMappingId ? 'PUT' : 'POST';
-            
-            // Simulate API call
-            console.log(`${method} ${url}`, formData);
-            alert(`Mapping ${currentMappingId ? 'updated' : 'created'} successfully`);
-            
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            // Show success message
+            const action = currentMappingId ? 'updated' : 'created';
+            showNotification(`Mapping ${action} successfully`, 'success');
+
             closeModal('mappingModal');
             loadMappings();
         } catch (error) {
             console.error('Error saving mapping:', error);
-            alert('Error saving mapping');
+            showNotification(`Error saving mapping: ${error.message}`, 'error');
         }
     });
 
-    function applyFilters() {
-        alert('Apply filters functionality would be implemented here');
+    // Simple notification function
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 transition-all duration-300`;
+        notification.style.backgroundColor = type === 'success' ? 'var(--status-success)' :
+                                           type === 'error' ? 'var(--status-error)' :
+                                           'var(--color-1)';
+        notification.textContent = message;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
     }
 
-    function clearFilters() {
-        // Clear all filter inputs
-        document.querySelectorAll('select, input[type="text"]').forEach(input => {
-            if (input.tagName === 'SELECT') {
-                input.selectedIndex = 0;
-            } else {
-                input.value = '';
-            }
-        });
-        loadMappings();
-    }
 </script>
 {% endblock %}

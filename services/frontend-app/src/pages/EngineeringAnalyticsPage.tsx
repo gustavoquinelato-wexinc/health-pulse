@@ -1,8 +1,11 @@
 import { motion } from 'framer-motion'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function EngineeringAnalyticsPage() {
+  // Set document title
+  useDocumentTitle('Engineering Analytics')
   return (
     <div className="min-h-screen bg-primary">
       <Header />

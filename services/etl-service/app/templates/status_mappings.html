@@ -1,6 +1,6 @@
 {% extends "layouts/modern_layout.html" %}
 
-{% block title %}Status Mappings - Pulse ETL{% endblock %}
+{% block title %}Pulse ETL Management - Status Mappings{% endblock %}
 
 {% block content %}
 <!-- Page Header -->
@@ -8,7 +8,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
-                <i class="fas fa-exchange-alt mr-3" style="color: var(--color-4);"></i>Status Mappings
+                Status Mappings
             </h1>
             <p class="text-lg" style="color: var(--text-secondary);">Manage status mappings between integrations</p>
         </div>
@@ -20,50 +20,70 @@
 
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <!-- 1. Source Status -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Status</label>
+            <input type="text" id="filterSourceStatus" placeholder="Filter by source status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 2. Target Status -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Status</label>
+            <input type="text" id="filterTargetStatus" placeholder="Filter by target status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 3. Workflow Step -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Workflow Step</label>
+            <select id="filterWorkflowStep" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Workflow Steps</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+
+        <!-- 4. Integration -->
         <div>
             <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
-            <select class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <select id="filterIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
                 <option value="">All Integrations</option>
                 <option value="jira">Jira</option>
                 <option value="github">GitHub</option>
             </select>
         </div>
+
+        <!-- 5. Status -->
         <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Status</label>
-            <input type="text" placeholder="Filter by source status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-        </div>
-        <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Status</label>
-            <input type="text" placeholder="Filter by target status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-        </div>
-        <div class="flex items-end space-x-2">
-            <button onclick="applyFilters()" class="btn-neutral-primary">
-                <i class="fas fa-filter mr-2"></i>Apply
-            </button>
-            <button onclick="clearFilters()" class="btn-neutral-secondary">
-                <i class="fas fa-times mr-2"></i>Clear
-            </button>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Status</label>
+            <select id="filterStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
         </div>
     </div>
 </div>
 
 <!-- Status Mappings Table -->
 <div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-    <div class="px-6 py-4 border-b" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Status Mappings</h2>
+        <button onclick="loadStatusMappings()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
     </div>
     
     <div class="overflow-x-auto">
         <table class="w-full">
             <thead style="background-color: var(--bg-tertiary);">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Source Status</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Target Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Category</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Workflow Step</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Step Number</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
                 </tr>
             </thead>
             <tbody id="mappings-table-body" style="background-color: var(--bg-secondary);">
@@ -74,7 +94,7 @@
     
     <!-- Loading State -->
     <div id="loadingState" class="p-8 text-center">
-        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--color-4);"></i>
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
         <p class="text-sm" style="color: var(--text-secondary);">Loading status mappings...</p>
     </div>
     
@@ -82,16 +102,20 @@
     <div id="emptyState" class="p-8 text-center hidden">
         <i class="fas fa-exchange-alt text-4xl mb-4" style="color: var(--text-muted);"></i>
         <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Status Mappings Found</h3>
-        <p class="text-sm mb-4" style="color: var(--text-secondary);">Get started by creating your first status mapping.</p>
-        <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Add Mapping
-        </button>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Mapping button above to get started.</p>
     </div>
 </div>
 
 <!-- Create/Edit Status Mapping Modal -->
-{% from 'components/modal.html' import modal %}
-{% call modal('statusMappingModal', 'Create Status Mapping', 'lg') %}
+<div id="statusMappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 id="statusMappingModalTitle" class="text-xl font-semibold text-primary">Create Status Mapping</h2>
+            <button onclick="closeModal('statusMappingModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
     <form id="statusMappingForm">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -113,12 +137,10 @@
                 <input type="text" id="targetStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Category</label>
-                <select id="statusCategory" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                    <option value="todo">To Do</option>
-                    <option value="in_progress" selected>In Progress</option>
-                    <option value="done">Done</option>
-                    <option value="blocked">Blocked</option>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Workflow Step</label>
+                <select id="workflowStep" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">Select Workflow Step</option>
+                    <!-- Options will be populated dynamically -->
                 </select>
             </div>
         </div>
@@ -139,17 +161,75 @@
             </button>
         </div>
     </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Status Mapping Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deleteStatusMappingModal', 'Delete Status Mapping', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to delete the mapping: <strong id="deleteStatusMappingName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Mapping (Optional)</label>
+        <select id="deleteReassignToStatusMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deleteStatusMappingModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeleteStatusMapping()" class="btn-crud-delete">
+            <i class="fas fa-trash mr-2"></i>Delete Mapping
+        </button>
+    </div>
 {% endcall %}
 
-<!-- Delete Confirmation Modal -->
-{% from 'components/modal.html' import confirm_modal %}
-{{ confirm_modal('deleteStatusMappingModal', 'Delete Status Mapping', 'Are you sure you want to delete this status mapping? This action cannot be undone.', 'Delete', 'Cancel', 'danger') }}
+<!-- Deactivate Status Mapping Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deactivateStatusMappingModal', 'Pause Status Mapping', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to pause the mapping: <strong id="deactivateStatusMappingName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Mapping (Optional)</label>
+        <select id="reassignToStatusMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deactivateStatusMappingModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeactivateStatusMapping()" class="btn-crud-warning">
+            <i class="fas fa-pause mr-2"></i>Deactivate
+        </button>
+    </div>
+{% endcall %}
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
     // Global variables
     let statusMappings = [];
+    let workflowSteps = [];
+    let integrations = [];
     let currentMappingId = null;
 
     // Authentication helper
@@ -171,24 +251,440 @@
     // Initialize page
     document.addEventListener('DOMContentLoaded', function() {
         loadStatusMappings();
+        loadWorkflowSteps();
+        loadIntegrations();
     });
 
-    function loadStatusMappings() {
-        // Hide empty state and show loading
-        document.getElementById('emptyState').classList.add('hidden');
-        document.getElementById('loadingState').classList.remove('hidden');
-        
-        // Simulate loading delay - replace with actual API call
-        setTimeout(() => {
+    async function loadStatusMappings() {
+        try {
+            // Hide empty state and show loading
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/status-mappings', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            statusMappings = await response.json();
+
+            // Hide loading state
             document.getElementById('loadingState').classList.add('hidden');
-            document.getElementById('emptyState').classList.remove('hidden');
-        }, 1000);
+
+            if (statusMappings.length === 0) {
+                document.getElementById('emptyState').classList.remove('hidden');
+            } else {
+                renderStatusMappingsTable();
+            }
+
+        } catch (error) {
+            console.error('Error loading status mappings:', error);
+            document.getElementById('loadingState').classList.add('hidden');
+
+            // Show error state
+            const emptyState = document.getElementById('emptyState');
+            emptyState.innerHTML = `
+                <i class="fas fa-exclamation-triangle text-4xl mb-4" style="color: var(--status-error);"></i>
+                <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">Error Loading Status Mappings</h3>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">Unable to load status mappings. Please try again.</p>
+                <button onclick="loadStatusMappings()" class="btn-neutral-primary">
+                    <i class="fas fa-redo mr-2"></i>Retry
+                </button>
+            `;
+            emptyState.classList.remove('hidden');
+        }
+    }
+
+    async function loadWorkflowSteps() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/workflows', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            workflowSteps = await response.json();
+            updateWorkflowStepDropdown();
+            updateWorkflowStepFilterDropdown();
+
+        } catch (error) {
+            console.error('Error loading workflow steps:', error);
+            // Set empty array if API fails
+            workflowSteps = [];
+            updateWorkflowStepDropdown();
+            updateWorkflowStepFilterDropdown();
+        }
+    }
+
+    function updateWorkflowStepDropdown() {
+        const dropdown = document.getElementById('workflowStep');
+        dropdown.innerHTML = '<option value="">Select Workflow Step</option>';
+
+        workflowSteps.forEach(step => {
+            if (step.active) {
+                const option = document.createElement('option');
+                option.value = step.id;
+                const stepText = step.step_number ?
+                    `${step.step_name} (${step.step_number})` :
+                    step.step_name;
+                option.textContent = stepText;
+                dropdown.appendChild(option);
+            }
+        });
+    }
+
+    function updateWorkflowStepFilterDropdown() {
+        const filterDropdown = document.getElementById('filterWorkflowStep');
+        filterDropdown.innerHTML = '<option value="">All Workflow Steps</option>';
+
+        workflowSteps.forEach(step => {
+            if (step.active) {
+                const option = document.createElement('option');
+                option.value = step.id;
+                const stepText = step.step_number ?
+                    `${step.step_name} (${step.step_number})` :
+                    step.step_name;
+                option.textContent = stepText;
+                filterDropdown.appendChild(option);
+            }
+        });
+    }
+
+    async function loadIntegrations() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/integrations', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            integrations = await response.json();
+            updateIntegrationDropdown();
+
+        } catch (error) {
+            console.error('Error loading integrations:', error);
+            // Set default integrations if API fails
+            integrations = [
+                { id: 1, name: 'Jira', active: true },
+                { id: 2, name: 'GitHub', active: true }
+            ];
+            updateIntegrationDropdown();
+        }
+    }
+
+    function updateIntegrationDropdown() {
+        const dropdown = document.getElementById('mappingIntegration');
+        dropdown.innerHTML = '<option value="">Select Integration</option>';
+
+        integrations.forEach(integration => {
+            if (integration.active) {
+                const option = document.createElement('option');
+                option.value = integration.id;
+                option.textContent = integration.name;
+                dropdown.appendChild(option);
+            }
+        });
+    }
+
+    function renderStatusMappingsTable(filteredMappings = null) {
+        const tableBody = document.getElementById('mappings-table-body');
+        tableBody.innerHTML = '';
+
+        const dataToRender = filteredMappings || statusMappings;
+
+        dataToRender.forEach(mapping => {
+            const row = document.createElement('tr');
+            row.className = 'border-b';
+            row.style.borderColor = 'var(--border-color)';
+
+            // Add darker background for inactive items
+            if (!mapping.active) {
+                row.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+                row.style.opacity = '0.7';
+                row.classList.add('inactive-row');
+            }
+
+            const statusBadge = mapping.active ?
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--status-success); color: white;">Active</span>' :
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
+
+            // Create integration icon based on integration name
+            let integrationIcon = '<i class="fas fa-question-circle" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+
+            if (mapping.integration_name) {
+                switch (mapping.integration_name.toLowerCase()) {
+                    case 'jira':
+                        integrationIcon = '<i class="fab fa-atlassian" style="color: #0052CC;" title="Jira"></i>';
+                        break;
+                    case 'github':
+                        integrationIcon = '<i class="fab fa-github" style="color: #333;" title="GitHub"></i>';
+                        break;
+                }
+            }
+
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.status_from}</td>
+                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.status_to}</td>
+                <td class="px-6 py-4 whitespace-nowrap" style="color: var(--text-primary);">${mapping.workflow_step_name || 'None'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center" style="color: var(--text-primary);">${mapping.step_number || '-'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${integrationIcon}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <div class="flex justify-center space-x-1">
+                        <button onclick="editStatusMapping(${mapping.id})" class="btn-crud-edit-sm" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ${mapping.active ?
+                            `<button onclick="showPauseModal(${mapping.id}, '${mapping.status_from} → ${mapping.status_to}')" class="btn-status-warning-xs" title="Pause">
+                                <i class="fas fa-pause"></i>
+                            </button>` :
+                            `<button onclick="resumeStatusMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
+                                <i class="fas fa-play"></i>
+                            </button>`
+                        }
+                        <button onclick="deleteStatusMapping(${mapping.id})" class="btn-crud-delete-sm" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            tableBody.appendChild(row);
+        });
+    }
+
+    function applyFilters() {
+        const sourceStatusFilter = document.getElementById('filterSourceStatus').value.toLowerCase();
+        const targetStatusFilter = document.getElementById('filterTargetStatus').value.toLowerCase();
+        const workflowStepFilter = document.getElementById('filterWorkflowStep').value;
+        const integrationFilter = document.getElementById('filterIntegration').value.toLowerCase();
+        const statusFilter = document.getElementById('filterStatus').value;
+
+        const filteredMappings = statusMappings.filter(mapping => {
+            // Source status filter
+            if (sourceStatusFilter && !mapping.status_from.toLowerCase().includes(sourceStatusFilter)) {
+                return false;
+            }
+
+            // Target status filter
+            if (targetStatusFilter && !mapping.status_to.toLowerCase().includes(targetStatusFilter)) {
+                return false;
+            }
+
+            // Workflow step filter
+            if (workflowStepFilter && mapping.workflow_step_id.toString() !== workflowStepFilter) {
+                return false;
+            }
+
+            // Integration filter
+            if (integrationFilter && (!mapping.integration_name || mapping.integration_name.toLowerCase() !== integrationFilter)) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter) {
+                const isActive = mapping.active;
+                if (statusFilter === 'active' && !isActive) return false;
+                if (statusFilter === 'inactive' && isActive) return false;
+            }
+
+            return true;
+        });
+
+        renderStatusMappingsTable(filteredMappings);
+    }
+
+    async function showPauseModal(id, mappingName) {
+        currentMappingId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/status-mappings/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, deactivate directly
+            if (!dependencies.has_dependencies) {
+                await deactivateStatusMappingDirectly(id, mappingName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deactivateStatusMappingName').textContent = mappingName;
+
+            // Populate reassignment dropdown with other active mappings
+            const reassignSelect = document.getElementById('reassignToStatusMapping');
+            reassignSelect.innerHTML = '<option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = `${target.status_from} → ${target.status_to}`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deactivateStatusMappingModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
+    }
+
+    async function deactivateStatusMappingDirectly(id, mappingName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/status-mappings/${id}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ action: 'keep_issues' })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Status mapping paused successfully', 'success');
+            loadStatusMappings();
+
+        } catch (error) {
+            console.error('Error pausing status mapping:', error);
+            showNotification(`Error pausing status mapping: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeactivateStatusMapping() {
+        if (!currentMappingId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('reassignToStatusMapping').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_issues' : 'keep_issues'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_mapping_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/status-mappings/${currentMappingId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Status mapping paused successfully', 'success');
+            closeModal('deactivateStatusMappingModal');
+            loadStatusMappings();
+
+        } catch (error) {
+            console.error('Error pausing status mapping:', error);
+            showNotification(`Error pausing status mapping: ${error.message}`, 'error');
+            closeModal('deactivateStatusMappingModal');
+        }
+    }
+
+    async function resumeStatusMapping(id) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/status-mappings/${id}/activate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Status mapping resumed successfully', 'success');
+            loadStatusMappings();
+
+        } catch (error) {
+            console.error('Error resuming status mapping:', error);
+            showNotification(`Error resuming status mapping: ${error.message}`, 'error');
+        }
     }
 
     function showCreateModal() {
         document.getElementById('statusMappingForm').reset();
         document.getElementById('mappingActive').checked = true;
         currentMappingId = null;
+        // Set modal title for create mode
+        document.getElementById('statusMappingModalTitle').textContent = 'Create Status Mapping';
         openModal('statusMappingModal');
     }
 
@@ -196,29 +692,148 @@
         // Find mapping and populate form
         const mapping = statusMappings.find(m => m.id === id);
         if (!mapping) return;
-        
-        document.getElementById('mappingIntegration').value = mapping.integration;
-        document.getElementById('sourceStatus').value = mapping.source_status;
-        document.getElementById('targetStatus').value = mapping.target_status;
-        document.getElementById('statusCategory').value = mapping.category;
+
+        // Set modal title for edit mode
+        document.getElementById('statusMappingModalTitle').textContent = 'Edit Status Mapping';
+
+        // Populate form fields with correct form field IDs
+        // For integration, use the integration ID from the API response
+        document.getElementById('mappingIntegration').value = mapping.integration_id || '';
+        document.getElementById('sourceStatus').value = mapping.status_from || '';
+        document.getElementById('targetStatus').value = mapping.status_to || '';
+        document.getElementById('workflowStep').value = mapping.workflow_step_id || '';
         document.getElementById('mappingDescription').value = mapping.description || '';
         document.getElementById('mappingActive').checked = mapping.active;
-        
+
         currentMappingId = id;
         openModal('statusMappingModal');
     }
 
-    function deleteStatusMapping(id) {
+    async function deleteStatusMapping(id) {
         currentMappingId = id;
-        openModal('deleteStatusMappingModal');
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Find the mapping name for display
+            const mapping = statusMappings.find(m => m.id === id);
+            const mappingName = mapping ? `${mapping.status_from} → ${mapping.status_to}` : 'Unknown Mapping';
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/status-mappings/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, delete directly
+            if (!dependencies.has_dependencies) {
+                await deleteStatusMappingDirectly(id, mappingName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deleteStatusMappingName').textContent = mappingName;
+
+            // Populate reassignment dropdown with other active mappings
+            const reassignSelect = document.getElementById('deleteReassignToStatusMapping');
+            reassignSelect.innerHTML = '<option value="">Select a mapping to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = `${target.status_from} → ${target.status_to}`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deleteStatusMappingModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
     }
 
-    // Override confirmAction for delete modal
-    function confirmAction(modalId) {
-        if (modalId === 'deleteStatusMappingModal' && currentMappingId) {
-            // Implement delete status mapping logic here
-            alert(`Delete status mapping ${currentMappingId} - implement API call`);
-            closeModal(modalId);
+    async function deleteStatusMappingDirectly(id, mappingName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/status-mappings/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Status mapping deleted successfully', 'success');
+            loadStatusMappings();
+
+        } catch (error) {
+            console.error('Error deleting status mapping:', error);
+            showNotification(`Error deleting status mapping: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeleteStatusMapping() {
+        if (!currentMappingId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('deleteReassignToStatusMapping').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_statuses' : 'keep_statuses'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_mapping_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/status-mappings/${currentMappingId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Status mapping deleted successfully', 'success');
+            closeModal('deleteStatusMappingModal');
+            loadStatusMappings();
+
+        } catch (error) {
+            console.error('Error deleting status mapping:', error);
+            showNotification(`Error deleting status mapping: ${error.message}`, 'error');
+            closeModal('deleteStatusMappingModal');
         }
     }
 
@@ -255,20 +870,25 @@
         }
     });
 
-    function applyFilters() {
-        alert('Apply filters functionality would be implemented here');
-    }
+    // Simple notification function
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 transition-all duration-300`;
+        notification.style.backgroundColor = type === 'success' ? 'var(--status-success)' :
+                                           type === 'error' ? 'var(--status-error)' :
+                                           'var(--color-1)';
+        notification.textContent = message;
 
-    function clearFilters() {
-        // Clear all filter inputs
-        document.querySelectorAll('select, input[type="text"]').forEach(input => {
-            if (input.tagName === 'SELECT') {
-                input.selectedIndex = 0;
-            } else {
-                input.value = '';
-            }
-        });
-        loadStatusMappings();
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
     }
 </script>
 {% endblock %}

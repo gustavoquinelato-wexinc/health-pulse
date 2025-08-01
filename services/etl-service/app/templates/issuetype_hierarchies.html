@@ -1,6 +1,6 @@
 {% extends "layouts/modern_layout.html" %}
 
-{% block title %}Issue Type Hierarchies - Pulse ETL{% endblock %}
+{% block title %}Pulse ETL Management - Issue Type Hierarchies{% endblock %}
 
 {% block content %}
 <!-- Page Header -->
@@ -76,8 +76,11 @@
 
 <!-- Hierarchies Table -->
 <div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-    <div class="px-6 py-4 border-b" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Issue Type Hierarchies</h2>
+        <button onclick="loadHierarchies()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
     </div>
     
     <div class="overflow-x-auto">
@@ -113,8 +116,15 @@
 </div>
 
 <!-- Create/Edit Hierarchy Modal -->
-{% from 'components/modal.html' import modal %}
-{% call modal('hierarchyModal', 'Create Issue Type Hierarchy', 'lg') %}
+<div id="hierarchyModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 id="hierarchyModalTitle" class="text-xl font-semibold text-primary">Create Issue Type Hierarchy</h2>
+            <button onclick="closeModal('hierarchyModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
     <form id="hierarchyForm">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -162,55 +172,67 @@
             </button>
         </div>
     </form>
-{% endcall %}
-
-<!-- Delete Confirmation Modal -->
-{% from 'components/modal.html' import confirm_modal %}
-{{ confirm_modal('deleteHierarchyModal', 'Delete Hierarchy', 'Are you sure you want to delete this issue type hierarchy? This action cannot be undone.', 'Delete', 'Cancel', 'danger') }}
-
-<!-- Deactivate with Reassignment Modal -->
-<div id="deactivateHierarchyModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-    <div class="rounded-lg p-6 max-w-lg w-full mx-4" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
-                <i class="fas fa-pause mr-2" style="color: var(--status-warning);"></i>Deactivate Hierarchy
-            </h3>
-            <button onclick="closeModal('deactivateHierarchyModal')" class="hover:opacity-75" style="color: var(--text-secondary);">
-                <i class="fas fa-times text-xl"></i>
-            </button>
-        </div>
-
-        <div class="mb-4">
-            <p class="mb-4" style="color: var(--text-secondary);">
-                You are about to deactivate the hierarchy: <strong id="deactivateHierarchyName" style="color: var(--text-primary);"></strong>
-            </p>
-            <p class="mb-4" style="color: var(--text-secondary);">
-                If there are any items currently using this hierarchy, they will need to be reassigned to another active hierarchy.
-            </p>
-        </div>
-
-        <div class="mb-6">
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">
-                Reassign items to (optional):
-            </label>
-            <select id="reassignToHierarchy" class="w-full px-3 py-2 border rounded-lg"
-                    style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                <option value="">Select a hierarchy to reassign items to</option>
-                <!-- Options will be populated dynamically -->
-            </select>
-            <p class="text-xs mt-1" style="color: var(--text-muted);">
-                Leave empty to deactivate without reassigning (items will become unassigned)
-            </p>
-        </div>
-
-        <div class="flex justify-end space-x-3">
-            <button onclick="closeModal('deactivateHierarchyModal')" class="btn-neutral-secondary">Cancel</button>
-            <button onclick="confirmDeactivateHierarchy()" class="btn-crud-warning">
-                <i class="fas fa-pause mr-2"></i>Deactivate
-            </button>
         </div>
     </div>
 </div>
+
+<!-- Delete Hierarchy Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deleteHierarchyModal', 'Delete Issue Type Hierarchy', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to delete the hierarchy: <strong id="deleteHierarchyName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This hierarchy has dependencies. You can optionally reassign them to another hierarchy, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Hierarchy (Optional)</label>
+        <select id="deleteReassignToHierarchy" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deleteHierarchyModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeleteHierarchy()" class="btn-crud-delete">
+            <i class="fas fa-trash mr-2"></i>Delete Hierarchy
+        </button>
+    </div>
+{% endcall %}
+
+<!-- Deactivate Hierarchy Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deactivateHierarchyModal', 'Pause Issue Type Hierarchy', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to pause the hierarchy: <strong id="deactivateHierarchyName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This hierarchy has dependencies. You can optionally reassign them to another hierarchy, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Hierarchy (Optional)</label>
+        <select id="reassignToHierarchy" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deactivateHierarchyModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeactivateHierarchy()" class="btn-crud-warning">
+            <i class="fas fa-pause mr-2"></i>Deactivate
+        </button>
+    </div>
+{% endcall %}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -406,10 +428,10 @@
             }
 
             const deactivateButton = hierarchy.active ?
-                `<button onclick="showDeactivateModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Deactivate">
+                `<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
                     <i class="fas fa-pause"></i>
                 </button>` :
-                `<button onclick="activateHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Activate">
+                `<button onclick="activateHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
                     <i class="fas fa-play"></i>
                 </button>`;
 
@@ -489,6 +511,8 @@
         document.getElementById('hierarchyForm').reset();
         document.getElementById('hierarchyActive').checked = true;
         currentHierarchyId = null;
+        // Set modal title for create mode
+        document.getElementById('hierarchyModalTitle').textContent = 'Create Issue Type Hierarchy';
         openModal('hierarchyModal');
     }
 
@@ -496,6 +520,9 @@
         // Find hierarchy and populate form
         const hierarchy = hierarchies.find(h => h.id === id);
         if (!hierarchy) return;
+
+        // Set modal title for edit mode
+        document.getElementById('hierarchyModalTitle').textContent = 'Edit Issue Type Hierarchy';
 
         document.getElementById('hierarchyIntegration').value = hierarchy.integration_id || '';
         document.getElementById('levelName').value = hierarchy.level_name || '';
@@ -507,12 +534,91 @@
         openModal('hierarchyModal');
     }
 
-    function deleteHierarchy(id) {
+    async function deleteHierarchy(id) {
         currentHierarchyId = id;
-        openModal('deleteHierarchyModal');
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Find the hierarchy name for display
+            const hierarchy = hierarchies.find(h => h.id === id);
+            const hierarchyName = hierarchy ? hierarchy.level_name : 'Unknown Hierarchy';
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, delete directly
+            if (!dependencies.has_dependencies) {
+                await deleteHierarchyDirectly(id, hierarchyName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deleteHierarchyName').textContent = hierarchyName;
+
+            // Populate reassignment dropdown with other active hierarchies
+            const reassignSelect = document.getElementById('deleteReassignToHierarchy');
+            reassignSelect.innerHTML = '<option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>';
+
+            hierarchies.filter(h => h.id !== id && h.active).forEach(hierarchy => {
+                const option = document.createElement('option');
+                option.value = hierarchy.id;
+                option.textContent = `${hierarchy.level_name} (Level ${hierarchy.level_number})`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deleteHierarchyModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
     }
 
-    async function showDeactivateModal(id, levelName) {
+    async function deleteHierarchyDirectly(id, hierarchyName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Hierarchy deleted successfully', 'success');
+            loadHierarchies();
+
+        } catch (error) {
+            console.error('Error deleting hierarchy:', error);
+            showNotification(`Error deleting hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+    async function showPauseModal(id, levelName) {
         currentHierarchyId = id;
 
         try {
@@ -546,7 +652,7 @@
 
             // Populate reassignment dropdown with other active hierarchies
             const reassignSelect = document.getElementById('reassignToHierarchy');
-            reassignSelect.innerHTML = '<option value="">Select a hierarchy to reassign items to</option>';
+            reassignSelect.innerHTML = '<option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>';
 
             hierarchies.filter(h => h.id !== id && h.active).forEach(hierarchy => {
                 const option = document.createElement('option');
@@ -667,38 +773,65 @@
         }
     }
 
-    // Override confirmAction for delete modal
-    async function confirmAction(modalId) {
-        if (modalId === 'deleteHierarchyModal' && currentHierarchyId) {
-            try {
-                const token = getAuthToken();
-                if (!token) {
-                    throw new Error('No authentication token found');
-                }
+    async function confirmDeleteHierarchy() {
+        if (!currentHierarchyId) return;
 
-                const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                closeModal(modalId);
-                loadHierarchies();
-                showNotification('Hierarchy deleted successfully!', 'success');
-
-            } catch (error) {
-                console.error('Error deleting hierarchy:', error);
-                showNotification(`Error deleting hierarchy: ${error.message}`, 'error');
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
             }
+
+            const reassignToId = document.getElementById('deleteReassignToHierarchy').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_mappings' : 'keep_mappings'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.reassign_to_hierarchy_id = parseInt(reassignToId);
+            }
+
+            // First deactivate with reassignment if needed
+            const deactivateResponse = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!deactivateResponse.ok) {
+                const errorData = await deactivateResponse.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${deactivateResponse.status}: ${deactivateResponse.statusText}`);
+            }
+
+            // Now delete the hierarchy
+            const deleteResponse = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!deleteResponse.ok) {
+                const errorData = await deleteResponse.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${deleteResponse.status}: ${deleteResponse.statusText}`);
+            }
+
+            showNotification('Hierarchy deleted successfully', 'success');
+            closeModal('deleteHierarchyModal');
+            loadHierarchies();
+
+        } catch (error) {
+            console.error('Error deleting hierarchy:', error);
+            showNotification(`Error deleting hierarchy: ${error.message}`, 'error');
         }
     }
+
+
 
     // Simple notification function
     function showNotification(message, type = 'info') {

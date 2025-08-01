@@ -49,6 +49,12 @@ export default function ETLManagementPage() {
   const navigate = useNavigate()
   const { user, isAdmin } = useAuth()
 
+  // Get page configuration
+  const pageConfig = ETL_PAGES[page] || ETL_PAGES.dashboard
+
+  // Set document title
+  useDocumentTitle(pageConfig.title)
+
   // Check if user is admin - ETL Management is admin-only
   if (!isAdmin) {
     return (
@@ -75,9 +81,6 @@ export default function ETLManagementPage() {
       </div>
     )
   }
-
-  // Get page configuration or default to dashboard
-  const pageConfig = ETL_PAGES[page] || ETL_PAGES['dashboard']
 
   return (
     <div className="min-h-screen bg-primary">

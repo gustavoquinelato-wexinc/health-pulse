@@ -2,9 +2,13 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function SettingsPage() {
   const navigate = useNavigate()
+
+  // Set document title
+  useDocumentTitle('Settings')
   return (
     <div className="min-h-screen bg-primary">
       <Header />

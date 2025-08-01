@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import ColorSchemaPanel from '../components/ColorSchemaPanel'
 import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function ColorSchemeSettingsPage() {
   const navigate = useNavigate()
+
+  // Set document title
+  useDocumentTitle('Color Scheme Settings')
   return (
     <div className="min-h-screen bg-primary">
       <Header />

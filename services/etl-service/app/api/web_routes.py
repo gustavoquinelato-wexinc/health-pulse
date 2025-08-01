@@ -623,8 +623,29 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if auth_token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {auth_token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
         # Create response and set cookie if token came from URL parameter
-        response = templates.TemplateResponse("status_mappings.html", {"request": request, "user": user})
+        response = templates.TemplateResponse("status_mappings.html", {"request": request, "user": user, "color_schema": color_schema_data})
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
             logger.info(f"✅ Portal embedding: Status mappings access granted for user {user.get('email')}")
@@ -654,7 +675,28 @@ async def issuetype_mappings_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("issuetype_mappings.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        return templates.TemplateResponse("issuetype_mappings.html", {"request": request, "user": user, "color_schema": color_schema_data})
 
     except Exception as e:
         logger.error(f"Issue type mappings page error: {e}")
@@ -727,7 +769,28 @@ async def workflows_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("workflows.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        return templates.TemplateResponse("workflows.html", {"request": request, "user": user, "color_schema": color_schema_data})
 
     except Exception as e:
         logger.error(f"Workflows page error: {e}")

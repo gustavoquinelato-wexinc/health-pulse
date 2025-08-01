@@ -1,6 +1,6 @@
 {% extends "layouts/modern_layout.html" %}
 
-{% block title %}Pulse ETL - Job Control{% endblock %}
+{% block title %}Pulse ETL Management{% endblock %}
 
 {% block content %}
 <!-- Header Section with Title and Settings -->
@@ -171,11 +171,11 @@
                 </div>
             </div>
             <div class="px-6 py-4 border-t flex justify-end space-x-3" style="border-color: var(--border-color);">
-                <button onclick="saveOrchestratorSettings()" class="btn-crud-create">
-                    <i class="fas fa-save mr-1"></i>Save Changes
-                </button>
                 <button onclick="hideOrchestratorSettings()" class="btn-neutral-secondary">
                     Cancel
+                </button>
+                <button onclick="saveOrchestratorSettings()" class="btn-crud-create">
+                    <i class="fas fa-save mr-1"></i>Save Changes
                 </button>
             </div>
         </div>

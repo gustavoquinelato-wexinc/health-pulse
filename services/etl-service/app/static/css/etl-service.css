@@ -1350,6 +1350,16 @@ textarea:disabled {
     color: white;
 }
 
+/* Highlighted submenu items (when using inline gradient background) */
+.submenu-item[style*="linear-gradient"] {
+    color: white !important;
+}
+
+/* Ensure white text for highlighted submenu items in both light and dark mode */
+.submenu-item.text-white {
+    color: white !important;
+}
+
 /* Modern Sidebar Component - Match Frontend Layout (Full Height) */
 .modern-sidebar {
     position: fixed !important;

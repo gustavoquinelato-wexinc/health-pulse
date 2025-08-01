@@ -1,82 +1,6 @@
 {% extends "layouts/modern_layout.html" %}
 
-{% block title %}Workflows - Pulse ETL{% endblock %}
-
-{% block extra_head %}
-<style>
-    /* Workflows-specific styles */
-    .workflow-card {
-        transition: transform 0.2s ease-in-out;
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        background-color: var(--bg-secondary);
-    }
-    .workflow-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    
-    .workflow-section {
-        background-color: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        margin-bottom: 1.5rem;
-    }
-    
-    .section-header {
-        padding: 1rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-        background-color: var(--bg-tertiary);
-        border-radius: 0.75rem 0.75rem 0 0;
-    }
-    
-    .section-content {
-        padding: 1.5rem;
-    }
-    
-    .sortable {
-        cursor: pointer;
-        user-select: none;
-        transition: background-color 0.2s;
-    }
-    
-    .sortable:hover {
-        background-color: var(--bg-tertiary);
-    }
-    
-    .sort-icon {
-        margin-left: 0.5rem;
-        opacity: 0.5;
-    }
-    
-    .sortable.sort-asc .sort-icon:before {
-        content: "\f0de";
-        opacity: 1;
-    }
-    
-    .sortable.sort-desc .sort-icon:before {
-        content: "\f0dd";
-        opacity: 1;
-    }
-    
-    .status-badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-    
-    .status-active {
-        background-color: var(--color-3);
-        color: white;
-    }
-    
-    .status-inactive {
-        background-color: var(--text-muted);
-        color: white;
-    }
-</style>
-{% endblock %}
+{% block title %}Pulse ETL Management - Workflows{% endblock %}
 
 {% block content %}
 <!-- Page Header -->
@@ -84,168 +8,157 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
-                <i class="fas fa-project-diagram mr-3"></i>Workflows
+                Workflows
             </h1>
-            <p class="text-lg" style="color: var(--text-secondary);">Manage workflow configurations and status mappings</p>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage workflow steps and configurations</p>
         </div>
-        <div class="flex items-center space-x-3">
-            <button onclick="showCreateWorkflowModal()" class="btn-crud-create">
-                <i class="fas fa-plus mr-2"></i>Create Workflow
-            </button>
-            <button onclick="refreshWorkflows()" class="btn-neutral-secondary">
-                <i class="fas fa-sync-alt mr-2"></i>Refresh
-            </button>
-        </div>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Workflow
+        </button>
     </div>
 </div>
 
-<!-- Workflow Statistics -->
-<div class="workflow-section">
-    <div class="section-header">
-        <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
-            <i class="fas fa-chart-bar mr-2"></i>Workflow Statistics
-        </h2>
-    </div>
-    <div class="section-content">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="workflow-card p-4 text-center">
-                <i class="fas fa-project-diagram text-2xl mb-2" style="color: var(--color-1);"></i>
-                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="total-workflows">-</h3>
-                <p class="text-xs" style="color: var(--text-muted);">Total Workflows</p>
-            </div>
-            <div class="workflow-card p-4 text-center">
-                <i class="fas fa-check-circle text-2xl mb-2" style="color: var(--color-3);"></i>
-                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="active-workflows">-</h3>
-                <p class="text-xs" style="color: var(--text-muted);">Active Workflows</p>
-            </div>
-            <div class="workflow-card p-4 text-center">
-                <i class="fas fa-exchange-alt text-2xl mb-2" style="color: var(--color-4);"></i>
-                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="total-mappings">-</h3>
-                <p class="text-xs" style="color: var(--text-muted);">Status Mappings</p>
-            </div>
-            <div class="workflow-card p-4 text-center">
-                <i class="fas fa-building text-2xl mb-2" style="color: var(--color-2);"></i>
-                <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="integration-count">-</h3>
-                <p class="text-xs" style="color: var(--text-muted);">Integrations</p>
-            </div>
+<!-- Filters Section -->
+<div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- 1. Step Name -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Step Name</label>
+            <input type="text" id="filterStepName" placeholder="Filter by step name..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- 2. Integration -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+            <select id="filterIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Integrations</option>
+                <option value="jira">Jira</option>
+                <option value="github">GitHub</option>
+            </select>
+        </div>
+
+        <!-- 3. Step Category -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Step Category</label>
+            <select id="filterStepCategory" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Categories</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="waiting">Waiting</option>
+                <option value="done">Done</option>
+                <option value="discarded">Discarded</option>
+            </select>
+        </div>
+
+        <!-- 4. Status -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Status</label>
+            <select id="filterStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
         </div>
     </div>
 </div>
 
 <!-- Workflows Table -->
-<div class="workflow-section">
-    <div class="section-header">
-        <div class="flex items-center justify-between">
-            <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
-                <i class="fas fa-list mr-2"></i>All Workflows
-            </h2>
-            <div class="flex items-center space-x-3">
-                <input type="text" 
-                       id="workflow-search" 
-                       placeholder="Search workflows..." 
-                       class="px-3 py-2 border rounded-lg text-sm"
-                       style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
-                       onkeyup="filterWorkflows()">
-                <select id="status-filter" 
-                        class="px-3 py-2 border rounded-lg text-sm"
-                        style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
-                        onchange="filterWorkflows()">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                </select>
-            </div>
-        </div>
+<div class="rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Workflows</h2>
+        <button onclick="loadWorkflows()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
     </div>
-    <div class="section-content p-0">
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead style="background-color: var(--bg-tertiary);">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
-                            style="color: var(--text-secondary);" 
-                            onclick="sortTable('name')">
-                            Name
-                            <i class="fas fa-sort sort-icon"></i>
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
-                            style="color: var(--text-secondary);" 
-                            onclick="sortTable('integration')">
-                            Integration
-                            <i class="fas fa-sort sort-icon"></i>
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
-                            style="color: var(--text-secondary);" 
-                            onclick="sortTable('status')">
-                            Status
-                            <i class="fas fa-sort sort-icon"></i>
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
-                            style="color: var(--text-secondary);" 
-                            onclick="sortTable('mappings')">
-                            Mappings
-                            <i class="fas fa-sort sort-icon"></i>
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider sortable" 
-                            style="color: var(--text-secondary);" 
-                            onclick="sortTable('created')">
-                            Created
-                            <i class="fas fa-sort sort-icon"></i>
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" 
-                            style="color: var(--text-secondary);">
-                            Actions
-                        </th>
-                    </tr>
-                </thead>
-                <tbody id="workflows-table-body" style="background-color: var(--bg-secondary);">
-                    <tr>
-                        <td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">
-                            <i class="fas fa-spinner fa-spin mr-2"></i>Loading workflows...
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Step Name
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Step Number
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Step Category
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Integration
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Status
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
+                        Actions
+                    </th>
+                </tr>
+            </thead>
+            <tbody id="workflowsTableBody" style="background-color: var(--bg-secondary);">
+                <tr>
+                    <td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>Loading workflows...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="hidden p-8 text-center">
+        <i class="fas fa-project-diagram text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No workflows found</h3>
+        <p class="mb-4" style="color: var(--text-secondary);">Get started by creating your first workflow step using the Create button above.</p>
     </div>
 </div>
 
 <!-- Create/Edit Workflow Modal -->
-{% from 'components/modal.html' import modal %}
-{% call modal('workflowModal', 'Create Workflow', 'lg') %}
+<div id="workflowModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 id="workflowModalTitle" class="text-xl font-semibold text-primary">Create Workflow</h2>
+            <button onclick="closeModal('workflowModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
     <form id="workflowForm">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Workflow Name</label>
-                <input type="text" 
-                       id="workflowName" 
-                       class="w-full px-3 py-2 border rounded-lg"
-                       style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
-                       required>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Step Name</label>
+                <input type="text" id="stepName" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Step Number</label>
+                <input type="number" id="stepNumber" min="1" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Step Category</label>
+                <select id="stepCategory" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <option value="todo">To Do</option>
+                    <option value="in_progress" selected>In Progress</option>
+                    <option value="waiting">Waiting</option>
+                    <option value="done">Done</option>
+                    <option value="discarded">Discarded</option>
+                </select>
             </div>
             <div>
                 <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
-                <select id="workflowIntegration" 
-                        class="w-full px-3 py-2 border rounded-lg"
-                        style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
-                        required>
+                <select id="workflowIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     <option value="">Select Integration</option>
+                    <!-- Options will be populated dynamically -->
                 </select>
             </div>
         </div>
-        <div class="mb-4">
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Description</label>
-            <textarea id="workflowDescription" 
-                      rows="3" 
-                      class="w-full px-3 py-2 border rounded-lg"
-                      style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
-        </div>
         <div class="flex items-center mb-4">
-            <input type="checkbox" id="workflowActive" class="mr-2">
+            <input type="checkbox" id="workflowActive" class="mr-2" checked>
             <label for="workflowActive" class="text-sm" style="color: var(--text-primary);">Active</label>
         </div>
         <div class="flex justify-end space-x-3">
-            <button type="button" onclick="closeModal('workflowModal')" class="btn-crud-cancel">
+            <button type="button" onclick="closeModal('workflowModal')" class="btn-neutral-secondary">
                 Cancel
             </button>
             <button type="submit" class="btn-crud-create">
@@ -253,11 +166,67 @@
             </button>
         </div>
     </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Workflow Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deleteWorkflowModal', 'Delete Workflow', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to delete the workflow: <strong id="deleteWorkflowName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This workflow has dependencies. You can optionally reassign them to another workflow, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Workflow (Optional)</label>
+        <select id="deleteReassignToWorkflow" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a workflow to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deleteWorkflowModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeleteWorkflow()" class="btn-crud-delete">
+            <i class="fas fa-trash mr-2"></i>Delete Workflow
+        </button>
+    </div>
 {% endcall %}
 
-<!-- Delete Confirmation Modal -->
-{% from 'components/modal.html' import confirm_modal %}
-{{ confirm_modal('deleteWorkflowModal', 'Delete Workflow', 'Are you sure you want to delete this workflow? This action cannot be undone.', 'Delete', 'Cancel', 'danger') }}
+<!-- Deactivate Workflow Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deactivateWorkflowModal', 'Pause Workflow', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to pause the workflow: <strong id="deactivateWorkflowName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This workflow has dependencies. You can optionally reassign them to another workflow, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Workflow (Optional)</label>
+        <select id="reassignToWorkflow" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a workflow to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deactivateWorkflowModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeactivateWorkflow()" class="btn-crud-warning">
+            <i class="fas fa-pause mr-2"></i>Deactivate
+        </button>
+    </div>
+{% endcall %}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -265,15 +234,7 @@
     // Global variables
     let workflows = [];
     let integrations = [];
-    let currentSort = { column: 'name', direction: 'asc' };
     let currentWorkflowId = null;
-
-    // Initialize page
-    document.addEventListener('DOMContentLoaded', async function () {
-        await loadIntegrations();
-        await loadWorkflows();
-        loadWorkflowStats();
-    });
 
     // Authentication helper
     function getAuthToken() {
@@ -291,249 +252,554 @@
         return token;
     }
 
-    // Load workflows
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        loadWorkflows();
+        loadIntegrations();
+    });
+
     async function loadWorkflows() {
         try {
             const token = getAuthToken();
-            if (!token) return;
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
 
             const response = await fetch('/api/v1/admin/workflows', {
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 }
             });
 
-            if (response.ok) {
-                workflows = await response.json();
-                updateWorkflowsTable();
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
+
+            workflows = await response.json();
+            renderWorkflowsTable();
+
         } catch (error) {
             console.error('Error loading workflows:', error);
+            showNotification(`Error loading workflows: ${error.message}`, 'error');
         }
     }
 
-    // Load integrations for dropdown
     async function loadIntegrations() {
         try {
             const token = getAuthToken();
-            if (!token) return;
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
 
             const response = await fetch('/api/v1/admin/integrations', {
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 }
             });
 
-            if (response.ok) {
-                integrations = await response.json();
-                updateIntegrationDropdown();
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
+
+            integrations = await response.json();
+            updateIntegrationDropdown();
+
         } catch (error) {
             console.error('Error loading integrations:', error);
+            // Set default integrations if API fails
+            integrations = [
+                { id: 1, name: 'Jira', active: true },
+                { id: 2, name: 'GitHub', active: true }
+            ];
+            updateIntegrationDropdown();
         }
     }
 
-    // Update integration dropdown
     function updateIntegrationDropdown() {
-        const select = document.getElementById('workflowIntegration');
-        select.innerHTML = '<option value="">Select Integration</option>';
-        
+        const dropdown = document.getElementById('workflowIntegration');
+        dropdown.innerHTML = '<option value="">Select Integration</option>';
+
         integrations.forEach(integration => {
-            const option = document.createElement('option');
-            option.value = integration.id;
-            option.textContent = integration.name;
-            select.appendChild(option);
+            if (integration.active) {
+                const option = document.createElement('option');
+                option.value = integration.id;
+                option.textContent = integration.name;
+                dropdown.appendChild(option);
+            }
         });
     }
 
-    // Load workflow statistics
-    async function loadWorkflowStats() {
-        try {
-            const token = getAuthToken();
-            if (!token) return;
+    function renderWorkflowsTable(filteredWorkflows = null) {
+        const tbody = document.getElementById('workflowsTableBody');
+        const emptyState = document.getElementById('emptyState');
+        const workflowsToRender = filteredWorkflows || workflows;
 
-            const response = await fetch('/api/v1/admin/workflow-stats', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (response.ok) {
-                const stats = await response.json();
-                updateStatsDisplay(stats);
-            }
-        } catch (error) {
-            console.error('Error loading workflow stats:', error);
-        }
-    }
-
-    // Update statistics display
-    function updateStatsDisplay(stats) {
-        document.getElementById('total-workflows').textContent = stats.total || '-';
-        document.getElementById('active-workflows').textContent = stats.active || '-';
-        document.getElementById('total-mappings').textContent = stats.mappings || '-';
-        document.getElementById('integration-count').textContent = stats.integrations || '-';
-    }
-
-    // Update workflows table
-    function updateWorkflowsTable() {
-        const tbody = document.getElementById('workflows-table-body');
-        tbody.innerHTML = '';
-
-        if (!workflows || workflows.length === 0) {
-            tbody.innerHTML = `
-                <tr><td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">No workflows found</td></tr>
-            `;
+        if (!workflowsToRender || workflowsToRender.length === 0) {
+            tbody.innerHTML = '';
+            emptyState.classList.remove('hidden');
             return;
         }
 
-        // Apply current sort
-        const sortedWorkflows = [...workflows].sort((a, b) => {
-            let aVal = a[currentSort.column] || '';
-            let bVal = b[currentSort.column] || '';
-            
-            if (typeof aVal === 'string') {
-                aVal = aVal.toLowerCase();
-                bVal = bVal.toLowerCase();
-            }
-            
-            if (currentSort.direction === 'asc') {
-                return aVal > bVal ? 1 : -1;
-            } else {
-                return aVal < bVal ? 1 : -1;
-            }
-        });
+        emptyState.classList.add('hidden');
+        tbody.innerHTML = '';
 
-        sortedWorkflows.forEach(workflow => {
+        workflowsToRender.forEach(workflow => {
             const row = document.createElement('tr');
             row.className = 'border-b border-default hover:bg-tertiary';
-            
-            const statusBadge = workflow.active ? 
-                '<span class="status-badge status-active">Active</span>' :
-                '<span class="status-badge status-inactive">Inactive</span>';
-            
+
+            // Add darker background for inactive items
+            if (!workflow.active) {
+                row.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+                row.style.opacity = '0.7';
+            }
+
+            const statusBadge = workflow.active ?
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--status-success); color: white;">Active</span>' :
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
+
             const integration = integrations.find(i => i.id === workflow.integration_id);
             const integrationName = integration ? integration.name : 'Unknown';
-            
+
+            const textColorPrimary = workflow.active ? 'var(--text-primary)' : 'var(--text-muted)';
+            const textColorSecondary = workflow.active ? 'var(--text-secondary)' : 'var(--text-muted)';
+
+            // Get step category badge with correct colors
+            let categoryBadge = '';
+            const category = workflow.step_category || 'unknown';
+
+            switch(category.toLowerCase()) {
+                case 'todo':
+                case 'to_do':
+                case 'to do':
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--neutral-secondary); color: white;">To Do</span>`;
+                    break;
+                case 'in_progress':
+                case 'in progress':
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-edit); color: white;">In Progress</span>`;
+                    break;
+                case 'waiting':
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--status-warning); color: white;">Waiting</span>`;
+                    break;
+                case 'done':
+                case 'completed':
+                case 'complete':
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-create); color: white;">Done</span>`;
+                    break;
+                case 'discarded':
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-delete); color: white;">Discarded</span>`;
+                    break;
+                default:
+                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--neutral-secondary); color: white;">${category}</span>`;
+            }
+
             row.innerHTML = `
-                <td class="px-6 py-4">
-                    <div class="text-sm font-medium" style="color: var(--text-primary);">${workflow.name}</div>
-                    <div class="text-sm" style="color: var(--text-muted);">${workflow.description || 'No description'}</div>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium" style="color: ${textColorPrimary};">${workflow.step_name || 'Unnamed Step'}</div>
                 </td>
-                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${integrationName}</td>
-                <td class="px-6 py-4">${statusBadge}</td>
-                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${workflow.mapping_count || 0}</td>
-                <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${workflow.created_at ? new Date(workflow.created_at).toLocaleDateString() : 'Unknown'}</td>
-                <td class="px-6 py-4 text-sm">
-                    <button onclick="editWorkflow(${workflow.id})" class="btn-neutral-secondary mr-2">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button onclick="deleteWorkflow(${workflow.id})" class="btn-crud-delete">
-                        <i class="fas fa-trash"></i>
-                    </button>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="text-sm" style="color: ${textColorSecondary};">${workflow.step_number || '-'}</span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    ${categoryBadge}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="text-sm" style="color: ${textColorSecondary};">${integrationName}</span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <div class="flex justify-center space-x-1">
+                        <button onclick="editWorkflow(${workflow.id})" class="btn-crud-edit-sm" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ${workflow.active ?
+                            `<button onclick="showPauseModal(${workflow.id}, '${workflow.step_name || 'Unnamed Step'}')" class="btn-status-warning-xs" title="Pause">
+                                <i class="fas fa-pause"></i>
+                            </button>` :
+                            `<button onclick="resumeWorkflow(${workflow.id})" class="btn-status-success-xs" title="Resume">
+                                <i class="fas fa-play"></i>
+                            </button>`
+                        }
+                        <button onclick="deleteWorkflow(${workflow.id})" class="btn-crud-delete-sm" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </td>
             `;
-            
+
             tbody.appendChild(row);
         });
     }
 
-    // Sort table
-    function sortTable(column) {
-        if (currentSort.column === column) {
-            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-        } else {
-            currentSort.column = column;
-            currentSort.direction = 'asc';
-        }
-        
-        // Update sort indicators
-        document.querySelectorAll('.sortable').forEach(th => {
-            th.classList.remove('sort-asc', 'sort-desc');
-        });
-        
-        const currentTh = document.querySelector(`[onclick="sortTable('${column}')"]`);
-        currentTh.classList.add(`sort-${currentSort.direction}`);
-        
-        updateWorkflowsTable();
-    }
+    function applyFilters() {
+        const stepNameFilter = document.getElementById('filterStepName').value.toLowerCase();
+        const integrationFilter = document.getElementById('filterIntegration').value.toLowerCase();
+        const stepCategoryFilter = document.getElementById('filterStepCategory').value;
+        const statusFilter = document.getElementById('filterStatus').value;
 
-    // Filter workflows
-    function filterWorkflows() {
-        const searchTerm = document.getElementById('workflow-search').value.toLowerCase();
-        const statusFilter = document.getElementById('status-filter').value;
-        
         const filteredWorkflows = workflows.filter(workflow => {
-            const matchesSearch = workflow.name.toLowerCase().includes(searchTerm) ||
-                                (workflow.description && workflow.description.toLowerCase().includes(searchTerm));
-            
-            const matchesStatus = !statusFilter || 
-                                (statusFilter === 'active' && workflow.active) ||
-                                (statusFilter === 'inactive' && !workflow.active);
-            
-            return matchesSearch && matchesStatus;
+            // Step name filter
+            if (stepNameFilter && (!workflow.step_name || !workflow.step_name.toLowerCase().includes(stepNameFilter))) {
+                return false;
+            }
+
+            // Integration filter
+            if (integrationFilter) {
+                const integration = integrations.find(i => i.id === workflow.integration_id);
+                const integrationName = integration ? integration.name.toLowerCase() : '';
+                if (!integrationName.includes(integrationFilter)) {
+                    return false;
+                }
+            }
+
+            // Step category filter
+            if (stepCategoryFilter && workflow.step_category !== stepCategoryFilter) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter) {
+                if (statusFilter === 'active' && !workflow.active) return false;
+                if (statusFilter === 'inactive' && workflow.active) return false;
+            }
+
+            return true;
         });
-        
-        // Temporarily replace workflows for display
-        const originalWorkflows = workflows;
-        workflows = filteredWorkflows;
-        updateWorkflowsTable();
-        workflows = originalWorkflows;
+
+        renderWorkflowsTable(filteredWorkflows);
     }
 
-    // Modal functions
-    function showCreateWorkflowModal() {
+    function showCreateModal() {
         document.getElementById('workflowForm').reset();
+        document.getElementById('workflowActive').checked = true;
         currentWorkflowId = null;
+        // Set modal title for create mode
+        document.getElementById('workflowModalTitle').textContent = 'Create Workflow';
         openModal('workflowModal');
     }
 
-    function editWorkflow(workflowId) {
-        const workflow = workflows.find(w => w.id === workflowId);
+    function editWorkflow(id) {
+        // Find workflow and populate form
+        const workflow = workflows.find(w => w.id === id);
         if (!workflow) return;
-        
-        document.getElementById('workflowName').value = workflow.name;
-        document.getElementById('workflowDescription').value = workflow.description || '';
-        document.getElementById('workflowIntegration').value = workflow.integration_id;
+
+        // Set modal title for edit mode
+        document.getElementById('workflowModalTitle').textContent = 'Edit Workflow';
+
+        // Populate form fields
+        document.getElementById('stepName').value = workflow.step_name || '';
+        document.getElementById('stepNumber').value = workflow.step_number || '';
+        document.getElementById('stepCategory').value = workflow.step_category || 'in_progress';
+        document.getElementById('workflowIntegration').value = workflow.integration_id || '';
         document.getElementById('workflowActive').checked = workflow.active;
-        
-        currentWorkflowId = workflowId;
+
+        currentWorkflowId = id;
         openModal('workflowModal');
     }
 
-    function deleteWorkflow(workflowId) {
-        currentWorkflowId = workflowId;
-        openModal('deleteWorkflowModal');
+    async function deleteWorkflow(id) {
+        currentWorkflowId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Find the workflow name for display
+            const workflow = workflows.find(w => w.id === id);
+            const workflowName = workflow ? workflow.step_name : 'Unknown Workflow';
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/workflows/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, delete directly
+            if (!dependencies.has_dependencies) {
+                await deleteWorkflowDirectly(id, workflowName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deleteWorkflowName').textContent = workflowName;
+
+            // Populate reassignment dropdown with other active workflows
+            const reassignSelect = document.getElementById('deleteReassignToWorkflow');
+            reassignSelect.innerHTML = '<option value="">Select a workflow to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = target.step_name;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deleteWorkflowModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
     }
 
-    // Override confirmAction for delete modal
-    function confirmAction(modalId) {
-        if (modalId === 'deleteWorkflowModal' && currentWorkflowId) {
-            // Implement delete workflow logic here
-            alert(`Delete workflow ${currentWorkflowId} - implement API call`);
-            closeModal(modalId);
+    async function deleteWorkflowDirectly(id, workflowName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/workflows/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow deleted successfully', 'success');
+            loadWorkflows();
+
+        } catch (error) {
+            console.error('Error deleting workflow:', error);
+            showNotification(`Error deleting workflow: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeleteWorkflow() {
+        if (!currentWorkflowId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('deleteReassignToWorkflow').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_issues' : 'keep_issues'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_workflow_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/workflows/${currentWorkflowId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow deleted successfully', 'success');
+            closeModal('deleteWorkflowModal');
+            loadWorkflows();
+
+        } catch (error) {
+            console.error('Error deleting workflow:', error);
+            showNotification(`Error deleting workflow: ${error.message}`, 'error');
+            closeModal('deleteWorkflowModal');
+        }
+    }
+
+    async function showPauseModal(id, workflowName) {
+        currentWorkflowId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/workflows/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, deactivate directly
+            if (!dependencies.has_dependencies) {
+                await deactivateWorkflowDirectly(id, workflowName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deactivateWorkflowName').textContent = workflowName;
+
+            // Populate reassignment dropdown with other active workflows
+            const reassignSelect = document.getElementById('reassignToWorkflow');
+            reassignSelect.innerHTML = '<option value="">Select a workflow to reassign items to (or leave empty to keep all)</option>';
+
+            dependencies.reassignment_targets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                option.textContent = target.step_name;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deactivateWorkflowModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
+    }
+
+    async function deactivateWorkflowDirectly(id, workflowName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/workflows/${id}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ action: 'keep_issues' })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow paused successfully', 'success');
+            loadWorkflows();
+
+        } catch (error) {
+            console.error('Error pausing workflow:', error);
+            showNotification(`Error pausing workflow: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeactivateWorkflow() {
+        if (!currentWorkflowId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('reassignToWorkflow').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_issues' : 'keep_issues'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.target_workflow_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/workflows/${currentWorkflowId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow paused successfully', 'success');
+            closeModal('deactivateWorkflowModal');
+            loadWorkflows();
+
+        } catch (error) {
+            console.error('Error pausing workflow:', error);
+            showNotification(`Error pausing workflow: ${error.message}`, 'error');
+            closeModal('deactivateWorkflowModal');
+        }
+    }
+
+    async function resumeWorkflow(id) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/workflows/${id}/activate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow resumed successfully', 'success');
+            loadWorkflows();
+
+        } catch (error) {
+            console.error('Error resuming workflow:', error);
+            showNotification(`Error resuming workflow: ${error.message}`, 'error');
         }
     }
 
     // Form submission
     document.getElementById('workflowForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        
+
         const formData = {
-            name: document.getElementById('workflowName').value,
-            description: document.getElementById('workflowDescription').value,
+            step_name: document.getElementById('stepName').value,
+            step_number: parseInt(document.getElementById('stepNumber').value),
+            step_category: document.getElementById('stepCategory').value,
             integration_id: parseInt(document.getElementById('workflowIntegration').value),
             active: document.getElementById('workflowActive').checked
         };
-        
+
         try {
             const token = getAuthToken();
-            const url = currentWorkflowId ? 
-                `/api/v1/admin/workflows/${currentWorkflowId}` : 
+            const url = currentWorkflowId ?
+                `/api/v1/admin/workflows/${currentWorkflowId}` :
                 '/api/v1/admin/workflows';
-            
+
             const method = currentWorkflowId ? 'PUT' : 'POST';
-            
+
             const response = await fetch(url, {
                 method: method,
                 headers: {
@@ -542,24 +808,40 @@
                 },
                 body: JSON.stringify(formData)
             });
-            
-            if (response.ok) {
-                closeModal('workflowModal');
-                await loadWorkflows();
-                loadWorkflowStats();
-            } else {
-                alert('Failed to save workflow');
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
             }
+
+            showNotification(currentWorkflowId ? 'Workflow updated successfully' : 'Workflow created successfully', 'success');
+            closeModal('workflowModal');
+            loadWorkflows();
         } catch (error) {
             console.error('Error saving workflow:', error);
-            alert('Error saving workflow');
+            showNotification(`Error saving workflow: ${error.message}`, 'error');
         }
     });
 
-    // Refresh function
-    function refreshWorkflows() {
-        loadWorkflows();
-        loadWorkflowStats();
+    // Simple notification function
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 transition-all duration-300`;
+        notification.style.backgroundColor = type === 'success' ? 'var(--status-success)' :
+                                           type === 'error' ? 'var(--status-error)' :
+                                           'var(--color-1)';
+        notification.textContent = message;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
     }
 </script>
 {% endblock %}

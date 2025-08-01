@@ -2,9 +2,13 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function LeadTimeForChangesPage() {
   const navigate = useNavigate()
+
+  // Set document title
+  useDocumentTitle('Lead Time for Changes')
   return (
     <div className="min-h-screen bg-primary">
       <Header />

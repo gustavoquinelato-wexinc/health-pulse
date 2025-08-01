@@ -2,9 +2,13 @@ import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function ChangeFailureRatePage() {
   const navigate = useNavigate()
+
+  // Set document title
+  useDocumentTitle('Change Failure Rate')
   return (
     <div className="min-h-screen bg-primary">
       <Header />

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+import signal
 import uvicorn
 
 try:
@@ -70,6 +71,9 @@ settings = get_settings()
 
 # Scheduler global
 scheduler = AsyncIOScheduler() if SCHEDULER_AVAILABLE else None
+
+# Global shutdown flag to prevent multiple cleanup attempts
+_shutdown_initiated = False
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -223,7 +227,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
     logger.info("Starting ETL Service...")
-    
+
     try:
         # Initialize database connection
         database_initialized = await initialize_database()
@@ -242,21 +246,52 @@ async def lifespan(_: FastAPI):
         logger.info("ETL Service started successfully")
         yield
 
+    except asyncio.CancelledError:
+        logger.info("Application startup cancelled")
+        yield
     except Exception as e:
         logger.error(f"Failed to start ETL Service: {e}")
         # Don't raise the exception to allow the service to start even if database is not available
         logger.warning("Service started with limited functionality - database connection failed")
         yield
     finally:
-        # Cleanup
-        logger.info("Shutting down ETL Service...")
-        if scheduler and scheduler.running:
-            scheduler.shutdown()
-        
-        database = get_database()
-        database.close_connections()
-        
-        logger.info("ETL Service shutdown complete")
+        # Cleanup - suppress all exceptions during shutdown
+        global _shutdown_initiated
+
+        # Prevent multiple cleanup attempts
+        if _shutdown_initiated:
+            return
+
+        _shutdown_initiated = True
+
+        try:
+            # Use print to avoid reentrant logging issues during shutdown
+            print("[INFO] Shutting down ETL Service...")
+
+            # Shutdown scheduler
+            try:
+                if scheduler and scheduler.running:
+                    print("[INFO] Shutting down scheduler...")
+                    scheduler.shutdown(wait=False)
+                    print("[INFO] Scheduler shutdown complete")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle scheduler shutdown errors
+                pass
+
+            # Close database connections
+            try:
+                database = get_database()
+                database.close_connections()
+                print("[INFO] Database connections closed")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle database cleanup errors
+                pass
+
+            print("[INFO] ETL Service shutdown complete")
+
+        except (Exception, asyncio.CancelledError):
+            # Silently suppress all exceptions during shutdown
+            pass
 
 
 # Create FastAPI application
@@ -894,14 +929,20 @@ async def debug_jwt_info():
 
 
 if __name__ == "__main__":
-    # Configuration for direct execution
-    uvicorn.run(
-        "app.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    )
+    # Configuration for direct execution - let uvicorn handle signals
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=settings.DEBUG,
+            log_level=settings.LOG_LEVEL.lower()
+        )
+    except KeyboardInterrupt:
+        # This is expected during Ctrl+C - don't log it as an error
+        pass
+    except Exception as e:
+        print(f"[ERROR] Unexpected error during server execution: {e}")
 
 
 
