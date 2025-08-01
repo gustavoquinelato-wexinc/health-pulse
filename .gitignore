@@ -11,10 +11,17 @@
 
 # Legacy environment files (if they contain secrets)
 .env                   # Main env file (may contain secrets)
+.env.frontend          # Frontend config (may contain API keys)
+.env.shared            # Shared config (may contain secrets)
+
+# Service-specific environment files (NEVER COMMIT)
+services/*/env
+services/*/.env*
+services/backend-service/.env
+services/etl-service/.env
+services/frontend-app/.env
 
 # Safe environment files (can be committed - no secrets)
-# .env.shared           # Shared config only - SAFE to commit
-# .env.frontend         # Public config only - SAFE to commit
 # .env.example          # Template file - SAFE to commit
 
 # Logs
