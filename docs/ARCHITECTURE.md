@@ -2,22 +2,47 @@
 
 ## 🏗️ **System Architecture**
 
-### **Microservices Overview**
+### **Unified Platform Architecture**
 
-The Pulse Platform follows a microservices architecture with clear separation of concerns:
+The Pulse Platform is now a unified engineering analytics platform with embedded ETL management capabilities:
 
 ```
-Row 1: Application Services
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌───────────────────┐
-│  Frontend       │◄──►│  Backend        │◄──►│  ETL Service    │    │  AI Service       │
-│  (React/Vite)   │    │  (Node.js)      │    │  (Python)       │    │  (LangGraph)      │
-│  Port: 5173     │    │  Port: 3001     │    │  Port: 8000     │    │  Port: 8001       │
-│                 │    │                 │    │                 │    │                   │
-│ • Dashboard UI  │    │ • API Gateway   │    │ • Data Extract  │    │ • AI Orchestrator │
-│ • Real-time UI  │    │ • Authentication│    │ • Job Control   │    │ • Agent Workflows │
-│ • Job Management│    │ • User Mgmt     │    │ • Progress Track│    │ • MCP Servers     │
-│ • AI Chat (MCP) │◄───┼─ Session Mgmt   │    │ • Recovery      │    │ • Tool Integration│
-└─────────────────┘    └─────────────────┘    └─────────────────┘    └───────────────────┘
+Row 1: Unified Platform Services
+┌─────────────────────────────────────────┐    ┌─────────────────┐    ┌───────────────────┐
+│  Pulse Platform Frontend               │◄──►│  Backend        │    │  AI Service       │
+│  (React/Vite) - Port: 5173            │    │  (Node.js)      │    │  (LangGraph)      │
+│                                        │    │  Port: 3001     │    │  Port: 8001       │
+│ ┌─────────────────────────────────────┐ │    │                 │    │                   │
+│ │ Main Platform Features              │ │    │ • API Gateway   │    │ • AI Orchestrator │
+│ │ • DORA Metrics Dashboard           │ │    │ • Authentication│    │ • Agent Workflows │
+│ │ • Engineering Analytics            │ │    │ • User Mgmt     │    │ • MCP Servers     │
+│ │ • Real-time Monitoring             │ │    │ • Session Mgmt  │    │ • Tool Integration│
+│ │ • AI Chat Interface                │ │◄───┼─ Client Mgmt    │    │                   │
+│ └─────────────────────────────────────┘ │    │                 │    │                   │
+│                                        │    │                 │    │                   │
+│ ┌─────────────────────────────────────┐ │    │                 │    │                   │
+│ │ Embedded ETL Management             │ │    │                 │    │                   │
+│ │ • iframe Integration (Port: 8000)   │ │◄───┼─────────────────┼────┼───────────────────┤
+│ │ • Job Orchestration                │ │    │                 │    │                   │
+│ │ • Data Pipeline Control            │ │    │                 │    │                   │
+│ │ • Progress Monitoring              │ │    │                 │    │                   │
+│ │ • Admin-only Access                │ │    │                 │    │                   │
+│ └─────────────────────────────────────┘ │    │                 │    │                   │
+└─────────────────────────────────────────┘    └─────────────────┘    └───────────────────┘
+                    │                                    │                       │
+                    └────────────────────────────────────┼───────────────────────┘
+                                                        │
+                                            ┌─────────────────┐
+                                            │  ETL Service    │
+                                            │  (FastAPI)      │
+                                            │  Port: 8000     │
+                                            │                 │
+                                            │ • Data Extract  │
+                                            │ • Job Control   │
+                                            │ • Progress Track│
+                                            │ • Recovery      │
+                                            │ • Admin APIs    │
+                                            └─────────────────┘
                                 │                       │                       │
                                 ▼                       ▼                       ▼
 Row 2: Caching Layer            │              ┌─────────────────┐              │
@@ -80,26 +105,119 @@ External Integrations:
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+## 🔗 **Embedded ETL Architecture**
+
+### **Platform Integration Model**
+
+The Pulse Platform now provides a unified user experience by embedding ETL management directly within the main frontend application:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Pulse Platform Frontend                     │
+│                         (Port: 5173)                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │ DORA Metrics    │  │ Engineering     │  │ Settings        │ │
+│  │ Dashboard       │  │ Analytics       │  │ Management      │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │              ETL Management (Admin Only)                   │ │
+│  │  ┌─────────────────────────────────────────────────────┐   │ │
+│  │  │            Embedded ETL Interface                   │   │ │
+│  │  │              (iframe: Port 8000)                    │   │ │
+│  │  │                                                     │   │ │
+│  │  │  • Job Orchestration Dashboard                      │   │ │
+│  │  │  • Data Pipeline Configuration                      │   │ │
+│  │  │  • Real-time Progress Monitoring                    │   │ │
+│  │  │  • Integration Management                           │   │ │
+│  │  │  • Admin Panel Access                               │   │ │
+│  │  │                                                     │   │ │
+│  │  │  Authentication: Shared JWT tokens                  │   │ │
+│  │  │  Theme: Inherited from parent                       │   │ │
+│  │  │  Branding: Client-specific logos                    │   │ │
+│  │  └─────────────────────────────────────────────────────┘   │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### **Authentication Flow**
+
+```
+1. User Login (Platform)
+   ├─ Frontend authenticates with Backend Service
+   ├─ JWT token stored in localStorage + cookies
+   └─ User role/permissions validated
+
+2. ETL Access (Admin Only)
+   ├─ Frontend checks user.is_admin
+   ├─ If admin: Load ETL iframe with token
+   ├─ ETL Service validates token with Backend
+   └─ Seamless embedded experience
+
+3. Token Management
+   ├─ Shared JWT across all services
+   ├─ Automatic token refresh
+   └─ Centralized session management
+```
+
+### **Branding Strategy**
+
+```
+Login Pages (Platform Branding):
+├─ Frontend Login: Pulse Platform logo
+├─ ETL Login: Pulse Platform logo (fallback)
+└─ Consistent platform identity
+
+Internal Pages (Client Branding):
+├─ Frontend Header: Client-specific logo (WEX, etc.)
+├─ ETL Dashboard: Client-specific logo
+└─ Dynamic logo loading based on user's client
+```
+
 ## 🔄 **Service Details**
 
-### **ETL Service (Primary)**
+### **ETL Service (Embedded)**
 - **Technology:** Python FastAPI
 - **Port:** 8000
 - **Responsibilities:**
-  - Data extraction from external APIs
-  - Job orchestration and scheduling
-  - Real-time progress tracking
-  - Checkpoint-based recovery
-  - WebSocket communication
+  - **Data Processing:**
+    - Data extraction from external APIs (Jira, GitHub)
+    - Job orchestration and scheduling
+    - Real-time progress tracking
+    - Checkpoint-based recovery
+  - **Embedded Interface:**
+    - Admin-only web interface
+    - iframe-compatible design
+    - Centralized authentication integration
+    - Client-specific branding support
+  - **API Services:**
+    - RESTful APIs for job management
+    - WebSocket communication for real-time updates
+    - Health monitoring endpoints
+    - Admin panel APIs
 
-### **Frontend Service**
+### **Frontend Service (Unified Platform)**
 - **Technology:** React + Vite + TypeScript
 - **Port:** 5173
 - **Responsibilities:**
-  - User interface and dashboard
-  - Real-time job monitoring
-  - Job management controls
-  - Data visualization
+  - **Primary Platform Interface:**
+    - DORA Metrics Dashboard
+    - Engineering Analytics
+    - Real-time monitoring
+    - User management interface
+  - **Embedded ETL Management:**
+    - iframe integration with ETL Service
+    - Admin-only access control
+    - Seamless authentication flow
+    - Unified theme and branding
+  - **Platform Features:**
+    - Client-specific branding
+    - Role-based navigation
+    - Responsive design
+    - Real-time updates
 
 ### **Backend Service**
 - **Technology:** Node.js + TypeScript
@@ -193,21 +311,31 @@ github_repositories ────────┼── github_pull_requests
 
 ## 🔒 **Security Architecture**
 
-### **Authentication Flow**
+### **Multi-Client Security Model**
 ```
-User → Frontend → Backend → JWT Token → Protected Resources
+Client A User → Frontend → Backend → JWT (client_id=A) → Client A Data Only
+Client B User → Frontend → Backend → JWT (client_id=B) → Client B Data Only
 ```
 
-### **Authorization Levels**
-- **Admin:** Full system access
-- **User:** Standard operations
-- **Viewer:** Read-only access
+### **Client Isolation Layers**
+1. **Authentication Layer:** JWT tokens include client_id context
+2. **Database Layer:** All queries filter by client_id
+3. **API Layer:** Endpoints validate client ownership
+4. **Job Layer:** Background jobs respect client boundaries
+
+### **Authorization Levels (Per Client)**
+- **Admin:** Full access to client's data and settings
+- **User:** Standard operations within client scope
+- **Viewer:** Read-only access to client data
 
 ### **Data Security**
-- **Encrypted Storage:** Sensitive data encryption
+- **Complete Client Isolation:** Zero cross-client data access
+- **Client-Scoped Operations:** All database operations filter by client_id
+- **Secure Multi-Tenancy:** Enterprise-grade client separation
+- **Encrypted Storage:** Sensitive data encryption per client
 - **Secure Communication:** HTTPS/TLS for all external calls
-- **Token Management:** JWT-based authentication
-- **API Security:** Rate limiting and input validation
+- **Token Management:** JWT-based authentication with client context
+- **API Security:** Rate limiting and input validation per client
 
 ## 📊 **Monitoring & Observability**
 

@@ -319,14 +319,22 @@ async def run_github_sync(
                 {"message": "GitHub sync job is now running"}
             )
 
-        # Get GitHub integration
+        # ✅ SECURITY: Get GitHub integration using job_schedule.integration_id for client isolation
         await websocket_manager.send_progress_update("github_sync", 5.0, "Initializing GitHub integration...")
-        github_integration = session.query(Integration).filter(
-            func.upper(Integration.name) == "GITHUB"
-        ).first()
+        if job_schedule.integration_id:
+            github_integration = session.query(Integration).filter(
+                Integration.id == job_schedule.integration_id,
+                Integration.client_id == job_schedule.client_id  # Double-check client isolation
+            ).first()
+        else:
+            # Fallback: Get by name and client_id (for backward compatibility)
+            github_integration = session.query(Integration).filter(
+                func.upper(Integration.name) == "GITHUB",
+                Integration.client_id == job_schedule.client_id
+            ).first()
 
         if not github_integration:
-            error_msg = "No GitHub integration found. Please run 'python scripts/reset_database.py --all' first."
+            error_msg = f"No GitHub integration found for client {job_schedule.client_id}. Please check integration setup."
             logger.error(f"ERROR: {error_msg}")
             await websocket_manager.send_exception("github_sync", "ERROR", error_msg)
             job_schedule.set_pending_with_checkpoint(error_msg)
@@ -452,7 +460,11 @@ async def run_github_sync(
 
                 # Handle job status transitions based on Jira job status (only if update_job_schedule is True)
                 if update_job_schedule:
-                    jira_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'jira_sync').first()
+                    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                    jira_job = session.query(JobSchedule).filter(
+                        JobSchedule.job_name == 'jira_sync',
+                        JobSchedule.client_id == job_schedule.client_id
+                    ).first()
 
                     if jira_job and jira_job.status == 'PAUSED':
                         # Jira is PAUSED: Keep GitHub as PENDING for next run
@@ -702,7 +714,8 @@ async def discover_all_repositories(session: Session, integration: Integration, 
 
         # Get organization from environment
         org = os.getenv('GITHUB_ORG', 'wexinc')
-        name_filter = os.getenv('GITHUB_REPO_FILTER', 'health-')
+        # Use base_search from integration instead of environment variable
+        name_filter = integration.base_search
 
         # Step 1: Get repositories from Jira PR links (non-health repos)
         logger.info("Step 1: Extracting repositories from Jira PR links...")
@@ -710,15 +723,21 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         from app.models.unified_models import JiraPullRequestLinks
 
         # Check if we have any PR links at all
-        total_pr_links = session.query(JiraPullRequestLinks).count()
-        logger.info(f"Total PR links in database: {total_pr_links}")
+        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+        total_pr_links = session.query(JiraPullRequestLinks).filter(
+            JiraPullRequestLinks.client_id == integration.client_id
+        ).count()
+        logger.info(f"Total PR links in database for client {integration.client_id}: {total_pr_links}")
 
         if total_pr_links == 0:
             logger.warning("No Jira PR links found - run Jira job first to populate data")
 
         # Get unique repository full names from PR links
         try:
-            jira_repo_names = session.query(JiraPullRequestLinks.repo_full_name).distinct().all()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            jira_repo_names = session.query(JiraPullRequestLinks.repo_full_name).filter(
+                JiraPullRequestLinks.client_id == integration.client_id
+            ).distinct().all()
         except Exception as e:
             logger.error(f"Error querying repo_full_name column: {e}")
             logger.error("This might mean the repo_full_name column doesn't exist - run the migration script")
@@ -729,17 +748,19 @@ async def discover_all_repositories(session: Session, integration: Integration, 
 
         # Filter out repositories that contain health- pattern (will be found by search)
         health_pattern = name_filter.replace('%20', ' ')  # Convert URL encoding back to space
+        # Clean the pattern for consistent filtering (remove trailing hyphens)
+        clean_health_pattern = health_pattern.rstrip('-') if health_pattern and health_pattern.endswith('-') else health_pattern
 
         non_health_repo_names = []
         for repo_full_name in jira_repo_names:
             if '/' in repo_full_name:
                 # Extract just the repo name part (after the '/')
                 repo_name = repo_full_name.split('/', 1)[1]
-                # Check if repo name contains health- pattern anywhere
-                if health_pattern not in repo_name:
+                # Check if repo name contains health pattern anywhere (using cleaned pattern)
+                if not clean_health_pattern or clean_health_pattern not in repo_name:
                     non_health_repo_names.append(repo_name)  # Store just the repo name for search
 
-        logger.info(f"Non-{health_pattern} repositories from Jira: {len(non_health_repo_names)}")
+        logger.info(f"Non-{clean_health_pattern or 'filtered'} repositories from Jira: {len(non_health_repo_names)}")
         if non_health_repo_names and len(non_health_repo_names) <= 5:
             logger.info(f"Non-health repos: {', '.join(sorted(non_health_repo_names))}")
         elif non_health_repo_names:
@@ -780,7 +801,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
             org=org,
             start_date=start_date,
             end_date=end_date,
-            health_filter=name_filter,
+            filter=name_filter,
             additional_repo_names=list(non_health_repo_names) if non_health_repo_names else None
         )
 

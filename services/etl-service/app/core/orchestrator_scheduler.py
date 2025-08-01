@@ -44,7 +44,7 @@ class OrchestratorScheduler:
             logger.warning("Scheduler not available for fast retry")
             return False
 
-        # Get current settings with debugging
+        # Get current settings with debugging (system-wide fast retry)
         retry_enabled = is_orchestrator_retry_enabled()
         retry_interval = get_orchestrator_retry_interval()
         max_attempts = get_orchestrator_max_retry_attempts()

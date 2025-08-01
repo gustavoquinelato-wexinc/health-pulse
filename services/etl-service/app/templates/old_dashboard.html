@@ -1,0 +1,3392 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse ETL Management - Dashboard v2</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .status-running {
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .status-pending {
+            background-color: #eab308;
+            color: white;
+        }
+
+        .status-finished {
+            background-color: #22c55e;
+            color: white;
+        }
+
+        .status-paused {
+            background-color: #d97706;
+            color: white;
+        }
+
+        .status-not-started {
+            background-color: #6b7280;
+            color: white;
+        }
+
+        .status-error {
+            background-color: #ef4444;
+            color: white;
+        }
+
+
+
+        /* Hamburger Menu Styles */
+        .hamburger-menu {
+            position: relative;
+            z-index: 9999;
+        }
+
+        .menu-dropdown {
+            position: fixed !important;
+            top: 80px !important;
+            right: 20px !important;
+            background: #2d3748 !important;
+            backdrop-filter: blur(10px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-radius: 8px !important;
+            min-width: 200px !important;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+            z-index: 999999 !important;
+            display: none !important;
+        }
+
+        .menu-dropdown.show {
+            display: block !important;
+        }
+
+        .menu-item {
+            display: block;
+            padding: 12px 16px;
+            color: white;
+            text-decoration: none;
+            transition: background-color 0.2s;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-weight: 500;
+        }
+
+        .menu-item:hover {
+            background: #4299e1;
+            color: white;
+        }
+
+        .menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .menu-item i {
+            width: 20px;
+            margin-right: 8px;
+        }
+
+
+
+        /* Fix for select dropdown z-index issues */
+        select {
+            position: relative !important;
+            z-index: 9999 !important;
+        }
+
+        /* Fix dropdown option colors */
+        select option {
+            background-color: #333 !important;
+            color: white !important;
+            padding: 8px !important;
+        }
+
+        select option:hover {
+            background-color: #555 !important;
+            color: white !important;
+        }
+
+        /* Specific styling for refresh interval dropdown */
+        #refreshInterval option {
+            background-color: #2d3748 !important;
+            color: white !important;
+            border: none !important;
+        }
+
+        #refreshInterval option:checked {
+            background-color: #4299e1 !important;
+            color: white !important;
+        }
+
+        /* Ensure the parent container doesn't clip the dropdown */
+        .glass-effect {
+            overflow: visible !important;
+        }
+
+        /* WebSocket Progress Bar Styles */
+        .ws-progress-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+
+        .ws-progress-bar {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+        }
+
+        .ws-progress-bar.completed {
+            background: linear-gradient(90deg, #10b981, #059669);
+        }
+
+        .ws-progress-bar.error {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+        }
+
+        .ws-progress-text {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.9);
+            margin-top: 4px;
+        }
+
+        /* Exception Log Styles */
+        .exception-log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+        }
+
+        .exception-item {
+            padding: 4px 8px;
+            margin: 2px 0;
+            border-radius: 3px;
+            font-size: 11px;
+            border-left: 3px solid;
+        }
+
+        .exception-item.error {
+            background: rgba(239, 68, 68, 0.2);
+            border-left-color: #ef4444;
+            color: #fecaca;
+        }
+
+        .exception-item.warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-left-color: #f59e0b;
+            color: #fde68a;
+        }
+
+        .exception-item.info {
+            background: rgba(59, 130, 246, 0.2);
+            border-left-color: #3b82f6;
+            color: #bfdbfe;
+        }
+    </style>
+</head>
+
+<body class="gradient-bg min-h-screen">
+    <!-- Hamburger Menu Dropdown (positioned at body level to avoid z-index issues) -->
+    <div id="menuDropdown" class="menu-dropdown">
+        <a href="/dashboard" class="menu-item">
+            <i class="fas fa-tachometer-alt"></i>Dashboard
+        </a>
+        <a href="/docs" class="menu-item" id="docs-menu-item" style="display: none;">
+            <i class="fas fa-book"></i>API Documentation
+        </a>
+        <a href="/api/v1/health" class="menu-item" id="health-menu-item" style="display: none;">
+            <i class="fas fa-heartbeat"></i>Health Check
+        </a>
+        <!-- Admin Panel - Only visible to admin users -->
+        <a href="/admin" class="menu-item" id="admin-menu-item" style="display: none;">
+            <i class="fas fa-users-cog"></i>Admin Panel
+        </a>
+        <div class="menu-item"
+            style="border-top: 1px solid rgba(255, 255, 255, 0.2); margin-top: 4px; padding-top: 12px;">
+            <button onclick="logout()" class="w-full text-left">
+                <i class="fas fa-sign-out-alt"></i>Logout
+            </button>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="glass-effect border-b border-white border-opacity-20">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div
+                        class="inline-flex items-center justify-center w-10 h-10 bg-white bg-opacity-20 rounded-full mr-4">
+                        <i class="fas fa-database text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Pulse ETL Dashboard</h1>
+                        <p class="text-white text-opacity-70 text-sm">Data Pipeline Management</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="text-white text-opacity-80 text-sm">
+                        <i class="fas fa-user mr-2"></i><span id="user-email">Loading...</span>
+                        <span id="user-role-badge" class="ml-2 px-2 py-1 rounded text-xs font-semibold"
+                            style="display: none;"></span>
+                    </div>
+
+                    <!-- Hamburger Menu Button -->
+                    <div class="hamburger-menu">
+                        <button onclick="toggleMenu()"
+                            class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-2 rounded-lg transition duration-300">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- System Health Section -->
+        <div id="system-health-section" class="glass-effect rounded-lg p-6 mb-6" style="display: none;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-semibold text-white">
+                    <i class="fas fa-heartbeat mr-2"></i>System Health
+                </h3>
+                <div class="flex space-x-2">
+                    <button onclick="refreshSystemHealth()"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded text-sm transition duration-300">
+                        <i class="fas fa-sync mr-1"></i>Refresh
+                    </button>
+                    <button id="logs-button" onclick="showLogManagement()"
+                        class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm font-medium transition duration-300">
+                        <i class="fas fa-file-alt mr-1"></i>Logs
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Database Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">Database</span>
+                        <span id="dbStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="dbDetails" class="text-white text-opacity-60 text-xs">
+                        PostgreSQL Connection
+                    </div>
+                </div>
+
+                <!-- Jira API Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">Jira API</span>
+                        <span id="jiraApiStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="jiraApiDetails" class="text-white text-opacity-60 text-xs">
+                        API Connectivity
+                    </div>
+                </div>
+
+                <!-- GitHub API Status -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">GitHub API</span>
+                        <span id="githubApiStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="githubApiDetails" class="text-white text-opacity-60 text-xs">
+                        Rate Limits & Connectivity
+                    </div>
+                </div>
+
+                <!-- System Resources -->
+                <div class="bg-white bg-opacity-10 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-white text-opacity-80 text-sm">System</span>
+                        <span id="systemStatus" class="px-2 py-1 rounded text-xs font-medium bg-gray-500 text-white">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>Checking...
+                        </span>
+                    </div>
+                    <div id="systemDetails" class="text-white text-opacity-60 text-xs">
+                        Memory & CPU Usage
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto-refresh controls -->
+        <div class="glass-effect rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h2 class="text-xl font-semibold text-white">
+                        <i class="fas fa-sync-alt mr-2"></i>Job Status Monitor
+                    </h2>
+                    <div class="flex items-center space-x-2">
+                        <label class="text-white text-sm">Auto-refresh:</label>
+                        <select id="refreshInterval" class="bg-white bg-opacity-20 text-white rounded px-3 py-1 text-sm"
+                            style="position: relative; z-index: 9999;">
+                            <option value="0">Off</option>
+                            <option value="5000">5s</option>
+                            <option value="10000">10s</option>
+                            <option value="30000" selected>30s</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span id="lastUpdate" class="text-white text-opacity-70 text-sm"></span>
+                    <button onclick="refreshData(); refreshSystemHealth();"
+                        class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg transition duration-300">
+                        <i class="fas fa-refresh mr-2"></i>Refresh Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orchestrator Controls -->
+        <div id="orchestratorControlsSection" class="glass-effect rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <h3 id="orchestratorSectionTitle" class="text-lg font-semibold text-white">
+                        <i class="fas fa-cogs mr-2"></i>Orchestrator Controls
+                    </h3>
+                    <div id="orchestratorStatus" class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-white text-opacity-70 text-sm">Status:</span>
+                            <span id="orchestratorStatusBadge" class="px-2 py-1 rounded text-xs font-medium">
+                                Loading...
+                            </span>
+                        </div>
+                        <div id="orchestratorCountdown" class="flex items-center space-x-2">
+                            <span class="text-white text-opacity-70 text-sm">Next run in:</span>
+                            <span id="countdownTimer"
+                                class="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium">
+                                --:--:--
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div id="orchestratorControlButtons" class="flex items-center space-x-2">
+                    <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn"
+                        class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-play mr-1"></i>Force Start
+                    </button>
+
+                    <button onclick="pauseOrchestrator()" id="pauseOrchestratorBtn"
+                        class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-pause mr-1"></i>Pause
+                    </button>
+                    <button onclick="resumeOrchestrator()" id="resumeOrchestratorBtn"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium hidden">
+                        <i class="fas fa-play mr-1"></i>Resume
+                    </button>
+                    <button onclick="showOrchestratorSettings()"
+                        class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
+                        <i class="fas fa-cog mr-1"></i>Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orchestrator Settings Modal -->
+        <div id="orchestratorSettingsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                    <div class="px-6 py-4 border-b border-gray-700">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-semibold text-white">
+                                <i class="fas fa-cog mr-2"></i>Orchestrator Settings
+                            </h3>
+                            <button onclick="hideOrchestratorSettings()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-2">
+                                    Run Interval
+                                </label>
+                                <select id="orchestratorInterval"
+                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="60" selected>Every 1 hour</option>
+                                    <option value="120">Every 2 hours</option>
+                                    <option value="240">Every 4 hours</option>
+                                    <option value="480">Every 8 hours</option>
+                                    <option value="720">Every 12 hours</option>
+                                    <option value="1440">Every 24 hours</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="orchestratorEnabled" checked
+                                        class="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 bg-gray-700 rounded">
+                                    <span class="text-sm font-medium text-gray-300">Enable Orchestrator</span>
+                                </label>
+                            </div>
+
+                            <!-- Fast Retry Configuration -->
+                            <div class="border-t border-gray-700 pt-4">
+                                <h4 class="text-sm font-semibold text-white mb-3">
+                                    <i class="fas fa-redo mr-1"></i>Fast Retry Settings
+                                </h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="flex items-center">
+                                            <input type="checkbox" id="retryEnabled" checked
+                                                class="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 bg-gray-700 rounded">
+                                            <span class="text-sm font-medium text-gray-300">Enable Fast Retry</span>
+                                        </label>
+                                        <p class="text-xs text-gray-400 mt-1 ml-6">
+                                            Retry failed jobs sooner instead of waiting for the next scheduled run
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">
+                                            Retry Interval
+                                        </label>
+                                        <select id="retryInterval"
+                                            class="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            <option value="5">Every 5 minutes</option>
+                                            <option value="10">Every 10 minutes</option>
+                                            <option value="15" selected>Every 15 minutes</option>
+                                            <option value="20">Every 20 minutes</option>
+                                            <option value="30">Every 30 minutes</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-2">
+                                            Max Retry Attempts
+                                        </label>
+                                        <select id="maxRetryAttempts"
+                                            class="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            <option value="1">1 attempt</option>
+                                            <option value="2">2 attempts</option>
+                                            <option value="3" selected>3 attempts</option>
+                                            <option value="4">4 attempts</option>
+                                            <option value="5">5 attempts</option>
+                                        </select>
+                                        <p class="text-xs text-gray-400 mt-1">
+                                            After max attempts, falls back to normal interval
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-700 flex justify-end space-x-3">
+                        <button onclick="hideOrchestratorSettings()"
+                            class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md">
+                            Cancel
+                        </button>
+                        <button onclick="saveOrchestratorSettings()"
+                            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md">
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Management Modal -->
+        <div id="logManagementModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="bg-gray-800 rounded-lg shadow-xl max-w-6xl w-full">
+                    <div class="px-6 py-4 border-b border-gray-700">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="text-lg font-semibold text-white">ETL Service Log Management</h3>
+                                <p class="text-sm text-gray-300 mt-1">Manage all log files in the ETL service directory</p>
+                            </div>
+                            <button onclick="hideLogManagement()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4">
+                        <!-- Log Files List -->
+                        <div class="mb-6">
+                            <div class="flex justify-between items-center mb-3">
+                                <h4 class="text-md font-medium text-white">Current Log Files</h4>
+                                <div class="flex items-center space-x-2">
+                                    <select id="bulkCleanupDays" class="px-2 py-1 bg-gray-700 border border-gray-600 text-white rounded text-xs">
+                                        <option value="7">7 days</option>
+                                        <option value="14">14 days</option>
+                                        <option value="30" selected>30 days</option>
+                                        <option value="60">60 days</option>
+                                        <option value="90">90 days</option>
+                                        <option value="0">All logs</option>
+                                    </select>
+                                    <button onclick="bulkCleanupLogs()"
+                                        class="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs transition-colors"
+                                        id="bulkDeleteBtn"
+                                        title="Delete files based on selected option">
+                                        <i class="fas fa-trash mr-1"></i><span id="bulkDeleteText">Delete Old</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="logFilesList" class="space-y-2">
+                                <!-- Log files will be loaded here -->
+                            </div>
+                        </div>
+
+                        <!-- Recent Log Entries -->
+                        <div class="mb-4">
+                            <div class="flex justify-between items-center mb-3">
+                                <h4 class="text-md font-medium text-white">Recent Log Entries</h4>
+                                <button onclick="refreshLogEntries()"
+                                    class="text-blue-400 hover:text-blue-300 text-sm">
+                                    <i class="fas fa-sync mr-1"></i>Refresh
+                                </button>
+                            </div>
+
+                            <!-- Log Table -->
+                            <div class="bg-gray-900 rounded-lg overflow-hidden">
+                                <div id="logTableContainer" class="max-h-64 overflow-y-auto">
+                                    <table class="w-full text-xs">
+                                        <thead class="bg-gray-800 sticky top-0">
+                                            <tr>
+                                                <th class="text-left p-2 text-gray-300 font-medium w-36">Time</th>
+                                                <th class="text-left p-2 text-gray-300 font-medium w-20">Level</th>
+                                                <th class="text-left p-2 text-gray-300 font-medium w-40">Module</th>
+                                                <th class="text-left p-2 text-gray-300 font-medium">Message</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="logTableBody">
+                                            <tr>
+                                                <td colspan="4" class="p-4 text-center text-gray-400">
+                                                    <i class="fas fa-spinner fa-spin mr-2"></i>Loading log entries...
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Pagination -->
+                                <div class="bg-gray-800 px-3 py-2 flex justify-between items-center text-xs">
+                                    <div class="text-gray-400">
+                                        <span id="logPaginationInfo">Loading...</span>
+                                    </div>
+                                    <div class="flex space-x-1">
+                                        <button id="logPrevPage" onclick="changeLogPage(-1)"
+                                            class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </button>
+                                        <button id="logNextPage" onclick="changeLogPage(1)"
+                                            class="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-xs text-gray-400 mt-2">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                Use the download button next to each file above to download complete logs.
+                            </div>
+                        </div>
+
+
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-700 flex justify-end">
+                        <button onclick="hideLogManagement()"
+                            class="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-md transition-colors">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Cards Container -->
+        <div id="jobsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Job cards will be dynamically inserted here -->
+        </div>
+
+
+
+
+    </main>
+
+    <script>
+        // @ts-nocheck
+        let refreshTimer = null;
+
+        // WebSocket connections for real-time progress
+        let websockets = {
+            jira_sync: null,
+            github_sync: null,
+            orchestrator: null
+        };
+
+        // Progress and exception data
+        let jobProgress = {
+            jira_sync: { percentage: 0, step: '', exceptions: [] },
+            github_sync: { percentage: 0, step: '', exceptions: [] },
+            orchestrator: { percentage: 0, step: '', exceptions: [] }
+        };
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', async function () {
+            // Check for error messages in URL parameters
+            checkForErrorMessages();
+
+            // Immediate session validation before loading any content
+            const isAuthenticated = await checkAuth();
+            if (!isAuthenticated) {
+                return; // Session invalid, already redirected
+            }
+
+            // Only load content if session is valid
+            try {
+                // Load critical data first, then system health in background
+                await Promise.all([
+                    loadUserInfo(),
+                    refreshData(),
+                    refreshOrchestratorStatus()
+                ]);
+
+                // Start system health check in background (non-blocking)
+                refreshSystemHealth().catch(error => {
+                    console.error('System health check failed:', error);
+                });
+
+                // Setup auto-refresh and WebSockets after initial load
+                setupAutoRefresh();
+                initializeWebSockets();
+            } catch (error) {
+                console.error('Error during dashboard initialization:', error);
+            }
+        });
+
+        // Check for error messages in URL parameters and display them
+        function checkForErrorMessages() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const error = urlParams.get('error');
+            const resource = urlParams.get('resource');
+
+            if (error === 'permission_denied' && resource) {
+                const resourceName = resource.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                showPermissionDeniedMessage(resourceName);
+
+                // Clean up URL without reloading the page
+                const url = new URL(window.location);
+                url.searchParams.delete('error');
+                url.searchParams.delete('resource');
+                window.history.replaceState({}, document.title, url.pathname);
+            }
+        }
+
+        // Show permission denied message
+        function showPermissionDeniedMessage(resourceName) {
+            const message = `
+                <div id="permission-error-banner" class="fixed top-4 right-4 z-50 bg-red-600 text-white px-6 py-4 rounded-lg shadow-lg max-w-md">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <i class="fas fa-exclamation-triangle mr-3"></i>
+                            <div>
+                                <div class="font-semibold">Access Denied</div>
+                                <div class="text-sm opacity-90">You don't have permission to access ${resourceName}</div>
+                            </div>
+                        </div>
+                        <button onclick="closePermissionBanner()" class="ml-4 text-white hover:text-gray-200">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', message);
+
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                closePermissionBanner();
+            }, 5000);
+        }
+
+        // Close permission banner
+        function closePermissionBanner() {
+            const banner = document.getElementById('permission-error-banner');
+            if (banner) {
+                banner.remove();
+            }
+        }
+
+        function getAuthToken() {
+            // Try localStorage first (for compatibility)
+            let token = localStorage.getItem('pulse_token') || localStorage.getItem('token');
+
+            // If not in localStorage, try to get from cookie
+            if (!token) {
+                const cookies = document.cookie.split(';');
+                for (let cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    if (name === 'pulse_token' || name === 'access_token') {
+                        token = value;
+                        break;
+                    }
+                }
+            }
+
+            return token;
+        }
+
+        function redirectToLogin(reason) {
+            // Clear localStorage tokens
+            localStorage.removeItem('pulse_token');
+            localStorage.removeItem('token');
+
+            // Clear cookie by expiring it
+            document.cookie = 'pulse_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+
+            // Redirect with reason
+            window.location.href = `/login?error=session_expired&reason=${encodeURIComponent(reason)}`;
+        }
+
+        // Cache auth status to avoid redundant checks
+        let lastAuthCheck = null;
+        let lastAuthResult = false;
+        const AUTH_CACHE_TTL = 60000; // 1 minute cache
+
+        async function checkAuth(forceCheck = false) {
+            const token = getAuthToken();
+
+            if (!token) {
+                redirectToLogin('No authentication token found');
+                return false;
+            }
+
+            // Use cached result if recent and not forced
+            const now = Date.now();
+            if (!forceCheck && lastAuthCheck && (now - lastAuthCheck) < AUTH_CACHE_TTL && lastAuthResult) {
+                return lastAuthResult;
+            }
+
+            // Validate token with server
+            try {
+                const response = await fetch('/api/v1/auth/validate', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                lastAuthCheck = now;
+                lastAuthResult = response.ok;
+
+                if (!response.ok) {
+                    redirectToLogin('Session expired or invalid');
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                console.error('Error validating token:', error);
+                lastAuthCheck = now;
+                lastAuthResult = false;
+                redirectToLogin('Session validation failed');
+                return false;
+            }
+        }
+
+        // WebSocket Management
+        function initializeWebSockets() {
+            const jobs = ['jira_sync', 'github_sync'];
+
+            jobs.forEach(jobName => {
+                connectWebSocket(jobName);
+            });
+        }
+
+        function connectWebSocket(jobName) {
+            if (websockets[jobName]) {
+                websockets[jobName].close();
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobName}`;
+
+            try {
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = function () {
+                    websockets[jobName] = ws;
+                };
+
+                ws.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(jobName, data);
+                    } catch (e) {
+                        console.error(`❌ Error parsing WebSocket message for ${jobName}:`, e);
+                    }
+                };
+
+                ws.onclose = function (event) {
+                    console.log(`🔌 WebSocket disconnected for ${jobName}. Code: ${event.code}, Reason: ${event.reason}`);
+                    websockets[jobName] = null;
+
+                    // Reconnect after 5 seconds
+                    setTimeout(() => {
+                        if (!websockets[jobName]) {
+                            console.log(`🔄 Reconnecting WebSocket for ${jobName}...`);
+                            connectWebSocket(jobName);
+                        }
+                    }, 5000);
+                };
+
+                ws.onerror = function (error) {
+                    console.error(`❌ WebSocket error for ${jobName}:`, error);
+                };
+
+            } catch (e) {
+                console.error(`Failed to create WebSocket for ${jobName}:`, e);
+            }
+        }
+
+        function handleWebSocketMessage(jobName, data) {
+            switch (data.type) {
+                case 'progress':
+                    updateJobProgress(jobName, data.percentage, data.step);
+                    break;
+                case 'exception':
+                    addJobException(jobName, data.level, data.message, data.timestamp);
+                    break;
+                case 'status':
+                    updateJobStatus(jobName, data.status);
+                    break;
+                case 'completion':
+                    handleJobCompletion(jobName, data.success, data.summary);
+                    break;
+                default:
+                    console.log(`Unknown WebSocket message type: ${data.type}`);
+            }
+        }
+
+        function updateJobProgress(jobName, percentage, step) {
+            // Clear previous exceptions if this is a new job start (low percentage)
+            if (percentage <= 10) {
+                jobProgress[jobName].exceptions = [];
+            }
+
+            jobProgress[jobName].percentage = percentage;
+            jobProgress[jobName].step = step;
+
+            // Update progress bar in job card
+            const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+            if (jobCard) {
+                updateJobCardProgress(jobCard, percentage, step);
+
+                // Additional verification for 100% completion
+                if (percentage >= 100) {
+                    // Double-check the progress bar was updated
+                    setTimeout(() => {
+                        const progressBar = jobCard.querySelector('.ws-progress-bar');
+                        const progressText = jobCard.querySelector('.ws-progress-text');
+                        const progressPercentage = jobCard.querySelector('.ws-progress-container')?.parentElement?.querySelector('.text-xs:last-child');
+                    }, 100);
+                }
+            } else {
+                console.warn(`⚠️ No job card found for ${jobName}`);
+            }
+        }
+
+        function addJobException(jobName, level, message, timestamp) {
+            const exception = {
+                level: level,
+                message: message,
+                timestamp: timestamp
+            };
+
+            jobProgress[jobName].exceptions.unshift(exception);
+
+            // Keep only last 10 exceptions
+            if (jobProgress[jobName].exceptions.length > 10) {
+                jobProgress[jobName].exceptions = jobProgress[jobName].exceptions.slice(0, 10);
+            }
+
+            // Update exception log in job card
+            const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+            if (jobCard) {
+                updateJobCardExceptions(jobCard, jobProgress[jobName].exceptions);
+            }
+        }
+
+        function updateJobStatus(jobName, status) {
+            // Update job status in the UI
+            const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+            if (jobCard) {
+                updateJobCardStatus(jobCard, status);
+
+                // Clear recovery details when job starts running
+                if (status === 'RUNNING') {
+                    const recoverySection = jobCard.querySelector('.recovery-details');
+                    if (recoverySection) {
+                        recoverySection.innerHTML = '';
+                        recoverySection.style.display = 'none';
+                    }
+                }
+            }
+        }
+
+        function handleJobCompletion(jobName, success, summary) {
+            // Force update progress to 100% on completion
+            if (success) {
+                // Check if this is a rate limit case (partial success)
+                if (summary.rate_limit_reached) {
+                    updateJobProgress(jobName, 100, '✅ Rate limit reached - will resume on next run');
+                    addJobException(jobName, 'INFO', summary.message || 'Rate limit reached - progress saved', new Date().toISOString());
+                } else if (summary.partial_success) {
+                    updateJobProgress(jobName, 100, '✅ Partially completed - will resume later');
+                    addJobException(jobName, 'INFO', summary.message || 'Partial completion - progress saved', new Date().toISOString());
+                } else {
+                    updateJobProgress(jobName, 100, '✅ Completed successfully');
+                }
+            } else {
+                addJobException(jobName, 'ERROR', summary.error || 'Job failed', new Date().toISOString());
+            }
+
+            // Force final progress bar update and refresh job status
+            setTimeout(() => {
+                // Force update the progress bar one more time
+                const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+                if (jobCard) {
+                    updateJobCardProgress(jobCard, 100, success ? '✅ Completed successfully' : '❌ Failed');
+                }
+
+                // Refresh the entire dashboard
+                refreshData();
+
+                // Refresh orchestrator status to update countdown timer with new interval
+                refreshOrchestratorStatus();
+            }, 1000);
+        }
+
+        // Job status checking simplified - no individual stop buttons to manage
+
+        function createWebSocketProgress(jobName) {
+            const progress = jobProgress[jobName];
+            if (!progress || progress.percentage === 0) {
+                return '';
+            }
+
+            return `
+                <div class="mt-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-medium text-white">Real-time Progress</span>
+                        <span class="text-xs text-white">${Math.round(progress.percentage)}%</span>
+                    </div>
+                    <div class="ws-progress-container">
+                        <div class="ws-progress-bar" style="width: ${progress.percentage}%"></div>
+                    </div>
+                    <div class="ws-progress-text">${progress.step}</div>
+                </div>
+            `;
+        }
+
+        function createErrorMessage(jobData) {
+            if (!jobData.error_message) {
+                return '';
+            }
+
+            return `
+                <div class="mt-3 p-3 bg-red-500 bg-opacity-20 rounded-lg border border-red-500 border-opacity-50">
+                    <div class="text-red-200 text-xs font-medium mb-1">Error Message:</div>
+                    <div class="text-red-100 text-xs">${jobData.error_message}</div>
+                </div>
+            `;
+        }
+
+        function createExceptionLog(jobName) {
+            const exceptions = jobProgress[jobName].exceptions;
+            if (!exceptions || exceptions.length === 0) {
+                return '';
+            }
+
+            const exceptionsHtml = exceptions.map(exception => `
+                <div class="exception-item ${exception.level.toLowerCase()}">
+                    <div class="flex justify-between items-start">
+                        <span class="font-medium">${exception.level}:</span>
+                        <span class="text-xs opacity-75">${new Date(exception.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="mt-1">${exception.message}</div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="mt-4">
+                    <div class="text-xs font-medium text-white mb-2">Issues & Warnings</div>
+                    <div class="exception-log">
+                        ${exceptionsHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateJobCardProgress(jobCard, percentage, step) {
+            // Update or create progress section in the dynamic content area
+            let progressSection = jobCard.querySelector('.ws-progress-container');
+            if (!progressSection) {
+                // Create progress section in the dynamic content area
+                const dynamicContentSection = jobCard.querySelector('.space-y-3:last-child');
+                if (dynamicContentSection) {
+                    const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
+                    dynamicContentSection.insertAdjacentHTML('afterbegin', progressHtml);
+                    progressSection = jobCard.querySelector('.ws-progress-container');
+                }
+            }
+
+            if (progressSection) {
+                const progressBar = progressSection.querySelector('.ws-progress-bar');
+                const progressText = jobCard.querySelector('.ws-progress-text');
+                const progressPercentage = jobCard.querySelector('.ws-progress-container').parentElement.querySelector('.text-xs:last-child');
+
+                if (progressBar) progressBar.style.width = `${percentage}%`;
+                if (progressText) progressText.textContent = step;
+                if (progressPercentage) progressPercentage.textContent = `${Math.round(percentage)}%`;
+            }
+        }
+
+        function updateJobCardExceptions(jobCard, exceptions) {
+            // Update or create exception log section in the dynamic content area
+            let exceptionSection = jobCard.querySelector('.exception-log');
+            if (!exceptionSection && exceptions.length > 0) {
+                // Create exception section in the dynamic content area
+                const dynamicContentSection = jobCard.querySelector('.space-y-3:last-child');
+                if (dynamicContentSection) {
+                    const exceptionHtml = createExceptionLog(jobCard.getAttribute('data-job'));
+                    dynamicContentSection.insertAdjacentHTML('beforeend', exceptionHtml);
+                    exceptionSection = jobCard.querySelector('.exception-log');
+                }
+            }
+
+            if (exceptionSection && exceptions.length > 0) {
+                const exceptionsHtml = exceptions.map(exception => `
+                    <div class="exception-item ${exception.level.toLowerCase()}">
+                        <div class="flex justify-between items-start">
+                            <span class="font-medium">${exception.level}:</span>
+                            <span class="text-xs opacity-75">${new Date(exception.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <div class="mt-1">${exception.message}</div>
+                    </div>
+                `).join('');
+                exceptionSection.innerHTML = exceptionsHtml;
+            }
+        }
+
+        function updateJobCardStatus(jobCard, status) {
+            const statusSpan = jobCard.querySelector('.px-3.py-1.rounded-full');
+            if (statusSpan) {
+                const statusClass = getStatusClass(status);
+                const statusIcon = getStatusIcon(status);
+                statusSpan.className = `px-3 py-1 rounded-full text-sm font-medium ${statusClass}`;
+                statusSpan.innerHTML = `<i class="fas fa-${statusIcon} mr-1"></i>${status}`;
+            }
+        }
+
+        async function logout() {
+            try {
+                // Get token before clearing localStorage
+                const token = getAuthToken();
+
+                if (token) {
+                    console.log('Calling Backend Service to invalidate session...');
+                    // Call Backend Service directly to invalidate session
+                    const response = await fetch('http://localhost:3002/api/v1/admin/auth/invalidate-session', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        console.log('✅ Session invalidated successfully');
+                    } else {
+                        console.warn('❌ Session invalidation failed:', response.status);
+                    }
+                } else {
+                    console.log('No token found for session invalidation');
+                }
+            } catch (error) {
+                console.warn('Session invalidation error:', error);
+            }
+
+            // Clear localStorage
+            localStorage.removeItem('pulse_token');
+
+            // ETL service logout to clear cookies and redirect
+            window.location.href = '/logout';
+        }
+
+        async function refreshData() {
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    logout();
+                    return;
+                }
+
+                const response = await fetch('/api/v1/jobs/status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    // Clear auth cache and logout
+                    lastAuthCheck = null;
+                    lastAuthResult = false;
+                    logout();
+                    return;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                updateJobCards(data.jobs || data);
+                updateLastRefreshTime();
+
+                // Note: Orchestrator status refreshed separately via countdown timer
+            } catch (error) {
+                console.error('Error fetching job status:', error);
+                // Don't logout on network errors, only on auth errors
+            }
+        }
+
+        // System Health Functions
+        // Cache for system health to show immediate results
+        let systemHealthCache = {
+            db: null,
+            github: null,
+            lastUpdate: null
+        };
+
+        async function refreshSystemHealth() {
+            // Only refresh system health for admin users
+            if (!currentUser || (!currentUser.is_admin && currentUser.role !== 'admin')) {
+                return;
+            }
+
+            try {
+                // Start with immediate local status updates (no API calls needed)
+                updateHealthStatus('system', true, 'Service running normally');
+                updateHealthStatus('jiraApi', true, 'Connected');
+                updateHealthStatus('db', true, 'Checking connection...');
+                updateHealthStatus('githubApi', true, 'Checking rate limits...');
+
+                // Show cached data immediately if available and recent (< 2 minutes)
+                const now = Date.now();
+                if (systemHealthCache.lastUpdate && (now - systemHealthCache.lastUpdate) < 120000) {
+                    if (systemHealthCache.db) {
+                        updateHealthStatus('db', systemHealthCache.db.healthy, systemHealthCache.db.message);
+                    }
+                    if (systemHealthCache.github) {
+                        updateHealthStatus('githubApi', systemHealthCache.github.healthy, systemHealthCache.github.message);
+                    }
+                }
+
+                // Check database health (fast, no auth required)
+                const healthPromise = fetch('/api/v1/health/quick', {
+                    signal: AbortSignal.timeout(3000) // 3 second timeout - faster
+                }).then(async response => {
+                    if (response.ok) {
+                        const healthData = await response.json();
+                        const isHealthy = healthData.database_status === 'healthy';
+                        updateHealthStatus('db', isHealthy, healthData.database_message);
+                        // Cache the result
+                        systemHealthCache.db = { healthy: isHealthy, message: healthData.database_message };
+                        systemHealthCache.lastUpdate = Date.now();
+                    } else {
+                        updateHealthStatus('db', false, 'Health check failed');
+                        systemHealthCache.db = { healthy: false, message: 'Health check failed' };
+                    }
+                }).catch(error => {
+                    console.warn('Database health check failed:', error);
+                    updateHealthStatus('db', false, 'Connection timeout');
+                    systemHealthCache.db = { healthy: false, message: 'Connection timeout' };
+                });
+
+                // Check GitHub rate limits (runs in background, doesn't block UI)
+                const githubPromise = fetch('/api/v1/github/rate-limits', {
+                    headers: {
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    signal: AbortSignal.timeout(3000) // 3 second timeout - faster failure
+                }).then(async response => {
+                    if (response.ok) {
+                        const rateLimits = await response.json();
+                        const remaining = rateLimits.core?.remaining || 0;
+                        const limit = rateLimits.core?.limit || 5000;
+                        const isHealthy = remaining > 100;
+                        const message = `Rate limit: ${remaining}/${limit}`;
+                        updateHealthStatus('githubApi', isHealthy, message);
+                        // Cache the result
+                        systemHealthCache.github = { healthy: isHealthy, message: message };
+                        systemHealthCache.lastUpdate = Date.now();
+                    } else if (response.status === 408) {
+                        updateHealthStatus('githubApi', false, 'GitHub API timeout');
+                        systemHealthCache.github = { healthy: false, message: 'GitHub API timeout' };
+                    } else {
+                        updateHealthStatus('githubApi', false, 'Rate limit check failed');
+                        systemHealthCache.github = { healthy: false, message: 'Rate limit check failed' };
+                    }
+                }).catch(error => {
+                    if (error.name === 'TimeoutError') {
+                        updateHealthStatus('githubApi', false, 'GitHub API timeout');
+                        systemHealthCache.github = { healthy: false, message: 'GitHub API timeout' };
+                    } else {
+                        console.warn('GitHub rate limit check failed:', error);
+                        updateHealthStatus('githubApi', false, 'Check failed');
+                        systemHealthCache.github = { healthy: false, message: 'Check failed' };
+                    }
+                });
+
+                // Run checks asynchronously without blocking the UI
+                // Database check completes quickly, GitHub check runs in background
+                Promise.allSettled([healthPromise, githubPromise]).then(() => {
+                    console.log('All health checks completed');
+                });
+
+            } catch (error) {
+                console.error('Error checking system health:', error);
+                updateHealthStatus('db', false, 'Connection error');
+                updateHealthStatus('system', false, 'Check failed');
+                updateHealthStatus('jiraApi', false, 'Check failed');
+                updateHealthStatus('githubApi', false, 'Check failed');
+            }
+        }
+
+        function updateHealthStatus(component, isHealthy, details) {
+            const statusElement = document.getElementById(`${component}Status`);
+            const detailsElement = document.getElementById(`${component}Details`);
+
+            if (statusElement) {
+                statusElement.className = `px-2 py-1 rounded text-xs font-medium ${isHealthy ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                    }`;
+                statusElement.innerHTML = `<i class="fas fa-${isHealthy ? 'check' : 'times'} mr-1"></i>${isHealthy ? 'Healthy' : 'Error'
+                    }`;
+            }
+
+            if (detailsElement) {
+                detailsElement.textContent = details;
+            }
+        }
+
+        function updateJobCards(jobsData) {
+            const container = document.getElementById('jobsContainer');
+            container.innerHTML = '';
+
+            Object.entries(jobsData).forEach(([jobName, jobData]) => {
+                const card = createJobCard(jobName, jobData, jobsData);
+                container.appendChild(card);
+            });
+
+            // Update orchestrator button state based on job status
+            updateOrchestratorButtonState(jobsData);
+        }
+
+        function updateOrchestratorButtonState(jobsData) {
+            const orchestratorBtn = document.getElementById('forceStartOrchestratorBtn');
+            if (!orchestratorBtn) return;
+
+            // Check if any job is running
+            const anyJobRunning = Object.values(jobsData).some(jobData => jobData.status === 'RUNNING');
+
+            if (anyJobRunning) {
+                orchestratorBtn.disabled = true;
+                orchestratorBtn.className = 'bg-gray-500 cursor-not-allowed text-white px-3 py-1 rounded text-sm font-medium';
+                orchestratorBtn.title = 'Cannot start orchestrator while jobs are running';
+            } else {
+                orchestratorBtn.disabled = false;
+                orchestratorBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium';
+                orchestratorBtn.title = '';
+            }
+        }
+
+        function setupAutoRefresh() {
+            const select = document.getElementById('refreshInterval');
+            select.addEventListener('change', function () {
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                    refreshTimer = null;
+                }
+
+                const interval = parseInt(this.value);
+                if (interval > 0) {
+                    refreshTimer = setInterval(async () => {
+                        // Only refresh if page is visible to save resources
+                        if (!document.hidden) {
+                            try {
+                                // Refresh critical data first, system health in background
+                                await refreshData();
+                                refreshSystemHealth().catch(error => {
+                                    console.error('System health refresh failed:', error);
+                                });
+                            } catch (error) {
+                                console.error('Error during auto-refresh:', error);
+                            }
+                        }
+                    }, interval);
+                }
+            });
+
+            // Start with default 30s refresh
+            const defaultInterval = parseInt(select.value);
+            if (defaultInterval > 0) {
+                refreshTimer = setInterval(async () => {
+                    if (!document.hidden) {
+                        try {
+                            // Refresh critical data first, system health in background
+                            await refreshData();
+                            refreshSystemHealth().catch(error => {
+                                console.error('System health refresh failed:', error);
+                            });
+                        } catch (error) {
+                            console.error('Error during auto-refresh:', error);
+                        }
+                    }
+                }, defaultInterval);
+            }
+        }
+
+        function updateLastRefreshTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent =
+                `Last updated: ${now.toLocaleTimeString()}`;
+        }
+
+        function createJobCard(jobName, jobData, allJobsData) {
+            const card = document.createElement('div');
+            card.className = 'glass-effect rounded-lg p-6';
+            card.setAttribute('data-job', jobName); // Add data attribute for WebSocket updates
+
+            const statusClass = getStatusClass(jobData.status);
+            const statusIcon = getStatusIcon(jobData.status);
+
+            card.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-semibold text-white capitalize">
+                        <i class="${jobName === 'jira_sync' ? 'fab fa-atlassian text-blue-400' : 'fab fa-github'} mr-2"></i>
+                        ${jobName.replace('_', ' ')}
+                    </h3>
+                    <span class="px-3 py-1 rounded-full text-sm font-medium ${statusClass}">
+                        <i class="fas fa-${statusIcon} mr-1"></i>${jobData.status}
+                    </span>
+                </div>
+
+                ${createJobDetails(jobName, jobData)}
+
+                <!-- Fixed Action Buttons Section -->
+                <div class="mt-4 pt-3 border-t border-white border-opacity-20">
+                    <div class="flex flex-wrap gap-2 justify-start">
+                        ${createActionButtons(jobName, jobData, allJobsData)}
+                    </div>
+                </div>
+
+                <!-- Dynamic Content Section (below buttons) -->
+                <div class="mt-4 space-y-3">
+                    ${createWebSocketProgress(jobName)}
+                    ${createRecoveryDetails(jobName, jobData)}
+                    ${createExceptionLog(jobName)}
+                </div>
+            `;
+
+            return card;
+        }
+
+        function createJobDetails(jobName, jobData) {
+            let details = `
+                <div class="space-y-3 text-white text-opacity-80 text-sm">
+                    <div class="flex justify-between">
+                        <span>Last Run:</span>
+                        <span>${jobData.last_run_started_at ? new Date(jobData.last_run_started_at).toLocaleString() : 'Never'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Last Success:</span>
+                        <span>${jobData.last_success_at ? new Date(jobData.last_success_at).toLocaleString() : 'Never'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Retry Count:</span>
+                        <span>${jobData.retry_count || 0}</span>
+                    </div>
+            `;
+
+
+
+            details += `</div>`;
+
+            // Note: Error message moved to createErrorMessage function (after buttons)
+            // Note: Recovery details moved to dynamic content section (after progress bar)
+
+            details += '</div>';
+            return details;
+        }
+
+        function createRecoveryDetails(jobName, jobData) {
+            // Only show recovery details for PENDING GitHub jobs with checkpoint data
+            // Hide recovery details when job is RUNNING (fresh start)
+            if (jobName !== 'github_sync' || jobData.status !== 'PENDING' || !jobData.checkpoint_data || jobData.status === 'RUNNING') {
+                return '';
+            }
+
+            const checkpointData = jobData.checkpoint_data;
+
+            // Repository queue information
+            if (checkpointData.repo_processing_queue) {
+                // Handle both string and object formats
+                let queue;
+                if (typeof checkpointData.repo_processing_queue === 'string') {
+                    queue = JSON.parse(checkpointData.repo_processing_queue);
+                } else {
+                    queue = checkpointData.repo_processing_queue;
+                }
+
+                const finished = queue.filter(r => r.finished).length;
+                const total = queue.length;
+                const remaining = total - finished;
+
+                return `
+                    <div class="recovery-details mt-3 p-3 bg-yellow-500 bg-opacity-20 rounded-lg border border-yellow-500 border-opacity-50">
+                        <div class="text-yellow-200 text-xs font-medium mb-2">
+                            <i class="fas fa-redo mr-1"></i>Recovery Information:
+                        </div>
+                        <div class="text-yellow-100 text-xs">
+                            Repositories: ${finished}/${total} completed (${remaining} remaining)
+                        </div>
+                    </div>
+                `;
+            }
+
+            return '';
+        }
+
+        function createActionButtons(jobName, jobData, allJobsData) {
+            // Check if user is admin - only admins get control buttons
+            if (!currentUser || (currentUser.role !== 'admin' && !currentUser.is_admin)) {
+                // Non-admin users only get the details button (no rate limits or logs access)
+                return `
+                    <button onclick="showJobDetails('${jobName}')"
+                            class="px-3 py-1 rounded text-sm bg-purple-500 hover:bg-purple-600 text-white transition duration-300">
+                        <i class="fas fa-info-circle mr-1"></i>Details
+                    </button>
+                `;
+            }
+
+            // Admin users get full control buttons
+            const canStart = ['PENDING', 'FINISHED', 'NOT_STARTED'].includes(jobData.status);
+            const canStop = jobData.status === 'RUNNING';
+            const canPause = ['PENDING', 'FINISHED'].includes(jobData.status);
+            const canUnpause = jobData.status === 'PAUSED';
+
+            // Check if any other job is running to disable Force Start
+            const otherJobRunning = Object.entries(allJobsData).some(([name, data]) =>
+                name !== jobName && data.status === 'RUNNING'
+            );
+
+            // Disable Force Start if other job is running
+            const canStartSafe = canStart && !otherJobRunning;
+
+            // Disable Pause if this job is running
+            const canPauseSafe = canPause && jobData.status !== 'RUNNING';
+
+            // Can set active if job is not running and not already pending
+            const canSetActive = jobData.status !== 'RUNNING' && jobData.status !== 'PENDING' && !otherJobRunning;
+
+            return `
+                <button onclick="setJobActive('${jobName}')"
+                        ${!canSetActive ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${canSetActive ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
+                        title="${!canSetActive ? (jobData.status === 'RUNNING' ? 'Cannot set active while running' : jobData.status === 'PENDING' ? 'Job is already active' : 'Another job is running') : 'Set this job as active (PENDING) and the other as FINISHED'}">
+                    <i class="fas fa-${jobData.status === 'PENDING' ? 'check' : 'play'} mr-1"></i>${jobData.status === 'PENDING' ? 'Active' : 'Set Active'}
+                </button>
+                <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
+                        ${!(canPauseSafe || canUnpause) ? 'disabled' : ''}
+                        class="px-3 py-1 rounded text-sm ${(canPauseSafe || canUnpause) ? (canUnpause ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-amber-500 hover:bg-amber-600') : 'bg-gray-500 cursor-not-allowed'} text-white transition duration-300"
+                        title="${!canPauseSafe && jobData.status === 'RUNNING' ? 'Cannot pause while job is running' : ''}">
+                    <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Unpause' : 'Pause'}
+                </button>
+                <button onclick="showJobDetails('${jobName}')"
+                        class="px-3 py-1 rounded text-sm bg-purple-500 hover:bg-purple-600 text-white transition duration-300">
+                    <i class="fas fa-info-circle mr-1"></i>Details
+                </button>
+                ${jobName === 'github_sync' ? `
+                    <button onclick="showGitHubRateLimits()"
+                            class="px-3 py-1 rounded text-sm bg-blue-500 hover:bg-blue-600 text-white transition duration-300">
+                        <i class="fab fa-github mr-1"></i>Rate Limits
+                    </button>
+                ` : ''}
+            `;
+        }
+
+        function getStatusClass(status) {
+            switch (status) {
+                case 'RUNNING': return 'status-running';
+                case 'PENDING': return 'status-pending';
+                case 'FINISHED': return 'status-finished';
+                case 'PAUSED': return 'status-paused';
+                case 'NOT_STARTED': return 'status-not-started';
+                default: return 'status-error';
+            }
+        }
+
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'RUNNING': return 'spinner fa-spin';
+                case 'PENDING': return 'clock';
+                case 'FINISHED': return 'check-circle';
+                case 'PAUSED': return 'pause-circle';
+                case 'NOT_STARTED': return 'circle';
+                default: return 'exclamation-triangle';
+            }
+        }
+
+
+
+        // Individual job controls removed - use orchestrator Force Start/Stop buttons instead
+
+
+
+        async function showJobDetails(jobName) {
+            try {
+                if (jobName === 'jira_sync') {
+                    // Show Jira-specific modal
+                    await showJiraDetailsModal();
+                } else {
+                    // Show GitHub or other job details modal
+                    const response = await fetch(`/api/v1/jobs/${jobName}/schedule-details`, {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 401) {
+                            // Authentication failed - redirect to login
+                            logout();
+                            return;
+                        }
+                        throw new Error(`Failed to fetch job details: ${response.statusText}`);
+                    }
+
+                    const scheduleDetails = await response.json();
+                    showJobDetailsModal(jobName, scheduleDetails);
+                }
+
+            } catch (error) {
+                console.error('Error fetching job details:', error);
+                alert(`Failed to load job details: ${error.message}`);
+            }
+        }
+
+        function showJobDetailsModal(jobName, details) {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="jobDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-gray-800 rounded-lg p-4 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-3">
+                            <h2 class="text-xl font-bold text-white">
+                                <i class="fas fa-info-circle mr-2"></i>${jobName} Job Schedule Details
+                            </h2>
+                            <button onclick="closeJobDetailsModal()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Basic Information -->
+                            <div class="glass-effect rounded-lg p-3">
+                                <h3 class="text-md font-semibold text-white mb-2">
+                                    <i class="fas fa-cog mr-2"></i>Basic Information
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Job ID:</span>
+                                        <span class="text-white">${details.id}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Status:</span>
+                                        <span class="text-white font-semibold">${details.status}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-white">${details.active ? 'Yes' : 'No'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Retry Count:</span>
+                                        <span class="text-white">${details.retry_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Timing Information -->
+                            <div class="glass-effect rounded-lg p-3">
+                                <h3 class="text-md font-semibold text-white mb-2">
+                                    <i class="fas fa-clock mr-2"></i>Timing Information
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Created:</span>
+                                        <span class="text-white">${details.created_at ? new Date(details.created_at).toLocaleString() : 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Updated:</span>
+                                        <span class="text-white">${details.last_updated_at ? new Date(details.last_updated_at).toLocaleString() : 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Run Started:</span>
+                                        <span class="text-white">${details.last_run_started_at ? new Date(details.last_run_started_at).toLocaleString() : 'Never'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Last Success:</span>
+                                        <span class="text-white">${details.last_success_at ? new Date(details.last_success_at).toLocaleString() : 'Never'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Job Status Info -->
+                            <div class="glass-effect rounded-lg p-3">
+                                <h3 class="text-md font-semibold text-white mb-2">
+                                    <i class="fas fa-chart-line mr-2"></i>Job Status
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Is Recovery Run:</span>
+                                        <span class="text-white">${details.is_recovery_run ? 'Yes' : 'No'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Has Checkpoints:</span>
+                                        <span class="text-white">${(details.last_pr_cursor || details.repo_processing_queue) ? 'Yes' : 'No'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Additional Info -->
+                            <div class="glass-effect rounded-lg p-3">
+                                <h3 class="text-md font-semibold text-white mb-2">
+                                    <i class="fas fa-info-circle mr-2"></i>Additional Info
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Current PR Node:</span>
+                                        <span class="text-white font-mono text-xs">${details.current_pr_node_id || 'None'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Repo Checkpoint:</span>
+                                        <span class="text-white">${details.last_repo_sync_checkpoint ? new Date(details.last_repo_sync_checkpoint).toLocaleString() : 'None'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Checkpoint Data -->
+                        <div class="mt-4 glass-effect rounded-lg p-3">
+                            <h3 class="text-md font-semibold text-white mb-2">
+                                <i class="fas fa-bookmark mr-2"></i>Checkpoint Data
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span class="text-gray-300">PR Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_pr_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Commit Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_commit_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Review Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_review_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Comment Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_comment_cursor || 'None'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-gray-300">Review Thread Cursor:</span>
+                                    <div class="text-white bg-gray-700 p-2 rounded mt-1 font-mono text-xs">
+                                        ${details.last_review_thread_cursor || 'None'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Repository Processing Queue -->
+                        ${details.repo_processing_queue ? `
+                        <div class="mt-4 glass-effect rounded-lg p-3">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-md font-semibold text-white">
+                                    <i class="fas fa-list mr-2"></i>Repository Processing Queue
+                                </h3>
+                                <div class="text-sm text-gray-300" id="repoQueueStats">
+                                    ${(() => {
+                                        try {
+                                            const queue = typeof details.repo_processing_queue === 'string'
+                                                ? JSON.parse(details.repo_processing_queue)
+                                                : details.repo_processing_queue;
+                                            const finished = queue.filter(repo => repo.finished).length;
+                                            const pending = queue.length - finished;
+                                            return `
+                                                <span class="text-green-400 font-medium">${finished} Finished</span>
+                                                <span class="mx-2">•</span>
+                                                <span class="text-yellow-400 font-medium">${pending} Pending</span>
+                                                <span class="mx-2">•</span>
+                                                <span class="text-gray-300 font-medium">${queue.length} Total</span>
+                                            `;
+                                        } catch (e) {
+                                            return '<span class="text-red-400">Error parsing data</span>';
+                                        }
+                                    })()}
+                                </div>
+                            </div>
+
+                            <!-- Search and Filter Controls -->
+                            <div class="mb-3 flex flex-col sm:flex-row gap-2">
+                                <div class="flex-1 relative">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i class="fas fa-search text-gray-400 text-sm"></i>
+                                    </div>
+                                    <input type="text"
+                                           id="repoSearchInput"
+                                           placeholder="Search repositories (e.g., 'frontend', 'api', 'service')..."
+                                           class="w-full pl-10 pr-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                           onkeyup="debouncedFilterRepositoryQueue()"
+                                           oninput="debouncedFilterRepositoryQueue()">
+                                </div>
+                                <div class="flex gap-2">
+                                    <select id="repoStatusFilter"
+                                            class="px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            onchange="filterRepositoryQueue()">
+                                        <option value="all">All Status</option>
+                                        <option value="finished">Finished</option>
+                                        <option value="pending">Pending</option>
+                                    </select>
+                                    <button onclick="clearRepositoryFilters()"
+                                            class="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-md text-sm transition-colors"
+                                            title="Clear all filters">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="max-h-64 overflow-y-auto border border-gray-600 rounded">
+                                <table class="w-full text-sm text-white">
+                                    <thead class="sticky top-0 bg-gray-800 border-b border-gray-600">
+                                        <tr>
+                                            <th class="text-left py-2 px-3 text-gray-300">Repo ID</th>
+                                            <th class="text-left py-2 px-3 text-gray-300">Full Name</th>
+                                            <th class="text-center py-2 px-3 text-gray-300">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="repoQueueTableBody">
+                                        ${(() => {
+                                            try {
+                                                const queue = typeof details.repo_processing_queue === 'string'
+                                                    ? JSON.parse(details.repo_processing_queue)
+                                                    : details.repo_processing_queue;
+                                                return queue.map((repo, index) => `
+                                                    <tr class="repo-row border-b border-gray-700 hover:bg-gray-700 hover:bg-opacity-30"
+                                                        data-repo-name="${(repo.full_name || '').toLowerCase()}"
+                                                        data-repo-status="${repo.finished ? 'finished' : 'pending'}"
+                                                        data-repo-index="${index}">
+                                                        <td class="py-2 px-3 font-mono text-xs">${repo.repo_id || 'N/A'}</td>
+                                                        <td class="py-2 px-3">${repo.full_name || 'N/A'}</td>
+                                                        <td class="py-2 px-3 text-center">
+                                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${repo.finished ? 'bg-green-500 bg-opacity-20 text-green-400' : 'bg-yellow-500 bg-opacity-20 text-yellow-400'}">
+                                                                <i class="fas fa-${repo.finished ? 'check' : 'clock'} mr-1"></i>
+                                                                ${repo.finished ? 'Finished' : 'Pending'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                `).join('');
+                                            } catch (e) {
+                                                return '<tr><td colspan="3" class="py-2 px-3 text-red-400">Error parsing queue data</td></tr>';
+                                            }
+                                        })()}
+                                    </tbody>
+                                </table>
+
+                                <!-- No Results Message -->
+                                <div id="noRepoResults" class="hidden text-center py-8 text-gray-400">
+                                    <i class="fas fa-search text-2xl mb-2"></i>
+                                    <p>No repositories match your search criteria</p>
+                                    <button onclick="clearRepositoryFilters()" class="mt-2 text-blue-400 hover:text-blue-300 text-sm">
+                                        Clear filters
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Error Message -->
+                        ${details.error_message ? `
+                        <div class="mt-4 glass-effect rounded-lg p-3">
+                            <button onclick="toggleErrorMessage()" class="w-full text-left flex justify-between items-center">
+                                <h3 class="text-md font-semibold text-red-400">
+                                    <i class="fas fa-exclamation-triangle mr-2"></i>Error Message
+                                </h3>
+                                <i id="errorToggleIcon" class="fas fa-chevron-down text-red-400"></i>
+                            </button>
+                            <div id="errorMessageContent" class="hidden mt-2 text-red-300 bg-red-900 bg-opacity-30 p-2 rounded text-sm max-h-32 overflow-y-auto">
+                                ${details.error_message}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div class="mt-4 flex justify-end">
+                            <button onclick="closeJobDetailsModal()"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition duration-300">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add keyboard event listener for ESC key
+            document.addEventListener('keydown', handleModalKeydown);
+        }
+
+        function closeJobDetailsModal() {
+            const modal = document.getElementById('jobDetailsModal');
+            if (modal) {
+                modal.remove();
+                // Remove keyboard event listener
+                document.removeEventListener('keydown', handleModalKeydown);
+            }
+        }
+
+        function toggleErrorMessage() {
+            const content = document.getElementById('errorMessageContent');
+            const icon = document.getElementById('errorToggleIcon');
+
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                content.classList.add('hidden');
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
+        }
+
+        function handleModalKeydown(event) {
+            if (event.key === 'Escape') {
+                closeJobDetailsModal();
+                closeGitHubRateLimitsModal();
+            }
+        }
+
+        async function showGitHubRateLimits() {
+            try {
+                // Fetch GitHub rate limits from API
+                const response = await fetch('/api/v1/github/rate-limits', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        logout();
+                        return;
+                    }
+                    throw new Error(`Failed to fetch GitHub rate limits: ${response.statusText}`);
+                }
+
+                const rateLimits = await response.json();
+                showGitHubRateLimitsModal(rateLimits);
+
+            } catch (error) {
+                console.error('Error fetching GitHub rate limits:', error);
+                alert(`Failed to load GitHub rate limits: ${error.message}`);
+            }
+        }
+
+        function showGitHubRateLimitsModal(rateLimits) {
+            // Helper function to format reset time
+            function formatResetTime(resetTimestamp) {
+                if (!resetTimestamp) return 'N/A';
+                const resetDate = new Date(resetTimestamp * 1000);
+                return resetDate.toLocaleString();
+            }
+
+            // Helper function to get status color
+            function getStatusColor(remaining, limit) {
+                const percentage = (remaining / limit) * 100;
+                if (percentage > 50) return 'text-green-400';
+                if (percentage > 20) return 'text-yellow-400';
+                return 'text-red-400';
+            }
+
+            // Create modal HTML
+            const modalHtml = `
+                <div id="gitHubRateLimitsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-white">
+                                <i class="fab fa-github mr-2"></i>GitHub API Rate Limits
+                            </h2>
+                            <button onclick="closeGitHubRateLimitsModal()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Core API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-server mr-2"></i>Core API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.core?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.core?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.core?.remaining || 0, rateLimits.core?.limit || 1)}">${rateLimits.core?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.core?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Search API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-search mr-2"></i>Search API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.search?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.search?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.search?.remaining || 0, rateLimits.search?.limit || 1)}">${rateLimits.search?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.search?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- GraphQL API -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-code mr-2"></i>GraphQL API
+                                </h3>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Limit:</span>
+                                        <span class="text-white">${rateLimits.graphql?.limit || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Used:</span>
+                                        <span class="text-white">${rateLimits.graphql?.used || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Remaining:</span>
+                                        <span class="${getStatusColor(rateLimits.graphql?.remaining || 0, rateLimits.graphql?.limit || 1)}">${rateLimits.graphql?.remaining || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Reset:</span>
+                                        <span class="text-white text-xs">${formatResetTime(rateLimits.graphql?.reset)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Info Section -->
+                        <div class="mt-6 glass-effect rounded-lg p-4">
+                            <h3 class="text-lg font-semibold text-white mb-3">
+                                <i class="fas fa-info-circle mr-2"></i>Rate Limit Information
+                            </h3>
+                            <div class="text-sm text-gray-300 space-y-2">
+                                <p><strong>Core API:</strong> General GitHub API requests (repositories, issues, etc.)</p>
+                                <p><strong>Search API:</strong> Repository and code search requests (30 requests/minute)</p>
+                                <p><strong>GraphQL API:</strong> GraphQL queries (5000 points/hour, varies by query complexity)</p>
+                                <p class="text-yellow-300"><i class="fas fa-exclamation-triangle mr-1"></i>Rate limits reset at the specified times above</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex justify-end">
+                            <button onclick="closeGitHubRateLimitsModal()"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition duration-300">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add keyboard event listener for ESC key
+            document.addEventListener('keydown', handleModalKeydown);
+        }
+
+        function closeGitHubRateLimitsModal() {
+            const modal = document.getElementById('gitHubRateLimitsModal');
+            if (modal) {
+                modal.remove();
+                // Remove keyboard event listener
+                document.removeEventListener('keydown', handleModalKeydown);
+            }
+        }
+
+        async function showJiraDetailsModal() {
+            try {
+                // Fetch Jira summary data from API
+                const response = await fetch('/api/v1/jobs/jira_sync/summary', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        logout();
+                        return;
+                    }
+                    throw new Error(`Failed to fetch Jira summary: ${response.statusText}`);
+                }
+
+                const summary = await response.json();
+                displayJiraDetailsModal(summary);
+
+            } catch (error) {
+                console.error('Error fetching Jira details:', error);
+                alert(`Failed to load Jira details: ${error.message}`);
+            }
+        }
+
+        function displayJiraDetailsModal(summary) {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="jiraDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-gray-800 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-white">
+                                <i class="fab fa-atlassian mr-2 text-blue-400"></i>Jira Data Summary
+                            </h2>
+                            <button onclick="closeJiraDetailsModal()" class="text-gray-400 hover:text-white">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <!-- Projects Summary -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-project-diagram mr-2"></i>Projects
+                                </h3>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Total:</span>
+                                        <span class="text-white font-medium">${summary.tables.projects.total_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-green-400 font-medium">${summary.tables.projects.active_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Inactive:</span>
+                                        <span class="text-gray-500 font-medium">${summary.tables.projects.inactive_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Issue Types Summary -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-tags mr-2"></i>Issue Types
+                                </h3>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Total:</span>
+                                        <span class="text-white font-medium">${summary.tables.issuetypes.total_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-green-400 font-medium">${summary.tables.issuetypes.active_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Inactive:</span>
+                                        <span class="text-gray-500 font-medium">${summary.tables.issuetypes.inactive_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Statuses Summary -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-flag mr-2"></i>Statuses
+                                </h3>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Total:</span>
+                                        <span class="text-white font-medium">${summary.tables.statuses.total_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-green-400 font-medium">${summary.tables.statuses.active_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Inactive:</span>
+                                        <span class="text-gray-500 font-medium">${summary.tables.statuses.inactive_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Issues Summary (Full Width) -->
+                        <div class="mt-4 glass-effect rounded-lg p-4">
+                            <h3 class="text-lg font-semibold text-white mb-3">
+                                <i class="fas fa-ticket-alt mr-2"></i>Issues
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 class="text-md font-medium text-gray-300 mb-2">Overview</h4>
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-300">Total Issues:</span>
+                                            <span class="text-white font-medium">${summary.tables.issues.total_count}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-300">Active:</span>
+                                            <span class="text-green-400 font-medium">${summary.tables.issues.active_count}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-300">Inactive:</span>
+                                            <span class="text-gray-500 font-medium">${summary.tables.issues.inactive_count}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 class="text-md font-medium text-gray-300 mb-2">Top Issue Types</h4>
+                                    <div class="space-y-1">
+                                        ${summary.tables.issues.top_types.map(type => `
+                                            <div class="flex justify-between text-sm">
+                                                <span class="text-gray-400">${type.name}:</span>
+                                                <span class="text-blue-400">${type.count}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <h4 class="text-md font-medium text-gray-300 mb-2">Top Statuses</h4>
+                                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                                    ${summary.tables.issues.top_statuses.map(status => `
+                                        <div class="bg-gray-700 rounded p-2 text-center">
+                                            <div class="text-yellow-400 font-medium text-sm">${status.count}</div>
+                                            <div class="text-gray-300 text-xs">${status.name}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom Row: Changelogs and PR Links -->
+                        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Changelogs Summary -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-history mr-2"></i>Changelogs
+                                </h3>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Total:</span>
+                                        <span class="text-white font-medium">${summary.tables.changelogs.total_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-green-400 font-medium">${summary.tables.changelogs.active_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Recent (30d):</span>
+                                        <span class="text-blue-400 font-medium">${summary.tables.changelogs.recent_activity_30d}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- PR Links Summary -->
+                            <div class="glass-effect rounded-lg p-4">
+                                <h3 class="text-lg font-semibold text-white mb-3">
+                                    <i class="fas fa-link mr-2"></i>PR Links
+                                </h3>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Total Links:</span>
+                                        <span class="text-white font-medium">${summary.tables.jira_pull_request_links.total_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Active:</span>
+                                        <span class="text-green-400 font-medium">${summary.tables.jira_pull_request_links.active_count}</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-300">Repositories:</span>
+                                        <span class="text-purple-400 font-medium">${summary.tables.jira_pull_request_links.unique_repositories}</span>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <h4 class="text-sm font-medium text-gray-300 mb-1">PR Status</h4>
+                                    <div class="space-y-1">
+                                        ${summary.tables.jira_pull_request_links.pr_status_breakdown.map(status => `
+                                            <div class="flex justify-between text-xs">
+                                                <span class="text-gray-400">${status.status}:</span>
+                                                <span class="text-blue-400">${status.count}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex justify-end">
+                            <button onclick="closeJiraDetailsModal()"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded transition duration-300">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add keyboard event listener for ESC key
+            document.addEventListener('keydown', handleJiraModalKeydown);
+        }
+
+        function closeJiraDetailsModal() {
+            const modal = document.getElementById('jiraDetailsModal');
+            if (modal) {
+                modal.remove();
+                // Remove keyboard event listener
+                document.removeEventListener('keydown', handleJiraModalKeydown);
+            }
+        }
+
+        function handleJiraModalKeydown(event) {
+            if (event.key === 'Escape') {
+                closeJiraDetailsModal();
+            }
+        }
+
+        // Repository Queue Search and Filter Functions
+        let repoFilterTimeout;
+
+        function debouncedFilterRepositoryQueue() {
+            clearTimeout(repoFilterTimeout);
+            repoFilterTimeout = setTimeout(filterRepositoryQueue, 300); // 300ms delay
+        }
+
+        function filterRepositoryQueue() {
+            const searchInput = document.getElementById('repoSearchInput');
+            const statusFilter = document.getElementById('repoStatusFilter');
+            const tableBody = document.getElementById('repoQueueTableBody');
+            const noResultsDiv = document.getElementById('noRepoResults');
+
+            if (!searchInput || !statusFilter || !tableBody) return;
+
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const statusFilter_value = statusFilter.value;
+
+            const rows = tableBody.querySelectorAll('.repo-row');
+            let visibleCount = 0;
+            let filteredStats = { finished: 0, pending: 0, total: 0 };
+
+            rows.forEach(row => {
+                const repoName = row.getAttribute('data-repo-name') || '';
+                const repoStatus = row.getAttribute('data-repo-status') || '';
+
+                // Apply search filter (LIKE pattern - case insensitive)
+                const matchesSearch = !searchTerm || repoName.includes(searchTerm);
+
+                // Apply status filter
+                const matchesStatus = statusFilter_value === 'all' || repoStatus === statusFilter_value;
+
+                // Show row if it matches both search and status filter
+                const shouldShow = matchesSearch && matchesStatus;
+
+                if (shouldShow) {
+                    row.style.display = '';
+                    visibleCount++;
+                    filteredStats.total++;
+                    if (repoStatus === 'finished') {
+                        filteredStats.finished++;
+                    } else {
+                        filteredStats.pending++;
+                    }
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // Update stats display
+            updateRepositoryStats(filteredStats, searchTerm, statusFilter_value);
+
+            // Show/hide no results message
+            if (visibleCount === 0 && (searchTerm || statusFilter_value !== 'all')) {
+                noResultsDiv.classList.remove('hidden');
+                tableBody.style.display = 'none';
+            } else {
+                noResultsDiv.classList.add('hidden');
+                tableBody.style.display = '';
+            }
+        }
+
+        function updateRepositoryStats(stats, searchTerm, statusFilter) {
+            const statsElement = document.getElementById('repoQueueStats');
+            if (!statsElement) return;
+
+            let statusText = '';
+            if (searchTerm || statusFilter !== 'all') {
+                statusText = `
+                    <span class="text-green-400 font-medium">${stats.finished} Finished</span>
+                    <span class="mx-2">•</span>
+                    <span class="text-yellow-400 font-medium">${stats.pending} Pending</span>
+                    <span class="mx-2">•</span>
+                    <span class="text-blue-400 font-medium">${stats.total} Filtered</span>
+                `;
+
+                if (searchTerm) {
+                    statusText += `<span class="mx-2">•</span><span class="text-gray-400 text-xs">Search: "${searchTerm}"</span>`;
+                }
+                if (statusFilter !== 'all') {
+                    statusText += `<span class="mx-2">•</span><span class="text-gray-400 text-xs">Filter: ${statusFilter}</span>`;
+                }
+            } else {
+                // Show original stats when no filters applied
+                statusText = `
+                    <span class="text-green-400 font-medium">${stats.finished} Finished</span>
+                    <span class="mx-2">•</span>
+                    <span class="text-yellow-400 font-medium">${stats.pending} Pending</span>
+                    <span class="mx-2">•</span>
+                    <span class="text-gray-300 font-medium">${stats.total} Total</span>
+                `;
+            }
+
+            statsElement.innerHTML = statusText;
+        }
+
+        function clearRepositoryFilters() {
+            const searchInput = document.getElementById('repoSearchInput');
+            const statusFilter = document.getElementById('repoStatusFilter');
+
+            if (searchInput) searchInput.value = '';
+            if (statusFilter) statusFilter.value = 'all';
+
+            // Reapply filters (which will show all rows)
+            filterRepositoryQueue();
+        }
+
+        async function pauseJob(jobName) {
+            if (!confirm(`Are you sure you want to pause ${jobName}?`)) return;
+
+            try {
+                const token = getAuthToken();
+                const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.log(`${jobName} paused successfully`);
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    console.error(`Failed to pause ${jobName}: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                console.error(`Error pausing ${jobName}: ${error.message}`);
+            }
+        }
+
+        async function unpauseJob(jobName) {
+            if (!confirm(`Are you sure you want to unpause ${jobName}?`)) return;
+
+            try {
+                const token = getAuthToken();
+                const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.log(`${jobName} unpaused successfully - new status: ${result.status}`);
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    console.error(`Failed to unpause ${jobName}: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                console.error(`Error unpausing ${jobName}: ${error.message}`);
+            }
+        }
+
+        async function setJobActive(jobName) {
+            if (!confirm(`Set ${jobName} as active? This will set ${jobName} to PENDING and the other job to FINISHED.`)) return;
+
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.log(`${jobName} set as active successfully`);
+                    console.log(`Result: ${result.note}`);
+
+                    // Show success message
+                    const successMsg = `✅ ${jobName} is now active and ready to run!\n${result.note}`;
+                    alert(successMsg);
+
+                    await refreshData(); // Refresh to show updated status
+                } else {
+                    console.error(`Failed to set ${jobName} as active: ${result.detail || result.message}`);
+                    alert(`Failed to set ${jobName} as active: ${result.detail || result.message}`);
+                }
+            } catch (error) {
+                console.error(`Error setting ${jobName} as active: ${error.message}`);
+                alert(`Error setting ${jobName} as active: ${error.message}`);
+            }
+        }
+
+        // Orchestrator Control Functions
+        async function forceStartOrchestrator() {
+            const button = event.target.closest('button');
+
+            // Check if button is disabled
+            if (button.disabled) {
+                console.warn('Cannot start orchestrator while jobs are running');
+                return;
+            }
+
+            const originalText = button.innerHTML;
+
+            try {
+                // Show loading state
+                button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Starting...';
+                button.disabled = true;
+
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/start', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    // Refresh status after a short delay to allow scheduler to update
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                } else {
+                    console.error(`Failed to start orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                console.error(`Error starting orchestrator: ${error.message}`);
+            } finally {
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+
+
+
+        async function pauseOrchestrator() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/pause', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.warn('Orchestrator paused');
+                    setTimeout(refreshOrchestratorStatus, 500);
+                } else {
+                    console.error(`Failed to pause orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                console.error(`Error pausing orchestrator: ${error.message}`);
+            }
+        }
+
+        async function resumeOrchestrator() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/resume', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    console.log('Orchestrator resumed');
+                    setTimeout(refreshOrchestratorStatus, 500);
+                } else {
+                    console.error(`Failed to resume orchestrator: ${result.detail}`);
+                }
+            } catch (error) {
+                console.error(`Error resuming orchestrator: ${error.message}`);
+            }
+        }
+
+        async function refreshOrchestratorStatus() {
+            try {
+                const token = localStorage.getItem('pulse_token');
+                const response = await fetch('/api/v1/orchestrator/status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const status = await response.json();
+                    updateOrchestratorUI(status);
+                }
+            } catch (error) {
+                console.error('Error fetching orchestrator status:', error);
+            }
+        }
+
+        let countdownInterval = null;
+
+        function updateOrchestratorUI(status) {
+            const statusBadge = document.getElementById('orchestratorStatusBadge');
+            const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+            const resumeBtn = document.getElementById('resumeOrchestratorBtn');
+
+            // Update status badge
+            statusBadge.textContent = status.status;
+            statusBadge.className = 'px-2 py-1 rounded text-xs font-medium ';
+
+            if (status.status === 'running') {
+                statusBadge.className += 'bg-green-600 text-white';
+                pauseBtn.classList.remove('hidden');
+                resumeBtn.classList.add('hidden');
+
+                // Start countdown timer
+                startCountdownTimer(status.next_run);
+            } else if (status.status === 'paused') {
+                statusBadge.className += 'bg-yellow-600 text-white';
+                pauseBtn.classList.add('hidden');
+                resumeBtn.classList.remove('hidden');
+
+                // Stop countdown timer when paused
+                stopCountdownTimer();
+            } else {
+                statusBadge.className += 'bg-gray-600 text-white';
+                pauseBtn.classList.add('hidden');
+                resumeBtn.classList.add('hidden');
+
+                // Stop countdown timer when not running
+                stopCountdownTimer();
+            }
+        }
+
+        function startCountdownTimer(nextRunTime) {
+            // Clear any existing timer
+            stopCountdownTimer();
+
+            if (!nextRunTime) {
+                document.getElementById('countdownTimer').textContent = '--:--:--';
+                return;
+            }
+
+            const nextRun = new Date(nextRunTime);
+
+            countdownInterval = setInterval(() => {
+                const now = new Date();
+                const timeDiff = nextRun - now;
+
+                if (timeDiff <= 0) {
+                    document.getElementById('countdownTimer').textContent = '00:00:00';
+                    // Refresh orchestrator status when countdown reaches zero
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                    return;
+                }
+
+                const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+                const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
+
+                const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                document.getElementById('countdownTimer').textContent = timeString;
+            }, 1000);
+        }
+
+        function stopCountdownTimer() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            document.getElementById('countdownTimer').textContent = '--:--:--';
+        }
+
+        // Orchestrator Settings Functions
+        async function showOrchestratorSettings() {
+            try {
+                // Load current settings
+                const response = await fetch('/api/v1/settings', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const settings = data.settings;
+
+                    // Update modal with current values
+                    const intervalSelect = document.getElementById('orchestratorInterval');
+                    const enabledCheckbox = document.getElementById('orchestratorEnabled');
+                    const retryEnabledCheckbox = document.getElementById('retryEnabled');
+                    const retryIntervalSelect = document.getElementById('retryInterval');
+                    const maxRetryAttemptsSelect = document.getElementById('maxRetryAttempts');
+
+                    if (settings.orchestrator_interval_minutes) {
+                        intervalSelect.value = settings.orchestrator_interval_minutes.value;
+                    }
+
+                    if (settings.orchestrator_enabled) {
+                        enabledCheckbox.checked = settings.orchestrator_enabled.value;
+                    }
+
+                    if (settings.orchestrator_retry_enabled) {
+                        retryEnabledCheckbox.checked = settings.orchestrator_retry_enabled.value;
+                    }
+
+                    if (settings.orchestrator_retry_interval_minutes) {
+                        retryIntervalSelect.value = settings.orchestrator_retry_interval_minutes.value;
+                    }
+
+                    if (settings.orchestrator_max_retry_attempts) {
+                        maxRetryAttemptsSelect.value = settings.orchestrator_max_retry_attempts.value;
+                    }
+                }
+
+                // Show modal
+                document.getElementById('orchestratorSettingsModal').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Failed to load orchestrator settings:', error);
+            }
+        }
+
+        function hideOrchestratorSettings() {
+            document.getElementById('orchestratorSettingsModal').classList.add('hidden');
+        }
+
+        async function saveOrchestratorSettings() {
+            try {
+                const intervalSelect = document.getElementById('orchestratorInterval');
+                const enabledCheckbox = document.getElementById('orchestratorEnabled');
+                const retryEnabledCheckbox = document.getElementById('retryEnabled');
+                const retryIntervalSelect = document.getElementById('retryInterval');
+                const maxRetryAttemptsSelect = document.getElementById('maxRetryAttempts');
+
+                const intervalMinutes = parseInt(intervalSelect.value);
+                const enabled = enabledCheckbox.checked;
+                const retryEnabled = retryEnabledCheckbox.checked;
+                const retryInterval = parseInt(retryIntervalSelect.value);
+                const maxRetryAttempts = parseInt(maxRetryAttemptsSelect.value);
+
+                // Save orchestrator schedule
+                const scheduleResponse = await fetch('/api/v1/orchestrator/schedule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    },
+                    body: JSON.stringify({
+                        interval_minutes: intervalMinutes,
+                        enabled: enabled
+                    })
+                });
+
+                // Save retry configuration
+                const retryResponse = await fetch('/api/v1/orchestrator/retry', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    },
+                    body: JSON.stringify({
+                        enabled: retryEnabled,
+                        interval_minutes: retryInterval,
+                        max_attempts: maxRetryAttempts
+                    })
+                });
+
+                if (scheduleResponse.ok && retryResponse.ok) {
+                    console.log(`Orchestrator settings updated: ${intervalMinutes} minutes, enabled: ${enabled}`);
+                    console.log(`Retry settings updated: enabled: ${retryEnabled}, interval: ${retryInterval} minutes, max attempts: ${maxRetryAttempts}`);
+                    hideOrchestratorSettings();
+
+                    // Refresh orchestrator status to show new schedule
+                    setTimeout(refreshOrchestratorStatus, 1000);
+                } else {
+                    const scheduleResult = await scheduleResponse.json();
+                    const retryResult = await retryResponse.json();
+                    console.error('Failed to update settings:', {
+                        schedule: scheduleResult,
+                        retry: retryResult
+                    });
+                }
+
+            } catch (error) {
+                console.error('Failed to save orchestrator settings:', error);
+            }
+        }
+
+        // Hamburger Menu Functions
+        function toggleMenu() {
+            const dropdown = document.getElementById('menuDropdown');
+            dropdown.classList.toggle('show');
+        }
+
+        // Log Management Functions
+        let currentLogPage = 1;
+        let totalLogPages = 1;
+        const logsPerPage = 20;
+
+        async function showLogManagement() {
+            try {
+                await refreshLogFiles();
+                await refreshLogEntries();
+                document.getElementById('logManagementModal').classList.remove('hidden');
+
+                // Set up dynamic button text
+                updateBulkDeleteButton();
+                document.getElementById('bulkCleanupDays').addEventListener('change', updateBulkDeleteButton);
+            } catch (error) {
+                console.error('Failed to load log management:', error);
+                alert('Failed to load log management');
+            }
+        }
+
+        function updateBulkDeleteButton() {
+            const days = document.getElementById('bulkCleanupDays').value;
+            const button = document.getElementById('bulkDeleteBtn');
+            const text = document.getElementById('bulkDeleteText');
+
+            if (days === '0') {
+                text.textContent = 'Delete All';
+                button.title = 'Delete ALL log files (clears active log content)';
+            } else {
+                text.textContent = 'Delete Old';
+                button.title = `Delete all files older than ${days} days`;
+            }
+        }
+
+        function hideLogManagement() {
+            document.getElementById('logManagementModal').classList.add('hidden');
+        }
+
+        async function refreshLogFiles() {
+            try {
+                const response = await fetch('/api/v1/logs/files', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayLogFiles(data.files);
+                } else {
+                    throw new Error('Failed to fetch log files');
+                }
+            } catch (error) {
+                console.error('Error fetching log files:', error);
+                document.getElementById('logFilesList').innerHTML =
+                    '<p class="text-red-400">Failed to load log files</p>';
+            }
+        }
+
+        function displayLogFiles(files) {
+            const container = document.getElementById('logFilesList');
+
+            if (!files || files.length === 0) {
+                container.innerHTML = '<p class="text-gray-400">No log files found</p>';
+                return;
+            }
+
+            container.innerHTML = files.map(file => {
+                const isActiveLog = file.filename === 'etl_service.log';
+                const deleteIcon = isActiveLog ? 'fa-eraser' : 'fa-trash';
+                const deleteTitle = isActiveLog ? 'Clear content of active log file' : 'Delete this log file';
+                const activeIndicator = isActiveLog ? '<span class="text-xs text-green-400 ml-2"><i class="fas fa-circle mr-1"></i>Active</span>' : '';
+
+                return `
+                    <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                        <div class="flex-1">
+                            <div class="font-medium text-white flex items-center">
+                                ${file.filename}${activeIndicator}
+                            </div>
+                            <div class="text-sm text-gray-300">
+                                ${file.size_mb} MB • Modified: ${new Date(file.modified_at).toLocaleString()}
+                            </div>
+                            <div class="text-xs text-blue-400 mt-1">
+                                <i class="fas fa-file-archive mr-1"></i>Downloads as clean ZIP (ANSI codes removed)
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="downloadLogFile('${file.filename}')"
+                                class="text-blue-400 hover:text-blue-300 text-sm p-2 rounded hover:bg-gray-600 transition-colors"
+                                title="Download as ZIP file">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deleteLogFile('${file.filename}')"
+                                class="text-red-400 hover:text-red-300 text-sm p-2 rounded hover:bg-gray-600 transition-colors"
+                                title="${deleteTitle}">
+                                <i class="fas ${deleteIcon}"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function bulkCleanupLogs() {
+            const days = document.getElementById('bulkCleanupDays').value;
+
+            let confirmMessage;
+            if (days === '0') {
+                confirmMessage = `Are you sure you want to delete ALL log files? This will:
+• Delete all old log files completely
+• Clear the content of the active log file
+• Cannot be undone`;
+            } else {
+                confirmMessage = `Are you sure you want to delete ALL log files older than ${days} days?`;
+            }
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/logs/cleanup?days=${days}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    const deletedCount = result.total_files_deleted || 0;
+                    const clearedCount = result.total_files_cleared || 0;
+                    const sizeFreed = result.total_size_freed_mb || 0;
+
+                    if (days === '0') {
+                        // "All" option feedback
+                        if (deletedCount > 0 || clearedCount > 0) {
+                            let message = `Successfully processed all log files (${sizeFreed} MB freed):\n`;
+                            if (deletedCount > 0) message += `• Deleted ${deletedCount} old log files\n`;
+                            if (clearedCount > 0) message += `• Cleared ${clearedCount} active log file`;
+                            alert(message);
+                        } else {
+                            alert('No log files found to process.');
+                        }
+                    } else {
+                        // Age-based cleanup feedback
+                        if (deletedCount > 0) {
+                            alert(`Successfully deleted ${deletedCount} log files older than ${days} days (${sizeFreed} MB freed)`);
+                        } else {
+                            alert(`No log files found older than ${days} days to delete.`);
+                        }
+                    }
+
+                    await refreshLogFiles();
+                    await refreshLogEntries(); // Refresh the log table too
+                } else {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(errorData.detail || 'Failed to cleanup logs');
+                }
+            } catch (error) {
+                console.error('Error cleaning up logs:', error);
+                alert('Failed to cleanup logs');
+            }
+        }
+
+        async function deleteLogFile(filename) {
+            // Check if this is the active log file and adjust the confirmation message
+            const isActiveLog = filename === 'etl_service.log'; // Assuming this is the active log name
+            const action = isActiveLog ? 'clear the content of' : 'delete';
+            const confirmMessage = isActiveLog
+                ? `Are you sure you want to clear all content from "${filename}"? This will empty the active log file.`
+                : `Are you sure you want to delete "${filename}"?`;
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/logs/file/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(result.message);
+                    await refreshLogFiles();
+                    await refreshLogEntries(); // Refresh the log table too
+                } else {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(errorData.detail || 'Failed to process log file');
+                }
+            } catch (error) {
+                console.error('Error processing log file:', error);
+                alert(`Failed to process log file: ${error.message}`);
+            }
+        }
+
+
+
+        async function downloadLogFile(filename) {
+            try {
+                // Show loading indicator
+                const button = event.target.closest('button');
+                const originalHTML = button.innerHTML;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                button.disabled = true;
+
+                const date = filename.includes('-') ? filename.split('-')[1].split('.')[0] : null;
+                const url = date ? `/api/v1/logs/download?date=${date}&compress=true&clean=true` : '/api/v1/logs/download?compress=true&clean=true';
+
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+
+                    // Use clean ZIP filename
+                    const downloadFilename = filename.replace('.log', '_clean.zip');
+                    a.download = downloadFilename;
+
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(downloadUrl);
+                    document.body.removeChild(a);
+                } else if (response.status === 413) {
+                    const errorData = await response.json();
+                    alert(`File too large: ${errorData.detail}`);
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to download log file');
+                }
+            } catch (error) {
+                console.error('Error downloading log file:', error);
+                alert(`Failed to download log file: ${error.message}`);
+            } finally {
+                // Restore button
+                const button = event.target.closest('button');
+                if (button) {
+                    button.innerHTML = originalHTML;
+                    button.disabled = false;
+                }
+            }
+        }
+
+        async function refreshLogEntries() {
+            try {
+                const response = await fetch(`/api/v1/logs/recent?lines=${logsPerPage * 10}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayLogTable(data.logs);
+                } else {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(`Failed to fetch recent logs: ${errorData.detail || response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Error loading log entries:', error);
+                document.getElementById('logTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="4" class="p-4 text-center text-red-400">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Failed to load logs: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function parseLogEntry(logLine) {
+            // Parse log format: "2025-07-21 14:08:48 - app.api.web_routes - INFO - message"
+            const match = logLine.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - ([^-]+) - (\w+) - (.+)$/);
+
+            if (match) {
+                let message = match[4].trim();
+
+                // Clean up message by removing redundant structured logging parts
+                // Remove timestamp at start: "2025-07-21T17:18:58.401131Z"
+                message = message.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/, '');
+
+                // Remove level indicators: "[info ]", "[error]", "[warning]", etc.
+                message = message.replace(/^\[(?:info|error|warning|debug)\s*\]\s*/, '');
+
+                // Remove module references that duplicate the module column: "[http.request]", "[app.api.web_routes]"
+                const modulePattern = new RegExp(`\\[${match[2].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]\\s*`, 'i');
+                message = message.replace(modulePattern, '');
+
+                // Remove other common structured logging patterns
+                message = message.replace(/^\[[\w.]+\]\s*/, ''); // Remove any remaining [module.name] patterns
+
+                return {
+                    timestamp: match[1],
+                    module: match[2].trim(),
+                    level: match[3].trim(),
+                    message: message.trim()
+                };
+            }
+
+            // Fallback for unparseable lines
+            return {
+                timestamp: '',
+                module: '',
+                level: '',
+                message: logLine
+            };
+        }
+
+        function displayLogTable(logs) {
+            const tbody = document.getElementById('logTableBody');
+
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="p-4 text-center text-gray-400">
+                            No log entries found
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            // Parse and paginate logs
+            const parsedLogs = logs.map(parseLogEntry).reverse(); // Most recent first
+            totalLogPages = Math.ceil(parsedLogs.length / logsPerPage);
+
+            const startIndex = (currentLogPage - 1) * logsPerPage;
+            const endIndex = startIndex + logsPerPage;
+            const pageData = parsedLogs.slice(startIndex, endIndex);
+
+            tbody.innerHTML = pageData.map(log => {
+                const levelColor = {
+                    'ERROR': 'text-red-400',
+                    'WARNING': 'text-yellow-400',
+                    'INFO': 'text-blue-400',
+                    'DEBUG': 'text-gray-400'
+                }[log.level] || 'text-gray-300';
+
+                return `
+                    <tr class="border-b border-gray-800 hover:bg-gray-800">
+                        <td class="p-2 text-gray-300 font-mono text-xs">${log.timestamp}</td>
+                        <td class="p-2 ${levelColor} font-medium">${log.level}</td>
+                        <td class="p-2 text-gray-400 text-xs">${log.module}</td>
+                        <td class="p-2 text-gray-300 text-xs">${log.message}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            updateLogPagination(parsedLogs.length);
+        }
+
+        function updateLogPagination(totalLogs) {
+            const info = document.getElementById('logPaginationInfo');
+            const prevBtn = document.getElementById('logPrevPage');
+            const nextBtn = document.getElementById('logNextPage');
+
+            const startItem = (currentLogPage - 1) * logsPerPage + 1;
+            const endItem = Math.min(currentLogPage * logsPerPage, totalLogs);
+
+            info.textContent = `${startItem}-${endItem} of ${totalLogs} entries`;
+
+            prevBtn.disabled = currentLogPage <= 1;
+            nextBtn.disabled = currentLogPage >= totalLogPages;
+        }
+
+        function changeLogPage(direction) {
+            const newPage = currentLogPage + direction;
+            if (newPage >= 1 && newPage <= totalLogPages) {
+                currentLogPage = newPage;
+                refreshLogEntries();
+            }
+        }
+
+        // Close menu when clicking outside
+        document.addEventListener('click', function (event) {
+            const menu = document.querySelector('.hamburger-menu');
+            const dropdown = document.getElementById('menuDropdown');
+
+            if (!menu.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        // Role-based UI Management
+        let currentUser = null;
+
+        // Initialize role-based UI on page load
+        // Note: loadUserInfo() is now called from the main dashboard initialization
+        // after session validation, so this separate listener is not needed
+
+        // Load current user information
+        async function loadUserInfo() {
+            // Get user info from token validation API
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    redirectToLogin('No token found during user info load');
+                    return;
+                }
+
+                const response = await fetch('/api/v1/auth/validate', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    currentUser = {
+                        email: data.user.email,
+                        role: data.user.role,
+                        is_admin: data.user.is_admin
+                    };
+
+                    // Update UI with user info
+                    const userEmailElement = document.getElementById('user-email');
+                    if (userEmailElement) {
+                        userEmailElement.textContent = currentUser.email;
+                    }
+                    updateUIForRole();
+                } else {
+                    console.error('Failed to load user info');
+                    if (response.status === 401) {
+                        redirectToLogin('Token validation failed');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+            }
+        }
+
+        // Update UI based on user role
+        function updateUIForRole() {
+            if (!currentUser) return;
+
+            // Show/hide admin menu items and sections
+            const adminMenuItem = document.getElementById('admin-menu-item');
+            const docsMenuItem = document.getElementById('docs-menu-item');
+            const healthMenuItem = document.getElementById('health-menu-item');
+            const systemHealthSection = document.getElementById('system-health-section');
+
+            if (currentUser.is_admin || currentUser.role === 'admin') {
+                adminMenuItem.style.display = 'block';
+                docsMenuItem.style.display = 'block';
+                healthMenuItem.style.display = 'block';
+                systemHealthSection.style.display = 'block';
+            }
+
+            // Update user role badge
+            const roleBadge = document.getElementById('user-role-badge');
+            if (roleBadge) {
+                roleBadge.textContent = currentUser.role.toUpperCase();
+                roleBadge.style.display = 'inline';
+
+                // Style badge based on role
+                roleBadge.className = 'ml-2 px-2 py-1 rounded text-xs font-semibold ';
+                if (currentUser.role === 'admin') {
+                    roleBadge.className += 'bg-red-600 text-white';
+                } else if (currentUser.role === 'user') {
+                    roleBadge.className += 'bg-blue-600 text-white';
+                } else if (currentUser.role === 'view') {
+                    roleBadge.className += 'bg-gray-600 text-white';
+                }
+            }
+
+            // Hide job control buttons for non-admin users
+            if (currentUser.role !== 'admin' && !currentUser.is_admin) {
+                hideJobControlButtons();
+                hideAdminOnlyFeatures();
+            }
+        }
+
+        // Hide admin-only features for non-admin users
+        function hideAdminOnlyFeatures() {
+            // Hide logs button
+            const logsButton = document.getElementById('logs-button');
+            if (logsButton) {
+                logsButton.style.display = 'none';
+            }
+
+            // Note: Rate limits buttons are dynamically created in createActionButtons()
+            // They are already handled by the role check in that function
+        }
+
+        // Hide job control buttons for users without job control permissions
+        function hideJobControlButtons() {
+            // Hide only the orchestrator control buttons, keep status visible
+            const orchestratorControlButtons = document.getElementById('orchestratorControlButtons');
+            if (orchestratorControlButtons) {
+                orchestratorControlButtons.style.display = 'none';
+            }
+
+            // Change the section title to "Orchestrator Status" for non-admin users
+            const orchestratorTitle = document.getElementById('orchestratorSectionTitle');
+            if (orchestratorTitle) {
+                orchestratorTitle.innerHTML = '<i class="fas fa-eye mr-2"></i>Orchestrator Status';
+            }
+
+            // Add a notice for non-admin users at the top of the main content area
+            if (!document.getElementById('role-notice')) {
+                const notice = document.createElement('div');
+                notice.id = 'role-notice';
+                notice.className = 'glass-effect rounded-lg p-4 mb-6';
+                notice.innerHTML = `
+                    <div class="flex items-center">
+                        <i class="fas fa-info-circle text-blue-400 mr-3"></i>
+                        <div class="text-white">
+                            <h3 class="font-semibold">View-Only Access</h3>
+                            <p class="text-white text-opacity-70 text-sm">You have read-only access to the ETL dashboard. Job controls are available to admin users only.</p>
+                        </div>
+                    </div>
+                `;
+
+                // Insert at the very beginning of the main content area
+                const mainContent = document.querySelector('main.container');
+                if (mainContent && mainContent.firstChild) {
+                    mainContent.insertBefore(notice, mainContent.firstChild);
+                }
+            }
+        }
+
+        // Override job control functions for non-admin users
+        const originalForceStart = window.forceStart;
+        const originalForceStop = window.forceStop;
+        const originalPauseJob = window.pauseJob;
+        const originalUnpauseJob = window.unpauseJob;
+
+        window.forceStart = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalForceStart(jobName);
+        };
+
+        window.forceStop = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalForceStop(jobName);
+        };
+
+        window.pauseJob = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalPauseJob(jobName);
+        };
+
+        window.unpauseJob = function (jobName) {
+            if (currentUser && currentUser.role !== 'admin' && !currentUser.is_admin) {
+                alert('Job control is restricted to admin users only.');
+                return;
+            }
+            return originalUnpauseJob(jobName);
+        };
+    </script>
+</body>
+
+</html>

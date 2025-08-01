@@ -230,8 +230,17 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     logger.info("Starting combined projects and issue types extraction")
 
     try:
+        # Extract project keys from integration base_search
+        project_keys = None
+        if integration.base_search:
+            # Parse project keys from base_search like "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"
+            import re
+            match = re.search(r'PROJECT\s+IN\s*\(([^)]+)\)', integration.base_search, re.IGNORECASE)
+            if match:
+                project_keys = [key.strip().strip('"\'') for key in match.group(1).split(',')]
+
         # Get all projects from Jira
-        jira_projects = jira_client.get_projects(expand="issueTypes")
+        jira_projects = jira_client.get_projects(expand="issueTypes", project_keys=project_keys)
         logger.info(f"Retrieved {len(jira_projects)} projects from Jira")
 
         if not jira_projects:
@@ -784,14 +793,16 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             last_sync = start_date
         else:
             last_sync = integration.last_sync_at or datetime.now() - timedelta(days=30)
-        jira_projects = [project.key.lower() for project in projects_list]
 
         # Format datetime for Jira JQL (YYYY-MM-DD HH:mm format)
         jira_datetime = last_sync.strftime('%Y-%m-%d %H:%M')
 
+        # Use base_search from integration instead of environment variable
+        base_search = integration.base_search
+
         jql = f"""
-                updated >= '{jira_datetime}'
-                AND PROJECT IN ({",".join(map(str, jira_projects))})
+                {base_search}
+                AND updated >= '{jira_datetime}'
                 ORDER BY updated DESC
         """
         #AND key = BEN-7914
@@ -1024,8 +1035,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     'team': obj.team,
                     'created': obj.created,
                     'updated': obj.updated,
-                    'started': obj.started,
-                    'completed': obj.completed,
+                    'work_first_started_at': obj.work_first_started_at,
+                    'work_first_completed_at': obj.work_first_completed_at,
                     'priority': obj.priority,
                     'resolution': obj.resolution,
                     'labels': str(obj.labels) if obj.labels is not None else None,

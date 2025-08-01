@@ -7,6 +7,7 @@ and system configuration. Only accessible to admin users.
 
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from pydantic import BaseModel, EmailStr
@@ -194,14 +195,30 @@ async def get_system_stats(
                     "system_settings": SystemSettings,
                 }
 
-            # Count records in each table
+            # ✅ SECURITY: Count records filtered by client_id
             for table_name, model in table_models.items():
                 try:
-                    # Handle tables with composite primary keys (no single 'id' column)
-                    if table_name in ['projects_issuetypes', 'projects_statuses']:
-                        count = session.query(model).count() or 0
+                    # Skip tables that don't have client_id (global tables)
+                    if table_name in ['migration_history']:
+                        # These are global tables - count all records
+                        if table_name in ['projects_issuetypes', 'projects_statuses']:
+                            count = session.query(model).count() or 0
+                        else:
+                            count = session.query(func.count(model.id)).scalar() or 0
                     else:
-                        count = session.query(func.count(model.id)).scalar() or 0
+                        # Filter by client_id for client-specific tables
+                        if hasattr(model, 'client_id'):
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).filter(model.client_id == admin_user.client_id).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).filter(model.client_id == admin_user.client_id).scalar() or 0
+                        else:
+                            # For tables without client_id, count all
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).scalar() or 0
+
                     database_stats[table_name] = count
                     total_records += count
                 except Exception as e:
@@ -248,11 +265,14 @@ async def get_system_stats(
 async def get_integrations(
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get all integrations"""
+    """Get all integrations for current user's client"""
     try:
         database = get_database()
         with database.get_session() as session:
-            integrations = session.query(Integration).order_by(Integration.name).all()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integrations = session.query(Integration).filter(
+                Integration.client_id == user.client_id
+            ).order_by(Integration.name).all()
 
             return [
                 IntegrationResponse(
@@ -283,7 +303,11 @@ async def get_integration_details(
     try:
         database = get_database()
         with database.get_session() as session:
-            integration = session.query(Integration).filter(Integration.id == integration_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.client_id == user.client_id
+            ).first()
             if not integration:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -325,7 +349,11 @@ async def update_integration(
         database = get_database()
         with database.get_session() as session:
             # Get the integration
-            integration = session.query(Integration).filter(Integration.id == integration_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.client_id == user.client_id
+            ).first()
             if not integration:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -607,7 +635,11 @@ async def get_status_mapping_details(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -652,7 +684,11 @@ async def update_status_mapping(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -697,7 +733,11 @@ async def delete_status_mapping(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping, Status
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1014,7 +1054,11 @@ async def get_workflow_details(
         with database.get_session() as session:
             from app.models.unified_models import Workflow
 
-            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
             if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1037,6 +1081,55 @@ async def get_workflow_details(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch workflow details"
+        )
+
+
+@router.get("/workflow-stats")
+async def get_workflow_stats(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get workflow statistics for the workflows page"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import Workflow, StatusMapping
+            from sqlalchemy import func
+
+            # Get total workflows count
+            total_workflows = session.query(func.count(Workflow.id)).filter(
+                Workflow.client_id == user.client_id
+            ).scalar() or 0
+
+            # Get active workflows count
+            active_workflows = session.query(func.count(Workflow.id)).filter(
+                Workflow.client_id == user.client_id,
+                Workflow.active == True
+            ).scalar() or 0
+
+            # Get workflows with mappings count
+            workflows_with_mappings = session.query(func.count(func.distinct(StatusMapping.workflow_id))).filter(
+                StatusMapping.client_id == user.client_id,
+                StatusMapping.active == True
+            ).scalar() or 0
+
+            # Get total status mappings count
+            total_mappings = session.query(func.count(StatusMapping.id)).filter(
+                StatusMapping.client_id == user.client_id
+            ).scalar() or 0
+
+            return {
+                "total_workflows": total_workflows,
+                "active_workflows": active_workflows,
+                "workflows_with_mappings": workflows_with_mappings,
+                "total_mappings": total_mappings,
+                "completion_rate": round((workflows_with_mappings / total_workflows * 100) if total_workflows > 0 else 0, 1)
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching workflow stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch workflow statistics"
         )
 
 
@@ -1064,9 +1157,10 @@ async def check_workflow_dependencies(
                     detail="Workflow not found"
                 )
 
-            # Get dependent status mappings
+            # Get dependent status mappings (must include client_id filter)
             dependent_mappings = session.query(StatusMapping).filter(
                 StatusMapping.workflow_id == workflow_id,
+                StatusMapping.client_id == user.client_id,
                 StatusMapping.active == True
             ).all()
 
@@ -1079,6 +1173,7 @@ async def check_workflow_dependencies(
                 # Count statuses using this mapping
                 statuses = session.query(Status).filter(
                     Status.status_mapping_id == mapping.id,
+                    Status.client_id == user.client_id,
                     Status.active == True
                 ).all()
 
@@ -1091,6 +1186,7 @@ async def check_workflow_dependencies(
                     from app.models.unified_models import Issue
                     issue_count = session.query(Issue).filter(
                         Issue.status_id == status.id,
+                        Issue.client_id == user.client_id,
                         Issue.active == True
                     ).count()
                     mapping_issue_count += issue_count
@@ -1170,7 +1266,11 @@ async def update_workflow(
         with database.get_session() as session:
             from app.models.unified_models import Workflow, Integration
 
-            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
             if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1191,7 +1291,11 @@ async def update_workflow(
                     # Get integration name for better error message
                     integration_name = "All Integrations"
                     if update_data.integration_id:
-                        integration = session.query(Integration).filter(Integration.id == update_data.integration_id).first()
+                        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                        integration = session.query(Integration).filter(
+                            Integration.id == update_data.integration_id,
+                            Integration.client_id == user.client_id
+                        ).first()
                         if integration:
                             integration_name = integration.name
 
@@ -1224,6 +1328,196 @@ async def update_workflow(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update workflow"
+        )
+
+
+@router.patch("/workflows/{workflow_id}/deactivate")
+async def deactivate_workflow(
+    workflow_id: int,
+    deactivation_data: WorkflowDeactivationRequest,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Deactivate a workflow with options for handling dependencies"""
+    try:
+        database = get_database()
+        with database.get_admin_session_context() as session:
+            from app.models.unified_models import Workflow, StatusMapping
+            from datetime import datetime
+
+            # Verify workflow exists and belongs to user's client
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
+
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found"
+                )
+
+            # Check if workflow is already inactive
+            was_originally_active = workflow.active
+
+            # Get dependent status mappings
+            dependent_mappings = session.query(StatusMapping).filter(
+                StatusMapping.workflow_id == workflow_id,
+                StatusMapping.client_id == user.client_id,
+                StatusMapping.active == True
+            ).all()
+
+            if deactivation_data.action == "reassign_mappings":
+                if not deactivation_data.target_workflow_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="target_workflow_id is required when action is 'reassign_mappings'"
+                    )
+
+                # Verify target workflow exists and is active
+                target_workflow = session.query(Workflow).filter(
+                    Workflow.id == deactivation_data.target_workflow_id,
+                    Workflow.client_id == user.client_id,
+                    Workflow.active == True
+                ).first()
+
+                if not target_workflow:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Target workflow not found or inactive"
+                    )
+
+                # Reassign all dependent mappings to the target workflow
+                for mapping in dependent_mappings:
+                    mapping.workflow_id = deactivation_data.target_workflow_id
+                    mapping.last_updated_at = datetime.utcnow()
+
+                message = f"Workflow deactivated and {len(dependent_mappings)} status mappings reassigned to '{target_workflow.step_name}'"
+                logger.info(f"Admin {user.email} deactivated workflow {workflow_id}, reassigned {len(dependent_mappings)} mappings to workflow {deactivation_data.target_workflow_id}")
+
+            elif deactivation_data.action == "keep_mappings":
+                message = f"Workflow deactivated ({len(dependent_mappings)} status mappings will continue to reference this inactive workflow)"
+                logger.info(f"Admin {user.email} deactivated workflow {workflow_id}, keeping {len(dependent_mappings)} dependent mappings active")
+
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid action: {deactivation_data.action}. Supported actions: keep_mappings, reassign_mappings"
+                )
+
+            # Deactivate the workflow (only if it was originally active)
+            if was_originally_active:
+                workflow.active = False
+            session.commit()
+
+            return {
+                "message": message,
+                "action_taken": deactivation_data.action,
+                "affected_mappings": len(dependent_mappings)
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deactivating workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate workflow"
+        )
+
+
+@router.patch("/workflows/{workflow_id}/activate")
+async def activate_workflow(
+    workflow_id: int,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Activate a workflow"""
+    try:
+        database = get_database()
+        with database.get_admin_session_context() as session:
+            from app.models.unified_models import Workflow
+            from datetime import datetime
+
+            # Verify workflow exists and belongs to user's client
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
+
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found"
+                )
+
+            # Activate the workflow
+            workflow.active = True
+            session.commit()
+
+            logger.info(f"Admin {user.email} activated workflow {workflow_id}")
+
+            return {"message": "Workflow activated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate workflow"
+        )
+
+
+@router.delete("/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: int,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Delete a workflow (only if no active dependencies exist)"""
+    try:
+        database = get_database()
+        with database.get_admin_session_context() as session:
+            from app.models.unified_models import Workflow, StatusMapping
+
+            # Verify workflow exists and belongs to user's client
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
+
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found"
+                )
+
+            # Check for active dependencies
+            dependent_mappings = session.query(StatusMapping).filter(
+                StatusMapping.workflow_id == workflow_id,
+                StatusMapping.client_id == user.client_id,
+                StatusMapping.active == True
+            ).count()
+
+            if dependent_mappings > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot delete workflow: {dependent_mappings} active status mappings still reference this workflow. Please reassign or deactivate them first."
+                )
+
+            # Delete the workflow
+            session.delete(workflow)
+            session.commit()
+
+            logger.info(f"Admin {user.email} deleted workflow {workflow_id} ({workflow.step_name})")
+
+            return {"message": f"Workflow '{workflow.step_name}' deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete workflow"
         )
 
 
@@ -1260,7 +1554,11 @@ async def create_workflow(
                     # Get integration name for better error message
                     integration_name = "All Integrations"
                     if create_data.integration_id:
-                        integration = session.query(Integration).filter(Integration.id == create_data.integration_id).first()
+                        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                        integration = session.query(Integration).filter(
+                            Integration.id == create_data.integration_id,
+                            Integration.client_id == user.client_id
+                        ).first()
                         if integration:
                             integration_name = integration.name
 
@@ -1505,6 +1803,61 @@ async def delete_flow_step(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete flow step"
+        )
+
+
+@router.get("/issuetype-mappings/options")
+async def get_issuetype_mapping_options(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get available options for issue type mapping dropdowns"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from sqlalchemy import distinct
+
+            # Get unique source types from existing mappings
+            source_types = session.query(distinct(IssuetypeMapping.issuetype_from)).filter(
+                IssuetypeMapping.client_id == user.client_id
+            ).order_by(IssuetypeMapping.issuetype_from).all()
+
+            # Get unique target types from existing mappings
+            target_types = session.query(distinct(IssuetypeMapping.issuetype_to)).filter(
+                IssuetypeMapping.client_id == user.client_id
+            ).order_by(IssuetypeMapping.issuetype_to).all()
+
+            # Also get unique original names from Issuetype table (raw data from integrations)
+            raw_issuetypes = session.query(distinct(Issuetype.original_name)).filter(
+                Issuetype.client_id == user.client_id,
+                Issuetype.active == True
+            ).order_by(Issuetype.original_name).all()
+
+            # Combine and deduplicate source options
+            all_source_options = set()
+            for (source_type,) in source_types:
+                if source_type:
+                    all_source_options.add(source_type)
+            for (raw_type,) in raw_issuetypes:
+                if raw_type:
+                    all_source_options.add(raw_type)
+
+            # Target types are typically standardized names
+            all_target_options = set()
+            for (target_type,) in target_types:
+                if target_type:
+                    all_target_options.add(target_type)
+
+            return {
+                "source_types": sorted(list(all_source_options)),
+                "target_types": sorted(list(all_target_options))
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching issue type mapping options: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch issue type mapping options"
         )
 
 
@@ -1860,13 +2213,15 @@ async def update_issuetype_mapping(
 @router.delete("/issuetype-mappings/{mapping_id}")
 async def delete_issuetype_mapping(
     mapping_id: int,
+    deletion_data: Optional[IssuetypeMappingDeactivationRequest] = None,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Delete an issue type mapping"""
+    """Delete an issue type mapping with options for handling dependencies"""
     try:
         database = get_database()
-        with database.get_session() as session:
-            from app.models.unified_models import IssuetypeMapping, Issue
+        with database.get_admin_session_context() as session:
+            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from datetime import datetime
 
             mapping = session.query(IssuetypeMapping).filter(
                 IssuetypeMapping.id == mapping_id,
@@ -1879,37 +2234,69 @@ async def delete_issuetype_mapping(
                     detail="Issue type mapping not found"
                 )
 
-            # Check for dependent issue types and issues (using correct relationship)
-            from app.models.unified_models import Issuetype
-
-            # Count dependent issue types
+            # Get dependent issue types
             dependent_issuetypes = session.query(Issuetype).filter(
                 Issuetype.issuetype_mapping_id == mapping_id,
                 Issuetype.active == True
-            ).count()
+            ).all()
 
-            # Count dependent issues through issue types
-            dependent_issues = session.query(Issue).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
-            ).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True,
-                Issue.active == True
-            ).count()
-
-            if dependent_issuetypes > 0 or dependent_issues > 0:
+            # If there are dependencies and no deletion data provided, block deletion
+            if dependent_issuetypes and not deletion_data:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot delete mapping: {dependent_issuetypes} active issue types and {dependent_issues} active issues are using this mapping. Use 'Deactivate' instead or reassign dependencies first."
+                    detail=f"Cannot delete mapping: {len(dependent_issuetypes)} active issue types are using this mapping. Please specify reassignment options."
                 )
+
+            # Handle dependencies if deletion data is provided
+            if deletion_data and dependent_issuetypes:
+                if deletion_data.action == "reassign_issuetypes":
+                    if not deletion_data.target_mapping_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Target mapping ID required for reassignment"
+                        )
+
+                    # Verify target mapping exists and is active
+                    target_mapping = session.query(IssuetypeMapping).filter(
+                        IssuetypeMapping.id == deletion_data.target_mapping_id,
+                        IssuetypeMapping.active == True,
+                        IssuetypeMapping.client_id == user.client_id
+                    ).first()
+
+                    if not target_mapping:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Target mapping (ID: {deletion_data.target_mapping_id}) not found or is inactive"
+                        )
+
+                    # Reassign all dependent issue types to the target mapping
+                    for issuetype in dependent_issuetypes:
+                        issuetype.issuetype_mapping_id = deletion_data.target_mapping_id
+                        issuetype.last_updated_at = datetime.utcnow()
+
+                    message = f"Issue type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
+                    logger.info(f"Admin {user.email} deleted mapping {mapping_id}, reassigned {len(dependent_issuetypes)} issue types to mapping {deletion_data.target_mapping_id}")
+
+                elif deletion_data.action == "keep_issuetypes":
+                    # Keep issue types but mark them as orphaned (they'll reference a deleted mapping)
+                    # This is generally not recommended but allowed for data preservation
+                    message = f"Issue type mapping deleted ({len(dependent_issuetypes)} issue types will reference deleted mapping)"
+                    logger.info(f"Admin {user.email} deleted mapping {mapping_id}, keeping {len(dependent_issuetypes)} dependent issue types")
+
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid action: {deletion_data.action}. Supported actions: keep_issuetypes, reassign_issuetypes"
+                    )
+            else:
+                message = "Issue type mapping deleted successfully"
+                logger.info(f"Admin {user.email} deleted issue type mapping {mapping_id}")
 
             # Delete the mapping
             session.delete(mapping)
             session.commit()
 
-            logger.info(f"Admin {user.email} deleted issue type mapping {mapping_id}")
-
-            return {"message": "Issue type mapping deleted successfully"}
+            return {"message": message}
 
     except HTTPException:
         raise
@@ -2037,7 +2424,7 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
                 IssuetypeHierarchy.client_id == user.client_id
             ).order_by(IssuetypeHierarchy.level_number.desc()).all()
 
-            return [
+            hierarchies_list = [
                 {
                     "id": hierarchy.IssuetypeHierarchy.id,
                     "level_name": hierarchy.IssuetypeHierarchy.level_name,
@@ -2049,6 +2436,11 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
                 }
                 for hierarchy in hierarchies
             ]
+
+            return {
+                "success": True,
+                "hierarchies": hierarchies_list
+            }
 
     except Exception as e:
         logger.error(f"Error fetching issue type hierarchies: {e}")
@@ -2084,17 +2476,8 @@ async def create_issuetype_hierarchy(
             from app.models.unified_models import IssuetypeHierarchy
             from datetime import datetime
 
-            # Check if level_number already exists
-            existing = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.level_number == create_data.level_number,
-                IssuetypeHierarchy.client_id == user.client_id
-            ).first()
-
-            if existing:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Hierarchy level {create_data.level_number} already exists"
-                )
+            # Note: Multiple hierarchies can have the same level_number
+            # No uniqueness check needed for level_number
 
             # Create new hierarchy
             new_hierarchy = IssuetypeHierarchy(
@@ -2540,4 +2923,7 @@ async def terminate_user_session(
         detail=f"Session management is now handled by Backend Service. Please use: {backend_url}/api/v1/admin/terminate-session/{session_id}",
         headers={"Location": f"{backend_url}/api/v1/admin/terminate-session/{session_id}"}
     )
+
+
+
 

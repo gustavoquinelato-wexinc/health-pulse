@@ -4,175 +4,300 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pulse ETL - Login</title>
+    <title>Pulse ETL Management - Login</title>
+    <link rel="icon" type="image/svg+xml" href="/static/heart-pulse.svg">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        /* Force dark background and Inter font - must come after Tailwind to override */
+        * {
+            box-sizing: border-box;
         }
 
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        html, body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
+            min-height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            color: #ffffff !important;
+        }
+        /* Modern gradient background matching frontend exactly */
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Ensure dark background is always applied - override Tailwind */
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%) !important;
+            min-height: 100vh !important;
+        }
+
+        html {
+            background: #0f172a !important;
+        }
+
+        /* Glass morphism effect matching frontend exactly */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1) !important;
+            backdrop-filter: blur(24px) !important;
+            -webkit-backdrop-filter: blur(24px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-radius: 1.5rem !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+        }
+
+        /* Override Tailwind text colors */
+        .text-white {
+            color: #ffffff !important;
+        }
+
+        .text-slate-300 {
+            color: #cbd5e1 !important;
+        }
+
+        .text-slate-400 {
+            color: #94a3b8 !important;
+        }
+
+        .text-blue-400 {
+            color: #60a5fa !important;
+        }
+
+        .text-red-300 {
+            color: #fca5a5 !important;
+        }
+
+        /* Input focus effects matching frontend */
+        .input-group:focus-within .input-icon {
+            color: #60a5fa !important;
+        }
+
+        /* Ensure all form elements have proper styling */
+        input[type="email"], input[type="password"] {
+            background: rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            color: #ffffff !important;
+            font-family: 'Inter', sans-serif !important;
+        }
+
+        input[type="email"]:focus, input[type="password"]:focus {
+            outline: none !important;
+            ring: 2px solid #60a5fa !important;
+            border-color: transparent !important;
+        }
+
+        input[type="email"]::placeholder, input[type="password"]::placeholder {
+            color: #94a3b8 !important;
+        }
+
+        /* Button styling */
+        button[type="submit"] {
+            background: linear-gradient(to right, #2563eb, #1d4ed8) !important;
+            color: #ffffff !important;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 600 !important;
+        }
+
+        button[type="submit"]:hover {
+            background: linear-gradient(to right, #1d4ed8, #1e40af) !important;
+        }
+
+        /* Embedded mode styles */
+        .embedded-mode {
+            padding: 0;
+            margin: 0;
+        }
+
+        .embedded-mode body {
+            background: #f8fafc !important;
+        }
+
+        .embedded-mode .absolute {
+            display: none !important;
         }
     </style>
 </head>
 
-<body class="gradient-bg min-h-screen flex items-center justify-center">
-    <div class="glass-effect rounded-2xl p-8 w-full max-w-md shadow-2xl">
-        <!-- Logo and Title -->
-        <div class="text-center mb-8">
-            <div class="inline-flex items-center justify-center w-16 h-16 bg-white bg-opacity-20 rounded-full mb-4">
-                <i class="fas fa-database text-2xl text-white"></i>
-            </div>
-            <h1 class="text-3xl font-bold text-white mb-2">Pulse ETL</h1>
-            <p class="text-white text-opacity-80">Data Pipeline Management</p>
-            <div class="mt-4 p-3 bg-blue-500 bg-opacity-20 border border-blue-500 border-opacity-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-info-circle text-blue-300 mr-2"></i>
-                    <span class="text-blue-100 text-sm">Authentication powered by centralized Backend Service.</span>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+    <!-- Animated background elements matching frontend exactly -->
+    <div class="absolute inset-0">
+        <!-- Large geometric shapes with exact frontend blur effects -->
+        <div class="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-600/20 to-transparent rounded-full blur-3xl transform -translate-x-1/2 -translate-y-1/2"></div>
+        <div class="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-violet-600/20 to-transparent rounded-full blur-3xl transform translate-x-1/2 translate-y-1/2"></div>
+        <div class="absolute top-1/2 left-1/2 w-64 h-64 bg-gradient-to-r from-emerald-600/10 to-transparent rounded-full blur-2xl transform -translate-x-1/2 -translate-y-1/2"></div>
+
+        <!-- Floating geometric shapes with exact frontend animations -->
+        <div class="absolute top-20 left-20 w-4 h-4 bg-blue-600/30 rounded-full animate-pulse"></div>
+        <div class="absolute top-40 right-32 w-6 h-6 bg-violet-600/40 rotate-45 animate-bounce" style="animation-delay: 1s;"></div>
+        <div class="absolute bottom-32 left-40 w-3 h-3 bg-emerald-600/50 rounded-full animate-ping" style="animation-delay: 2s;"></div>
+        <div class="absolute top-60 right-20 w-8 h-1 bg-blue-600/20 animate-pulse" style="animation-delay: 0.5s;"></div>
+        <div class="absolute bottom-40 right-60 w-5 h-5 border-2 border-violet-600/30 rotate-45 animate-spin" style="animation-duration: 8s;"></div>
+    </div>
+
+    <div class="relative z-10 flex min-h-screen">
+        <!-- Left side - Branding -->
+        <div class="hidden lg:flex lg:w-1/2 flex-col justify-center items-center p-12 relative">
+            <div class="max-w-md text-center">
+                <!-- WEX Logo -->
+                <div class="mb-8">
+                    <div style="width: 300px; height: 120px; position: relative; margin: 0 auto;">
+                        <img
+                            src="/static/wex-logo-image.png"
+                            alt="WEX Logo"
+                            style="width: 100%; height: 100%; object-fit: contain; display: block; filter: brightness(0) invert(1);"
+                        />
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <h1 class="text-5xl font-bold text-white leading-tight text-center">
+                        <div class="flex items-center justify-center mb-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"></path>
+                                <path d="M3.5 12h6l.5-1 2 4.5 2-7 1.5 3.5h5"></path>
+                            </svg>
+                            Pulse
+                        </div>
+                        <div class="text-5xl font-bold text-white">
+                            ETL Management
+                        </div>
+                    </h1>
+                    <p class="text-xl text-slate-300 leading-relaxed">
+                        Engineering Leadership Dashboard
+                    </p>
+                    <p class="text-lg text-slate-400 leading-relaxed">
+                        Empowering teams with data-driven insights for better software delivery and innovation.
+                    </p>
                 </div>
             </div>
         </div>
 
-        <!-- Error Message -->
-        <div id="errorMessage"
-            class="hidden mb-4 p-3 bg-red-500 bg-opacity-20 border border-red-500 border-opacity-50 rounded-lg">
-            <div class="flex items-center">
-                <i class="fas fa-exclamation-triangle text-red-300 mr-2"></i>
-                <span id="errorText" class="text-red-100 text-sm"></span>
+        <!-- Right side - Login Form -->
+        <div class="w-full lg:w-1/2 flex items-center justify-center p-8">
+            <div class="w-full max-w-md">
+                <!-- Mobile logo -->
+                <div class="lg:hidden text-center mb-8">
+                    <div style="width: 200px; height: 80px; position: relative; margin: 0 auto;">
+                        <img
+                            src="/static/wex-logo-image.png"
+                            alt="WEX Logo"
+                            style="width: 100%; height: 100%; object-fit: contain; display: block; filter: brightness(0) invert(1);"
+                        />
+                    </div>
+                    <h2 class="text-3xl font-bold text-white mt-4 text-center">
+                        <div class="flex items-center justify-center mb-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-400 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"></path>
+                                <path d="M3.5 12h6l.5-1 2 4.5 2-7 1.5 3.5h5"></path>
+                            </svg>
+                            Pulse
+                        </div>
+                        <div class="text-3xl font-bold text-white">
+                            ETL Management
+                        </div>
+                    </h2>
+                </div>
+
+                <!-- Login Card matching frontend exactly -->
+                <div class="glass-card bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20 shadow-2xl">
+                    <div class="text-center mb-8">
+                        <h3 class="text-2xl font-bold text-white mb-2">Welcome Back</h3>
+                        <p class="text-slate-300">Sign in to access your dashboard</p>
+                    </div>
+
+                    <!-- Error Message matching frontend style -->
+                    <div id="errorMessage" class="{% if error %}{% else %}hidden{% endif %} mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/30 backdrop-blur-sm">
+                        <p id="errorText" class="text-sm text-red-300">{% if error %}{{ error }}{% endif %}</p>
+                    </div>
+
+                    <!-- Login Form -->
+                    <form id="loginForm" method="POST" action="/login" class="space-y-6">
+                        <div class="space-y-4">
+                            <div class="relative group">
+                                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 group-focus-within:text-blue-400 transition-colors" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                                    </svg>
+                                </div>
+                                <input
+                                    type="email"
+                                    id="email"
+                                    name="email"
+                                    autocomplete="email"
+                                    required
+                                    class="w-full px-4 py-4 pl-12 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 backdrop-blur-sm"
+                                    placeholder="Email address"
+                                />
+                            </div>
+
+                            <div class="relative group">
+                                <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 group-focus-within:text-blue-400 transition-colors" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                                    </svg>
+                                </div>
+                                <input
+                                    type="password"
+                                    id="password"
+                                    name="password"
+                                    autocomplete="current-password"
+                                    required
+                                    class="w-full px-4 py-4 pl-12 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 backdrop-blur-sm"
+                                    placeholder="Password"
+                                />
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <input
+                                    id="remember-me"
+                                    name="remember-me"
+                                    type="checkbox"
+                                    class="h-4 w-4 text-blue-400 focus:ring-blue-400 border-white/30 rounded bg-white/10"
+                                />
+                                <label for="remember-me" class="ml-3 block text-sm text-slate-300">
+                                    Remember me
+                                </label>
+                            </div>
+
+                            <div class="text-sm">
+                                <a href="#" class="font-medium text-blue-400 hover:text-blue-300 transition-colors">
+                                    Forgot password?
+                                </a>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <button
+                                type="submit"
+                                id="loginButton"
+                                class="w-full flex justify-center py-4 px-6 border border-transparent text-base font-semibold rounded-2xl text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                            >
+                                <span class="flex items-center" id="loginButtonContent">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M3 3a1 1 0 011 1v12a1 1 0 11-2 0V4a1 1 0 011-1zm7.707 3.293a1 1 0 010 1.414L9.414 9H17a1 1 0 110 2H9.414l1.293 1.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                    <span id="loginButtonText">Sign In</span>
+                                </span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
-        </div>
-
-        <!-- Login Form -->
-        <form id="loginForm" class="space-y-6">
-            <div>
-                <label for="email" class="block text-sm font-medium text-white mb-2">
-                    <i class="fas fa-user mr-2"></i>Username
-                </label>
-                <input type="text" id="email" name="email"
-                    class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter email (gustavo.quinelato@wexinc.com)" autocomplete="username" required>
-            </div>
-
-            <div>
-                <label for="password" class="block text-sm font-medium text-white mb-2">
-                    <i class="fas fa-lock mr-2"></i>Password
-                </label>
-                <input type="password" id="password" name="password"
-                    class="w-full px-4 py-3 bg-white bg-opacity-20 border border-white border-opacity-30 rounded-lg text-white placeholder-white placeholder-opacity-70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:border-transparent"
-                    placeholder="Enter your password" autocomplete="current-password" required>
-            </div>
-
-            <!-- Error Message -->
-            <div id="errorMessage"
-                class="hidden bg-red-500 bg-opacity-20 border border-red-500 border-opacity-50 text-red-100 px-4 py-3 rounded-lg">
-                <i class="fas fa-exclamation-triangle mr-2"></i>
-                <span id="errorText">Invalid credentials. Please try again.</span>
-            </div>
-
-            <!-- Login Button -->
-            <button type="submit" id="loginButton"
-                class="w-full bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50">
-                <i class="fas fa-sign-in-alt mr-2"></i>
-                <span id="loginButtonText">Sign In</span>
-            </button>
-        </form>
-
-        <!-- Available Users Info -->
-        <div class="mt-6 p-4 bg-white bg-opacity-10 rounded-lg border border-white border-opacity-20">
-            <h3 class="text-white text-sm font-medium mb-2">
-                <i class="fas fa-info-circle mr-2"></i>Available Test Users
-            </h3>
-            <div class="text-white text-opacity-80 text-xs space-y-1">
-                <div><strong>gustavo.quinelato@wexinc.com</strong> - Admin access</div>
-                <div><strong>admin@pulse.com</strong> - Admin access</div>
-                <div><strong>user@pulse.com</strong> - Standard user access</div>
-                <div><strong>viewer@pulse.com</strong> - View-only access</div>
-                <div class="mt-2 text-white text-opacity-60">Password for all users: <strong>pulse</strong></div>
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="text-center mt-8 text-white text-opacity-60 text-sm">
-            <p>Pulse Platform - ETL Service</p>
-            <p class="mt-1">© 2025 WEX Inc.</p>
         </div>
     </div>
 
     <script>
         const errorDiv = document.getElementById('errorMessage');
 
-        // Check for error parameters in URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const error = urlParams.get('error');
-        const message = urlParams.get('message');
-        const resource = urlParams.get('resource');
 
-        // Handle success messages
-        if (message) {
-            let successMessage = '';
-            switch (message) {
-                case 'logged_out':
-                    successMessage = 'You have been successfully logged out.';
-                    break;
-                default:
-                    successMessage = message;
-            }
-
-            // Show success message (reuse error div but with different styling)
-            document.getElementById('errorText').textContent = successMessage;
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.classList.remove('hidden', 'bg-red-500', 'border-red-500');
-            errorDiv.classList.add('bg-green-500', 'border-green-500');
-            errorDiv.querySelector('i').className = 'fas fa-check-circle text-green-300 mr-2';
-
-            // Clean up URL after showing message (optional)
-            if (window.history.replaceState) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-        }
-
-        if (error) {
-            let errorMessage = '';
-            switch (error) {
-                case 'authentication_required':
-                    errorMessage = 'Please log in to access this page.';
-                    break;
-                case 'invalid_token':
-                    errorMessage = 'Your session has expired. Please log in again.';
-                    break;
-                case 'authentication_failed':
-                    errorMessage = 'Authentication failed. Please log in again.';
-                    break;
-                case 'permission_denied':
-                    errorMessage = resource ?
-                        `You don't have permission to access ${resource}. Please contact an administrator.` :
-                        'You don\'t have permission to access this resource.';
-                    break;
-                case 'invalid_permission':
-                    errorMessage = 'Invalid permission request. Please contact support.';
-                    break;
-                case 'page_not_found':
-                    errorMessage = 'The page you requested was not found. Please log in to access the system.';
-                    break;
-                case 'server_error':
-                    errorMessage = 'A server error occurred. Please log in and try again.';
-                    break;
-                default:
-                    errorMessage = 'Please log in to continue.';
-            }
-
-            document.getElementById('errorText').textContent = errorMessage;
-            errorDiv.classList.remove('hidden');
-
-            // Clear URL parameters to avoid showing error on refresh
-            if (window.history.replaceState) {
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-        }
 
         document.getElementById('loginForm').addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -185,12 +310,16 @@
 
             // Show loading state
             loginButton.disabled = true;
-            loginButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing In...';
+            document.getElementById('loginButtonContent').innerHTML = `
+                <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                <span>Signing in...</span>
+            `;
             errorDiv.classList.add('hidden');
 
             try {
                 // Authenticate with Backend Service API
-                const backendUrl = 'http://localhost:3001'; // This should be configured properly
+                // Get backend URL from server-side configuration
+                const backendUrl = 'http://localhost:3001';
 
                 const response = await fetch(`${backendUrl}/auth/login`, {
                     method: 'POST',
@@ -203,13 +332,13 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Store token and redirect to dashboard
+                    // Store token and redirect to home
                     localStorage.setItem('pulse_token', data.token);
 
                     // Also set cookie for compatibility
                     document.cookie = `pulse_token=${data.token}; path=/; max-age=86400`; // 24 hours
 
-                    window.location.href = '/dashboard';
+                    window.location.href = '/home';
                 } else {
                     // Show error
                     document.getElementById('errorText').textContent = data.detail || 'Invalid credentials. Please try again.';
@@ -222,12 +351,113 @@
             } finally {
                 // Reset button state
                 loginButton.disabled = false;
-                loginButton.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i><span id="loginButtonText">Sign In</span>';
+                document.getElementById('loginButtonContent').innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 3a1 1 0 011 1v12a1 1 0 11-2 0V4a1 1 0 011-1zm7.707 3.293a1 1 0 010 1.414L9.414 9H17a1 1 0 110 2H9.414l1.293 1.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                    <span id="loginButtonText">Sign In</span>
+                `;
             }
         });
 
         // Auto-focus username field
         document.getElementById('email').focus();
+
+        // URL Parameter Handling
+        const urlParams = new URLSearchParams(window.location.search);
+        const isEmbedded = urlParams.get('embedded') === 'true';
+        const themeParam = urlParams.get('theme');
+        const colorModeParam = urlParams.get('colorMode');
+        const errorParam = urlParams.get('error');
+        const resourceParam = urlParams.get('resource');
+        const messageParam = urlParams.get('message');
+
+        // Handle success messages from URL parameters
+        if (messageParam) {
+            let successMessage = '';
+            switch (messageParam) {
+                case 'logged_out':
+                    successMessage = 'You have been successfully logged out.';
+                    break;
+                default:
+                    successMessage = messageParam;
+            }
+
+            // Show success message (reuse error div but with different styling)
+            const errorDiv = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+            errorText.textContent = successMessage;
+            errorDiv.classList.remove('hidden', 'bg-red-500/20', 'border-red-500/30');
+            errorDiv.classList.add('bg-green-500/20', 'border-green-500/30');
+            errorText.className = 'text-sm text-green-300';
+
+            // Clean up URL after showing message
+            if (window.history.replaceState) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        // Handle error messages from URL parameters
+        if (errorParam) {
+            const errorDiv = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+
+            let errorMessage = '';
+            switch (errorParam) {
+                case 'permission_denied':
+                    if (resourceParam === 'etl_management') {
+                        errorMessage = 'Access Denied: ETL Management requires administrator privileges. Please contact your system administrator for access.';
+                    } else {
+                        errorMessage = resourceParam ?
+                            `You don't have permission to access ${resourceParam}. Please contact an administrator.` :
+                            'You don\'t have permission to access this resource.';
+                    }
+                    break;
+                case 'authentication_required':
+                    errorMessage = 'Authentication required. Please log in to continue.';
+                    break;
+                case 'session_expired':
+                case 'invalid_token':
+                    errorMessage = 'Your session has expired. Please log in again.';
+                    break;
+                case 'authentication_failed':
+                    errorMessage = 'Authentication failed. Please log in again.';
+                    break;
+                case 'invalid_permission':
+                    errorMessage = 'Invalid permission request. Please contact support.';
+                    break;
+                case 'page_not_found':
+                    errorMessage = 'The page you requested was not found. Please log in to access the system.';
+                    break;
+                case 'server_error':
+                    errorMessage = 'A server error occurred. Please log in and try again.';
+                    break;
+                default:
+                    errorMessage = 'Authentication error. Please try logging in again.';
+            }
+
+            errorText.textContent = errorMessage;
+            errorText.className = 'text-sm text-red-300';
+            errorDiv.classList.remove('hidden');
+
+            // Clear URL parameters to avoid showing error on refresh
+            if (window.history.replaceState) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        // Embedded Mode Support
+        if (isEmbedded) {
+            document.body.classList.add('embedded-mode');
+        }
+
+        // Apply theme from URL parameters if provided
+        if (themeParam) {
+            document.documentElement.setAttribute('data-theme', themeParam);
+        }
+        if (colorModeParam) {
+            document.documentElement.setAttribute('data-color-schema', colorModeParam);
+        }
     </script>
 </body>
 

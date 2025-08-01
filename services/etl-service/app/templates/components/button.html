@@ -1,0 +1,34 @@
+<!-- Modern Button Component - Matches Frontend System -->
+{% macro button(text, variant='primary', size='default', type='button', onclick='', disabled=false, icon='', class='') %}
+<button 
+    type="{{ type }}"
+    class="btn btn-{{ variant }} btn-{{ size }} {{ class }}"
+    {% if onclick %}onclick="{{ onclick }}"{% endif %}
+    {% if disabled %}disabled{% endif %}
+>
+    {% if icon %}
+        <i class="{{ icon }} mr-2"></i>
+    {% endif %}
+    {{ text }}
+</button>
+{% endmacro %}
+
+<!-- Icon Button -->
+{% macro icon_button(icon, variant='ghost', size='default', onclick='', disabled=false, title='', class='') %}
+<button 
+    type="button"
+    class="btn btn-{{ variant }} btn-{{ size }} {{ class }}"
+    {% if onclick %}onclick="{{ onclick }}"{% endif %}
+    {% if disabled %}disabled{% endif %}
+    {% if title %}title="{{ title }}"{% endif %}
+>
+    <i class="{{ icon }}"></i>
+</button>
+{% endmacro %}
+
+<!-- Button Group -->
+{% macro button_group(class='') %}
+<div class="flex items-center space-x-2 {{ class }}">
+    {{ caller() }}
+</div>
+{% endmacro %}

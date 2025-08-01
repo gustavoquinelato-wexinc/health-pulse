@@ -1,15 +1,15 @@
 """
-Web Routes for ETL Dashboard
+Web Routes for ETL Service
 
-Provides web interface routes for the ETL dashboard including:
+Provides web interface routes for the ETL service including:
 - Login page
-- Dashboard page  
+- Home page
 - Authentication endpoints
 - Job control endpoints
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from sqlalchemy import func
 
 from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
-from app.core.database import get_database
+from app.core.database import get_database, get_db_session
 from app.models.unified_models import JobSchedule
 from app.auth.centralized_auth_middleware import (
     UserData, require_authentication, require_admin_authentication,
@@ -63,78 +63,645 @@ async def verify_token(user: UserData = Depends(require_authentication)):
 
 # Web page routes
 @router.get("/", response_class=HTMLResponse)
-async def root():
-    """Redirect to login page"""
+async def root(request: Request):
+    """Redirect to home if authenticated, otherwise to login"""
+    # Check if user has a valid token
+    token = request.cookies.get("pulse_token")
+
+    if token:
+        try:
+            # Validate token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                # User is authenticated, redirect to home
+                return RedirectResponse(url="/home")
+        except Exception as e:
+            logger.debug(f"Token validation failed for root route: {e}")
+
+    # No valid token, redirect to login
     return RedirectResponse(url="/login")
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page"""
-    response = templates.TemplateResponse("login.html", {"request": request})
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    backend_url = settings.BACKEND_SERVICE_URL
+    logger.info(f"Login page: passing backend_service_url = {backend_url}")
+
+    response = templates.TemplateResponse("login.html", {
+        "request": request,
+        "backend_service_url": backend_url
+    })
     # Clear any existing tokens when showing login page
     response.delete_cookie("pulse_token", path="/")
     return response
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request):
-    """Serve dashboard page (authentication handled by frontend JavaScript)"""
-    # Always serve the dashboard page - authentication is handled by frontend checkAuth()
+@router.post("/login")
+async def login_post_handler(request: Request):
+    """Handle POST requests to /login - process form data and authenticate"""
+    try:
+        # Parse form data
+        form_data = await request.form()
+        email = form_data.get("email")
+        password = form_data.get("password")
+
+        if not email or not password:
+            return templates.TemplateResponse("login.html", {
+                "request": request,
+                "error": "Email and password are required"
+            })
+
+        # Forward to backend service with JSON format
+        from app.core.config import get_settings
+        import httpx
+
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{backend_url}/auth/login",
+                json={"email": email, "password": password},
+                headers={"Content-Type": "application/json"}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                # Set cookie and redirect to home
+                redirect_response = RedirectResponse(url="/home", status_code=302)
+                redirect_response.set_cookie(
+                    "pulse_token",
+                    data["token"],  # Fixed: Backend returns "token", not "access_token"
+                    max_age=86400,
+                    httponly=False,
+                    path="/"
+                )
+                return redirect_response
+            else:
+                # Authentication failed
+                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                error_message = error_data.get("detail", "Invalid credentials")
+
+                return templates.TemplateResponse("login.html", {
+                    "request": request,
+                    "error": error_message
+                })
+
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Login failed. Please try again."
+        })
+
+@router.get("/home", response_class=HTMLResponse)
+async def home_page(request: Request, token: Optional[str] = None):
+    """Serve home page with optional token parameter for portal embedding"""
+
+    # Check for token in URL parameter for portal embedding
+    if token:
+        try:
+            # Validate token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                # Check if this is an embedded request (iframe)
+                embedded = request.query_params.get("embedded") == "true"
+
+                # Set cookie for subsequent requests (accessible by JavaScript for API calls)
+                response = templates.TemplateResponse("home.html", {
+                    "request": request,
+                    "user": user_data,
+                    "token": token,
+                    "embedded": embedded
+                })
+                response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
+                logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
+                return response
+            else:
+                logger.warning("❌ Portal embedding: Invalid token provided")
+        except Exception as e:
+            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+
+    # Try to get color schema for authenticated users to prevent flash
+    color_schema_data = None
+    try:
+        # Check for token in cookies
+        token = request.cookies.get("pulse_token")
+        if token:
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("success"):
+                            color_schema_data = data
+    except Exception as e:
+        logger.debug(f"Could not fetch color schema: {e}")
+
+    # Check if this is an embedded request (iframe)
+    embedded = request.query_params.get("embedded") == "true"
+
+    # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse("home.html", {
+        "request": request,
+        "color_schema": color_schema_data,
+        "embedded": embedded
+    })
+
+
+@router.get("/old_dashboard", response_class=HTMLResponse)
+async def old_dashboard_page(request: Request, token: Optional[str] = None):
+    """Serve old dashboard page for comparison"""
+    try:
+        # Check for token in URL parameter first (for portal embedding)
+        auth_token = token
+        if not auth_token:
+            auth_token = request.cookies.get("pulse_token")
+
+        if not auth_token:
+            return RedirectResponse(url="/login", status_code=302)
+
+        # Get color schema (use default for old dashboard)
+        color_schema_data = {"mode": "default"}
+
+        return templates.TemplateResponse("old_dashboard.html", {"request": request, "color_schema": color_schema_data})
+
+    except Exception as e:
+        logger.error(f"Old dashboard page error: {e}")
+        # Fallback with minimal data
+        return templates.TemplateResponse("old_dashboard.html", {"request": request, "color_schema": {"mode": "default"}})
+
+
+@router.get("/test_colors", response_class=HTMLResponse)
+async def test_colors_page(request: Request):
+    """Serve enterprise colors test page"""
+    return templates.TemplateResponse("test_enterprise_colors.html", {"request": request})
+
+@router.get("/403", response_class=HTMLResponse)
+async def test_403_page(request: Request):
+    """Test 403 Forbidden error page"""
+    return templates.TemplateResponse("403.html", {"request": request}, status_code=403)
+
+@router.get("/500", response_class=HTMLResponse)
+async def test_500_page(request: Request):
+    """Test 500 Internal Server Error page"""
+    return templates.TemplateResponse("500.html", {"request": request, "error_id": "TEST-500"}, status_code=500)
+
+@router.get("/old_admin", response_class=HTMLResponse)
+async def old_admin_page(request: Request, token: Optional[str] = None):
+    """Serve old admin page for comparison purposes"""
+    # Check for token in URL parameter for portal embedding
+    if token:
+        try:
+            # Validate token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                # Set cookie for subsequent requests (accessible by JavaScript for API calls)
+                response = templates.TemplateResponse("old_admin", {"request": request, "user": user_data, "token": token})
+                response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
+                logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
+                return response
+            else:
+                logger.warning("❌ Portal embedding: Invalid token provided")
+        except Exception as e:
+            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+
+    # Check for authentication via cookie or header
+    auth_token = request.cookies.get("pulse_token")
+    if not auth_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            auth_token = auth_header[7:]
+
+    if auth_token:
+        auth_service = get_centralized_auth_service()
+        user = await auth_service.verify_token(auth_token)
+
+        if user:
+            # If token came from URL parameter, set cookie for subsequent requests
+            response = templates.TemplateResponse("old_admin.html", {"request": request, "user": user, "token": token if token else None})
+            if token:  # Token came from URL parameter
+                response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
+                logger.info(f"✅ Portal embedding: Old admin access granted for user {user.get('email')}")
+            return response
+
+    # Fallback if no token (shouldn't happen due to middleware)
+    return templates.TemplateResponse("old_admin.html", {"request": request, "user": {"email": "Unknown"}})
+
+@router.get("/api/v1/jobs/{job_name}/details")
+async def get_job_details(job_name: str, user: UserData = Depends(require_admin_authentication)):
+    """Get detailed job information for the job details modal"""
+    try:
+        logger.info(f"Getting job details for {job_name}, user: {user.email}, client_id: {user.client_id}")
+
+        if job_name not in ['jira_sync', 'github_sync']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid job name"
+            )
+
+        from app.core.database import get_database
+        from app.models.unified_models import JobSchedule
+
+        database = get_database()
+        logger.info(f"Database connection established for job details")
+
+        with database.get_session_context() as session:
+            # Get job schedule details
+            logger.info(f"Querying JobSchedule for job_name={job_name}, client_id={user.client_id}")
+
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.job_name == job_name,
+                JobSchedule.client_id == user.client_id
+            ).first()
+
+            if not job_schedule:
+                logger.warning(f"No job schedule found for {job_name} and client_id {user.client_id}")
+                # Return default values instead of 404 to prevent modal errors
+                return {
+                    "status": "NOT_CONFIGURED",
+                    "last_run_started_at": None,
+                    "last_success_at": None,
+                    "retry_count": 0,
+                    "error_message": "Job not yet configured or run",
+                    "checkpoint_data": False,  # No checkpoints for unconfigured jobs
+                    "progress_percentage": 0,
+                    "current_step": "Not started"
+                }
+
+            logger.info(f"Found job schedule: status={job_schedule.status}")
+
+            # Return job details with GitHub-specific fields
+            return {
+                "id": job_schedule.id,
+                "status": job_schedule.status,
+                "active": job_schedule.active,
+                "created_at": job_schedule.created_at.isoformat() if job_schedule.created_at else None,
+                "last_updated_at": job_schedule.last_updated_at.isoformat() if job_schedule.last_updated_at else None,
+                "last_run_started_at": job_schedule.last_run_started_at.isoformat() if job_schedule.last_run_started_at else None,
+                "last_success_at": job_schedule.last_success_at.isoformat() if job_schedule.last_success_at else None,
+                "retry_count": job_schedule.retry_count or 0,
+                "error_message": job_schedule.error_message,
+                "is_recovery_run": job_schedule.is_recovery_run or False,
+                "checkpoint_data": job_schedule.has_recovery_checkpoints(),  # Boolean indicating if there are checkpoints
+                "current_pr_node_id": job_schedule.current_pr_node_id,
+                "last_repo_sync_checkpoint": job_schedule.last_repo_sync_checkpoint.isoformat() if job_schedule.last_repo_sync_checkpoint else None,
+                "last_pr_cursor": job_schedule.last_pr_cursor,
+                "last_commit_cursor": job_schedule.last_commit_cursor,
+                "last_review_cursor": job_schedule.last_review_cursor,
+                "last_comment_cursor": job_schedule.last_comment_cursor,
+                "last_review_thread_cursor": job_schedule.last_review_thread_cursor,
+                "repo_processing_queue": job_schedule.repo_processing_queue,
+                "progress_percentage": 100 if job_schedule.status == 'FINISHED' else (50 if job_schedule.status == 'RUNNING' else 0),
+                "current_step": job_schedule.status.replace('_', ' ').title() if job_schedule.status else "Not started"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job details for {job_name}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job details for {job_name}: {str(e)}"
+        )
+
+@router.get("/api/v1/jobs/jira_sync/summary")
+async def get_jira_summary(user: UserData = Depends(require_admin_authentication)):
+    """Get Jira data summary for the Jira details modal"""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import (
+            JiraProject, JiraIssueType, JiraStatus, JiraIssue,
+            JiraChangelog, JiraPullRequestLink
+        )
+        from sqlalchemy import func, desc
+
+        database = get_database()
+
+        with database.get_session_context() as session:
+            # Projects summary
+            projects_total = session.query(JiraProject).filter(JiraProject.client_id == user.client_id).count()
+            projects_active = session.query(JiraProject).filter(
+                JiraProject.client_id == user.client_id,
+                JiraProject.is_active == True
+            ).count()
+
+            # Issue Types summary
+            issuetypes_total = session.query(JiraIssueType).filter(JiraIssueType.client_id == user.client_id).count()
+            issuetypes_active = session.query(JiraIssueType).filter(
+                JiraIssueType.client_id == user.client_id,
+                JiraIssueType.is_active == True
+            ).count()
+
+            # Statuses summary
+            statuses_total = session.query(JiraStatus).filter(JiraStatus.client_id == user.client_id).count()
+            statuses_active = session.query(JiraStatus).filter(
+                JiraStatus.client_id == user.client_id,
+                JiraStatus.is_active == True
+            ).count()
+
+            # Issues summary
+            issues_total = session.query(JiraIssue).filter(JiraIssue.client_id == user.client_id).count()
+            issues_active = session.query(JiraIssue).filter(
+                JiraIssue.client_id == user.client_id,
+                JiraIssue.is_active == True
+            ).count()
+
+            # Top issue types
+            top_types = session.query(
+                JiraIssueType.name,
+                func.count(JiraIssue.id).label('count')
+            ).join(JiraIssue).filter(
+                JiraIssue.client_id == user.client_id,
+                JiraIssue.is_active == True
+            ).group_by(JiraIssueType.name).order_by(desc('count')).limit(5).all()
+
+            # Top statuses
+            top_statuses = session.query(
+                JiraStatus.name,
+                func.count(JiraIssue.id).label('count')
+            ).join(JiraIssue).filter(
+                JiraIssue.client_id == user.client_id,
+                JiraIssue.is_active == True
+            ).group_by(JiraStatus.name).order_by(desc('count')).limit(10).all()
+
+            # Changelogs summary
+            changelogs_total = session.query(JiraChangelog).filter(JiraChangelog.client_id == user.client_id).count()
+            changelogs_active = session.query(JiraChangelog).filter(
+                JiraChangelog.client_id == user.client_id,
+                JiraChangelog.is_active == True
+            ).count()
+
+            # PR Links summary
+            pr_links_total = session.query(JiraPullRequestLink).filter(JiraPullRequestLink.client_id == user.client_id).count()
+            pr_links_active = session.query(JiraPullRequestLink).filter(
+                JiraPullRequestLink.client_id == user.client_id,
+                JiraPullRequestLink.is_active == True
+            ).count()
+
+            # Unique repositories count
+            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLink.repository_name))).filter(
+                JiraPullRequestLink.client_id == user.client_id,
+                JiraPullRequestLink.is_active == True
+            ).scalar() or 0
+
+            return {
+                "tables": {
+                    "projects": {
+                        "total_count": projects_total,
+                        "active_count": projects_active,
+                        "inactive_count": projects_total - projects_active
+                    },
+                    "issuetypes": {
+                        "total_count": issuetypes_total,
+                        "active_count": issuetypes_active,
+                        "inactive_count": issuetypes_total - issuetypes_active
+                    },
+                    "statuses": {
+                        "total_count": statuses_total,
+                        "active_count": statuses_active,
+                        "inactive_count": statuses_total - statuses_active
+                    },
+                    "issues": {
+                        "total_count": issues_total,
+                        "active_count": issues_active,
+                        "inactive_count": issues_total - issues_active,
+                        "top_types": [{"name": name, "count": count} for name, count in top_types],
+                        "top_statuses": [{"name": name, "count": count} for name, count in top_statuses]
+                    },
+                    "changelogs": {
+                        "total_count": changelogs_total,
+                        "active_count": changelogs_active,
+                        "recent_activity_30d": 0  # TODO: Calculate recent activity
+                    },
+                    "jira_pull_request_links": {
+                        "total_count": pr_links_total,
+                        "active_count": pr_links_active,
+                        "unique_repositories": unique_repos,
+                        "pr_status_breakdown": []  # TODO: Add PR status breakdown
+                    }
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting Jira summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get Jira summary: {str(e)}"
+        )
+
+@router.get("/api/v1/logs/download/{filename}")
+async def download_log_file(filename: str, token: str = None, user: UserData = Depends(require_admin_authentication)):
+    """Download a specific log file"""
+    try:
+        import os
+        from fastapi.responses import FileResponse
+
+        # Get current client name for client-specific log files
+        from app.core.config import get_settings
+        settings = get_settings()
+        client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
+
+        # Validate filename to prevent directory traversal - include client-specific files
+        allowed_files = [
+            'etl_service.log', 'orchestrator.log',  # Legacy files
+            f'etl_service_{client_name}.log', f'orchestrator_{client_name}.log',  # Client-specific files
+            'etl_service.log.1', 'orchestrator.log.1',  # Rotated legacy files
+            f'etl_service_{client_name}.log.1', f'orchestrator_{client_name}.log.1'  # Rotated client-specific files
+        ]
+        if filename not in allowed_files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File '{filename}' is not allowed for download"
+            )
+
+        # Get the logs directory path
+        logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+        if not os.path.exists(logs_dir):
+            logs_dir = os.path.join(os.getcwd(), 'logs')
+
+        file_path = os.path.join(logs_dir, filename)
+
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Log file '{filename}' not found"
+            )
+
+        # Return file for download using streaming response to avoid Content-Length issues
+        from fastapi.responses import StreamingResponse
+        import os
+
+        def file_generator():
+            with open(file_path, 'rb') as file:
+                while True:
+                    chunk = file.read(8192)  # Read in 8KB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+
+        file_size = os.path.getsize(file_path)
+
+        return StreamingResponse(
+            file_generator(),
+            media_type='text/plain',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(file_size)
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading log file {filename}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download log file: {str(e)}"
+        )
+
+
+
 
 
 @router.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
-    """Serve admin panel page (authentication and permissions handled by middleware)"""
+async def admin_page(request: Request, token: Optional[str] = None):
+    """Serve admin panel page with optional token parameter for portal embedding"""
     try:
-        # Get user data for template (middleware ensures we're authenticated and admin)
-        token = request.cookies.get("pulse_token")
-        if not token:
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
+        # Check for token in URL parameter first (for portal embedding)
+        auth_token = token
+        if not auth_token:
+            # Fall back to cookie or header
+            auth_token = request.cookies.get("pulse_token")
+            if not auth_token:
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Bearer "):
+                    auth_token = auth_header.split(" ")[1]
 
-        if token:
+        if auth_token:
             auth_service = get_centralized_auth_service()
-            user = await auth_service.verify_token(token)
-            return templates.TemplateResponse("admin.html", {"request": request, "user": user})
+            user = await auth_service.verify_token(auth_token)
+
+            if user:
+                # Check if this is an embedded request (iframe)
+                embedded = request.query_params.get("embedded") == "true"
+
+                # If token came from URL parameter, set cookie for subsequent requests
+                response = templates.TemplateResponse("admin.html", {
+                    "request": request,
+                    "user": user,
+                    "token": token if token else None,
+                    "embedded": embedded
+                })
+                if token:  # Token came from URL parameter
+                    response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
+                    logger.info(f"✅ Portal embedding: Admin access granted for user {user.get('email')}")
+                return response
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
 
         # Fallback if no token (shouldn't happen due to middleware)
-        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
+        return templates.TemplateResponse("admin.html", {
+            "request": request,
+            "user": {"email": "Unknown"},
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Admin page error: {e}")
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
         # Fallback with minimal user data
-        return templates.TemplateResponse("admin.html", {"request": request, "user": {"email": "Unknown"}})
+        return templates.TemplateResponse("admin.html", {
+            "request": request,
+            "user": {"email": "Unknown"},
+            "embedded": embedded
+        })
 
 
-@router.get("/admin/status-mappings", response_class=HTMLResponse)
-async def status_mappings_page(request: Request):
-    """Serve status mappings management page"""
+@router.get("/status-mappings", response_class=HTMLResponse)
+async def status_mappings_page(request: Request, token: Optional[str] = None):
+    """Serve status mappings management page with optional token parameter for portal embedding"""
     try:
-        # Get user from token (middleware ensures we're authenticated)
-        token = request.cookies.get("pulse_token")
-        if not token:
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
+        # Check for token in URL parameter first (for portal embedding)
+        auth_token = token
+        if not auth_token:
+            # Fall back to cookie or header
+            auth_token = request.cookies.get("pulse_token")
+            if not auth_token:
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Bearer "):
+                    auth_token = auth_header.split(" ")[1]
 
         # Get user info
         auth_service = get_centralized_auth_service()
-        user = await auth_service.verify_token(token)
+        user = await auth_service.verify_token(auth_token) if auth_token else None
 
         # Check admin permission - simplified since we're using centralized auth
         if not user or not user.get("is_admin", False):
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
+            return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("admin_status_mappings.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if auth_token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {auth_token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        # Create response and set cookie if token came from URL parameter
+        response = templates.TemplateResponse("status_mappings.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
+        if token:  # Token came from URL parameter
+            response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
+            logger.info(f"✅ Portal embedding: Status mappings access granted for user {user.get('email')}")
+        return response
 
     except Exception as e:
         logger.error(f"Status mappings page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/admin/issuetype-mappings", response_class=HTMLResponse)
+@router.get("/issuetype-mappings", response_class=HTMLResponse)
 async def issuetype_mappings_page(request: Request):
     """Serve issue type mappings management page"""
     try:
@@ -151,18 +718,47 @@ async def issuetype_mappings_page(request: Request):
 
         # Check admin permission - simplified since we're using centralized auth
         if not user or not user.get("is_admin", False):
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
+            return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("admin_issuetype_mappings.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("issuetype_mappings.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Issue type mappings page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/admin/issuetype-hierarchies", response_class=HTMLResponse)
+@router.get("/issuetype-hierarchies", response_class=HTMLResponse)
 async def issuetype_hierarchies_page(request: Request):
-    """Serve issue type hierarchies management page (temporarily redirected to flow steps)"""
+    """Serve issue type hierarchies management page (flow steps management)"""
     try:
         # Get user from token (middleware ensures we're authenticated)
         token = request.cookies.get("pulse_token")
@@ -177,16 +773,45 @@ async def issuetype_hierarchies_page(request: Request):
 
         # Check admin permission - simplified since we're using centralized auth
         if not user or not user.get("is_admin", False):
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
+            return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("admin_issuetype_hierarchies.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("issuetype_hierarchies.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Issue type hierarchies page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/admin/workflows", response_class=HTMLResponse)
+@router.get("/workflows", response_class=HTMLResponse)
 async def workflows_page(request: Request):
     """Serve workflows management page"""
     try:
@@ -203,9 +828,38 @@ async def workflows_page(request: Request):
 
         # Check admin permission - simplified since we're using centralized auth
         if not user or not user.get("is_admin", False):
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
+            return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        return templates.TemplateResponse("admin_workflows.html", {"request": request, "user": user})
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            color_schema_data = data
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("workflows.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
 
     except Exception as e:
         logger.error(f"Workflows page error: {e}")
@@ -290,6 +944,102 @@ async def logout_page(request: Request):
 
     return response
 
+# Navigation endpoint for cross-service authentication
+@router.post("/auth/navigate")
+async def navigate_with_token(request: Request):
+    """Handle navigation from frontend with token authentication."""
+    logger.info("🚀 ETL Navigation endpoint called!")
+    try:
+        # Handle both form data and JSON
+        content_type = request.headers.get("content-type", "")
+
+        if "application/json" in content_type:
+            data = await request.json()
+            token = data.get("token")
+            return_url = data.get("return_url")
+        else:
+            # Handle form data
+            form_data = await request.form()
+            token = form_data.get("token")
+            return_url = form_data.get("return_url")
+
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token is required"
+            )
+
+        # Debug: Check token format
+        logger.info(f"Navigation token received: {token[:30]}... (length: {len(token)})")
+
+        # Validate token via centralized auth service
+        auth_service = get_centralized_auth_service()
+        user_data = await auth_service.verify_token(token)
+
+        if not user_data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token"
+            )
+
+        # Create a database session for this token to ensure subsequent requests work
+        # This is needed because backend startup clears all sessions
+        session_created = await auth_service.ensure_session_exists(token, user_data)
+        if session_created:
+            logger.info(f"Navigation session ensured for user: {user_data['email']}")
+        else:
+            logger.warning(f"Failed to ensure session for user: {user_data['email']}")
+
+        logger.info(f"Navigation successful for user: {user_data['email']}")
+
+        # Create response with session cookie
+        if "application/json" in content_type:
+            # JSON request - return redirect URL
+            response = JSONResponse({
+                "success": True,
+                "redirect_url": "/home",
+                "message": "Authentication successful"
+            })
+        else:
+            # Form request - direct redirect
+            response = RedirectResponse(url="/home", status_code=302)
+
+        # Set session cookie for ETL service
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=3600,  # 1 hour
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
+            path="/"
+        )
+
+        # Store return URL in cookie for later use
+        if return_url:
+            response.set_cookie(
+                key="return_url",
+                value=return_url,
+                max_age=3600,
+                httponly=False,  # Allow JavaScript access for return navigation
+                secure=False,
+                samesite="lax",
+                path="/"
+            )
+
+        logger.info(f"Navigation successful for user: {user_data.get('email')}")
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Navigation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Navigation failed"
+        )
+
+
 # Authentication API routes - Now redirected to Backend Service
 @router.post("/auth/login")
 async def login_redirect():
@@ -371,7 +1121,11 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
         database = get_database()
 
         with database.get_session_context() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.job_name == job_name).first()
+            # ✅ SECURITY: Filter job schedule by client_id
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.job_name == job_name,
+                JobSchedule.client_id == user.client_id
+            ).first()
 
             if not job_schedule:
                 raise HTTPException(status_code=404, detail=f"Job schedule not found for {job_name}")
@@ -491,14 +1245,17 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 async def get_jobs_status(user: UserData = Depends(verify_token)):
     """Get current status of all jobs with optimized queries"""
     try:
-        # Get basic job status
-        status_data = get_job_status()
+        # ✅ SECURITY: Get job status filtered by client_id
+        status_data = get_job_status(client_id=user.client_id)
 
         # Enhance with checkpoint data using optimized query
         database = get_database()
         with database.get_session() as session:
-            # Get full job objects but only active ones
-            jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
+            # ✅ SECURITY: Get job objects filtered by client_id
+            jobs = session.query(JobSchedule).filter(
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True
+            ).all()
 
             for job in jobs:
                 if job.job_name in status_data:
@@ -529,6 +1286,136 @@ async def get_jobs_status(user: UserData = Depends(verify_token)):
             detail="Failed to get job status"
         )
 
+
+@router.get("/api/home-status")
+async def get_home_status_api(user: UserData = Depends(require_admin_authentication)):
+    """Get comprehensive home page status for modern interface"""
+    try:
+        # Get job status
+        job_status = get_job_status(client_id=user.client_id)
+
+        # Calculate system health
+        system_status = "Healthy"
+        active_jobs = 0
+        completed_today = 0
+
+        for job_name, job_data in job_status.items():
+            if job_data.get('status') == 'RUNNING':
+                active_jobs += 1
+            elif job_data.get('status') == 'ERROR':
+                system_status = "Warning"
+
+        # Get next run time (simplified)
+        next_run = None
+        try:
+            db = get_database()
+            with get_db_session(db) as session:
+                next_schedule = session.query(JobSchedule).filter(
+                    JobSchedule.is_active == True
+                ).first()
+                if next_schedule:
+                    next_run = next_schedule.next_run.isoformat() if next_schedule.next_run else None
+        except Exception as e:
+            logger.warning(f"Could not get next run time: {e}")
+
+        return {
+            "system_status": {"status": system_status},
+            "job_summary": {
+                "active": active_jobs,
+                "completed_today": completed_today
+            },
+            "jobs": job_status,
+            "next_run": next_run,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting home status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get home status")
+
+
+@router.get("/api/v1/user/color-schema")
+async def get_user_color_schema(request: Request, user: UserData = Depends(require_web_authentication)):
+    """Get user's color schema settings from backend service"""
+    try:
+        import httpx
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+
+        # Get token from request (same way as authentication middleware)
+        token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        else:
+            # Try to get from cookies
+            token = request.cookies.get("pulse_token")
+
+        if not token:
+            logger.warning("No token found for color schema request")
+            return {
+                "success": False,
+                "mode": "default",
+                "colors": {},
+                "theme": "light"
+            }
+
+        # Forward request to backend service
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{backend_url}/api/v1/admin/color-schema",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10.0
+            )
+
+            if response.status_code == 200:
+                backend_data = response.json()
+
+                # Also get theme mode from backend
+                theme_response = await client.get(
+                    f"{backend_url}/api/v1/admin/theme-mode",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10.0
+                )
+
+                theme_mode = 'light'  # default
+                if theme_response.status_code == 200:
+                    theme_data = theme_response.json()
+                    if theme_data.get('success'):
+                        theme_mode = theme_data.get('mode', 'light')
+
+                return {
+                    "success": True,
+                    "mode": backend_data.get("mode", "default"),
+                    "colors": backend_data.get("colors", {}),
+                    "theme": theme_mode
+                }
+            else:
+                logger.warning(f"Backend color schema request failed: {response.status_code}")
+                return {
+                    "success": False,
+                    "mode": "default",
+                    "colors": {},
+                    "theme": "light"
+                }
+
+    except Exception as e:
+        logger.error(f"Error getting user color schema: {e}")
+        return {
+            "success": False,
+            "mode": "default",
+            "colors": {},
+            "theme": "light"
+        }
+
+
 @router.post("/api/v1/jobs/{job_name}/start")
 async def start_job(
     job_name: str,
@@ -549,21 +1436,29 @@ async def start_job(
         else:
             logger.info(f"Force starting job {job_name} in MANUAL MODE (default parameters)")
 
-        # Use the appropriate trigger function with force_manual=True and execution parameters
+        # ✅ SECURITY: Use client-aware trigger functions with user's client_id
         # Run in background to avoid blocking the web request
         import asyncio
         if job_name == 'jira_sync':
-            asyncio.create_task(trigger_jira_sync(force_manual=True, execution_params=execution_params))
+            asyncio.create_task(trigger_jira_sync(
+                force_manual=True,
+                execution_params=execution_params,
+                client_id=user.client_id
+            ))
             result = {
                 'status': 'triggered',
-                'message': f'Jira sync job triggered successfully',
+                'message': f'Jira sync job triggered successfully for client {user.client_id}',
                 'job_name': job_name
             }
         elif job_name == 'github_sync':
-            asyncio.create_task(trigger_github_sync(force_manual=True, execution_params=execution_params))
+            asyncio.create_task(trigger_github_sync(
+                force_manual=True,
+                execution_params=execution_params,
+                client_id=user.client_id
+            ))
             result = {
                 'status': 'triggered',
-                'message': f'GitHub sync job triggered successfully',
+                'message': f'GitHub sync job triggered successfully for client {user.client_id}',
                 'job_name': job_name
             }
         else:
@@ -858,13 +1753,14 @@ async def unpause_job(job_name: str, user: UserData = Depends(require_admin_auth
 # Orchestrator Control Endpoints
 @router.post("/api/v1/orchestrator/start")
 async def force_start_orchestrator(user: UserData = Depends(require_admin_authentication)):
-    """Force start the orchestrator to check for PENDING jobs"""
+    """Force start the orchestrator to check for PENDING jobs for this ETL instance's client only"""
     try:
-        from app.jobs.orchestrator import run_orchestrator
+        # Use simple_orchestrator for single-client ETL instance
+        from app.main import simple_orchestrator
 
         # Run orchestrator in background
         import asyncio
-        asyncio.create_task(run_orchestrator())
+        asyncio.create_task(simple_orchestrator())
 
         logger.info("Orchestrator manually triggered")
 
@@ -1017,8 +1913,8 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
         )
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 
-        # Get orchestrator job status
-        job = scheduler.get_job('etl_orchestrator')
+        # Get orchestrator job status (simple single-client approach)
+        job = scheduler.get_job("etl_orchestrator")
 
         if not job:
             return {
@@ -1030,17 +1926,34 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
         # Check if job is paused
         is_paused = job.next_run_time is None
 
-        # Get retry status
+        # Get retry status (system-wide for now)
         orchestrator_scheduler = get_orchestrator_scheduler()
         retry_status = orchestrator_scheduler.get_all_retry_status()
         fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
 
+        # Determine orchestrator status more accurately
+        if is_paused:
+            orchestrator_status = "paused"
+            status_message = "Orchestrator is paused"
+        else:
+            # Check if any jobs are currently running to determine if orchestrator is active
+            from app.jobs.orchestrator import get_job_status
+            job_status = get_job_status(client_id=user.client_id)
+            any_job_running = any(job_data.get('status') == 'RUNNING' for job_data in job_status.values())
+
+            if any_job_running:
+                orchestrator_status = "running"
+                status_message = "Orchestrator is running jobs"
+            else:
+                orchestrator_status = "idle"
+                status_message = "Orchestrator is idle, waiting for next run"
+
         status_info = {
-            "status": "paused" if is_paused else "running",
+            "status": orchestrator_status,
             "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
             "job_id": job.id,
             "name": job.name,
-            "message": f"Orchestrator is {'paused' if is_paused else 'running'}",
+            "message": status_message,
             "interval_minutes": get_orchestrator_interval(),
             "enabled": is_orchestrator_enabled(),
             "fast_retry_active": fast_retry_active,
@@ -1229,7 +2142,8 @@ async def update_system_setting(
             )
 
         from app.core.settings_manager import SettingsManager
-        success = SettingsManager.set_setting(setting_key, setting_value, description)
+        # ✅ SECURITY: Pass client_id for client-specific settings
+        success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
 
         if success:
             # If orchestrator setting was updated, refresh the schedule

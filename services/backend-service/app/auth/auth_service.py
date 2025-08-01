@@ -77,9 +77,13 @@ class AuthService:
     async def verify_token(self, token: str) -> Optional[User]:
         """Verify JWT token and return user if valid"""
         try:
+            # Debug: Log JWT secret being used
+            logger.info(f"Verifying JWT with secret: {self.jwt_secret[:10]}...")
+
             # Decode JWT token
             payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
             user_id = payload.get("user_id")
+            logger.info(f"JWT decoded successfully, user_id: {user_id}")
             
             if not user_id:
                 return None
@@ -154,7 +158,7 @@ class AuthService:
                 token_hash = self._hash_token(token)
                 logger.info(f"🔍 Looking for session with token_hash: {token_hash[:50]}...")
 
-                # Count total sessions
+                # Count total sessions (global stats for debugging)
                 total_sessions = session.query(UserSession).count()
                 active_sessions = session.query(UserSession).filter(UserSession.active == True).count()
                 logger.info(f"📊 Total sessions: {total_sessions}, Active sessions: {active_sessions}")
@@ -185,6 +189,53 @@ class AuthService:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
+
+    async def create_or_refresh_session(self, user: User, token: str, ip_address: str = None, user_agent: str = None) -> bool:
+        """
+        Create or refresh a session for navigation purposes.
+        This ensures the user has a valid session in the database.
+        """
+        try:
+            with self.database.get_session_context() as session:
+                # Check if session already exists for this token
+                token_hash = self._hash_token(token)
+                existing_session = session.query(UserSession).filter(
+                    and_(
+                        UserSession.user_id == user.id,
+                        UserSession.token_hash == token_hash,
+                        UserSession.active == True
+                    )
+                ).first()
+
+                if existing_session:
+                    # Session already exists and is active
+                    logger.info(f"Session already exists for user {user.email}")
+                    return True
+
+                # Create new session entry
+                from app.core.datetime_helper import DateTimeHelper
+                from datetime import timedelta
+
+                new_session = UserSession(
+                    user_id=user.id,
+                    token_hash=token_hash,
+                    ip_address=ip_address or "unknown",
+                    user_agent=user_agent or "ETL Navigation",
+                    created_at=DateTimeHelper.now_utc(),
+                    last_updated_at=DateTimeHelper.now_utc(),
+                    expires_at=DateTimeHelper.now_utc() + timedelta(hours=24),  # Match JWT expiration
+                    active=True
+                )
+
+                session.add(new_session)
+                session.commit()
+
+                logger.info(f"✅ Navigation session created for user {user.email}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error creating navigation session: {e}")
+            return False
     
     async def _create_session(self, user: User, session: Session, ip_address: str = None, user_agent: str = None) -> Dict[str, Any]:
         """Create JWT session for user - allows multiple concurrent sessions"""
@@ -207,6 +258,7 @@ class AuthService:
                 "email": user.email,
                 "role": user.role,
                 "is_admin": user.is_admin,
+                "client_id": user.client_id,  # ✅ CRITICAL: Include client_id for multi-client isolation
                 "exp": DateTimeHelper.now_utc() + self.token_expiry,
                 "iat": DateTimeHelper.now_utc()
             }
@@ -283,7 +335,8 @@ class AuthService:
         """Create a new local user"""
         try:
             with self.database.get_session_context() as session:
-                # Check if user already exists
+                # Check if user already exists (check globally, not just for client)
+                # Note: Email uniqueness is enforced globally across all clients
                 existing_user = session.query(User).filter(User.email == email.lower().strip()).first()
                 if existing_user:
                     logger.warning(f"User already exists: {email}")

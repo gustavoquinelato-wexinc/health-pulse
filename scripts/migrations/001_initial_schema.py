@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-Migration: 001 - Initial Schema
+Migration: 001 - Complete Initial Schema and Multi-Client Setup
 Description: Creates all initial tables, relationships, and inserts seed data for the Pulse Platform
 Author: Pulse Platform Team
-Date: 2025-07-21
+Date: 2025-07-26
 
 This migration creates the complete initial database schema including:
-- Client management tables
-- Authentication and user management
-- Integration and project tables  
+- Client management tables with multi-client support
+- Authentication and user management for multiple clients
+- Integration tables with base_search configuration (replaces environment variables)
 - Issue tracking and workflow tables
 - Development data tables (PRs, commits, etc.)
-- Job scheduling and system settings
-- Initial seed data for workflow configuration
+- Job scheduling and system settings with theme/color customization
+- Initial seed data for two clients: WEX and TechCorp
+- Theme mode support (light/dark) and custom color schemas
+
+This comprehensive migration combines what were previously migrations 001, 002, and 003
+into a single database initialization script with full multi-client architecture.
 """
 
 import os
@@ -61,6 +65,7 @@ def apply(connection):
                 id SERIAL,
                 name VARCHAR NOT NULL,
                 website VARCHAR,
+                logo_filename VARCHAR(255) DEFAULT 'default-logo.png',
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -129,6 +134,7 @@ def apply(connection):
                 url VARCHAR,
                 username VARCHAR,
                 password VARCHAR,
+                base_search VARCHAR,
                 last_sync_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -687,7 +693,7 @@ def apply(connection):
         # Add unique constraints
         cursor.execute("ALTER TABLE users ADD CONSTRAINT uk_users_email UNIQUE (email);")
         cursor.execute("ALTER TABLE users ADD CONSTRAINT uk_users_okta_user_id UNIQUE (okta_user_id);")
-        cursor.execute("ALTER TABLE system_settings ADD CONSTRAINT uk_system_settings_setting_key UNIQUE (setting_key);")
+        cursor.execute("ALTER TABLE system_settings ADD CONSTRAINT uk_system_settings_setting_key_client_id UNIQUE (setting_key, client_id);")
         cursor.execute("ALTER TABLE job_schedules ADD CONSTRAINT uk_job_schedules_job_name UNIQUE (job_name);")
         cursor.execute("ALTER TABLE integrations ADD CONSTRAINT uk_integrations_name_client_id UNIQUE (name, client_id);")
         cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT uk_status_mappings_from_client UNIQUE (status_from, client_id);")
@@ -794,8 +800,8 @@ def apply(connection):
 
         # Insert default client (WEX)
         cursor.execute("""
-            INSERT INTO clients (name, website, active, created_at, last_updated_at)
-            VALUES ('WEX', 'https://www.wexinc.com', TRUE, NOW(), NOW())
+            INSERT INTO clients (name, website, logo_filename, active, created_at, last_updated_at)
+            VALUES ('WEX', 'https://www.wexinc.com', 'wex-logo.png', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 
@@ -826,7 +832,7 @@ def apply(connection):
         workflow_ids = {}
         for step_name, step_number, category in workflows_data:
             # Set delivery milestone for "Done" step
-            is_commitment_point = (step_name == "Done")
+            is_commitment_point = (step_name == "To Do")
 
             cursor.execute("""
                 INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, client_id, active, created_at, last_updated_at)
@@ -1114,10 +1120,10 @@ def apply(connection):
                 today_noon = DateTimeHelper.now_central().replace(hour=12, minute=0, second=0, microsecond=0)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("JIRA", settings.JIRA_URL, settings.JIRA_USERNAME, encrypted_token, today_noon, client_id))
+                """, ("JIRA", settings.JIRA_URL, settings.JIRA_USERNAME, encrypted_token, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", today_noon, client_id))
                 integrations_created += 1
                 print("   ✅ Jira integration created with encrypted credentials")
             else:
@@ -1129,10 +1135,10 @@ def apply(connection):
                 encrypted_token = AppConfig.encrypt_token(settings.GITHUB_TOKEN, key)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("GITHUB", "https://api.github.com", None, encrypted_token, "2000-01-01 00:00:00", client_id))
+                """, ("GITHUB", "https://api.github.com", None, encrypted_token, "health-", "2000-01-01 00:00:00", client_id))
                 integrations_created += 1
                 print("   ✅ GitHub integration created with encrypted credentials")
             else:
@@ -1144,10 +1150,10 @@ def apply(connection):
                 encrypted_token = AppConfig.encrypt_token(settings.AHA_TOKEN, key)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("AHA!", settings.AHA_URL, None, encrypted_token, "2000-01-01 00:00:00", client_id))
+                """, ("AHA!", settings.AHA_URL, None, encrypted_token, None, "2000-01-01 00:00:00", client_id))
                 integrations_created += 1
                 print("   ✅ Aha! integration created with encrypted credentials")
             else:
@@ -1284,14 +1290,22 @@ def apply(connection):
             {"setting_key": "jira_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable Jira synchronization"},
             {"setting_key": "github_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable GitHub synchronization"},
             {"setting_key": "data_retention_days", "setting_value": "365", "setting_type": "integer", "description": "Number of days to retain data"},
-            {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"}
+            {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"},
+            # Theme and color settings (from migration 002)
+            {"setting_key": "theme_mode", "setting_value": "light", "setting_type": "string", "description": "User interface theme mode (light or dark)"},
+            {"setting_key": "color_schema_mode", "setting_value": "default", "setting_type": "string", "description": "Color schema mode (default or custom)"},
+            {"setting_key": "custom_color1", "setting_value": "#C8102E", "setting_type": "string", "description": "Custom color 1 - Red (Primary)"},
+            {"setting_key": "custom_color2", "setting_value": "#253746", "setting_type": "string", "description": "Custom color 2 - Dark Blue (Secondary)"},
+            {"setting_key": "custom_color3", "setting_value": "#00C7B1", "setting_type": "string", "description": "Custom color 3 - Teal (Success)"},
+            {"setting_key": "custom_color4", "setting_value": "#A2DDF8", "setting_type": "string", "description": "Custom color 4 - Light Blue (Info)"},
+            {"setting_key": "custom_color5", "setting_value": "#FFBF3F", "setting_type": "string", "description": "Custom color 5 - Amber (Warning)"}
         ]
 
         for setting in system_settings_data:
             cursor.execute("""
                 INSERT INTO system_settings (setting_key, setting_value, setting_type, description, client_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                ON CONFLICT (setting_key) DO NOTHING;
+                ON CONFLICT (setting_key, client_id) DO NOTHING;
             """, (setting["setting_key"], setting["setting_value"], setting["setting_type"], setting["description"], client_id))
 
         print("✅ System settings created")
@@ -1454,6 +1468,140 @@ def apply(connection):
         # Now make job_schedules.integration_id NOT NULL since all jobs should be linked
         cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
         print("✅ Set job_schedules.integration_id to NOT NULL")
+
+        # Create second client and duplicate data (from migration 003)
+        print("📋 Creating second client (TechCorp) and duplicating data...")
+
+        # Insert second client (ACTIVE for multi-instance testing)
+        cursor.execute("""
+            INSERT INTO clients (name, website, logo_filename, active, created_at, last_updated_at)
+            VALUES ('TechCorp', 'https://www.techcorp.com', 'techcorp-logo.png', TRUE, NOW(), NOW())
+            ON CONFLICT DO NOTHING
+            RETURNING id;
+        """)
+
+        result = cursor.fetchone()
+        if result:
+            techcorp_client_id = result['id']
+            print(f"   ✅ Created TechCorp client with ID: {techcorp_client_id}")
+        else:
+            # Client already exists, get its ID
+            cursor.execute("SELECT id FROM clients WHERE name = 'TechCorp' LIMIT 1;")
+            techcorp_client_id = cursor.fetchone()['id']
+            print(f"   ✅ TechCorp client already exists with ID: {techcorp_client_id}")
+
+        # Duplicate integrations for TechCorp
+        print("📋 Duplicating integrations for TechCorp...")
+        cursor.execute("""
+            SELECT name, url, username, password, base_search, last_sync_at, active
+            FROM integrations
+            WHERE client_id = %s
+        """, (client_id,))
+
+        wex_integrations = cursor.fetchall()
+
+        for integration in wex_integrations:
+            cursor.execute("""
+                INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (name, client_id) DO NOTHING;
+            """, (
+                integration['name'],
+                integration['url'],
+                integration['username'],
+                integration['password'],
+                integration['base_search'],
+                integration['last_sync_at'],
+                techcorp_client_id,
+                integration['active']
+            ))
+            print(f"   ✅ Duplicated {integration['name']} integration for TechCorp")
+
+        # Create TechCorp-specific users
+        print("📋 Creating TechCorp users...")
+        techcorp_users_data = [
+            {
+                "email": "admin@techcorp.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Tech",
+                "last_name": "Administrator",
+                "role": "admin",
+                "is_admin": True,
+                "auth_provider": "local"
+            },
+            {
+                "email": "manager@techcorp.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Project",
+                "last_name": "Manager",
+                "role": "admin",
+                "is_admin": True,
+                "auth_provider": "local"
+            },
+            {
+                "email": "developer@techcorp.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Senior",
+                "last_name": "Developer",
+                "role": "user",
+                "is_admin": False,
+                "auth_provider": "local"
+            },
+            {
+                "email": "analyst@techcorp.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Data",
+                "last_name": "Analyst",
+                "role": "view",
+                "is_admin": False,
+                "auth_provider": "local"
+            }
+        ]
+
+        for user_data in techcorp_users_data:
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                ON CONFLICT (email) DO NOTHING;
+            """, (
+                user_data["email"],
+                user_data["password_hash"],
+                user_data["first_name"],
+                user_data["last_name"],
+                user_data["role"],
+                user_data["is_admin"],
+                user_data["auth_provider"],
+                techcorp_client_id
+            ))
+            print(f"   ✅ Created user: {user_data['email']}")
+
+        # Duplicate system settings for TechCorp
+        print("📋 Duplicating system settings for TechCorp...")
+        for setting in system_settings_data:
+            try:
+                # Check if setting already exists for this client
+                cursor.execute("""
+                    SELECT id FROM system_settings
+                    WHERE setting_key = %s AND client_id = %s
+                """, (setting['setting_key'], techcorp_client_id))
+
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        INSERT INTO system_settings (setting_key, setting_value, setting_type, description, client_id, active, created_at, last_updated_at)
+                        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW());
+                    """, (
+                        setting['setting_key'],
+                        setting['setting_value'],
+                        setting['setting_type'],
+                        setting['description'],
+                        techcorp_client_id
+                    ))
+                    print(f"   ✅ Duplicated setting: {setting['setting_key']}")
+                else:
+                    print(f"   ⚠️  Setting {setting['setting_key']} already exists for TechCorp")
+            except Exception as e:
+                print(f"   ❌ Failed to duplicate setting {setting['setting_key']}: {e}")
+                # Continue with other settings
 
         print("✅ All seed data inserted successfully!")
 

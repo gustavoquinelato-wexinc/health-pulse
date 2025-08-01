@@ -1,0 +1,121 @@
+<!-- Modern Sidebar Component -->
+{% macro sidebar(current_path='') %}
+<aside class="modern-sidebar">
+    <!-- Main Navigation -->
+    <div class="flex-1 flex flex-col py-4 px-2">
+        <div class="flex flex-col space-y-2">
+        <!-- Home with Hover Submenu -->
+        <div class="relative" id="home-menu">
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'home')"
+                    onmouseleave="hideSubmenu()"
+                    onclick="navigateTo('/home')"
+                    {% if current_path == '/home' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">⚡</span>
+            </button>
+        </div>
+
+        <!-- Issue Types with Hover Submenu -->
+        <div class="relative" id="issuetypes-menu">
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'issuetypes')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/issuetype') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">📋</span>
+            </button>
+        </div>
+
+        <!-- Statuses with Hover Submenu -->
+        <div class="relative" id="statuses-menu">
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'statuses')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/status') or current_path.startswith('/workflow') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">🔄</span>
+            </button>
+        </div>
+
+        <!-- Admin (only for admin users) -->
+        {% if user and user.role == 'admin' %}
+        <div class="relative" id="admin-menu">
+            <button class="sidebar-nav-item sidebar-nav-item-with-submenu w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 {{ 'text-white shadow-lg' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    tabindex="0"
+                    onmouseenter="showSubmenu(event, 'admin')"
+                    onmouseleave="hideSubmenu()"
+                    {% if current_path.startswith('/admin') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+                <span class="text-lg">👤</span>
+            </button>
+        </div>
+        {% endif %}
+        </div>
+    </div>
+
+
+</aside>
+
+<!-- Sidebar Submenu Panels -->
+<div id="submenu-home" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Home
+    </div>
+</div>
+
+<div id="submenu-issuetypes" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Issue Types
+    </div>
+    <a href="/issuetype-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/issuetype-hierarchies' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/issuetype-hierarchies' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+        <i class="fas fa-layer-group mr-2"></i>
+        Issue Type Hierarchies
+    </a>
+    <a href="/issuetype-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/issuetype-mappings' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/issuetype-mappings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+        <i class="fas fa-sitemap mr-2"></i>
+        Issue Type Mappings
+    </a>
+</div>
+
+<div id="submenu-statuses" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Statuses
+    </div>
+    <a href="/status-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/status-mappings' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/status-mappings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+        <i class="fas fa-exchange-alt mr-2"></i>
+        Status Mappings
+    </a>
+    <a href="/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/workflows' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/workflows' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+        <i class="fas fa-project-diagram mr-2"></i>
+        Workflows
+    </a>
+</div>
+
+<div id="submenu-admin" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Admin
+    </div>
+    <a href="/admin" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/admin' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/admin' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
+        <i class="fas fa-tachometer-alt mr-2"></i>
+        Admin Panel
+    </a>
+</div>
+{% endmacro %}
+
+<!-- Sidebar JavaScript Functions -->
+<script>
+    // All sidebar functions are now in global scope (modern_layout.html)
+</script>

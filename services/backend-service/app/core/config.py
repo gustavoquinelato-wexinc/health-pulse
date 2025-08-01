@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     JIRA_URL: str
     JIRA_USERNAME: str
     JIRA_TOKEN: str
-    JIRA_PROJECTS: str
 
     @property
     def jira_base_url(self) -> str:
@@ -50,11 +49,6 @@ class Settings(BaseSettings):
     def jira_dev_status_url(self) -> str:
         """Returns Jira dev status API URL."""
         return f"{self.JIRA_URL}/rest/dev-status/1.0"
-
-    @property
-    def jira_projects_list(self) -> List[str]:
-        """Returns list of Jira project keys to process."""
-        return [project.strip().upper() for project in self.JIRA_PROJECTS.split(',') if project.strip()]
     
     # GitHub Configuration (for dev status)
     GITHUB_TOKEN: Optional[str] = None

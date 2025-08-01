@@ -1,21 +1,34 @@
 # Cross-Domain Guide
 
-This guide covers platform-wide concerns that affect all services in the Pulse Platform.
+This guide covers platform-wide concerns that affect all services in the unified Pulse Platform.
 
 ## 🔐 Authentication & Authorization
 
-### **Centralized Authentication Architecture**
-- **Backend Service**: Handles all authentication (login, logout, session management)
-- **ETL Service**: Uses centralized auth for validation, no local auth
-- **Frontend**: Manages tokens in localStorage and cookies
+### **Unified Platform Authentication Architecture**
+- **Backend Service**: Centralized authentication hub (login, logout, session management)
+- **Frontend Platform**: Primary user interface with embedded ETL management
+- **ETL Service**: Embedded service using shared authentication tokens
+- **Seamless Integration**: Single sign-on across all platform components
 
-### **Authentication Flow**
+### **Unified Authentication Flow**
 ```
-1. User logs in → Backend Service validates credentials
+1. User logs in via Platform Frontend → Backend Service validates credentials
 2. Backend Service creates JWT token + database session
 3. Frontend stores token in localStorage + cookie
-4. ETL Service validates tokens via Backend Service API calls
-5. Logout invalidates session in Backend Service database
+4. ETL iframe receives token via URL parameter for embedded access
+5. ETL Service validates tokens via Backend Service API calls
+6. Logout invalidates session across entire platform
+```
+
+### **Cross-Service Navigation Authentication**
+```
+Platform Frontend ↔ ETL Service Direct Navigation:
+1. Frontend checks user.is_admin before showing ETL menu
+2. If admin: POST token to ETL service via /auth/navigate
+3. ETL Service validates token and creates session cookie
+4. User navigates to ETL service with proper authentication
+5. ETL Service provides return navigation to frontend
+6. Non-admin users never see ETL management options
 ```
 
 ### **Token Management**
@@ -28,6 +41,69 @@ This guide covers platform-wide concerns that affect all services in the Pulse P
 - **Current Session**: Compare session IDs, not user emails
 - **Multi-browser**: Each browser gets unique session ID
 - **"Self" Detection**: Use `/api/v1/admin/current-session` endpoint
+
+## 🔗 **Platform Integration Patterns**
+
+### **Embedded Service Architecture**
+The Pulse Platform uses iframe embedding for seamless service integration:
+
+```typescript
+// Platform Integration Pattern
+interface EmbeddedServiceConfig {
+  baseUrl: string;
+  authToken: string;
+  theme: 'light' | 'dark';
+  colorMode: 'default' | 'custom';
+  embedded: boolean;
+}
+
+// ETL Service Embedding
+const etlConfig: EmbeddedServiceConfig = {
+  baseUrl: 'http://localhost:8000',
+  authToken: user.token,
+  theme: currentTheme,
+  colorMode: currentColorMode,
+  embedded: true
+};
+```
+
+### **Cross-Service Communication**
+```
+Frontend Platform ←→ Backend Service (Direct API calls)
+Frontend Platform ←→ ETL Service (POST navigation with token)
+ETL Service ←→ Backend Service (Authentication validation)
+ETL Service ←→ Frontend Platform (Return navigation with token)
+```
+
+### **Branding Strategy**
+```
+Platform Level (Login Pages):
+├─ Frontend Login: Pulse Platform branding
+├─ ETL Login: Pulse Platform branding (fallback)
+└─ Consistent platform identity
+
+Client Level (Internal Pages):
+├─ Frontend Header: Client-specific logo (WEX, TechCorp, etc.)
+├─ ETL Home: Client-specific logo
+└─ Dynamic loading based on user.client_name
+```
+
+### **Theme Synchronization**
+```typescript
+// Theme propagation to embedded services
+useEffect(() => {
+  const iframe = document.querySelector('iframe[title="ETL Management"]');
+  if (iframe) {
+    const newUrl = buildETLUrl({
+      page: 'home',
+      token: authToken,
+      theme: currentTheme,
+      colorMode: currentColorMode
+    });
+    iframe.src = newUrl;
+  }
+}, [currentTheme, currentColorMode]);
+```
 
 ## 🗄️ Database Architecture
 
@@ -58,10 +134,10 @@ class UserSession(Base, BaseEntity):
 
 ## 🔄 Inter-Service Communication
 
-### **Service Boundaries**
-- **Backend Service**: User identity, authentication, permissions
-- **ETL Service**: Business data, analytics, job orchestration
-- **Frontend**: User interface, token management
+### **Unified Platform Service Boundaries**
+- **Frontend Platform**: Primary user interface, cross-service navigation, client branding
+- **Backend Service**: User identity, authentication, permissions, session management
+- **ETL Service**: Business data, analytics, job orchestration, admin interface with return navigation
 
 ### **API Patterns**
 ```python
@@ -80,16 +156,23 @@ async with httpx.AsyncClient() as client:
 
 ## 🛡️ Security Patterns
 
+### **Multi-Client Security (PRODUCTION-READY)**
+- **Complete Client Isolation**: All database queries filter by client_id
+- **Zero Cross-Client Access**: Enterprise-grade data separation
+- **Client-Scoped Operations**: Every endpoint validates client ownership
+- **Secure Multi-Tenancy**: Production-ready multi-client architecture
+
 ### **RBAC Implementation**
-- **Roles**: admin, user, view (defined in Backend Service)
-- **Resources**: etl_jobs, dashboards, admin_panel, etc.
+- **Roles**: admin, user, view (defined in Backend Service, per client)
+- **Resources**: etl_jobs, home_page, admin_panel, etc.
 - **Actions**: read, execute, delete, admin
-- **Validation**: Backend Service permission checks
+- **Validation**: Backend Service permission checks + client_id validation
 
 ### **Data Protection**
+- **Client Data Isolation**: Every query filters by client_id
 - **Password Hashing**: PBKDF2 with SHA-256, 100k iterations
-- **Token Security**: JWT with secure secret, proper expiration
-- **Session Security**: Database-backed sessions, proper invalidation
+- **Token Security**: JWT with secure secret, proper expiration + client_id
+- **Session Security**: Database-backed sessions, proper invalidation per client
 
 ## ⚙️ Configuration Management
 

@@ -15,6 +15,8 @@ from app.models.unified_models import (
 from app.schemas.api_schemas import (
     JobRunRequest, JobRunResponse, JobStatusResponse, JobStatus
 )
+# ✅ SECURITY: Add authentication for client isolation
+from app.auth.centralized_auth_middleware import UserData, require_authentication
 
 router = APIRouter()
 
@@ -28,7 +30,8 @@ router = APIRouter()
 async def run_jira_job(
     request: JobRunRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
 ):
     """
     Start a Jira data extraction job.
@@ -43,8 +46,10 @@ async def run_jira_job(
     """
     try:
         # Get or create Jira job schedule
+        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
         jira_job = db.query(JobSchedule).filter(
-            JobSchedule.job_name == 'jira_sync'
+            JobSchedule.job_name == 'jira_sync',
+            JobSchedule.client_id == user.client_id
         ).first()
 
         if not jira_job:
@@ -81,7 +86,7 @@ async def run_jira_job(
 
 
 @router.get("/etl/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str, db: Session = Depends(get_db_session)):
+async def get_job_status(job_id: str, db: Session = Depends(get_db_session), user: UserData = Depends(require_authentication)):
     """
     Get the status of a specific job.
 
@@ -97,7 +102,11 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db_session)):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid job ID format")
 
-    job = db.query(JobSchedule).filter(JobSchedule.id == job_id_int).first()
+    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    job = db.query(JobSchedule).filter(
+        JobSchedule.id == job_id_int,
+        JobSchedule.client_id == user.client_id
+    ).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -123,7 +132,7 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db_session)):
 
 
 @router.get("/etl/jobs", response_model=JobStatusResponse)
-async def get_latest_job_status(db: Session = Depends(get_db_session)):
+async def get_latest_job_status(db: Session = Depends(get_db_session), user: UserData = Depends(require_authentication)):
     """
     Get the status of the most recent job.
 
@@ -134,7 +143,10 @@ async def get_latest_job_status(db: Session = Depends(get_db_session)):
         JobStatusResponse: Latest job status
     """
     # Get the most recently started job
-    latest_job = db.query(JobSchedule).order_by(
+    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    latest_job = db.query(JobSchedule).filter(
+        JobSchedule.client_id == user.client_id
+    ).order_by(
         desc(JobSchedule.last_run_started_at)
     ).first()
 
@@ -145,7 +157,7 @@ async def get_latest_job_status(db: Session = Depends(get_db_session)):
 
 
 @router.post("/etl/jobs/{job_id}/stop")
-async def stop_job(job_id: str, db: Session = Depends(get_db_session)):
+async def stop_job(job_id: str, db: Session = Depends(get_db_session), user: UserData = Depends(require_authentication)):
     """
     Stop a running job.
 
@@ -161,7 +173,11 @@ async def stop_job(job_id: str, db: Session = Depends(get_db_session)):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid job ID format")
 
-    job = db.query(JobSchedule).filter(JobSchedule.id == job_id_int).first()
+    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    job = db.query(JobSchedule).filter(
+        JobSchedule.id == job_id_int,
+        JobSchedule.client_id == user.client_id
+    ).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -189,7 +205,8 @@ async def stop_job(job_id: str, db: Session = Depends(get_db_session)):
 async def run_github_job(
     request: JobRunRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
 ):
     """
     Start a GitHub data extraction job.
@@ -204,8 +221,10 @@ async def run_github_job(
     """
     try:
         # Get or create GitHub job schedule
+        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
         github_job = db.query(JobSchedule).filter(
-            JobSchedule.job_name == 'github_sync'
+            JobSchedule.job_name == 'github_sync',
+            JobSchedule.client_id == user.client_id
         ).first()
 
         if not github_job:
@@ -242,7 +261,7 @@ async def run_github_job(
 
 
 @router.get("/etl/jobs/list")
-async def list_all_jobs(db: Session = Depends(get_db_session)):
+async def list_all_jobs(db: Session = Depends(get_db_session), user: UserData = Depends(require_authentication)):
     """
     List all available jobs with their current status.
 
@@ -252,7 +271,11 @@ async def list_all_jobs(db: Session = Depends(get_db_session)):
     Returns:
         dict: List of all jobs with their status
     """
-    jobs = db.query(JobSchedule).filter(JobSchedule.active == True).all()
+    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    jobs = db.query(JobSchedule).filter(
+        JobSchedule.active == True,
+        JobSchedule.client_id == user.client_id
+    ).all()
 
     job_list = []
     for job in jobs:
@@ -283,9 +306,12 @@ async def list_all_jobs(db: Session = Depends(get_db_session)):
 
 
 @router.get("/jobs/jira_sync/summary")
-async def get_jira_summary(db: Session = Depends(get_db_session)):
+async def get_jira_summary(
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
     """
-    Get summary statistics for Jira data tables.
+    Get summary statistics for Jira data tables for current user's client.
 
     Returns:
         dict: Summary statistics for all Jira-related tables
@@ -296,9 +322,12 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "tables": {}
         }
 
-        # Projects summary
-        projects_count = db.query(func.count(Project.id)).scalar() or 0
-        active_projects = db.query(func.count(Project.id)).filter(Project.active == True).scalar() or 0
+        # ✅ SECURITY: Projects summary filtered by client_id
+        projects_count = db.query(func.count(Project.id)).filter(Project.client_id == user.client_id).scalar() or 0
+        active_projects = db.query(func.count(Project.id)).filter(
+            Project.client_id == user.client_id,
+            Project.active == True
+        ).scalar() or 0
 
         summary["tables"]["projects"] = {
             "total_count": projects_count,
@@ -306,9 +335,12 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "inactive_count": projects_count - active_projects
         }
 
-        # Issue types summary
-        issuetypes_count = db.query(func.count(Issuetype.id)).scalar() or 0
-        active_issuetypes = db.query(func.count(Issuetype.id)).filter(Issuetype.active == True).scalar() or 0
+        # ✅ SECURITY: Issue types summary filtered by client_id
+        issuetypes_count = db.query(func.count(Issuetype.id)).filter(Issuetype.client_id == user.client_id).scalar() or 0
+        active_issuetypes = db.query(func.count(Issuetype.id)).filter(
+            Issuetype.client_id == user.client_id,
+            Issuetype.active == True
+        ).scalar() or 0
 
         summary["tables"]["issuetypes"] = {
             "total_count": issuetypes_count,
@@ -316,9 +348,12 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "inactive_count": issuetypes_count - active_issuetypes
         }
 
-        # Statuses summary
-        statuses_count = db.query(func.count(Status.id)).scalar() or 0
-        active_statuses = db.query(func.count(Status.id)).filter(Status.active == True).scalar() or 0
+        # ✅ SECURITY: Statuses summary filtered by client_id
+        statuses_count = db.query(func.count(Status.id)).filter(Status.client_id == user.client_id).scalar() or 0
+        active_statuses = db.query(func.count(Status.id)).filter(
+            Status.client_id == user.client_id,
+            Status.active == True
+        ).scalar() or 0
 
         summary["tables"]["statuses"] = {
             "total_count": statuses_count,
@@ -326,26 +361,35 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "inactive_count": statuses_count - active_statuses
         }
 
-        # Issues summary
-        issues_count = db.query(func.count(Issue.id)).scalar() or 0
-        active_issues = db.query(func.count(Issue.id)).filter(Issue.active == True).scalar() or 0
+        # ✅ SECURITY: Issues summary filtered by client_id
+        issues_count = db.query(func.count(Issue.id)).filter(Issue.client_id == user.client_id).scalar() or 0
+        active_issues = db.query(func.count(Issue.id)).filter(
+            Issue.client_id == user.client_id,
+            Issue.active == True
+        ).scalar() or 0
 
-        # Issues by status (top 5)
+        # ✅ SECURITY: Issues by status (top 5) filtered by client_id
         top_statuses = db.query(
             Status.original_name,
             func.count(Issue.id).label('count')
         ).join(Issue, Issue.status_id == Status.id)\
-         .filter(Issue.active == True)\
+         .filter(
+             Issue.client_id == user.client_id,
+             Issue.active == True
+         )\
          .group_by(Status.original_name)\
          .order_by(func.count(Issue.id).desc())\
          .limit(5).all()
 
-        # Issues by type (top 5)
+        # ✅ SECURITY: Issues by type (top 5) filtered by client_id
         top_types = db.query(
             Issuetype.original_name,
             func.count(Issue.id).label('count')
         ).join(Issue, Issue.issuetype_id == Issuetype.id)\
-         .filter(Issue.active == True)\
+         .filter(
+             Issue.client_id == user.client_id,
+             Issue.active == True
+         )\
          .group_by(Issuetype.original_name)\
          .order_by(func.count(Issue.id).desc())\
          .limit(5).all()
@@ -358,16 +402,22 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "top_types": [{"name": type_.original_name, "count": type_.count} for type_ in top_types]
         }
 
-        # Changelogs summary
-        changelogs_count = db.query(func.count(IssueChangelog.id)).scalar() or 0
-        active_changelogs = db.query(func.count(IssueChangelog.id)).filter(IssueChangelog.active == True).scalar() or 0
+        # ✅ SECURITY: Changelogs summary filtered by client_id
+        changelogs_count = db.query(func.count(IssueChangelog.id)).filter(IssueChangelog.client_id == user.client_id).scalar() or 0
+        active_changelogs = db.query(func.count(IssueChangelog.id)).filter(
+            IssueChangelog.client_id == user.client_id,
+            IssueChangelog.active == True
+        ).scalar() or 0
 
-        # Recent changelog activity (last 30 days)
+        # ✅ SECURITY: Recent changelog activity (last 30 days) filtered by client_id
         from datetime import timedelta
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         recent_changelogs = db.query(func.count(IssueChangelog.id))\
-            .filter(IssueChangelog.created_at >= thirty_days_ago)\
-            .filter(IssueChangelog.active == True).scalar() or 0
+            .filter(
+                IssueChangelog.client_id == user.client_id,
+                IssueChangelog.created_at >= thirty_days_ago,
+                IssueChangelog.active == True
+            ).scalar() or 0
 
         summary["tables"]["changelogs"] = {
             "total_count": changelogs_count,
@@ -376,20 +426,30 @@ async def get_jira_summary(db: Session = Depends(get_db_session)):
             "recent_activity_30d": recent_changelogs
         }
 
-        # Jira PR Links summary
-        pr_links_count = db.query(func.count(JiraPullRequestLinks.id)).scalar() or 0
-        active_pr_links = db.query(func.count(JiraPullRequestLinks.id)).filter(JiraPullRequestLinks.active == True).scalar() or 0
+        # ✅ SECURITY: Jira PR Links summary filtered by client_id
+        pr_links_count = db.query(func.count(JiraPullRequestLinks.id)).filter(
+            JiraPullRequestLinks.client_id == user.client_id
+        ).scalar() or 0
+        active_pr_links = db.query(func.count(JiraPullRequestLinks.id)).filter(
+            JiraPullRequestLinks.active == True,
+            JiraPullRequestLinks.client_id == user.client_id
+        ).scalar() or 0
 
         # Unique repositories linked
         unique_repos = db.query(func.count(distinct(JiraPullRequestLinks.repo_full_name)))\
-            .filter(JiraPullRequestLinks.active == True).scalar() or 0
+            .filter(
+                JiraPullRequestLinks.active == True,
+                JiraPullRequestLinks.client_id == user.client_id
+            ).scalar() or 0
 
         # PR status breakdown
         pr_status_breakdown = db.query(
             JiraPullRequestLinks.pr_status,
             func.count(JiraPullRequestLinks.id).label('count')
-        ).filter(JiraPullRequestLinks.active == True)\
-         .group_by(JiraPullRequestLinks.pr_status)\
+        ).filter(
+            JiraPullRequestLinks.active == True,
+            JiraPullRequestLinks.client_id == user.client_id
+        ).group_by(JiraPullRequestLinks.pr_status)\
          .all()
 
         summary["tables"]["jira_pull_request_links"] = {

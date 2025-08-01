@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" fill="none">
+  <!-- Background -->
+  <rect width="400" height="120" fill="transparent"/>
+  
+  <!-- Pulse Icon -->
+  <g transform="translate(20, 20)">
+    <!-- Heart shape -->
+    <path d="M40 20c-5.5-10-20.5-10-20 2.5c0 0 0 0 0 0c0 0 20 17.5 20 17.5s20-17.5 20-17.5c0 0 0 0 0 0c.5-12.5-14.5-12.5-20-2.5z" 
+          fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+    
+    <!-- Pulse line -->
+    <path d="M5 40h10l5-15 10 30 10-20 5 10h10" 
+          stroke="#3B82F6" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  
+  <!-- Text -->
+  <g transform="translate(120, 35)">
+    <!-- "PULSE" text -->
+    <text x="0" y="30" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#FFFFFF">
+      PULSE
+    </text>
+    <!-- "Platform" text -->
+    <text x="0" y="55" font-family="Arial, sans-serif" font-size="16" font-weight="normal" fill="#E2E8F0">
+      Platform
+    </text>
+  </g>
+  
+  <!-- Decorative elements -->
+  <circle cx="350" cy="30" r="3" fill="#3B82F6" opacity="0.6"/>
+  <circle cx="365" cy="45" r="2" fill="#8B5CF6" opacity="0.4"/>
+  <circle cx="380" cy="35" r="2.5" fill="#10B981" opacity="0.5"/>
+</svg>

@@ -220,10 +220,11 @@ def get_active_sessions():
 
 ### **User-Related Queries**
 ```python
-# User search with filters
-def search_users(search_term, role_filter, active_filter):
-    query = session.query(User)
-    
+# User search with filters (MUST include client_id filtering)
+def search_users(search_term, role_filter, active_filter, client_id):
+    # 🚨 SECURITY: Always filter by client_id first
+    query = session.query(User).filter(User.client_id == client_id)
+
     if search_term:
         query = query.filter(
             or_(
@@ -232,13 +233,13 @@ def search_users(search_term, role_filter, active_filter):
                 User.last_name.ilike(f"%{search_term}%")
             )
         )
-    
+
     if role_filter:
         query = query.filter(User.role == role_filter)
-    
+
     if active_filter is not None:
         query = query.filter(User.active == active_filter)
-    
+
     return query.all()
 ```
 

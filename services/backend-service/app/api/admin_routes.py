@@ -101,11 +101,14 @@ async def get_all_users(
     limit: int = 100,
     user: User = Depends(require_permission("admin_panel", "read"))
 ):
-    """Get all users with pagination"""
+    """Get all users for current user's client with pagination"""
     try:
         database = get_database()
         with database.get_session() as session:
-            users = session.query(User).offset(skip).limit(limit).all()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            users = session.query(User).filter(
+                User.client_id == user.client_id
+            ).offset(skip).limit(limit).all()
 
             return [
                 UserResponse(
@@ -207,7 +210,11 @@ async def update_user(
     try:
         database = get_database()
         with database.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            user = session.query(User).filter(
+                User.id == user_id,
+                User.client_id == admin_user.client_id
+            ).first()
             if not user:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -266,7 +273,11 @@ async def delete_user(
     try:
         database = get_database()
         with database.get_session() as session:
-            user = session.query(User).filter(User.id == user_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            user = session.query(User).filter(
+                User.id == user_id,
+                User.client_id == admin_user.client_id
+            ).first()
             if not user:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -332,24 +343,34 @@ async def get_system_stats(
     try:
         database = get_database()
         with database.get_session() as session:
-            # User statistics
-            total_users = session.query(User).count()
-            active_users = session.query(User).filter(User.active == True).count()
+            # ✅ SECURITY: User statistics filtered by client_id
+            total_users = session.query(User).filter(User.client_id == admin_user.client_id).count()
+            active_users = session.query(User).filter(
+                User.client_id == admin_user.client_id,
+                User.active == True
+            ).count()
 
-            # Count logged users (users with active sessions)
+            # Count logged users (users with active sessions) for current client
             from app.core.utils import DateTimeHelper
             logged_users = session.query(User).join(UserSession).filter(
+                User.client_id == admin_user.client_id,
                 User.active == True,
                 UserSession.active == True,
                 UserSession.expires_at > DateTimeHelper.now_utc()
             ).distinct().count()
 
-            admin_users = session.query(User).filter(User.is_admin == True, User.active == True).count()
+            # ✅ SECURITY: Admin users count filtered by client_id
+            admin_users = session.query(User).filter(
+                User.client_id == admin_user.client_id,
+                User.is_admin == True,
+                User.active == True
+            ).count()
 
-            # Role distribution
+            # ✅ SECURITY: Role distribution filtered by client_id
             roles_distribution = {}
             for role in Role:
                 count = session.query(User).filter(
+                    User.client_id == admin_user.client_id,
                     User.role == role.value,
                     User.active == True
                 ).count()
@@ -388,14 +409,30 @@ async def get_system_stats(
                 "migration_history": MigrationHistory
             }
 
-            # Count records in each table
+            # ✅ SECURITY: Count records filtered by client_id
             for table_name, model in table_models.items():
                 try:
-                    # Handle tables with composite primary keys (no single 'id' column)
-                    if table_name in ['projects_issuetypes', 'projects_statuses']:
-                        count = session.query(model).count() or 0
+                    # Skip tables that don't have client_id (global tables)
+                    if table_name in ['clients', 'migration_history']:
+                        # These are global tables - count all records
+                        if table_name in ['projects_issuetypes', 'projects_statuses']:
+                            count = session.query(model).count() or 0
+                        else:
+                            count = session.query(func.count(model.id)).scalar() or 0
                     else:
-                        count = session.query(func.count(model.id)).scalar() or 0
+                        # Filter by client_id for client-specific tables
+                        if hasattr(model, 'client_id'):
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).filter(model.client_id == admin_user.client_id).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).filter(model.client_id == admin_user.client_id).scalar() or 0
+                        else:
+                            # For tables without client_id, count all (like user_sessions, user_permissions)
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).scalar() or 0
+
                     database_stats[table_name] = count
                     total_records += count
                 except Exception as e:
@@ -578,11 +615,14 @@ async def debug_config():
 async def get_integrations(
     user: User = Depends(require_permission("admin_panel", "read"))
 ):
-    """Get all integrations"""
+    """Get all integrations for current user's client"""
     try:
         database = get_database()
         with database.get_session() as session:
-            integrations = session.query(Integration).order_by(Integration.name).all()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integrations = session.query(Integration).filter(
+                Integration.client_id == user.client_id
+            ).order_by(Integration.name).all()
 
             return [
                 IntegrationResponse(
@@ -613,7 +653,11 @@ async def get_integration_details(
     try:
         database = get_database()
         with database.get_session() as session:
-            integration = session.query(Integration).filter(Integration.id == integration_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.client_id == user.client_id
+            ).first()
             if not integration:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -655,7 +699,11 @@ async def update_integration(
         database = get_database()
         with database.get_session() as session:
             # Get the integration
-            integration = session.query(Integration).filter(Integration.id == integration_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.client_id == user.client_id
+            ).first()
             if not integration:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -927,7 +975,11 @@ async def get_status_mapping_details(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -971,7 +1023,11 @@ async def update_status_mapping(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1015,7 +1071,11 @@ async def delete_status_mapping(
         with database.get_session() as session:
             from app.models.unified_models import StatusMapping, Status
 
-            mapping = session.query(StatusMapping).filter(StatusMapping.id == mapping_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.client_id == user.client_id
+            ).first()
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1289,11 +1349,14 @@ async def get_workflows(
         with database.get_session() as session:
             from app.models.unified_models import Workflow, Integration
 
+            # ✅ SECURITY: Filter workflows by client_id
             workflows = session.query(
                 Workflow,
                 Integration.name.label('integration_name')
             ).outerjoin(
                 Integration, Workflow.integration_id == Integration.id
+            ).filter(
+                Workflow.client_id == user.client_id
             ).order_by(Workflow.step_number.nulls_last()).all()
 
             return [
@@ -1330,7 +1393,11 @@ async def get_workflow_details(
         with database.get_session() as session:
             from app.models.unified_models import Workflow
 
-            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
             if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -1382,7 +1449,11 @@ async def update_workflow(
         with database.get_session() as session:
             from app.models.unified_models import Workflow
 
-            workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.client_id == user.client_id
+            ).first()
             if not workflow:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -2234,7 +2305,10 @@ async def get_issuetype_hierarchies(user: User = Depends(require_permission("adm
         with database.get_session() as session:
             from app.models.unified_models import IssuetypeHierarchy
 
-            hierarchies = session.query(IssuetypeHierarchy).order_by(IssuetypeHierarchy.level_number.desc()).all()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            hierarchies = session.query(IssuetypeHierarchy).filter(
+                IssuetypeHierarchy.client_id == user.client_id
+            ).order_by(IssuetypeHierarchy.level_number.desc()).all()
 
             return [
                 {
@@ -2279,17 +2353,8 @@ async def create_issuetype_hierarchy(
             from app.models.unified_models import IssuetypeHierarchy
             from datetime import datetime
 
-            # Check if level_number already exists
-            existing = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.level_number == create_data.level_number,
-                IssuetypeHierarchy.client_id == user.client_id
-            ).first()
-
-            if existing:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Hierarchy level {create_data.level_number} already exists"
-                )
+            # Note: Multiple hierarchies can have the same level_number
+            # No uniqueness check needed for level_number
 
             # Create new hierarchy
             new_hierarchy = IssuetypeHierarchy(
@@ -2726,7 +2791,7 @@ async def get_active_sessions(
         with database.get_session() as session:
             from app.core.utils import DateTimeHelper
 
-            # Query active sessions with user information
+            # ✅ SECURITY: Query active sessions filtered by client_id
             active_sessions = session.query(
                 UserSession,
                 User.first_name,
@@ -2737,6 +2802,7 @@ async def get_active_sessions(
                 User, UserSession.user_id == User.id
             ).filter(
                 and_(
+                    User.client_id == user.client_id,  # Filter by client_id
                     UserSession.active == True,
                     UserSession.expires_at > DateTimeHelper.now_utc(),
                     User.active == True
@@ -2775,16 +2841,24 @@ async def terminate_all_sessions(
         with database.get_session() as session:
             from app.core.utils import DateTimeHelper
 
-            # Deactivate ALL active sessions (including current user's)
-            sessions_to_terminate = session.query(UserSession).filter(
+            # ✅ SECURITY: Get session IDs for current client only (using join for filtering)
+            session_ids_to_terminate = session.query(UserSession.id).join(User).filter(
+                User.client_id == user.client_id,
                 UserSession.active == True
-            )
+            ).all()
 
-            terminated_count = sessions_to_terminate.count()
-            sessions_to_terminate.update({
-                'active': False,
-                'last_updated_at': DateTimeHelper.now_utc()
-            })
+            # Extract the IDs from the result tuples
+            session_ids = [session_id[0] for session_id in session_ids_to_terminate]
+            terminated_count = len(session_ids)
+
+            # ✅ FIX: Update sessions without join to avoid SQLAlchemy error
+            if session_ids:
+                session.query(UserSession).filter(
+                    UserSession.id.in_(session_ids)
+                ).update({
+                    'active': False,
+                    'last_updated_at': DateTimeHelper.now_utc()
+                }, synchronize_session=False)
 
             session.commit()
 
@@ -2814,11 +2888,12 @@ async def terminate_user_session(
         with database.get_session() as session:
             from app.core.utils import DateTimeHelper
 
-            # Find the session to terminate
-            user_session = session.query(UserSession).filter(
+            # ✅ SECURITY: Find the session to terminate (filtered by client_id)
+            user_session = session.query(UserSession).join(User).filter(
                 and_(
                     UserSession.id == session_id,
-                    UserSession.active == True
+                    UserSession.active == True,
+                    User.client_id == user.client_id  # Ensure session belongs to current client
                 )
             ).first()
 
@@ -2852,5 +2927,262 @@ async def terminate_user_session(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to terminate session"
+        )
+
+
+# Color Schema Settings Endpoints
+
+class ColorSchemaRequest(BaseModel):
+    color1: str
+    color2: str
+    color3: str
+    color4: str
+    color5: str
+
+class ColorSchemaModeRequest(BaseModel):
+    mode: str  # 'default' or 'custom'
+
+class ThemeModeRequest(BaseModel):
+    mode: str  # 'light' or 'dark'
+
+@router.get("/color-schema")
+async def get_color_schema(
+    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
+):
+    """Get custom color schema settings"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Get color schema mode filtered by client_id
+            mode_setting = session.query(SystemSettings).filter(
+                SystemSettings.setting_key == "color_schema_mode",
+                SystemSettings.client_id == user.client_id
+            ).first()
+
+            color_mode = mode_setting.setting_value if mode_setting else "default"
+
+            # Get all custom color settings
+            color_settings = {}
+            for i in range(1, 6):
+                setting_key = f"custom_color{i}"  # Fixed: removed underscore
+                # ✅ SECURITY: Filter by client_id
+                setting = session.query(SystemSettings).filter(
+                    SystemSettings.setting_key == setting_key,
+                    SystemSettings.client_id == user.client_id
+                ).first()
+
+                if setting:
+                    color_settings[f"color{i}"] = setting.setting_value
+                else:
+                    # Default custom colors (WEX brand colors)
+                    defaults = {
+                        "color1": "#C8102E",  # WEX Red
+                        "color2": "#253746",  # Dark Blue
+                        "color3": "#00C7B1",  # Teal
+                        "color4": "#A2DDF8",  # Light Blue
+                        "color5": "#FFBF3F",  # Yellow
+                    }
+                    color_settings[f"color{i}"] = defaults[f"color{i}"]
+
+            return {
+                "success": True,
+                "mode": color_mode,
+                "colors": color_settings
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting color schema: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get color schema"
+        )
+
+@router.post("/color-schema")
+async def update_color_schema(
+    request: ColorSchemaRequest,
+    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
+):
+    """Update custom color schema settings"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Use current user's client for system settings
+            # No need to query client - use user's client_id directly
+
+            # Update each color setting
+            colors = request.model_dump()
+            for color_key, color_value in colors.items():
+                setting_key = f"custom_{color_key}"
+
+                # ✅ SECURITY: Get or create setting filtered by client_id
+                setting = session.query(SystemSettings).filter(
+                    SystemSettings.setting_key == setting_key,
+                    SystemSettings.client_id == user.client_id
+                ).first()
+
+                if not setting:
+                    setting = SystemSettings(
+                        setting_key=setting_key,
+                        setting_value=color_value,
+                        setting_type='string',
+                        description=f"Custom {color_key} for color schema",
+                        client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                    )
+                    session.add(setting)
+                else:
+                    setting.setting_value = color_value
+                    setting.last_updated_at = func.now()
+
+            session.commit()
+
+            return {
+                "success": True,
+                "message": "Color schema updated successfully",
+                "colors": colors
+            }
+
+    except Exception as e:
+        logger.error(f"Error updating color schema: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update color schema"
+        )
+
+@router.post("/color-schema/mode")
+async def update_color_schema_mode(
+    request: ColorSchemaModeRequest,
+    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
+):
+    """Update color schema mode (default or custom)"""
+    try:
+        # Validate mode value
+        if request.mode not in ['default', 'custom']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mode must be 'default' or 'custom'"
+            )
+
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Use current user's client for system settings
+            # No need to query client - use user's client_id directly
+
+            # ✅ SECURITY: Get or create the color schema mode setting filtered by client_id
+            setting = session.query(SystemSettings).filter(
+                SystemSettings.setting_key == "color_schema_mode",
+                SystemSettings.client_id == user.client_id
+            ).first()
+
+            if setting:
+                # Update existing setting
+                setting.setting_value = request.mode
+                setting.last_updated_at = func.now()
+            else:
+                # Create new setting
+                setting = SystemSettings(
+                    setting_key="color_schema_mode",
+                    setting_value=request.mode,
+                    setting_type='string',
+                    description="Color schema mode (default or custom)",
+                    client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                )
+                session.add(setting)
+
+            session.commit()
+
+            return {
+                "success": True,
+                "message": f"Color schema mode updated to '{request.mode}'",
+                "mode": request.mode
+            }
+
+    except Exception as e:
+        logger.error(f"Error updating color schema mode: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update color schema mode"
+        )
+
+
+# Theme Mode Settings Endpoints
+
+@router.get("/theme-mode")
+async def get_theme_mode(
+    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
+):
+    """Get current theme mode setting"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Get theme mode setting filtered by client_id
+            setting = session.query(SystemSettings).filter(
+                SystemSettings.setting_key == "theme_mode",
+                SystemSettings.client_id == user.client_id
+            ).first()
+
+            theme_mode = setting.setting_value if setting else "light"
+
+            return {
+                "success": True,
+                "mode": theme_mode
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting theme mode: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get theme mode"
+        )
+
+@router.post("/theme-mode")
+async def update_theme_mode(
+    request: ThemeModeRequest,
+    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
+):
+    """Update theme mode (light or dark)"""
+    try:
+        # Validate mode value
+        if request.mode not in ['light', 'dark']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mode must be 'light' or 'dark'"
+            )
+
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Get or create the theme mode setting filtered by client_id
+            setting = session.query(SystemSettings).filter(
+                SystemSettings.setting_key == "theme_mode",
+                SystemSettings.client_id == user.client_id
+            ).first()
+
+            if setting:
+                # Update existing setting
+                setting.setting_value = request.mode
+                setting.last_updated_at = func.now()
+            else:
+                # Create new setting
+                setting = SystemSettings(
+                    setting_key="theme_mode",
+                    setting_value=request.mode,
+                    setting_type='string',
+                    description="User interface theme mode (light or dark)",
+                    client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                )
+                session.add(setting)
+
+            session.commit()
+
+            return {
+                "success": True,
+                "message": f"Theme mode updated to '{request.mode}'",
+                "mode": request.mode
+            }
+
+    except Exception as e:
+        logger.error(f"Error updating theme mode: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update theme mode"
         )
 

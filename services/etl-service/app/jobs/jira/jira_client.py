@@ -23,19 +23,24 @@ class JiraAPIClient:
         # Progress tracking
         self.last_fetch_progress = {'current': 0, 'total': 0, 'percentage': 0}
     
-    def get_projects(self, expand: str = None, max_results: int = 50) -> List[Dict]:
+    def get_projects(self, expand: str = None, max_results: int = 50, project_keys: List[str] = None) -> List[Dict]:
         """
         Fetch Jira projects filtered by configured project keys with pagination and retry logic.
 
         Args:
             expand: Fields to expand in the response
             max_results: Maximum results per page (default: 50)
+            project_keys: List of project keys to filter by (if None, uses settings fallback)
 
         Returns:
             List of project objects
         """
-        settings = get_settings()
-        jira_projects = settings.jira_projects_list
+        if project_keys is None:
+            # Fallback to settings for backward compatibility
+            settings = get_settings()
+            jira_projects = settings.jira_projects_list
+        else:
+            jira_projects = project_keys
 
         all_projects = []
         start_at = 0

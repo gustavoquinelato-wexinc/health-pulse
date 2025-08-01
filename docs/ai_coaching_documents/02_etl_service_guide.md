@@ -1,21 +1,131 @@
 # ETL Service Guide
 
-This guide covers ETL Service specific functionality, patterns, and best practices.
+This guide covers the ETL Service as an embedded component within the Pulse Platform, including job orchestration, embedded interface patterns, and integration best practices.
+
+## 🏗️ **Embedded Architecture**
+
+### **Service Role**
+The ETL Service now operates as an embedded component within the Pulse Platform:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Pulse Platform                              │
+│  ┌─────────────────┐                                           │
+│  │   Frontend      │                                           │
+│  │   (Port 3000)   │                                           │
+│  │                 │                                           │
+│  │  ┌─────────────┐│    ┌─────────────────┐                   │
+│  │  │ ETL iframe  ││◄──►│  ETL Service    │                   │
+│  │  │ (embedded)  ││    │  (Port 8000)    │                   │
+│  │  └─────────────┘│    │                 │                   │
+│  └─────────────────┘    │ • Authenticated APIs │                   │
+│                         │ • Job Control   │                   │
+│                         │ • Data Pipeline │                   │
+│                         │ • Embedded UI   │                   │
+│                         └─────────────────┘                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### **Cross-Service Navigation Features**
+- **Direct Navigation**: POST-based authentication for seamless service switching
+- **Admin-Only Access**: Restricted to users with admin privileges
+- **Shared Authentication**: Uses JWT tokens from Backend Service
+- **Return Navigation**: Pulse button provides navigation back to frontend
+- **Client Branding**: Dynamic logo loading based on user's client
+
+### **URL Parameters for Embedding**
+```
+http://localhost:8000/home?embedded=true&token=JWT_TOKEN&theme=light&colorMode=default
+```
+
+**Parameters:**
+- `embedded=true`: Enables embedded mode (hides header, adjusts styling)
+- `token=JWT_TOKEN`: Authentication token from parent application
+- `theme=light|dark`: Theme mode from parent application
+- `colorMode=default|custom`: Color schema from parent application
+
+## 🔐 **Admin-Only Authentication**
+
+### **Admin Credentials Required**
+All ETL Service functionality requires admin-level authentication. There is no separate "admin context" - everything is admin-protected:
+
+```python
+# Embedded authentication middleware
+async def handle_embedded_auth(request: Request):
+    # Check for token in URL parameters (embedded mode)
+    token = request.query_params.get('token')
+
+    if not token:
+        # Fall back to cookie/header authentication
+        token = request.cookies.get('pulse_token')
+        if not token:
+            auth_header = request.headers.get('Authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+
+    if token:
+        # Validate with Backend Service
+        user_data = await auth_service.verify_token(token)
+        if user_data and user_data.get('is_admin'):
+            return user_data
+
+    # Redirect to platform login for direct access without authentication
+    return RedirectResponse(url="/login?error=authentication_required")
+
+    # Return 401 for embedded access
+    raise HTTPException(status_code=401, detail="Authentication required")
+```
+
+### **Admin Access Control**
+```python
+# All ETL routes require admin authentication
+@router.get("/home")
+async def home(
+    request: Request,
+    current_user: UserData = Depends(require_admin_authentication)
+):
+    # All ETL functionality requires admin credentials
+    # No additional admin check needed - require_admin_authentication handles it
+    if request.query_params.get('embedded'):
+        # Handle embedded mode
+            return templates.TemplateResponse("access_denied.html", {
+                "request": request,
+                "message": "ETL Management requires administrator privileges"
+            })
+        else:
+            # Redirect to login with error
+            return RedirectResponse(url="/login?error=permission_denied&resource=etl_management")
+```
+
+### **Client Logo Integration**
+```python
+# Dynamic client logo loading
+async def load_client_logo(user_data: dict) -> str:
+    client_name = user_data.get('client_name', '').lower()
+
+    client_logos = {
+        'wex': '/static/wex-logo-image.png',
+        'techcorp': '/static/techcorp-logo.png',
+        # Add more client logos as needed
+    }
+
+    return client_logos.get(client_name, '/static/wex-logo-image.png')  # Default
+```
 
 ## 🔄 Job Orchestration
 
 ### **Job Management Architecture**
 - **Main Orchestrator**: Runs every 60 minutes, manages both jobs
-- **Job States**: PENDING, RUNNING, FINISHED, FAILED, PAUSED
+- **Job States**: NOT_STARTED, PENDING, RUNNING, FINISHED, ERROR, PAUSED
 - **Recovery Logic**: Retry failed jobs with configurable intervals
 - **Force Stop**: Instant termination with proper cleanup
 
 ### **Job State Transitions**
 ```
-PENDING → RUNNING → FINISHED/FAILED
+NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
 RUNNING → PAUSED (manual pause)
 PAUSED → RUNNING (manual resume)
-FAILED → PENDING (retry logic)
+ERROR → PENDING (retry logic)
 ```
 
 ### **Orchestrator Patterns**
@@ -193,6 +303,36 @@ user_data = await auth_service.verify_token(token)
 - **Web Routes**: Redirect to login if not authenticated
 - **API Routes**: Return 401 for invalid tokens
 - **Admin Routes**: Require admin role for sensitive operations
+
+### **Cross-Service Navigation**
+```python
+# Navigation endpoint for frontend → ETL authentication
+@router.post("/auth/navigate")
+async def navigate_with_token(request: Request):
+    """Handle navigation from frontend with token authentication."""
+    data = await request.json()
+    token = data.get("token")
+    return_url = data.get("return_url")
+
+    # Validate token via Backend Service
+    auth_service = get_centralized_auth_service()
+    user_data = await auth_service.verify_token(token)
+
+    if user_data:
+        # Create session cookie and redirect
+        response = RedirectResponse(url="/home", status_code=302)
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=3600,
+            httponly=True,
+            path="/"
+        )
+        # Store return URL for pulse navigation
+        if return_url:
+            response.set_cookie(key="return_url", value=return_url, max_age=3600)
+        return response
+```
 
 ### **Session Management**
 - **No Local Sessions**: ETL Service doesn't manage sessions

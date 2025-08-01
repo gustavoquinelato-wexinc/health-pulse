@@ -2,7 +2,7 @@
 Health check endpoints for ETL service monitoring.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db_session
 from app.schemas.api_schemas import HealthResponse
@@ -54,15 +54,50 @@ async def quick_health_check():
     description="Check the health status of the ETL service and its dependencies"
 )
 async def health_check(
-    db: Session = Depends(get_db_session),
-    current_user: UserData = Depends(require_admin_authentication)
+    request: Request,
+    db: Session = Depends(get_db_session)
 ):
     """
     Comprehensive health check for the ETL service.
-    
+
     Returns:
         HealthResponse: Service health status including database connectivity
     """
+    # Check authentication (both cookie and header)
+    from app.auth.centralized_auth_service import get_centralized_auth_service
+
+    # Try to get token from cookie first, then Authorization header
+    token = request.cookies.get("pulse_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
+    # Verify token and check admin permissions
+    auth_service = get_centralized_auth_service()
+    user_data = await auth_service.verify_token(token)
+
+    if not user_data:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    if not user_data.get("is_admin"):
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+
     try:
         # Test database connection
         from sqlalchemy import text

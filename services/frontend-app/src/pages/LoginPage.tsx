@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import React, { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -10,6 +11,9 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
 
   const { login, isAuthenticated } = useAuth()
+
+  // Set document title
+  useDocumentTitle('Login')
 
   // Redirect if already authenticated
   if (isAuthenticated) {

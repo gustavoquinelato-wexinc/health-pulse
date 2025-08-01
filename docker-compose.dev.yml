@@ -1,0 +1,109 @@
+version: '3.8'
+
+# =============================================================================
+# DEVELOPMENT DOCKER COMPOSE - SERVICE-SPECIFIC ENVIRONMENTS
+# =============================================================================
+# 🔒 SECURITY: Each service gets only the secrets it needs
+# 🎯 PURPOSE: Development environment with proper secret separation
+
+services:
+  # 🗄️ PostgreSQL Database (shared)
+  postgres:
+    image: postgres:15
+    container_name: pulse-postgres-dev
+    env_file:
+      - .env.shared
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./scripts/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - pulse-network
+
+  # 🌐 Backend Service
+  backend:
+    build:
+      context: ./services/backend-service
+      dockerfile: Dockerfile
+    container_name: pulse-backend-dev
+    env_file:
+      - .env.shared # 🔒 Shared config (DB, URLs)
+      - .env.backend # 🔒 Backend secrets (JWT, sessions)
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/backend-service:/app
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001", "--reload" ]
+    networks:
+      - pulse-network
+
+  # 🎯 ETL Service (single instance for development - defaults to WEX)
+  etl:
+    build:
+      context: ./services/etl-service
+      dockerfile: Dockerfile
+    container_name: pulse-etl-dev
+    env_file:
+      - .env.shared # 🔒 Shared config (DB, URLs)
+      - .env.etl.wex # 🔒 WEX ETL secrets (default for development)
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - backend
+    volumes:
+      - ./services/etl-service:/app
+    command: [ "python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
+    networks:
+      - pulse-network
+
+  # 🎨 Frontend App (optional for full-stack development)
+  frontend:
+    build:
+      context: ./services/frontend-app
+      dockerfile: Dockerfile
+    container_name: pulse-frontend-dev
+    env_file:
+      - .env.shared # 🔒 Shared config (service URLs)
+      - .env.frontend # 🔒 Frontend config (no secrets)
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./services/frontend-app:/app
+      - /app/node_modules
+    command: [ "npm", "run", "dev" ]
+    networks:
+      - pulse-network
+
+volumes:
+  postgres_dev_data:
+
+
+networks:
+  pulse-network:
+    driver: bridge
+
+# =============================================================================
+# USAGE INSTRUCTIONS
+# =============================================================================
+# Start development environment:
+#   docker-compose -f docker-compose.dev.yml up -d
+#
+# View logs:
+#   docker-compose -f docker-compose.dev.yml logs -f
+#
+# Stop environment:
+#   docker-compose -f docker-compose.dev.yml down
+#
+# Clean restart:
+#   docker-compose -f docker-compose.dev.yml down -v
+#   docker-compose -f docker-compose.dev.yml up -d

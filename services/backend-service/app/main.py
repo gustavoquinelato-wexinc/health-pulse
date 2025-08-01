@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
+import asyncio
 
 # Backend Service - No scheduler needed
 
@@ -20,11 +21,13 @@ from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
+from app.core.client_logging_middleware import ClientLoggingMiddleware
 # Import Backend Service API routers
 from app.api.health import router as health_router
 from app.api.debug import router as debug_router
 from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
+from app.api.frontend_logs import router as frontend_logs_router
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
 import logging
@@ -158,13 +161,24 @@ async def lifespan(_: FastAPI):
         logger.warning("Service started with limited functionality - database connection failed")
         yield
     finally:
-        # Cleanup
-        logger.info("Shutting down Backend Service...")
+        # Cleanup with robust error handling
+        try:
+            # Use print to avoid reentrant logging issues during shutdown
+            print("[INFO] Shutting down Backend Service...")
 
-        database = get_database()
-        database.close_connections()
+            # Close database connections
+            try:
+                database = get_database()
+                database.close_connections()
+                print("[INFO] Database connections closed")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle database cleanup errors
+                pass
 
-        logger.info("Backend Service shutdown complete")
+            print("[INFO] Backend Service shutdown complete")
+        except (Exception, asyncio.CancelledError):
+            # Silently handle any remaining shutdown errors
+            pass
 
 
 # Create FastAPI application
@@ -256,6 +270,7 @@ if not settings.DEBUG:
 
 # Other middleware
 app.add_middleware(ErrorHandlingMiddleware)
+app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
@@ -265,6 +280,7 @@ app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
+app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"])
 app.include_router(admin_router, tags=["Administration"])
 
 # Backend Service - API only, no static files or web routes
@@ -421,33 +437,35 @@ async def initialize_database():
 
 async def clear_all_user_sessions():
     """Clear all user sessions on startup for security."""
+    # Invalidate all existing tokens by updating the JWT secret
+    logger.info("Invalidating all existing JWT tokens on startup for security")
+
+    # Method 1: Reset the auth service to pick up current configuration
+    from app.auth.auth_service import get_auth_service, reset_auth_service
+
+    # Reset the auth service instance to force reinitialization with current settings
+    reset_auth_service()
+    auth_service = get_auth_service()
+
+    # Generate new JWT secret and update it in the auth service
+    import secrets
+    new_secret = secrets.token_urlsafe(32)
+    auth_service.jwt_secret = new_secret
+
+    # Method 2: Also update environment variable for consistency
+    import os
+    os.environ['JWT_SECRET_KEY'] = new_secret
+
+    # Method 3: Clear all user sessions from database (only if database is available)
+    from app.core.database import get_database
+    database = get_database()
+
+    # Try to clear sessions from database, but don't fail if database is offline
     try:
-        # Invalidate all existing tokens by updating the JWT secret
-        logger.info("Invalidating all existing JWT tokens on startup for security")
-
-        # Method 1: Reset the auth service to pick up current configuration
-        from app.auth.auth_service import get_auth_service, reset_auth_service
-
-        # Reset the auth service instance to force reinitialization with current settings
-        reset_auth_service()
-        auth_service = get_auth_service()
-
-        # Generate new JWT secret and update it in the auth service
-        import secrets
-        new_secret = secrets.token_urlsafe(32)
-        auth_service.jwt_secret = new_secret
-
-        # Method 2: Also update environment variable for consistency
-        import os
-        os.environ['JWT_SECRET_KEY'] = new_secret
-
-        # Method 3: Clear all user sessions from database
-        from app.core.database import get_database
-        database = get_database()
-
         with database.get_session() as session:
             from app.models.unified_models import UserSession
-            # Mark all existing sessions as inactive
+            # ✅ SECURITY: Mark all existing sessions as inactive (affects all clients on startup)
+            # Note: This is intentional on startup for security - all clients get fresh sessions
             session.query(UserSession).update({
                 'active': False,
                 'last_updated_at': datetime.now()
@@ -455,14 +473,12 @@ async def clear_all_user_sessions():
             session.commit()
 
             session_count = session.query(UserSession).filter(UserSession.active == False).count()
-            logger.info(f"Marked {session_count} user sessions as inactive")
+            logger.info(f"Marked {session_count} user sessions as inactive (all clients - startup security)")
 
         logger.info("All existing authentication tokens have been invalidated")
-
-    except Exception as e:
-        logger.warning(f"Failed to clear user sessions: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception as db_error:
+        logger.warning(f"Database not available - skipping user session cleanup (JWT tokens still invalidated)")
+        # Continue startup even if database session cleanup fails
 
 
 @app.get("/debug/token-info")
@@ -569,14 +585,20 @@ async def debug_jwt_info():
 
 
 if __name__ == "__main__":
-    # Configuration for direct execution
-    uvicorn.run(
-        "app.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    )
+    # Configuration for direct execution - let uvicorn handle signals
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=settings.DEBUG,
+            log_level=settings.LOG_LEVEL.lower()
+        )
+    except KeyboardInterrupt:
+        # This is expected during Ctrl+C - don't log it as an error
+        pass
+    except Exception as e:
+        print(f"[ERROR] Unexpected error during server execution: {e}")
 
 
 

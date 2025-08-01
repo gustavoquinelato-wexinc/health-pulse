@@ -4,9 +4,13 @@ import DashboardGrid from '../components/DashboardGrid'
 import Header from '../components/Header'
 import Sidebar from '../components/Sidebar'
 import { useAuth } from '../contexts/AuthContext'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function HomePageBackup() {
   const { user } = useAuth()
+
+  // Set document title - for home page, just "Pulse" without page name
+  useDocumentTitle('Pulse', false)
 
   return (
     <div className="min-h-screen bg-primary">

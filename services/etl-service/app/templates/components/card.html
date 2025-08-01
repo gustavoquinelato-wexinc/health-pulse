@@ -1,0 +1,65 @@
+<!-- Modern Card Component - Matches Frontend System -->
+{% macro card(title='', subtitle='', class='', hover=true) %}
+<div class="card {{ 'hover:shadow-md hover:transform hover:translate-y-[-2px]' if hover else '' }} {{ class }}">
+    {% if title or subtitle %}
+    <div class="card-header">
+        {% if title %}
+            <h3 class="card-title">{{ title }}</h3>
+        {% endif %}
+        {% if subtitle %}
+            <p class="card-subtitle">{{ subtitle }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+    <div class="card-content">
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
+
+<!-- Job Card Specific -->
+{% macro job_card(job_name, job_data, class='') %}
+<div class="job-card {{ class }}">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold text-primary capitalize flex items-center">
+            <i class="{{ 'fab fa-atlassian text-color-4' if job_name == 'jira_sync' else 'fab fa-github text-color-1' }} mr-2"></i>
+            {{ job_name.replace('_', ' ') }}
+        </h3>
+        <span class="badge badge-{{ get_status_variant(job_data.status) }}">
+            <i class="fas fa-{{ get_status_icon(job_data.status) }} mr-1"></i>
+            {{ job_data.status }}
+        </span>
+    </div>
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+<!-- Status Badge -->
+{% macro status_badge(status, class='') %}
+<span class="badge badge-{{ get_status_variant(status) }} {{ class }}">
+    <i class="fas fa-{{ get_status_icon(status) }} mr-1"></i>
+    {{ status }}
+</span>
+{% endmacro %}
+
+<!-- Helper Functions -->
+{% set status_variants = {
+    'RUNNING': 'primary',
+    'PENDING': 'warning', 
+    'FINISHED': 'success',
+    'PAUSED': 'warning',
+    'NOT_STARTED': 'secondary',
+    'ERROR': 'error'
+} %}
+
+{% set status_icons = {
+    'RUNNING': 'spinner fa-spin',
+    'PENDING': 'clock',
+    'FINISHED': 'check-circle', 
+    'PAUSED': 'pause-circle',
+    'NOT_STARTED': 'circle',
+    'ERROR': 'exclamation-triangle'
+} %}
+
+{% macro get_status_variant(status) %}{{ status_variants.get(status, 'secondary') }}{% endmacro %}
+{% macro get_status_icon(status) %}{{ status_icons.get(status, 'circle') }}{% endmacro %}

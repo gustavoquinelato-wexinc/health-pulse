@@ -1,0 +1,932 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Pulse ETL Management - Issue Type Hierarchies{% endblock %}
+
+{% block content %}
+{% if not embedded %}
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Issue Type Hierarchies
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage issue type hierarchical relationships</p>
+        </div>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Hierarchy
+        </button>
+    </div>
+</div>
+{% else %}
+<!-- Embedded Header - Minimal -->
+<div class="mb-6">
+    <div class="flex items-center justify-end">
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Hierarchy
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Filters Section -->
+<div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Level Name Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Name</label>
+            <input type="text" id="filterLevelName" placeholder="Filter by level name..."
+                   class="w-full px-3 py-2 border rounded-lg"
+                   style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                   oninput="applyFilters()">
+        </div>
+
+        <!-- Level Number Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Number</label>
+            <select id="filterLevelNumber"
+                    class="w-full px-3 py-2 border rounded-lg"
+                    style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                    onchange="applyFilters()">
+                <option value="">All Levels</option>
+                <option value="-1">Level -1</option>
+                <option value="1">Level 1</option>
+                <option value="2">Level 2</option>
+                <option value="3">Level 3</option>
+                <option value="4">Level 4</option>
+                <option value="5">Level 5</option>
+            </select>
+        </div>
+
+        <!-- Integration Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+            <select id="filterIntegration"
+                    class="w-full px-3 py-2 border rounded-lg"
+                    style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                    onchange="applyFilters()">
+                <option value="">All Integrations</option>
+                <!-- Options will be populated dynamically from API -->
+            </select>
+        </div>
+
+        <!-- Status Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Status</label>
+            <select id="filterStatus"
+                    class="w-full px-3 py-2 border rounded-lg"
+                    style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"
+                    onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Hierarchies Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Issue Type Hierarchies</h2>
+        <button onclick="loadHierarchies()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+    
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Level Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Description</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Level</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="hierarchies-table-body" style="background-color: var(--bg-secondary);">
+                <!-- Hierarchies will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--color-2);"></i>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading hierarchies...</p>
+    </div>
+    
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden">
+        <i class="fas fa-layer-group text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Hierarchies Found</h3>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">Get started by creating your first hierarchy.</p>
+    </div>
+</div>
+
+<!-- Create/Edit Hierarchy Modal -->
+<div id="hierarchyModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h2 id="hierarchyModalTitle" class="text-xl font-semibold text-primary">Create Issue Type Hierarchy</h2>
+            <button onclick="closeModal('hierarchyModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+    <form id="hierarchyForm">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                <select id="hierarchyIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="">Select Integration</option>
+                    <!-- Options will be populated dynamically from API -->
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Name</label>
+                <input type="text" id="levelName" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" placeholder="e.g., Epic, Story, Task" required>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Number</label>
+                <select id="levelNumber" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="-1">Level -1</option>
+                    <option value="1">Level 1</option>
+                    <option value="2" selected>Level 2</option>
+                    <option value="3">Level 3</option>
+                    <option value="4">Level 4</option>
+                    <option value="5">Level 5</option>
+                </select>
+            </div>
+            <div>
+                <!-- Empty div for grid alignment -->
+            </div>
+        </div>
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Description</label>
+            <textarea id="hierarchyDescription" rows="3" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" placeholder="Optional description for this hierarchy..."></textarea>
+        </div>
+        <div class="flex items-center mb-4">
+            <input type="checkbox" id="hierarchyActive" class="mr-2" checked>
+            <label for="hierarchyActive" class="text-sm" style="color: var(--text-primary);">Active</label>
+        </div>
+        <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeModal('hierarchyModal')" class="btn-crud-cancel">
+                Cancel
+            </button>
+            <button type="submit" class="btn-crud-create">
+                <i class="fas fa-save mr-2"></i>Save Hierarchy
+            </button>
+        </div>
+    </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Hierarchy Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deleteHierarchyModal', 'Delete Issue Type Hierarchy', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to delete the hierarchy: <strong id="deleteHierarchyName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This hierarchy has dependencies. You can optionally reassign them to another hierarchy, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Hierarchy (Optional)</label>
+        <select id="deleteReassignToHierarchy" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deleteHierarchyModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeleteHierarchy()" class="btn-crud-delete">
+            <i class="fas fa-trash mr-2"></i>Delete Hierarchy
+        </button>
+    </div>
+{% endcall %}
+
+<!-- Deactivate Hierarchy Modal -->
+{% from 'components/modal.html' import modal %}
+{% call modal('deactivateHierarchyModal', 'Pause Issue Type Hierarchy', 'lg') %}
+    <div class="mb-4">
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            You are about to pause the hierarchy: <strong id="deactivateHierarchyName" style="color: var(--text-primary);"></strong>
+        </p>
+        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+            This hierarchy has dependencies. You can optionally reassign them to another hierarchy, or leave empty to keep all associated records.
+        </p>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Reassign to Hierarchy (Optional)</label>
+        <select id="reassignToHierarchy" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+            <option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>
+        </select>
+    </div>
+
+    <div class="flex justify-end space-x-3">
+        <button type="button" onclick="closeModal('deactivateHierarchyModal')" class="btn-neutral-secondary">
+            Cancel
+        </button>
+        <button type="button" onclick="confirmDeactivateHierarchy()" class="btn-crud-warning">
+            <i class="fas fa-pause mr-2"></i>Deactivate
+        </button>
+    </div>
+{% endcall %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Global variables
+    let hierarchies = [];
+    let integrations = [];
+    let currentHierarchyId = null;
+
+    // Authentication helper
+    function getAuthToken() {
+        let token = localStorage.getItem('pulse_token');
+        if (!token) {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'pulse_token') {
+                    token = value;
+                    break;
+                }
+            }
+        }
+        return token;
+    }
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        loadIntegrations();
+        loadHierarchies();
+    });
+
+    async function loadIntegrations() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/integrations', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            integrations = await response.json();
+            updateIntegrationDropdowns();
+
+        } catch (error) {
+            console.error('Error loading integrations:', error);
+            // Set default integrations if API fails
+            integrations = [
+                { id: 1, name: 'Jira', active: true },
+                { id: 2, name: 'GitHub', active: true }
+            ];
+            updateIntegrationDropdowns();
+        }
+    }
+
+    function updateIntegrationDropdowns() {
+        // Update filter dropdown
+        const filterSelect = document.getElementById('filterIntegration');
+        if (filterSelect) {
+            const currentValue = filterSelect.value;
+            filterSelect.innerHTML = '<option value="">All Integrations</option>';
+
+            integrations.filter(integration => integration.active).forEach(integration => {
+                const option = document.createElement('option');
+                option.value = integration.name.toLowerCase();
+                option.textContent = integration.name;
+                filterSelect.appendChild(option);
+            });
+
+            // Restore previous selection if it still exists
+            if (currentValue) {
+                filterSelect.value = currentValue;
+            }
+        }
+
+        // Update form dropdown
+        const formSelect = document.getElementById('hierarchyIntegration');
+        if (formSelect) {
+            const currentValue = formSelect.value;
+            formSelect.innerHTML = '<option value="">Select Integration</option>';
+
+            integrations.filter(integration => integration.active).forEach(integration => {
+                const option = document.createElement('option');
+                option.value = integration.id;
+                option.textContent = integration.name;
+                formSelect.appendChild(option);
+            });
+
+            // Restore previous selection if it still exists
+            if (currentValue) {
+                formSelect.value = currentValue;
+            }
+        }
+    }
+
+    async function loadHierarchies() {
+        try {
+            // Hide empty state and show loading
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch('/api/v1/admin/issuetype-hierarchies', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            hierarchies = data.hierarchies || [];
+
+            document.getElementById('loadingState').classList.add('hidden');
+
+            if (hierarchies.length === 0) {
+                document.getElementById('emptyState').classList.remove('hidden');
+            } else {
+                renderHierarchiesTable();
+            }
+
+        } catch (error) {
+            console.error('Error loading hierarchies:', error);
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('emptyState').classList.remove('hidden');
+
+            // Show error message
+            const emptyState = document.getElementById('emptyState');
+            emptyState.innerHTML = `
+                <i class="fas fa-exclamation-triangle text-4xl mb-4" style="color: var(--status-error);"></i>
+                <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">Error Loading Hierarchies</h3>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">${error.message}</p>
+                <button onclick="loadHierarchies()" class="btn-neutral-primary">
+                    <i class="fas fa-refresh mr-2"></i>Retry
+                </button>
+            `;
+            emptyState.classList.remove('hidden');
+        }
+    }
+
+    function renderHierarchiesTable(filteredHierarchies = null) {
+        const tableBody = document.getElementById('hierarchies-table-body');
+        tableBody.innerHTML = '';
+
+        const dataToRender = filteredHierarchies || hierarchies;
+
+        dataToRender.forEach(hierarchy => {
+            const row = document.createElement('tr');
+            row.className = 'border-b';
+            row.style.borderColor = 'var(--border-color)';
+
+            // Add darker background for inactive items
+            if (!hierarchy.active) {
+                row.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
+                row.style.opacity = '0.7';
+                row.classList.add('inactive-row');
+            }
+
+            const statusBadge = hierarchy.active ?
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--status-success); color: white;">Active</span>' :
+                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
+
+            // Create integration icon based on integration name
+            let integrationIcon = '<i class="fas fa-question-circle" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+
+            if (hierarchy.integration_name) {
+                const integrationName = hierarchy.integration_name.toLowerCase();
+
+                if (integrationName.includes('jira')) {
+                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                } else if (integrationName.includes('github')) {
+                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                } else if (integrationName.includes('aha')) {
+                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                } else if (integrationName.includes('azure') || integrationName.includes('devops')) {
+                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
+                }
+            }
+
+            const deactivateButton = hierarchy.active ?
+                `<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
+                    <i class="fas fa-pause"></i>
+                </button>` :
+                `<button onclick="activateHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
+                    <i class="fas fa-play"></i>
+                </button>`;
+
+            const textColorPrimary = hierarchy.active ? 'var(--text-primary)' : 'var(--text-muted)';
+            const textColorSecondary = hierarchy.active ? 'var(--text-secondary)' : 'var(--text-muted)';
+
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: ${textColorPrimary};">
+                    ${hierarchy.level_name}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: ${textColorSecondary};">
+                    ${hierarchy.description || 'No description'}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: ${textColorPrimary};">
+                    Level ${hierarchy.level_number}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    ${integrationIcon}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    ${statusBadge}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    <div class="flex items-center justify-center space-x-1">
+                        <button onclick="editHierarchy(${hierarchy.id})" class="btn-crud-edit-sm" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ${deactivateButton}
+                        <button onclick="deleteHierarchy(${hierarchy.id})" class="btn-crud-delete-sm" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            tableBody.appendChild(row);
+        });
+    }
+
+    function applyFilters() {
+        const levelNameFilter = document.getElementById('filterLevelName').value.toLowerCase();
+        const levelNumberFilter = document.getElementById('filterLevelNumber').value;
+        const integrationFilter = document.getElementById('filterIntegration').value.toLowerCase();
+        const statusFilter = document.getElementById('filterStatus').value;
+
+        const filteredHierarchies = hierarchies.filter(hierarchy => {
+            // Level Name filter
+            if (levelNameFilter && !hierarchy.level_name.toLowerCase().includes(levelNameFilter)) {
+                return false;
+            }
+
+            // Level Number filter
+            if (levelNumberFilter && hierarchy.level_number.toString() !== levelNumberFilter) {
+                return false;
+            }
+
+            // Integration filter
+            if (integrationFilter && hierarchy.integration_name &&
+                !hierarchy.integration_name.toLowerCase().includes(integrationFilter)) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter) {
+                const isActive = hierarchy.active;
+                if (statusFilter === 'active' && !isActive) return false;
+                if (statusFilter === 'inactive' && isActive) return false;
+            }
+
+            return true;
+        });
+
+        renderHierarchiesTable(filteredHierarchies);
+    }
+
+    function showCreateModal() {
+        document.getElementById('hierarchyForm').reset();
+        document.getElementById('hierarchyActive').checked = true;
+        currentHierarchyId = null;
+        // Set modal title for create mode
+        document.getElementById('hierarchyModalTitle').textContent = 'Create Issue Type Hierarchy';
+        openModal('hierarchyModal');
+    }
+
+    function editHierarchy(id) {
+        // Find hierarchy and populate form
+        const hierarchy = hierarchies.find(h => h.id === id);
+        if (!hierarchy) return;
+
+        // Set modal title for edit mode
+        document.getElementById('hierarchyModalTitle').textContent = 'Edit Issue Type Hierarchy';
+
+        document.getElementById('hierarchyIntegration').value = hierarchy.integration_id || '';
+        document.getElementById('levelName').value = hierarchy.level_name || '';
+        document.getElementById('levelNumber').value = hierarchy.level_number || '';
+        document.getElementById('hierarchyDescription').value = hierarchy.description || '';
+        document.getElementById('hierarchyActive').checked = hierarchy.active;
+
+        currentHierarchyId = id;
+        openModal('hierarchyModal');
+    }
+
+    async function deleteHierarchy(id) {
+        currentHierarchyId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Find the hierarchy name for display
+            const hierarchy = hierarchies.find(h => h.id === id);
+            const hierarchyName = hierarchy ? hierarchy.level_name : 'Unknown Hierarchy';
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, delete directly
+            if (!dependencies.has_dependencies) {
+                await deleteHierarchyDirectly(id, hierarchyName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deleteHierarchyName').textContent = hierarchyName;
+
+            // Populate reassignment dropdown with other active hierarchies
+            const reassignSelect = document.getElementById('deleteReassignToHierarchy');
+            reassignSelect.innerHTML = '<option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>';
+
+            hierarchies.filter(h => h.id !== id && h.active).forEach(hierarchy => {
+                const option = document.createElement('option');
+                option.value = hierarchy.id;
+                option.textContent = `${hierarchy.level_name} (Level ${hierarchy.level_number})`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deleteHierarchyModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
+    }
+
+    async function deleteHierarchyDirectly(id, hierarchyName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Hierarchy deleted successfully', 'success');
+            loadHierarchies();
+
+        } catch (error) {
+            console.error('Error deleting hierarchy:', error);
+            showNotification(`Error deleting hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+    async function showPauseModal(id, levelName) {
+        currentHierarchyId = id;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Check for dependencies first
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}/dependencies`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const dependencies = await response.json();
+
+            // If no dependencies, deactivate directly
+            if (!dependencies.has_dependencies) {
+                await deactivateHierarchyDirectly(id, levelName);
+                return;
+            }
+
+            // Show modal for reassignment if there are dependencies
+            document.getElementById('deactivateHierarchyName').textContent = levelName;
+
+            // Populate reassignment dropdown with other active hierarchies
+            const reassignSelect = document.getElementById('reassignToHierarchy');
+            reassignSelect.innerHTML = '<option value="">Select a hierarchy to reassign items to (or leave empty to keep all)</option>';
+
+            hierarchies.filter(h => h.id !== id && h.active).forEach(hierarchy => {
+                const option = document.createElement('option');
+                option.value = hierarchy.id;
+                option.textContent = `${hierarchy.level_name} (Level ${hierarchy.level_number})`;
+                reassignSelect.appendChild(option);
+            });
+
+            openModal('deactivateHierarchyModal');
+
+        } catch (error) {
+            console.error('Error checking dependencies:', error);
+            showNotification(`Error checking dependencies: ${error.message}`, 'error');
+        }
+    }
+
+    async function deactivateHierarchyDirectly(id, levelName) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: 'keep_mappings'
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            loadHierarchies();
+            showNotification(`Hierarchy "${levelName}" deactivated successfully!`, 'success');
+
+        } catch (error) {
+            console.error('Error deactivating hierarchy:', error);
+            showNotification(`Error deactivating hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeactivateHierarchy() {
+        if (!currentHierarchyId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('reassignToHierarchy').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_mappings' : 'keep_mappings'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.reassign_to_hierarchy_id = parseInt(reassignToId);
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            closeModal('deactivateHierarchyModal');
+            loadHierarchies();
+            showNotification('Hierarchy deactivated successfully!', 'success');
+
+        } catch (error) {
+            console.error('Error deactivating hierarchy:', error);
+            showNotification(`Error deactivating hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+    async function activateHierarchy(id) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`/api/v1/admin/issuetype-hierarchies/${id}/activate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            loadHierarchies();
+            showNotification('Hierarchy activated successfully!', 'success');
+
+        } catch (error) {
+            console.error('Error activating hierarchy:', error);
+            showNotification(`Error activating hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+    async function confirmDeleteHierarchy() {
+        if (!currentHierarchyId) return;
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const reassignToId = document.getElementById('deleteReassignToHierarchy').value;
+            const requestBody = {
+                action: reassignToId ? 'reassign_mappings' : 'keep_mappings'
+            };
+
+            // Add reassignment target if selected
+            if (reassignToId) {
+                requestBody.reassign_to_hierarchy_id = parseInt(reassignToId);
+            }
+
+            // First deactivate with reassignment if needed
+            const deactivateResponse = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!deactivateResponse.ok) {
+                const errorData = await deactivateResponse.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${deactivateResponse.status}: ${deactivateResponse.statusText}`);
+            }
+
+            // Now delete the hierarchy
+            const deleteResponse = await fetch(`/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!deleteResponse.ok) {
+                const errorData = await deleteResponse.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${deleteResponse.status}: ${deleteResponse.statusText}`);
+            }
+
+            showNotification('Hierarchy deleted successfully', 'success');
+            closeModal('deleteHierarchyModal');
+            loadHierarchies();
+
+        } catch (error) {
+            console.error('Error deleting hierarchy:', error);
+            showNotification(`Error deleting hierarchy: ${error.message}`, 'error');
+        }
+    }
+
+
+
+    // Simple notification function
+    function showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 transition-all duration-300`;
+        notification.style.backgroundColor = type === 'success' ? 'var(--status-success)' :
+                                           type === 'error' ? 'var(--status-error)' :
+                                           'var(--color-1)';
+        notification.textContent = message;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
+    }
+
+    // Form submission
+    document.getElementById('hierarchyForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const formData = {
+            level_name: document.getElementById('levelName').value,
+            level_number: parseInt(document.getElementById('levelNumber').value),
+            description: document.getElementById('hierarchyDescription').value,
+            integration_id: parseInt(document.getElementById('hierarchyIntegration').value)
+        };
+
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const url = currentHierarchyId ?
+                `/api/v1/admin/issuetype-hierarchies/${currentHierarchyId}` :
+                '/api/v1/admin/issuetype-hierarchies';
+
+            const method = currentHierarchyId ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            console.log('Hierarchy saved successfully:', result);
+
+            closeModal('hierarchyModal');
+            loadHierarchies();
+
+            // Show success message
+            const message = currentHierarchyId ? 'Hierarchy updated successfully!' : 'Hierarchy created successfully!';
+            showNotification(message, 'success');
+
+        } catch (error) {
+            console.error('Error saving hierarchy:', error);
+            showNotification(`Error saving hierarchy: ${error.message}`, 'error');
+        }
+    });
+
+    function clearFilters() {
+        // Clear all filter inputs
+        document.getElementById('filterLevelName').value = '';
+        document.getElementById('filterLevelNumber').value = '';
+        document.getElementById('filterIntegration').value = '';
+        document.getElementById('filterStatus').value = '';
+
+        // Re-render table with all hierarchies
+        renderHierarchiesTable();
+    }
+</script>
+{% endblock %}

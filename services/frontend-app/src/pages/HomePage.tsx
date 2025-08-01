@@ -2,9 +2,13 @@ import { motion } from 'framer-motion'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
 import { useAuth } from '../contexts/AuthContext'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function HomePage() {
   const { user: _user } = useAuth()
+
+  // Set document title - for home page, just "Pulse" without page name
+  useDocumentTitle('Pulse', false)
 
   return (
     <div className="min-h-screen bg-primary">

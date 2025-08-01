@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+import signal
 import uvicorn
 
 try:
@@ -32,6 +33,7 @@ from app.core.middleware import (
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.data import router as data_router
+from app.api.home import router as home_router
 
 from app.api.logs import router as logs_router
 from app.api.debug import router as debug_router
@@ -70,6 +72,9 @@ settings = get_settings()
 # Scheduler global
 scheduler = AsyncIOScheduler() if SCHEDULER_AVAILABLE else None
 
+# Global shutdown flag to prevent multiple cleanup attempts
+_shutdown_initiated = False
+
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """Middleware to handle authentication checks before route processing."""
@@ -82,7 +87,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
     # Routes that should redirect to login if not authenticated
     PROTECTED_WEB_ROUTES = {
-        "/dashboard", "/admin"
+        "/home", "/admin"
     }
 
     # Route prefixes that should be treated as protected web routes
@@ -111,6 +116,9 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         auth_result = await self.check_authentication_detailed(request)
 
         if not auth_result["authenticated"]:
+            # Check if this is an embedded request
+            is_embedded = request.query_params.get("embedded") == "true"
+
             # Determine redirect reason
             is_protected_route = (
                 path in self.PROTECTED_WEB_ROUTES or
@@ -119,16 +127,54 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
             if is_protected_route:
                 logger.debug(f"Redirecting protected route {path} to login (auth required)")
-                return RedirectResponse(url="/login?error=authentication_required", status_code=302)
+                # Preserve embedded parameter in redirect
+                login_url = "/login?error=authentication_required"
+                if is_embedded:
+                    login_url += "&embedded=true"
+                return RedirectResponse(url=login_url, status_code=302)
             else:
-                # For unknown/404 routes, redirect with page_not_found error
-                logger.debug(f"Redirecting unknown route {path} to login (page not found)")
-                return RedirectResponse(url="/login?error=page_not_found", status_code=302)
+                # For unknown/404 routes, let FastAPI handle it (will trigger 404 handler)
+                logger.debug(f"Unknown route {path} - letting FastAPI handle 404")
+                # Continue to next middleware/handler
+                response = await call_next(request)
+                return response
 
-        # User is authenticated, check if they have permission for admin routes
-        if path.startswith("/admin") and not auth_result["user_data"].get("is_admin", False):
-            logger.debug(f"User lacks admin permission for {path}, redirecting to dashboard")
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=admin_panel", status_code=302)
+        # User is authenticated, check if they have admin permission for ETL service
+        # ETL service is admin-only (home and admin routes)
+        if (path.startswith("/home") or path.startswith("/admin")) and not auth_result["user_data"].get("is_admin", False):
+            logger.debug(f"User lacks admin permission for ETL service {path}")
+            # Check if this is an embedded request
+            is_embedded = request.query_params.get("embedded") == "true"
+            if is_embedded:
+                # For embedded requests, show access denied page
+                from fastapi.responses import HTMLResponse
+                access_denied_html = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Access Denied</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
+                        .container { max-width: 400px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                        .icon { font-size: 48px; margin-bottom: 20px; }
+                        h1 { color: #dc3545; margin-bottom: 10px; }
+                        p { color: #6c757d; margin-bottom: 20px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="icon">🔒</div>
+                        <h1>Access Denied</h1>
+                        <p>ETL Management requires administrator privileges.</p>
+                        <p>Please contact your system administrator for access.</p>
+                    </div>
+                </body>
+                </html>
+                """
+                return HTMLResponse(content=access_denied_html, status_code=403)
+            else:
+                # For direct access, redirect to login with error
+                return RedirectResponse(url="/login?error=permission_denied&resource=etl_management", status_code=302)
 
         # User is authenticated, proceed with request
         return await call_next(request)
@@ -151,6 +197,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 auth_header = request.headers.get("Authorization")
                 if auth_header and auth_header.startswith("Bearer "):
                     token = auth_header.split(" ")[1]
+
+            if not token:
+                # Try URL parameter (for portal embedding)
+                token = request.query_params.get("token")
 
             if not token:
                 logger.debug(f"No token found for path: {request.url.path}")
@@ -177,7 +227,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
     logger.info("Starting ETL Service...")
-    
+
     try:
         # Initialize database connection
         database_initialized = await initialize_database()
@@ -196,21 +246,52 @@ async def lifespan(_: FastAPI):
         logger.info("ETL Service started successfully")
         yield
 
+    except asyncio.CancelledError:
+        logger.info("Application startup cancelled")
+        yield
     except Exception as e:
         logger.error(f"Failed to start ETL Service: {e}")
         # Don't raise the exception to allow the service to start even if database is not available
         logger.warning("Service started with limited functionality - database connection failed")
         yield
     finally:
-        # Cleanup
-        logger.info("Shutting down ETL Service...")
-        if scheduler and scheduler.running:
-            scheduler.shutdown()
-        
-        database = get_database()
-        database.close_connections()
-        
-        logger.info("ETL Service shutdown complete")
+        # Cleanup - suppress all exceptions during shutdown
+        global _shutdown_initiated
+
+        # Prevent multiple cleanup attempts
+        if _shutdown_initiated:
+            return
+
+        _shutdown_initiated = True
+
+        try:
+            # Use print to avoid reentrant logging issues during shutdown
+            print("[INFO] Shutting down ETL Service...")
+
+            # Shutdown scheduler
+            try:
+                if scheduler and scheduler.running:
+                    print("[INFO] Shutting down scheduler...")
+                    scheduler.shutdown(wait=False)
+                    print("[INFO] Scheduler shutdown complete")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle scheduler shutdown errors
+                pass
+
+            # Close database connections
+            try:
+                database = get_database()
+                database.close_connections()
+                print("[INFO] Database connections closed")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle database cleanup errors
+                pass
+
+            print("[INFO] ETL Service shutdown complete")
+
+        except (Exception, asyncio.CancelledError):
+            # Silently suppress all exceptions during shutdown
+            pass
 
 
 # Create FastAPI application
@@ -305,6 +386,7 @@ app.add_middleware(HealthCheckMiddleware)
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(jobs_router, prefix="/api/v1", tags=["Jobs"])
 app.include_router(data_router, prefix="/api/v1", tags=["Data"])
+app.include_router(home_router, tags=["Home"])
 app.include_router(logs_router, prefix="/api/v1", tags=["Logs"])
 app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
 app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
@@ -370,7 +452,7 @@ async def custom_docs(request: Request):
 
         # Check admin permission
         if not user_data.get('is_admin') and user_data.get('role') != 'admin':
-            return RedirectResponse(url="/dashboard?error=permission_denied&resource=docs", status_code=302)
+            return RedirectResponse(url="/home?error=permission_denied&resource=docs", status_code=302)
 
         # If admin, redirect to the actual docs
         from fastapi.openapi.docs import get_swagger_ui_html
@@ -556,23 +638,38 @@ async def initialize_scheduler():
         # Set timezone
         scheduler.configure(timezone=settings.SCHEDULER_TIMEZONE)
 
-        # Get orchestrator interval from database
-        interval_minutes = get_orchestrator_interval()
-        orchestrator_enabled = is_orchestrator_enabled()
+        # 🎯 SIMPLE CLIENT-SPECIFIC ORCHESTRATOR (Multi-Instance Approach)
+        # This ETL instance serves only one client (defined by CLIENT_NAME env var)
+        client_name = settings.CLIENT_NAME
 
-        if orchestrator_enabled:
-            # Add orchestrator job with database-configured interval
+        # Get client ID from name (case-insensitive lookup)
+        try:
+            from app.core.config import get_client_id_from_name
+            client_id = get_client_id_from_name(client_name)
+            logger.info(f"🎯 ETL Instance configured for: {client_name} (ID: {client_id})")
+        except Exception as e:
+            logger.error(f"❌ Client configuration error: {e}")
+            logger.error("This ETL instance cannot start without a valid active client")
+            raise Exception(f"Invalid client configuration: CLIENT_NAME='{client_name}'")
+
+        # Get orchestrator settings for this client
+        interval_minutes = get_orchestrator_interval(client_id)
+        enabled = is_orchestrator_enabled(client_id)
+
+        if enabled:
+            # Simple single-client orchestrator (back to original simplicity!)
             scheduler.add_job(
-                func=scheduled_orchestrator,
+                func=simple_orchestrator,
                 trigger=IntervalTrigger(minutes=interval_minutes),
                 id="etl_orchestrator",
-                name="ETL Job Orchestrator",
-                replace_existing=True,
-                max_instances=1  # Prevents simultaneous executions
+                name=f"ETL Orchestrator - {client_name}",
+                max_instances=1,
+                coalesce=True,
+                replace_existing=True
             )
-            logger.info(f"ETL Orchestrator scheduled to run every {interval_minutes} minutes")
+            logger.info(f"✅ Started orchestrator for {client_name} (interval: {interval_minutes}min)")
         else:
-            logger.info("ETL Orchestrator is disabled in settings")
+            logger.info(f"⏸️ Orchestrator disabled for {client_name}")
 
         # Note: Individual jobs (Jira, GitHub) are NOT scheduled independently
         # They are only triggered by the orchestrator or manual Force Start
@@ -601,13 +698,30 @@ async def initialize_scheduler():
         logger.warning("Continuing without scheduler - jobs can still be triggered manually")
 
 
-async def scheduled_orchestrator():
-    """Scheduled orchestrator that checks for PENDING jobs every minute."""
+async def simple_orchestrator():
+    """
+    Simple orchestrator for this ETL instance's client.
+    Back to original simplicity - no multi-client complexity!
+    """
     try:
-        from app.jobs.orchestrator import run_orchestrator
-        await run_orchestrator()
+        settings = get_settings()
+        client_name = settings.CLIENT_NAME
+
+        # Get client ID from name
+        from app.core.config import get_current_client_id
+        client_id = get_current_client_id()
+
+        logger.info(f"🚀 Starting orchestrator for {client_name} (ID: {client_id})")
+
+        from app.jobs.orchestrator import run_orchestrator_for_client
+        await run_orchestrator_for_client(client_id)
+
+        logger.info(f"✅ Completed orchestrator run for {client_name}")
+
     except Exception as e:
-        logger.error(f"Scheduled orchestrator error: {e}")
+        logger.error(f"❌ Orchestrator error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
 
 
 # Note: scheduled_jira_job function removed - jobs are only triggered by orchestrator or manual Force Start
@@ -618,10 +732,14 @@ def get_scheduler():
     return scheduler
 
 
+# 🎯 REMOVED: Complex client management functions no longer needed
+# Each ETL instance manages only one client, so no dynamic client management required
+
+
 async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = True):
     """
-    Updates the orchestrator schedule dynamically without restarting the server.
-    Preserves fast retry timing if currently active.
+    Updates orchestrator schedule for this ETL instance's client.
+    Much simpler now - only manages one client!
 
     Args:
         interval_minutes: New interval in minutes
@@ -632,49 +750,42 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
         return False
 
     try:
+        settings = get_settings()
+        client_name = settings.CLIENT_NAME
+
+        # Get client ID from name
+        from app.core.config import get_current_client_id
+        client_id = get_current_client_id()
+
         from app.core.settings_manager import set_orchestrator_interval, set_orchestrator_enabled
-        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 
-        # Update database settings first
-        set_orchestrator_interval(interval_minutes)
-        set_orchestrator_enabled(enabled)
+        # Update database settings for this client
+        set_orchestrator_interval(interval_minutes, client_id)
+        set_orchestrator_enabled(enabled, client_id)
 
-        # Check if we should apply the new interval immediately
-        orchestrator_scheduler = get_orchestrator_scheduler()
-        should_apply = orchestrator_scheduler.should_apply_new_interval(interval_minutes, is_retry_setting=False)
+        logger.info(f"Updating orchestrator for {client_name}: interval={interval_minutes}min, enabled={enabled}")
 
-        if not should_apply:
-            current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
-            logger.info(f"Preserving current schedule - new interval ({interval_minutes} minutes) is larger than current countdown ({current_countdown:.1f} minutes)")
-            logger.info(f"New interval will apply after current schedule completes")
-            return True
-
-        # Get current countdown before removing the job (for logging)
-        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
-
-        # Remove existing orchestrator job if it exists
+        # Remove existing orchestrator job
         try:
-            scheduler.remove_job('etl_orchestrator')
-            logger.info("Removed existing orchestrator job")
+            scheduler.remove_job("etl_orchestrator")
+            logger.debug("Removed existing orchestrator job")
         except:
             pass  # Job might not exist
 
+        # Add new job if enabled
         if enabled:
-            # Add new orchestrator job with updated interval
             scheduler.add_job(
-                func=scheduled_orchestrator,
+                func=simple_orchestrator,
                 trigger=IntervalTrigger(minutes=interval_minutes),
                 id="etl_orchestrator",
-                name="ETL Job Orchestrator",
-                replace_existing=True,
-                max_instances=1
+                name=f"ETL Orchestrator - {client_name}",
+                max_instances=1,
+                coalesce=True,
+                replace_existing=True
             )
-            if current_countdown:
-                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes (applied immediately - was {current_countdown:.1f}min, now {interval_minutes}min)")
-            else:
-                logger.info(f"Orchestrator schedule updated to run every {interval_minutes} minutes")
+            logger.info(f"✅ Updated orchestrator for {client_name} to run every {interval_minutes} minutes")
         else:
-            logger.info("Orchestrator disabled")
+            logger.info(f"⏸️ Disabled orchestrator for {client_name}")
 
         return True
 
@@ -818,14 +929,20 @@ async def debug_jwt_info():
 
 
 if __name__ == "__main__":
-    # Configuration for direct execution
-    uvicorn.run(
-        "app.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    )
+    # Configuration for direct execution - let uvicorn handle signals
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=settings.DEBUG,
+            log_level=settings.LOG_LEVEL.lower()
+        )
+    except KeyboardInterrupt:
+        # This is expected during Ctrl+C - don't log it as an error
+        pass
+    except Exception as e:
+        print(f"[ERROR] Unexpected error during server execution: {e}")
 
 
 

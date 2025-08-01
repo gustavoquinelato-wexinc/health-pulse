@@ -225,8 +225,10 @@ def setup_logging(force_reconfigure=False):
             # Remove ANSI escape sequences
             return self.ansi_escape.sub('', formatted)
 
-    # Add the clean file handler
-    file_handler = AnsiCleaningFileHandler("logs/etl_service.log")
+    # Add client-specific file handler
+    client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
+    log_filename = f"logs/etl_service_{client_name}.log"
+    file_handler = AnsiCleaningFileHandler(log_filename)
     file_handler.setLevel(logging.INFO)
 
     # Create a clean formatter

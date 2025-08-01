@@ -77,6 +77,9 @@ class CentralizedAuthService:
         logger.info(f"🔗 Centralized Auth Service initialized with Backend URL: {self.backend_service_url}")
         logger.info("🚀 Token caching enabled (5-minute TTL)")
 
+        # Test connectivity on initialization
+        logger.info(f"Testing connectivity to backend service at: {self.backend_service_url}")
+
     def _hash_token(self, token: str) -> str:
         """Create a hash of the token for cache key."""
         import hashlib
@@ -93,6 +96,7 @@ class CentralizedAuthService:
             User data if token is valid, None if invalid
         """
         try:
+
             # Check cache first
             token_hash = self._hash_token(token)
             cached_data = await self.cache.get(token_hash)
@@ -100,14 +104,24 @@ class CentralizedAuthService:
                 return cached_data
 
             # Cache miss - call backend service
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            logger.debug(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+
+            # Create client with explicit configuration for local connections
+            client_config = {
+                "timeout": self.timeout,
+                "verify": False,  # Disable SSL verification for local connections
+                "follow_redirects": True
+            }
+
+            async with httpx.AsyncClient(**client_config) as client:
                 response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/validate-service",
+                    f"{self.backend_service_url}/api/v1/auth/validate",
                     headers={"Authorization": f"Bearer {token}"}
                 )
 
                 if response.status_code == 200:
                     data = response.json()
+                    logger.debug(f"Backend service response: {data}")
                     if data.get("valid") and data.get("user"):
                         user_data = data["user"]
                         # Cache the successful validation
@@ -115,7 +129,7 @@ class CentralizedAuthService:
                         logger.debug(f"Token validation successful for user: {user_data['email']}")
                         return user_data
                     else:
-                        logger.warning("Invalid response format from backend service")
+                        logger.warning(f"Invalid response format from backend service. Response: {data}")
                         return None
                 elif response.status_code == 401:
                     logger.debug("Token validation failed: unauthorized")
@@ -125,13 +139,19 @@ class CentralizedAuthService:
                     return None
 
         except httpx.TimeoutException:
-            logger.error("Timeout while validating token with backend service")
+            logger.error(f"Timeout while validating token with backend service at {self.backend_service_url}")
             return None
         except httpx.RequestError as e:
             logger.error(f"Request error while validating token: {e}")
+            logger.error(f"Backend service URL: {self.backend_service_url}")
+            logger.error(f"Full URL attempted: {self.backend_service_url}/api/v1/auth/validate")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error during token validation: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
     
     async def validate_user_permissions(self, user_data: Dict[str, Any], required_role: str = None) -> bool:
@@ -169,6 +189,72 @@ class CentralizedAuthService:
         except Exception as e:
             logger.error(f"Error validating user permissions: {e}")
             return False
+
+    async def create_navigation_session(self, token: str, user_data: Dict[str, Any]) -> bool:
+        """
+        Create a proper session in the backend service for navigation.
+        This ensures the user has a valid session for subsequent ETL requests.
+        """
+        try:
+            client_config = {
+                "timeout": httpx.Timeout(30.0),
+                "verify": False  # For development with self-signed certs
+            }
+
+            async with httpx.AsyncClient(**client_config) as client:
+                # Call backend service to create/refresh session
+                response = await client.post(
+                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"user_data": user_data}
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"Navigation session created successfully for user: {user_data.get('email')}")
+                    return True
+                else:
+                    logger.warning(f"Failed to create navigation session: {response.status_code}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error creating navigation session: {e}")
+            return False
+
+    async def ensure_session_exists(self, token: str, user_data: Dict[str, Any]) -> bool:
+        """
+        Ensure a session exists for the given token and user.
+        Delegates to Backend Service for session management.
+        """
+        try:
+            # Use the Backend Service to create/refresh the session
+            # This is the proper way - ETL service should not manage sessions directly
+
+            client_config = {
+                'timeout': httpx.Timeout(30.0),
+                'verify': False  # For development - set to True in production
+            }
+
+            async with httpx.AsyncClient(**client_config) as client:
+                # Call backend service to create/refresh session
+                response = await client.post(
+                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"user_data": user_data}
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"Navigation session ensured via Backend Service for user: {user_data.get('email')}")
+                    return True
+                else:
+                    logger.warning(f"Failed to ensure session via Backend Service: {response.status_code}")
+                    # Don't fail the navigation if session creation fails
+                    # The token is still valid, just no database session
+                    return True
+
+        except Exception as e:
+            logger.error(f"Error ensuring session exists: {e}")
+            # Don't fail the navigation if session creation fails
+            return True
 
     async def invalidate_session(self, token: str) -> bool:
         """Invalidate a session by calling the Backend Service and clearing cache"""

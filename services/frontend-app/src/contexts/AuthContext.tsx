@@ -1,11 +1,27 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import clientLogger from '../utils/clientLogger'
+
+interface ColorSchema {
+  color1: string
+  color2: string
+  color3: string
+  color4: string
+  color5: string
+}
+
+interface ColorSchemaData {
+  mode: 'default' | 'custom'
+  colors: ColorSchema
+}
 
 interface User {
   id: string
   email: string
   role: string
   name?: string
+  client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
+  colorSchemaData?: ColorSchemaData
 }
 
 interface AuthContextType {
@@ -14,6 +30,7 @@ interface AuthContextType {
   logout: () => void
   isLoading: boolean
   isAuthenticated: boolean
+  isAdmin: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -31,9 +48,53 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [colorSchemaLoaded, setColorSchemaLoaded] = useState(false)
+
+  // Load color schema from API (with caching)
+  const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
+    if (colorSchemaLoaded) {
+      console.log('AuthContext: Color schema already loaded, skipping...')
+      return null
+    }
+
+    try {
+      const response = await axios.get('/api/v1/admin/color-schema')
+      if (response.data.success) {
+        setColorSchemaLoaded(true)
+        return {
+          mode: response.data.mode,
+          colors: response.data.colors
+        }
+      }
+    } catch (error) {
+      console.error('AuthContext: Failed to load color schema:', error)
+    }
+    return null
+  }
 
   // Check for existing token on app start
   useEffect(() => {
+    // First check for token in URL parameters (from ETL service)
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlToken = urlParams.get('token')
+
+    if (urlToken) {
+      // Store token from URL parameter
+      localStorage.setItem('pulse_token', urlToken)
+      // Clean up URL by removing token parameter
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('token')
+      window.history.replaceState({}, document.title, newUrl.toString())
+
+      // Set axios default header
+      axios.defaults.headers.common['Authorization'] = `Bearer ${urlToken}`
+
+      // Validate the token from URL
+      validateToken()
+      return
+    }
+
+    // Check localStorage for existing token
     const token = localStorage.getItem('pulse_token')
     if (token) {
       // Set axios default header
@@ -49,7 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const validateToken = async () => {
     try {
       // Make API call to validate token with backend
-      const response = await axios.get('/api/v1/auth/validate')
+      const response = await axios.post('/auth/validate')
 
       if (response.data.valid && response.data.user) {
         const { user } = response.data
@@ -61,10 +122,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
-          role: user.role
+          role: user.role,
+          client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
+          colorSchemaData: undefined  // Will be loaded separately
         }
 
         setUser(formattedUser)
+
+        // Load color schema after user is set (non-blocking)
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          }
+        }).catch(error => {
+          console.warn('Failed to load color schema during validation:', error)
+        })
       } else {
         // Invalid response format, clear token
         localStorage.removeItem('pulse_token')
@@ -105,11 +177,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
-          role: user.role
+          role: user.role,
+          client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
+          colorSchemaData: undefined  // Will be loaded separately after login
         }
 
-        // Set user data
+        // Set user data first
         setUser(formattedUser)
+
+        // Load color schema after user is set (non-blocking)
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          }
+        }).catch(error => {
+          console.warn('Failed to load color schema after login:', error)
+        })
 
         return true
       } else {
@@ -117,7 +200,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return false
       }
     } catch (error) {
-      console.error('Login failed:', error)
+      clientLogger.error('Login failed', {
+        type: 'authentication_error',
+        error: error instanceof Error ? error.message : String(error)
+      })
       // Clear any stored data on error
       localStorage.removeItem('pulse_token')
       delete axios.defaults.headers.common['Authorization']
@@ -147,6 +233,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       localStorage.removeItem('pulse_token')
       delete axios.defaults.headers.common['Authorization']
       setUser(null)
+      setColorSchemaLoaded(false) // Reset color schema cache
     }
   }
 
@@ -155,7 +242,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     logout,
     isLoading,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    isAdmin: !!user && user.role === 'admin'
   }
 
   return (

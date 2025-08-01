@@ -1,15 +1,21 @@
 import { motion } from 'framer-motion'
-import Header from '../components/Header'
+import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
+import Header from '../components/Header'
+import useDocumentTitle from '../hooks/useDocumentTitle'
 
 export default function ChangeFailureRatePage() {
+  const navigate = useNavigate()
+
+  // Set document title
+  useDocumentTitle('Change Failure Rate')
   return (
     <div className="min-h-screen bg-primary">
       <Header />
-      
+
       <div className="flex">
         <CollapsedSidebar />
-        
+
         <main className="flex-1 p-6 ml-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -18,6 +24,14 @@ export default function ChangeFailureRatePage() {
             className="space-y-6"
           >
             <div className="space-y-2">
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => navigate('/dora')}
+                  className="text-secondary hover:text-primary transition-colors"
+                >
+                  ← Back to DORA Metrics
+                </button>
+              </div>
               <h1 className="text-3xl font-bold text-primary">
                 Change Failure Rate
               </h1>

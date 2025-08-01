@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
+from app.models.unified_models import PullRequest
 
 logger = get_logger(__name__)
 

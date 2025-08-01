@@ -11,14 +11,14 @@ This directory contains domain-specific guidance documents for AI assistants wor
 - **Inter-Service Communication**: API patterns, service boundaries
 - **Security**: RBAC, permissions, data protection
 - **Configuration Management**: Environment variables, settings
-- **Logging & Monitoring**: Centralized logging, error handling
+- **Logging & Monitoring**: ✅ **UPDATED** - Client-specific logging, error handling
 
 ### ⚙️ [ETL Service Guide](./02_etl_service_guide.md)
 **Scope**: ETL Service specific functionality and patterns
 - **Job Orchestration**: Scheduler, job management, recovery patterns
 - **Data Processing**: Jira/Git data extraction, transformation, loading
 - **Integration Management**: External API connections, rate limiting
-- **Dashboard & Analytics**: Metrics calculation, real-time updates
+- **Home & Analytics**: Metrics calculation, real-time updates
 - **WebSocket Management**: Real-time communication patterns
 - **Flow Management**: Status mappings, workflow configurations
 
@@ -62,6 +62,21 @@ These documents should be updated whenever:
 - Authentication/authorization patterns evolve
 - Database schema patterns change
 - Frontend standards are updated
+
+## 🎯 Usage Guidelines
+
+### **When to Use Each Guide**
+- **Starting new work**: Always begin with Cross-Domain Guide for platform patterns
+- **Service-specific tasks**: Use the relevant service guide for detailed implementation
+- **Cross-service features**: Reference multiple guides and update Cross-Domain patterns
+- **Architecture decisions**: Cross-Domain Guide provides the foundation
+
+### **Recent Updates (2025-07-30)**
+- ✅ **Client-Specific Logging**: Complete implementation across all services
+- ✅ **Port Corrections**: Frontend runs on port 3000, Backend on port 3002 (not 3001)
+- ✅ **Route Updates**: ETL service uses `/home` (not `/dashboard`)
+- ✅ **Job Status Accuracy**: Correct enum values (NOT_STARTED, ERROR, etc.)
+- ✅ **Authentication Clarity**: All ETL functionality requires admin credentials
 
 ## 📚 Related Documentation
 

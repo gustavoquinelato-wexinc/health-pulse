@@ -388,7 +388,7 @@ class GitHubClient:
         return result
 
     def search_repositories_combined(self, org: str, start_date: str, end_date: str,
-                                   health_filter: str = None, additional_repo_names: List[str] = None) -> List[Dict[str, Any]]:
+                                   filter: str = None, additional_repo_names: List[str] = None) -> List[Dict[str, Any]]:
         """
         Search repositories using GitHub Search API with combined patterns.
         Uses OR operators to combine health- filter with specific repo names.
@@ -398,7 +398,7 @@ class GitHubClient:
             org: Organization name (e.g., 'wexinc')
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
-            health_filter: Health pattern filter (e.g., 'health-')
+            filter: Pattern filter (e.g., 'health-')
             additional_repo_names: List of specific repo names to include
 
         Returns:
@@ -415,8 +415,11 @@ class GitHubClient:
 
         # Start with health- filter if provided
         search_patterns = []
-        if health_filter:
-            search_patterns.append(f"{health_filter} in:name")
+        if filter:
+            # Handle trailing hyphens in filter - GitHub search doesn't like them
+            clean_filter = filter.rstrip('-') if filter.endswith('-') else filter
+            if clean_filter:  # Only add if there's something left after cleaning
+                search_patterns.append(f"{clean_filter} in:name")
 
         # Add specific repo names (extract just the repo name part after '/')
         if additional_repo_names:
@@ -519,12 +522,12 @@ class GitHubClient:
 
         return batches
 
-    def search_repositories(self, org: str, start_date: str, end_date: str, name_filter: str = None) -> List[Dict[str, Any]]:
+    def search_repositories(self, org: str, start_date: str, end_date: str, filter: str = None) -> List[Dict[str, Any]]:
         """
         Legacy method - kept for backward compatibility.
         Use search_repositories_combined for new implementations.
         """
-        return self.search_repositories_combined(org, start_date, end_date, health_filter=name_filter)
+        return self.search_repositories_combined(org, start_date, end_date, filter=filter)
 
     def search_pull_requests(self, repo_full_name: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """

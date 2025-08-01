@@ -7,15 +7,21 @@ This directory contains comprehensive documentation for the Pulse Platform, cove
 ### **Platform-Level Documentation** (This Directory)
 ```
 docs/
-├── DOCUMENTATION_INDEX.md    # This index (you are here)
-├── AGENT_GUIDANCE.md         # Guidance for Augment Code agents
-├── ARCHITECTURE.md           # System architecture and design
-├── MIGRATION_GUIDE.md        # Database migration system
-├── SCRIPTS_GUIDE.md          # Cross-service scripts and utilities
-├── GITHUB_JOB_GUIDE.md       # GitHub ETL job checkpoint and recovery system
-├── DEACTIVATION_STRATEGY.md  # Record deactivation and metrics exclusion strategy
-├── ADMIN_PAGE_TEMPLATE.md    # Template and guidelines for creating new admin pages
-└── DEPLOYMENT.md             # Deployment and infrastructure
+├── DOCUMENTATION_INDEX.md       # This index (you are here)
+├── SECURITY_AUDIT_COMPLETE.md   # 🔒 Security audit certification (PRODUCTION-READY)
+├── ENVIRONMENT_SETUP.md         # Service-specific environment configuration
+├── MULTI_INSTANCE_SETUP.md      # Multi-client ETL deployment guide
+├── AGENT_GUIDANCE.md            # Guidance for Augment Code agents
+├── ARCHITECTURE.md              # System architecture and design
+├── COLOR_SYSTEM.md              # 5-color schema system and theming guide
+├── MIGRATION_GUIDE.md           # Database migration system
+├── SCRIPTS_GUIDE.md             # Cross-service scripts and utilities
+├── GITHUB_JOB_GUIDE.md          # GitHub ETL job checkpoint and recovery system
+├── DEACTIVATION_STRATEGY.md     # Record deactivation and metrics exclusion strategy
+├── ADMIN_PAGE_TEMPLATE.md       # Template and guidelines for creating new admin pages
+├── CLIENT_LOGGING_QUICK_START.md # ⭐ Quick start guide for client-specific logging
+├── CLIENT_SPECIFIC_LOGGING.md   # Comprehensive client-specific logging implementation
+└── DEPLOYMENT.md                # Deployment and infrastructure
 ```
 
 ### **Service-Specific Documentation**
@@ -42,6 +48,7 @@ services/
 
 ### **Development**
 - **[ETL Development](../services/etl-service/docs/DEVELOPMENT_GUIDE.md)** - ETL service development workflow
+- **[Color System](COLOR_SYSTEM.md)** - 5-color schema system and theming guide
 - **[Scripts Guide](SCRIPTS_GUIDE.md)** - Cross-service scripts and utilities
 - **[Migration Guide](MIGRATION_GUIDE.md)** - Database schema management
 
@@ -120,6 +127,15 @@ When adding new documentation:
 4. **Test Examples**:
    - Verify all code examples work
    - Test all commands and procedures
+
+### **Testing Documentation**
+```
+tests/
+├── README.md                 # Test overview and running instructions
+├── test_client_isolation_security.py  # 🚨 CRITICAL security validation
+├── test_client_name_lookup.py         # Client name lookup functionality
+└── test_per_client_orchestrators.py   # Multi-instance architecture validation
+```
 
 ## 📋 Documentation Checklist
 

@@ -216,13 +216,21 @@ async def run_jira_sync(
         if target_projects:
             logger.info(f"Target Projects: {target_projects}")
 
-        # Get Jira integration
-        jira_integration = session.query(Integration).filter(
-            func.upper(Integration.name) == "JIRA"
-        ).first()
+        # ✅ SECURITY: Get Jira integration using job_schedule.integration_id for client isolation
+        if job_schedule.integration_id:
+            jira_integration = session.query(Integration).filter(
+                Integration.id == job_schedule.integration_id,
+                Integration.client_id == job_schedule.client_id  # Double-check client isolation
+            ).first()
+        else:
+            # Fallback: Get by name and client_id (for backward compatibility)
+            jira_integration = session.query(Integration).filter(
+                func.upper(Integration.name) == "JIRA",
+                Integration.client_id == job_schedule.client_id
+            ).first()
 
         if not jira_integration:
-            error_msg = "No Jira integration found. Please run initialize_integrations.py first."
+            error_msg = f"No Jira integration found for client {job_schedule.client_id}. Please check integration setup."
             logger.error(f"ERROR: {error_msg}")
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
@@ -248,7 +256,11 @@ async def run_jira_sync(
         
         if result['success']:
             # Success: Handle job status transitions based on GitHub job status
-            github_job = session.query(JobSchedule).filter(JobSchedule.job_name == 'github_sync').first()
+            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            github_job = session.query(JobSchedule).filter(
+                JobSchedule.job_name == 'github_sync',
+                JobSchedule.client_id == job_schedule.client_id
+            ).first()
 
             if github_job and github_job.status == 'PAUSED':
                 # GitHub is PAUSED: Keep Jira as PENDING for next run
