@@ -32,15 +32,35 @@ export default function Header() {
 
     try {
       const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+      const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
 
-      // POST token to ETL service
+      // Step 1: Setup ETL access via Backend Service
+      console.log('Setting up ETL access...')
+      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      })
+
+      if (!setupResponse.ok) {
+        console.error('Failed to setup ETL access:', setupResponse.statusText)
+        return
+      }
+
+      const setupData = await setupResponse.json()
+      const etlToken = setupData.token
+
+      // Step 2: Navigate to ETL service with the token
       const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          token: token,
+          token: etlToken,
           return_url: window.location.href
         }),
         credentials: 'include' // Important for cookies

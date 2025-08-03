@@ -6,3 +6,6 @@ httpx
 
 # Additional security and encryption
 cryptography
+
+# Redis for session management and caching
+redis

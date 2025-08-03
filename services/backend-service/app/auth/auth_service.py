@@ -14,6 +14,7 @@ from sqlalchemy import and_
 
 from app.core.database import get_database
 from app.core.logging_config import get_logger
+from app.core.redis_session_manager import get_redis_session_manager
 from app.models.unified_models import User, UserSession
 from app.core.utils import DateTimeHelper
 from app.core.config import get_settings
@@ -36,9 +37,13 @@ class AuthService:
         self.token_expiry = timedelta(minutes=expire_minutes)
         self.database = get_database()
 
+        # Initialize Redis session manager for cross-service sessions
+        self.redis_session_manager = get_redis_session_manager()
+
         # Debug: Log the JWT secret key being used
         logger.info(f"🔑 Backend Service JWT_SECRET_KEY: {self.jwt_secret}")
         logger.info(f"JWT token expiry configured: {expire_minutes} minutes ({self.token_expiry})")
+        logger.info(f"Redis session manager available: {self.redis_session_manager.is_available()}")
     
     async def authenticate_local(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
         """Local authentication (for development/admin)"""
@@ -75,7 +80,7 @@ class AuthService:
             return None
     
     async def verify_token(self, token: str) -> Optional[User]:
-        """Verify JWT token and return user if valid"""
+        """Verify JWT token and return user if valid - checks Redis first, then database"""
         try:
             # Debug: Log JWT secret being used
             logger.info(f"Verifying JWT with secret: {self.jwt_secret[:10]}...")
@@ -84,13 +89,38 @@ class AuthService:
             payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
             user_id = payload.get("user_id")
             logger.info(f"JWT decoded successfully, user_id: {user_id}")
-            
+
             if not user_id:
                 return None
-            
-            # Check if session exists and is not expired
+
+            token_hash = self._hash_token(token)
+
+            # 1. First check Redis for fast session lookup
+            if self.redis_session_manager.is_available():
+                session_data = await self.redis_session_manager.get_session(token_hash)
+                if session_data:
+                    logger.debug(f"✅ Session found in Redis for user {session_data.get('email')}")
+
+                    # Create User object from Redis data
+                    user = User()
+                    user.id = session_data.get("user_id")
+                    user.email = session_data.get("email")
+                    user.first_name = session_data.get("first_name")
+                    user.last_name = session_data.get("last_name")
+                    user.role = session_data.get("role")
+                    user.is_admin = session_data.get("is_admin")
+                    user.client_id = session_data.get("client_id")
+                    user.active = True  # Redis sessions are always active
+
+                    # Extend session on activity
+                    await self.redis_session_manager.extend_session(token_hash)
+
+                    return user
+                else:
+                    logger.debug(f"Session not found in Redis, checking database...")
+
+            # 2. Fallback to database session lookup
             with self.database.get_session_context() as session:
-                token_hash = self._hash_token(token)
                 user_session = session.query(UserSession).filter(
                     and_(
                         UserSession.user_id == user_id,
@@ -103,8 +133,8 @@ class AuthService:
                 if not user_session:
                     logger.debug(f"No valid session found for user {user_id} - token may be expired, invalid, or terminated")
                     return None
-                
-                # Get user
+
+                # Get user from database
                 user = session.query(User).filter(
                     and_(
                         User.id == user_id,
@@ -134,6 +164,19 @@ class AuthService:
 
                     # Commit session activity update
                     session.commit()
+
+                    # Store/update session in Redis for faster future lookups
+                    if self.redis_session_manager.is_available():
+                        user_data = {
+                            "id": user.id,
+                            "email": user.email,
+                            "first_name": user.first_name,
+                            "last_name": user.last_name,
+                            "role": user.role,
+                            "is_admin": user.is_admin,
+                            "client_id": user.client_id
+                        }
+                        await self.redis_session_manager.store_session(token_hash, user_data)
 
                     logger.debug(f"Token verification successful for user: {user.email}")
                     return detached_user
@@ -190,52 +233,7 @@ class AuthService:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
-    async def create_or_refresh_session(self, user: User, token: str, ip_address: str = None, user_agent: str = None) -> bool:
-        """
-        Create or refresh a session for navigation purposes.
-        This ensures the user has a valid session in the database.
-        """
-        try:
-            with self.database.get_session_context() as session:
-                # Check if session already exists for this token
-                token_hash = self._hash_token(token)
-                existing_session = session.query(UserSession).filter(
-                    and_(
-                        UserSession.user_id == user.id,
-                        UserSession.token_hash == token_hash,
-                        UserSession.active == True
-                    )
-                ).first()
-
-                if existing_session:
-                    # Session already exists and is active
-                    logger.info(f"Session already exists for user {user.email}")
-                    return True
-
-                # Create new session entry
-                from app.core.datetime_helper import DateTimeHelper
-                from datetime import timedelta
-
-                new_session = UserSession(
-                    user_id=user.id,
-                    token_hash=token_hash,
-                    ip_address=ip_address or "unknown",
-                    user_agent=user_agent or "ETL Navigation",
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc(),
-                    expires_at=DateTimeHelper.now_utc() + timedelta(hours=24),  # Match JWT expiration
-                    active=True
-                )
-
-                session.add(new_session)
-                session.commit()
-
-                logger.info(f"✅ Navigation session created for user {user.email}")
-                return True
-
-        except Exception as e:
-            logger.error(f"Error creating navigation session: {e}")
-            return False
+    # Navigation session method removed - now handled by Redis shared sessions
     
     async def _create_session(self, user: User, session: Session, ip_address: str = None, user_agent: str = None) -> Dict[str, Any]:
         """Create JWT session for user - allows multiple concurrent sessions"""
@@ -291,6 +289,21 @@ class AuthService:
 
             session.commit()
 
+            # Store session in Redis for cross-service access
+            if self.redis_session_manager.is_available():
+                user_data = {
+                    "id": user.id,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role": user.role,
+                    "is_admin": user.is_admin,
+                    "client_id": user.client_id
+                }
+                ttl_seconds = int(self.token_expiry.total_seconds())
+                await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
+                logger.info(f"✅ Session stored in Redis for cross-service access")
+
             logger.info(f"Session created for user: {user.email}")
 
             return {
@@ -320,7 +333,79 @@ class AuthService:
         except Exception as e:
             logger.error(f"Password verification error: {e}")
             return False
-    
+
+    async def logout(self, token: str) -> bool:
+        """
+        Logout user by invalidating session in both Redis and database
+
+        Args:
+            token: JWT token to invalidate
+
+        Returns:
+            bool: True if logout successful
+        """
+        try:
+            token_hash = self._hash_token(token)
+
+            # 1. Invalidate in Redis first (faster)
+            if self.redis_session_manager.is_available():
+                await self.redis_session_manager.invalidate_session(token_hash)
+
+            # 2. Invalidate in database
+            with self.database.get_session_context() as session:
+                user_session = session.query(UserSession).filter(
+                    UserSession.token_hash == token_hash
+                ).first()
+
+                if user_session:
+                    user_session.active = False
+                    user_session.last_updated_at = DateTimeHelper.now_utc()
+                    session.commit()
+                    logger.info(f"✅ Session invalidated for user {user_session.user_id}")
+                    return True
+                else:
+                    logger.debug(f"Session not found in database for logout: {token_hash[:10]}...")
+                    return False
+
+        except Exception as e:
+            logger.error(f"❌ Error during logout: {e}")
+            return False
+
+    async def logout_all_sessions(self, user_id: int) -> bool:
+        """
+        Logout user from all devices/sessions
+
+        Args:
+            user_id: User ID to logout from all sessions
+
+        Returns:
+            bool: True if logout successful
+        """
+        try:
+            # 1. Invalidate all Redis sessions for user
+            if self.redis_session_manager.is_available():
+                await self.redis_session_manager.invalidate_all_user_sessions(user_id)
+
+            # 2. Invalidate all database sessions for user
+            with self.database.get_session_context() as session:
+                updated_count = session.query(UserSession).filter(
+                    and_(
+                        UserSession.user_id == user_id,
+                        UserSession.active == True
+                    )
+                ).update({
+                    "active": False,
+                    "last_updated_at": DateTimeHelper.now_utc()
+                })
+
+                session.commit()
+                logger.info(f"✅ Invalidated {updated_count} sessions for user {user_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ Error during logout all sessions: {e}")
+            return False
+
     def _hash_password(self, password: str) -> str:
         """Hash password using bcrypt"""
         salt = bcrypt.gensalt()

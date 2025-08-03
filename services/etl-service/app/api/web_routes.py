@@ -65,26 +65,50 @@ async def verify_token(user: UserData = Depends(require_authentication)):
 @router.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Redirect to home if authenticated, otherwise to login"""
+    logger.info("🏠 Root route accessed - checking authentication")
+
     # Check if user has a valid token
     token = request.cookies.get("pulse_token")
+    logger.info(f"🍪 Cookie token found: {'Yes' if token else 'No'}")
 
+    if token:
+        logger.info(f"🔍 Validating token: {token[:20]}...")
+        try:
+            # Validate token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                logger.info(f"✅ User authenticated: {user_data.get('email')} - redirecting to /home")
+                # User is authenticated, redirect to home
+                return RedirectResponse(url="/home")
+            else:
+                logger.info("❌ Token validation returned no user data")
+        except Exception as e:
+            logger.error(f"❌ Token validation failed for root route: {e}")
+
+    # No valid token, redirect to login
+    logger.info("🔐 No valid authentication - redirecting to /login")
+    return RedirectResponse(url="/login")
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Serve login page - redirect to home if already authenticated"""
+    logger.info("🔐 Login page accessed - checking if user is already authenticated")
+
+    # Check if user is already authenticated
+    token = request.cookies.get("pulse_token")
     if token:
         try:
             # Validate token via centralized auth service
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
             if user_data:
-                # User is authenticated, redirect to home
+                logger.info(f"✅ User already authenticated: {user_data.get('email')} - redirecting to /home")
                 return RedirectResponse(url="/home")
         except Exception as e:
-            logger.debug(f"Token validation failed for root route: {e}")
+            logger.debug(f"Token validation failed on login page: {e}")
 
-    # No valid token, redirect to login
-    return RedirectResponse(url="/login")
-
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    """Serve login page"""
+    # User not authenticated, show login page
     from app.core.config import get_settings
     settings = get_settings()
 
@@ -95,8 +119,9 @@ async def login_page(request: Request):
         "request": request,
         "backend_service_url": backend_url
     })
-    # Clear any existing tokens when showing login page
-    response.delete_cookie("pulse_token", path="/")
+    # Only clear cookies if user is not authenticated
+    if not token:
+        response.delete_cookie("pulse_token", path="/")
     return response
 
 @router.post("/login")
@@ -1004,12 +1029,12 @@ async def navigate_with_token(request: Request):
             # Form request - direct redirect
             response = RedirectResponse(url="/home", status_code=302)
 
-        # Set session cookie for ETL service
+        # Set session cookie for ETL service (accessible by JavaScript for API calls)
         response.set_cookie(
             key="pulse_token",
             value=token,
-            max_age=3600,  # 1 hour
-            httponly=True,
+            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
+            httponly=False,  # Allow JavaScript access for API calls
             secure=False,  # Set to True in production with HTTPS
             samesite="lax",
             path="/"
@@ -2477,4 +2502,6 @@ async def test_websocket_message(request: Request):
             "success": False,
             "error": str(e)
         }
+
+
 

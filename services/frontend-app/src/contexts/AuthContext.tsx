@@ -41,6 +41,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
 axios.defaults.baseURL = API_BASE_URL
 
+// Global axios response interceptor for handling authentication errors
+let isInterceptorSetup = false
+
 interface AuthProviderProps {
   children: ReactNode
 }
@@ -49,6 +52,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [colorSchemaLoaded, setColorSchemaLoaded] = useState(false)
+  const [sessionCheckInterval, setSessionCheckInterval] = useState<NodeJS.Timeout | null>(null)
 
   // Load color schema from API (with caching)
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -71,6 +75,80 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     return null
   }
+
+  // Start periodic session validation
+  const startSessionValidation = () => {
+    // Clear any existing interval
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval)
+    }
+
+    // Check session every 10 minutes (less aggressive to prevent false logouts)
+    const interval = setInterval(async () => {
+      if (user) {
+        console.log('AuthContext: Performing periodic session validation...')
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            // Explicitly set Authorization header for validation
+            const response = await axios.post('/auth/validate', {}, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            })
+            if (!response.data.success) {
+              console.warn('AuthContext: Session expired during periodic check')
+              logout()
+            } else {
+              console.log('AuthContext: Session validation successful')
+            }
+          } catch (error) {
+            console.warn('AuthContext: Session validation failed during periodic check:', error)
+            // Don't logout on network errors - only on 401
+            if (error.response?.status === 401) {
+              logout()
+            }
+          }
+        } else {
+          console.warn('AuthContext: No token found during periodic check')
+          logout()
+        }
+      }
+    }, 10 * 60 * 1000) // 10 minutes
+
+    setSessionCheckInterval(interval)
+    console.log('AuthContext: Started periodic session validation (10 min intervals)')
+  }
+
+  // Setup axios interceptor for automatic 401 handling
+  const setupAxiosInterceptor = () => {
+    if (isInterceptorSetup) return
+
+    axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          console.warn('AuthContext: 401 Unauthorized - logging out user')
+          logout()
+        }
+        return Promise.reject(error)
+      }
+    )
+
+    isInterceptorSetup = true
+    console.log('AuthContext: Axios interceptor setup for 401 handling')
+  }
+
+  // Stop periodic session validation
+  const stopSessionValidation = () => {
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval)
+      setSessionCheckInterval(null)
+      console.log('AuthContext: Stopped periodic session validation')
+    }
+  }
+
+
 
   // Check for existing token on app start
   useEffect(() => {
@@ -107,6 +185,50 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [])
 
+  // Cleanup effect to stop session validation on unmount
+  useEffect(() => {
+    return () => {
+      stopSessionValidation()
+    }
+  }, [])
+
+  // TEMPORARILY DISABLED: Check session when window regains focus
+  // This was causing aggressive logouts - will re-enable after debugging
+  /*
+  useEffect(() => {
+    const handleWindowFocus = async () => {
+      if (user) {
+        console.log('AuthContext: Window focused - checking session validity...')
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            const response = await axios.post('/auth/validate', {}, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (!response.data.success) {
+              console.warn('AuthContext: Session invalid on window focus - logging out')
+              logout()
+            }
+          } catch (error) {
+            console.warn('AuthContext: Session check failed on window focus:', error)
+            if (error.response?.status === 401) {
+              logout()
+            }
+          }
+        } else {
+          console.warn('AuthContext: No token found on window focus - logging out')
+          logout()
+        }
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [user])
+  */
+
   const validateToken = async () => {
     try {
       // Make API call to validate token with backend
@@ -128,6 +250,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         setUser(formattedUser)
+
+        // Setup axios interceptor and start periodic session validation
+        setupAxiosInterceptor()
+        startSessionValidation()
 
         // Load color schema after user is set (non-blocking)
         loadColorSchema().then(colorSchemaData => {
@@ -185,6 +311,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set user data first
         setUser(formattedUser)
 
+        // Setup axios interceptor and start periodic session validation
+        setupAxiosInterceptor()
+        startSessionValidation()
+
+        // Cross-service cookie setup is now handled by Backend Service
+        // No direct Frontend → ETL communication needed
+
         // Load color schema after user is set (non-blocking)
         loadColorSchema().then(colorSchemaData => {
           if (colorSchemaData) {
@@ -229,6 +362,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error) {
       console.warn('Error during logout:', error)
     } finally {
+      // Stop periodic session validation
+      stopSessionValidation()
+
       // Always clear local storage and state
       localStorage.removeItem('pulse_token')
       delete axios.defaults.headers.common['Authorization']

@@ -349,6 +349,14 @@
 
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function () {
+        // Ensure token is available in localStorage
+        const token = getAuthToken();
+        if (!token) {
+            console.error('No auth token available');
+            window.location.href = '/login';
+            return;
+        }
+
         checkAuth();
         refreshData();
         setupAutoRefresh();
@@ -365,6 +373,8 @@
                 const [name, value] = cookie.trim().split('=');
                 if (name === 'pulse_token') {
                     token = value;
+                    // Save to localStorage for future use
+                    localStorage.setItem('pulse_token', token);
                     break;
                 }
             }

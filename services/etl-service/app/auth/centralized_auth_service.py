@@ -190,71 +190,17 @@ class CentralizedAuthService:
             logger.error(f"Error validating user permissions: {e}")
             return False
 
-    async def create_navigation_session(self, token: str, user_data: Dict[str, Any]) -> bool:
-        """
-        Create a proper session in the backend service for navigation.
-        This ensures the user has a valid session for subsequent ETL requests.
-        """
-        try:
-            client_config = {
-                "timeout": httpx.Timeout(30.0),
-                "verify": False  # For development with self-signed certs
-            }
-
-            async with httpx.AsyncClient(**client_config) as client:
-                # Call backend service to create/refresh session
-                response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"user_data": user_data}
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Navigation session created successfully for user: {user_data.get('email')}")
-                    return True
-                else:
-                    logger.warning(f"Failed to create navigation session: {response.status_code}")
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error creating navigation session: {e}")
-            return False
+    # Navigation session creation removed - now handled by Redis shared sessions
 
     async def ensure_session_exists(self, token: str, user_data: Dict[str, Any]) -> bool:
         """
         Ensure a session exists for the given token and user.
-        Delegates to Backend Service for session management.
+        With Redis shared sessions, this is no longer needed but kept for compatibility.
         """
-        try:
-            # Use the Backend Service to create/refresh the session
-            # This is the proper way - ETL service should not manage sessions directly
-
-            client_config = {
-                'timeout': httpx.Timeout(30.0),
-                'verify': False  # For development - set to True in production
-            }
-
-            async with httpx.AsyncClient(**client_config) as client:
-                # Call backend service to create/refresh session
-                response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"user_data": user_data}
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Navigation session ensured via Backend Service for user: {user_data.get('email')}")
-                    return True
-                else:
-                    logger.warning(f"Failed to ensure session via Backend Service: {response.status_code}")
-                    # Don't fail the navigation if session creation fails
-                    # The token is still valid, just no database session
-                    return True
-
-        except Exception as e:
-            logger.error(f"Error ensuring session exists: {e}")
-            # Don't fail the navigation if session creation fails
-            return True
+        # With Redis shared sessions, sessions are automatically managed
+        # Just return True to maintain compatibility
+        logger.debug(f"Session existence ensured via Redis for user: {user_data.get('email')}")
+        return True
 
     async def invalidate_session(self, token: str) -> bool:
         """Invalidate a session by calling the Backend Service and clearing cache"""
@@ -268,7 +214,7 @@ class CentralizedAuthService:
             logger.info(f"Token (first 20 chars): {token[:20]}...")
 
             async with httpx.AsyncClient() as client:
-                url = f"{self.backend_service_url}/api/v1/admin/auth/invalidate-session"
+                url = f"{self.backend_service_url}/auth/logout"
                 logger.info(f"POST {url}")
 
                 response = await client.post(
