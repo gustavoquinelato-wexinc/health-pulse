@@ -211,31 +211,20 @@ async def home_page(request: Request, token: Optional[str] = None):
         except Exception as e:
             logger.error(f"❌ Portal embedding: Token validation error: {e}")
 
-    # Try to get color schema for authenticated users to prevent flash
-    color_schema_data = None
-    try:
-        # Check for token in cookies
-        token = request.cookies.get("pulse_token")
-        if token:
-            auth_service = get_centralized_auth_service()
-            user_data = await auth_service.verify_token(token)
-            if user_data:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
-
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("success"):
-                            color_schema_data = data
-    except Exception as e:
-        logger.debug(f"Could not fetch color schema: {e}")
+    # TEMPORARILY DISABLED: Color schema fetching to prevent infinite API loop
+    # Using default color schema with proper default colors
+    color_schema_data = {
+        "success": True,
+        "mode": "default",
+        "colors": {
+            "color1": "#C8102E",  # Default color 1
+            "color2": "#253746",  # Default color 2 (for Force Pending buttons)
+            "color3": "#00C7B1",  # Default color 3
+            "color4": "#A2DDF8",  # Default color 4
+            "color5": "#FFBF3F"   # Default color 5
+        },
+        "theme": "light"
+    }
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -702,7 +691,25 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {auth_token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -762,7 +769,25 @@ async def issuetype_mappings_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -817,7 +842,25 @@ async def issuetype_hierarchies_page(request: Request):
                     if response.status_code == 200:
                         data = response.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -872,7 +915,25 @@ async def workflows_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -1360,85 +1421,15 @@ async def get_home_status_api(user: UserData = Depends(require_admin_authenticat
 
 @router.get("/api/v1/user/color-schema")
 async def get_user_color_schema(request: Request, user: UserData = Depends(require_web_authentication)):
-    """Get user's color schema settings from backend service"""
-    try:
-        import httpx
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-
-        # Get token from request (same way as authentication middleware)
-        token = None
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-        else:
-            # Try to get from cookies
-            token = request.cookies.get("pulse_token")
-
-        if not token:
-            logger.warning("No token found for color schema request")
-            return {
-                "success": False,
-                "mode": "default",
-                "colors": {},
-                "theme": "light"
-            }
-
-        # Forward request to backend service
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{backend_url}/api/v1/admin/color-schema",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                timeout=10.0
-            )
-
-            if response.status_code == 200:
-                backend_data = response.json()
-
-                # Also get theme mode from backend
-                theme_response = await client.get(
-                    f"{backend_url}/api/v1/admin/theme-mode",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
-                )
-
-                theme_mode = 'light'  # default
-                if theme_response.status_code == 200:
-                    theme_data = theme_response.json()
-                    if theme_data.get('success'):
-                        theme_mode = theme_data.get('mode', 'light')
-
-                return {
-                    "success": True,
-                    "mode": backend_data.get("mode", "default"),
-                    "colors": backend_data.get("colors", {}),
-                    "theme": theme_mode
-                }
-            else:
-                logger.warning(f"Backend color schema request failed: {response.status_code}")
-                return {
-                    "success": False,
-                    "mode": "default",
-                    "colors": {},
-                    "theme": "light"
-                }
-
-    except Exception as e:
-        logger.error(f"Error getting user color schema: {e}")
-        return {
-            "success": False,
-            "mode": "default",
-            "colors": {},
-            "theme": "light"
-        }
+    """Get user's color schema settings from backend service - TEMPORARILY DISABLED"""
+    # TEMPORARILY DISABLED: Return default values to prevent infinite API loop
+    # TODO: Re-enable with proper caching/throttling mechanism
+    return {
+        "success": True,
+        "mode": "default",
+        "colors": {},
+        "theme": "light"
+    }
 
 
 @router.post("/api/v1/jobs/{job_name}/start")

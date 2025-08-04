@@ -35,9 +35,9 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
         <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-1); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-circle-info text-base" style="color: var(--color-1);"></i>
+                <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
             </div>
             <div class="pr-10">
                 <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Status</h3>
@@ -50,13 +50,13 @@
 
         <!-- Countdown Card -->
         <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-2); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-clock text-base" style="color: var(--color-2);"></i>
+                <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
             </div>
             <div class="pr-10">
                 <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Next Run</h3>
-                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--color-2);">
+                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--text-primary);">
                     --:--:--
                 </div>
             </div>
@@ -358,10 +358,18 @@
         }
 
         checkAuth();
+
+        // Load initial data
         refreshData();
-        setupAutoRefresh();
         refreshOrchestratorStatus();
+
+        // Enable controlled auto-refresh for job status (every 30 seconds)
+        setupControlledAutoRefresh();
+
+        // Enable WebSockets for real-time job progress updates
         initializeWebSockets();
+
+        console.log('ETL Service: Controlled job monitoring enabled, theme sync disabled');
     });
 
     // Authentication helper
@@ -388,6 +396,20 @@
             window.location.href = '/login';
             return;
         }
+    }
+
+    // Controlled auto-refresh for job status only (no theme polling)
+    function setupControlledAutoRefresh() {
+        // Refresh job status every 30 seconds (much less frequent than before)
+        setInterval(() => {
+            // Only refresh if page is visible (not in background tab)
+            if (!document.hidden) {
+                refreshData();
+                refreshOrchestratorStatus();
+            }
+        }, 30000); // 30 seconds
+
+        console.log('ETL Service: Controlled auto-refresh setup (30-second intervals for job status only)');
     }
 
     // WebSocket Management

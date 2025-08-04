@@ -2,6 +2,13 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import clientLogger from '../utils/clientLogger'
 
+// Configure axios defaults - Force Backend Service URL in development
+if (import.meta.env.DEV) {
+  axios.defaults.baseURL = 'http://localhost:3001'
+} else {
+  axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+}
+
 interface ColorSchema {
   color1: string
   color2: string
@@ -40,6 +47,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 // In production, use the full API URL
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
 axios.defaults.baseURL = API_BASE_URL
+axios.defaults.withCredentials = true  // Include cookies in all requests
 
 // Global axios response interceptor for handling authentication errors
 let isInterceptorSetup = false
@@ -117,7 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }, 10 * 60 * 1000) // 10 minutes
 
     setSessionCheckInterval(interval)
-    console.log('AuthContext: Started periodic session validation (10 min intervals)')
+    // Session validation started
   }
 
   // Setup axios interceptor for automatic 401 handling
@@ -136,7 +144,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     )
 
     isInterceptorSetup = true
-    console.log('AuthContext: Axios interceptor setup for 401 handling')
+    // Axios interceptor configured
   }
 
   // Stop periodic session validation
@@ -181,7 +189,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Validate token with backend
       validateToken()
     } else {
-      setIsLoading(false)
+      // No localStorage token, but check if there's an existing session in Backend Service
+      checkExistingSession()
     }
   }, [])
 
@@ -228,6 +237,62 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user])
   */
+
+  const checkExistingSession = async () => {
+    try {
+      setIsLoading(true)
+
+      // Check if there's an existing session in Backend Service (via cookies)
+      // Don't send Authorization header since we don't have a token
+      const response = await axios.post('/auth/validate', {}, {
+        headers: {
+          // Remove Authorization header for this request
+          'Authorization': undefined
+        },
+        // Include cookies in the request
+        withCredentials: true
+      })
+
+      if (response.data.valid && response.data.user) {
+        // Found existing session! The token should already be in cookies
+        const { user } = response.data
+
+        // Try to get token from cookies (set by ETL service)
+        const cookieToken = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('pulse_token='))
+          ?.split('=')[1]
+
+        if (cookieToken) {
+          localStorage.setItem('pulse_token', cookieToken)
+          axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+        }
+
+        const formattedUser = {
+          id: user.id.toString(),
+          email: user.email,
+          name: user.first_name && user.last_name
+            ? `${user.first_name} ${user.last_name}`
+            : user.first_name || user.last_name || user.email.split('@')[0],
+          role: user.role,
+          client_id: user.client_id,
+          colorSchemaData: undefined
+        }
+
+        setUser(formattedUser)
+
+        // Load color schema
+        loadColorSchema().catch(error => {
+          console.warn('Failed to load color schema during session check:', error)
+        })
+      }
+    } catch (error) {
+      // No existing session found, this is normal
+      console.debug('No existing session found:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const validateToken = async () => {
     try {

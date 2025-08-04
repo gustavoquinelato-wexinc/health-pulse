@@ -54,7 +54,9 @@ const secondaryItems: NavigationItem[] = [
     subItems: [
       { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
       { id: 'user-preferences', label: 'User Preferences', path: '/settings/user-preferences' },
-      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' }
+      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
+      { id: 'user-management', label: 'User Management', path: '/settings/user-management' },
+      { id: 'client-management', label: 'Client Management', path: '/settings/client-management' }
     ]
   }
 ]
@@ -145,11 +147,11 @@ export default function CollapsedSidebar() {
 
 
 
-  const handleNavClick = (path: string, item?: NavigationItem) => {
+  const handleNavClick = (path: string, item?: NavigationItem, openInNewTab = false) => {
     // Handle special actions
     if (item?.isAction) {
       if (item.id === 'etl-direct') {
-        handleETLDirectNavigation()
+        handleETLDirectNavigation(openInNewTab)
         return
       }
     }
@@ -159,7 +161,7 @@ export default function CollapsedSidebar() {
   }
 
   // POST-based ETL navigation function
-  const handleETLDirectNavigation = async () => {
+  const handleETLDirectNavigation = async (openInNewTab = false) => {
     const token = localStorage.getItem('pulse_token')
     if (!token) {
       console.error('No authentication token found')
@@ -205,8 +207,18 @@ export default function CollapsedSidebar() {
       if (response.ok) {
         const data = await response.json()
         if (data.redirect_url) {
-          // Open ETL service in new tab
-          window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+          if (openInNewTab) {
+            // Right click: Open in new tab without switching focus
+            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+
+            // Immediately refocus current window to prevent tab switch
+            setTimeout(() => {
+              window.focus()
+            }, 10)
+          } else {
+            // Normal click: Navigate in same page (like ETL service behavior)
+            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
+          }
         }
       } else {
         console.error('ETL navigation failed:', response.statusText)
@@ -280,7 +292,11 @@ export default function CollapsedSidebar() {
             .map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
-                  onClick={() => handleNavClick(item.path, item)}
+                  onClick={() => handleNavClick(item.path, item, false)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    handleNavClick(item.path, item, true);
+                  }}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
                   className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)

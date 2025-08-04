@@ -69,10 +69,16 @@ export default function Header() {
       if (response.ok) {
         const data = await response.json()
         if (data.redirect_url) {
-          // Navigate to ETL service
           if (openInNewTab) {
+            // Right click: Open in new tab without switching focus
             window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+
+            // Immediately refocus current window to prevent tab switch
+            setTimeout(() => {
+              window.focus()
+            }, 10)
           } else {
+            // Normal click: Navigate in same page (like ETL service behavior)
             window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
           }
         }
@@ -266,19 +272,12 @@ export default function Header() {
         {/* ETL Management */}
         {user?.role === 'admin' && (
           <motion.a
-            href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home?token=${encodeURIComponent(localStorage.getItem('pulse_token') || '')}`}
+            href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home`}
             onClick={(e) => {
               e.preventDefault();
-              // Check if Ctrl/Cmd key is pressed (indicates "open in new tab" intent)
-              const openInNewTab = e.ctrlKey || e.metaKey;
-              handleETLDirectNavigation(openInNewTab);
-            }}
-            onAuxClick={(e) => {
-              // Middle click: open in new tab
-              if (e.button === 1) {
-                e.preventDefault();
-                handleETLDirectNavigation(true);
-              }
+              // Normal left click: navigate in same page with authentication
+              handleETLDirectNavigation(false);
+              return false;
             }}
             className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors inline-block"
             whileHover={{ scale: 1.05 }}

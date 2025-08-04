@@ -1113,7 +1113,7 @@
                 if (token) {
                     console.log('Calling Backend Service to invalidate session...');
                     // Call Backend Service directly to invalidate session
-                    const response = await fetch('http://localhost:3002/api/v1/admin/auth/invalidate-session', {
+                    const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${token}`,

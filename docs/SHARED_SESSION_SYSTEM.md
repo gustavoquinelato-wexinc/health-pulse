@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-The Pulse Platform now implements a **shared session system** that enables seamless Single Sign-On (SSO) across all services. Users can login once and navigate between Frontend and ETL services without re-authentication.
+The Pulse Platform implements a **bidirectional shared session system** that enables seamless Single Sign-On (SSO) across all services. Users can login from either Frontend or ETL service and automatically gain access to both services without re-authentication.
 
 ## 🏗️ Architecture
 
@@ -30,15 +30,17 @@ User Login → Backend Service → Redis Session + HTTP Cookie
    - Enables cross-service session sharing
    - Provides atomic session operations
 
-3. **Frontend** - Live Session Monitoring
-   - Periodic session validation (5-minute intervals)
-   - Automatic 401 response handling
-   - Multi-source token retrieval (localStorage + cookies)
+3. **Frontend** - Smart Session Detection
+   - Checks localStorage for existing tokens
+   - Validates existing Backend Service sessions via cookies
+   - Automatic session synchronization from ETL logins
+   - Periodic session validation and 401 response handling
 
-4. **ETL Service** - Session Consumer
+4. **ETL Service** - Session Provider & Consumer
    - Validates sessions via Backend Service API
    - Checks cookies first, then Authorization headers
-   - Seamless navigation from Frontend
+   - Can initiate sessions (login capability)
+   - Sets cookies for Frontend session sharing
 
 ## 🔐 Security Features
 
@@ -56,6 +58,26 @@ User Login → Backend Service → Redis Session + HTTP Cookie
 - JWT signature validation
 - Redis session existence check
 - Database session verification (fallback)
+
+## 🔄 Bidirectional Authentication Flow
+
+### **Frontend → ETL (Working)**
+1. User logs into Frontend → Backend Service creates session + localStorage token
+2. User navigates to ETL → ETL validates token via Backend Service
+3. ✅ **Seamless access**
+
+### **ETL → Frontend (Now Working)**
+1. User logs into ETL → Backend Service creates session + cookie token
+2. User navigates to Frontend → Frontend checks localStorage (empty)
+3. Frontend calls Backend Service `/auth/validate` with cookies
+4. Backend Service validates cookie → Returns user data
+5. Frontend extracts token from cookie → Stores in localStorage
+6. ✅ **Seamless access**
+
+### **Logout (Universal)**
+1. User logs out from either service → Backend Service invalidates session
+2. Both Frontend and ETL lose access
+3. ✅ **Synchronized logout**
 
 ## 🚀 Implementation Details
 
@@ -84,9 +106,44 @@ class RedisSessionManager:
 ### **Frontend Changes**
 
 #### Enhanced Auth Context (`src/contexts/AuthContext.tsx`)
-- Periodic session validation (5-minute intervals)
-- Axios interceptor for automatic 401 handling
-- Multi-source token retrieval (localStorage + cookies)
+- **Smart session detection**: Checks localStorage first, then Backend Service sessions
+- **Cross-service authentication**: Detects ETL logins and syncs tokens
+- **Cookie-based session validation**: Validates existing sessions via cookies
+- **Automatic token synchronization**: Extracts tokens from cookies to localStorage
+- **Axios interceptor**: Automatic 401 handling and logout
+- **Credentials included**: All requests include cookies for session validation
+
+#### New: Cross-Service Session Detection
+```typescript
+// Check for existing Backend Service sessions (called when no localStorage token)
+const checkExistingSession = async () => {
+  try {
+    const response = await axios.post('/auth/validate', {}, {
+      headers: { 'Authorization': undefined },
+      withCredentials: true  // Include cookies
+    })
+
+    if (response.data.valid && response.data.user) {
+      // Extract token from cookies and sync to localStorage
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('pulse_token='))
+        ?.split('=')[1]
+
+      if (cookieToken) {
+        localStorage.setItem('pulse_token', cookieToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+        setUser(response.data.user)
+      }
+    }
+  } catch (error) {
+    // No existing session - normal for first visit
+  }
+}
+
+// Configure axios to include cookies in all requests
+axios.defaults.withCredentials = true
+```
 
 #### Live Session Features
 ```typescript

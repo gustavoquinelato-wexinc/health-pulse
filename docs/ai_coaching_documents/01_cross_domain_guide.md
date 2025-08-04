@@ -32,12 +32,17 @@ Platform Frontend ↔ ETL Service Direct Navigation:
 ```
 
 ### **Token Management**
-- **JWT Secret**: Shared via environment variable `JWT_SECRET_KEY`
-- **Storage**: localStorage (primary) + cookies (fallback)
-- **Validation**: ETL Service calls Backend Service for validation
+- **JWT Secret**: Centralized in Backend Service via `JWT_SECRET_KEY`
+- **Storage**: localStorage (Frontend) + cookies (cross-service sharing)
+- **Validation**: All services validate via Backend Service API
+- **Bidirectional Auth**: Login from either Frontend or ETL works for both
 - **Invalidation**: Backend Service marks sessions as `active = false`
 
 ### **Session Detection**
+- **Frontend**: Checks localStorage first, then Backend Service sessions via cookies
+- **ETL Service**: Checks cookies first, then Authorization headers
+- **Cross-Service**: Bidirectional authentication - login from either service works
+- **Token Sync**: Frontend extracts tokens from cookies set by ETL login
 - **Current Session**: Compare session IDs, not user emails
 - **Multi-browser**: Each browser gets unique session ID
 - **"Self" Detection**: Use `/api/v1/admin/current-session` endpoint
@@ -178,15 +183,26 @@ async with httpx.AsyncClient() as client:
 
 ### **Environment Variables**
 ```bash
-# Shared across services
-JWT_SECRET_KEY=your-secret-key-here
-JWT_ALGORITHM=HS256
-DATABASE_URL=postgresql://...
+# .env.shared - Infrastructure (shared by all services)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=pulse_db
+REDIS_URL=redis://localhost:6379/0
 BACKEND_SERVICE_URL=http://localhost:3001
+ETL_SERVICE_URL=http://localhost:8000
 
-# Service-specific
-DEBUG=true
-LOG_LEVEL=INFO
+# .env.backend - Authentication secrets (Backend Service only)
+JWT_SECRET_KEY=your-jwt-secret-key-here
+JWT_ALGORITHM=HS256
+SESSION_SECRET_KEY=your-session-secret-key-here
+
+# .env.etl.{client} - Client-specific API tokens (per ETL instance)
+CLIENT_NAME=wex
+JIRA_API_TOKEN=your-jira-token
+GITHUB_TOKEN=your-github-token
+
+# .env.frontend - Public configuration (Frontend only)
+VITE_API_BASE_URL=http://localhost:3001
 ```
 
 ### **Settings Pattern**
