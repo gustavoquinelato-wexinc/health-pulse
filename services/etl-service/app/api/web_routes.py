@@ -211,20 +211,25 @@ async def home_page(request: Request, token: Optional[str] = None):
         except Exception as e:
             logger.error(f"❌ Portal embedding: Token validation error: {e}")
 
-    # TEMPORARILY DISABLED: Color schema fetching to prevent infinite API loop
-    # Using default color schema with proper default colors
-    color_schema_data = {
-        "success": True,
-        "mode": "default",
-        "colors": {
-            "color1": "#C8102E",  # Default color 1
-            "color2": "#253746",  # Default color 2 (for Force Pending buttons)
-            "color3": "#00C7B1",  # Default color 3
-            "color4": "#A2DDF8",  # Default color 4
-            "color5": "#FFBF3F"   # Default color 5
-        },
-        "theme": "light"
-    }
+    # 🚀 EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
+    from app.core.color_schema_manager import get_color_schema_manager
+
+    color_manager = get_color_schema_manager()
+
+    # Get auth token for backend API call (one-time on page load)
+    auth_token = None
+    try:
+        # Try to get token from cookie or header
+        auth_token = request.cookies.get("pulse_token")
+        if not auth_token:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                auth_token = auth_header[7:]
+    except Exception:
+        pass  # No token available
+
+    # Get color schema (smart caching prevents excessive calls)
+    color_schema_data = await color_manager.get_color_schema(auth_token)
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -825,42 +830,13 @@ async def issuetype_hierarchies_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Try to get color schema for authenticated users to prevent flash
+        # Use ColorSchemaManager for consistent color loading (same as home page)
         color_schema_data = None
         try:
             if token:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
-
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("success"):
-                            # Also get theme mode from backend
-                            theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
-
-                            theme_mode = 'light'  # default
-                            if theme_response.status_code == 200:
-                                theme_data = theme_response.json()
-                                if theme_data.get('success'):
-                                    theme_mode = theme_data.get('mode', 'light')
-
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                from app.core.color_schema_manager import get_color_schema_manager
+                color_manager = get_color_schema_manager()
+                color_schema_data = await color_manager.get_color_schema(token)
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -1421,15 +1397,130 @@ async def get_home_status_api(user: UserData = Depends(require_admin_authenticat
 
 @router.get("/api/v1/user/color-schema")
 async def get_user_color_schema(request: Request, user: UserData = Depends(require_web_authentication)):
-    """Get user's color schema settings from backend service - TEMPORARILY DISABLED"""
-    # TEMPORARILY DISABLED: Return default values to prevent infinite API loop
-    # TODO: Re-enable with proper caching/throttling mechanism
+    """Get user's color schema settings using event-driven smart caching"""
+    from app.core.color_schema_manager import get_color_schema_manager
+
+    color_manager = get_color_schema_manager()
+
+    # Get auth token
+    auth_token = None
+    try:
+        auth_token = request.cookies.get("pulse_token")
+        if not auth_token:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                auth_token = auth_header[7:]
+    except Exception:
+        pass
+
+    # Get color schema with smart caching (no auto-refresh, only event-driven updates)
+    return await color_manager.get_color_schema(auth_token)
+
+
+@router.get("/api/v1/debug/color-schema-cache")
+async def get_color_schema_cache_status(user: UserData = Depends(require_web_authentication)):
+    """Debug endpoint to check color schema cache status"""
+    from app.core.color_schema_manager import get_color_schema_manager
+
+    color_manager = get_color_schema_manager()
+    cache_info = color_manager.get_cache_info()
+
     return {
         "success": True,
-        "mode": "default",
-        "colors": {},
-        "theme": "light"
+        "cache_info": cache_info,
+        "timestamp": DateTimeHelper.now_utc().isoformat()
     }
+
+
+# 🚀 Internal API Endpoints for Backend Service Communication
+@router.post("/api/v1/internal/color-schema-changed")
+async def handle_color_schema_change(request: Request):
+    """Internal endpoint: Handle color schema change notification from backend"""
+    try:
+        data = await request.json()
+        client_id = data.get("client_id")
+        colors = data.get("colors", {})
+        event_type = data.get("event_type", "color_update")
+
+        logger.info(f"🎨 Received color schema change notification for client {client_id}")
+        logger.debug(f"Colors: {colors}")
+
+        # Invalidate color schema cache to force refresh
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_manager.invalidate_cache()
+
+        # Broadcast to connected WebSocket clients for real-time updates
+        from app.core.websocket_manager import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+
+        # Send color update to all connected clients for this client_id
+        from datetime import datetime
+        await websocket_manager.broadcast_to_client(client_id, {
+            "type": "color_schema_updated",
+            "colors": colors,
+            "event_type": event_type,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        logger.info(f"✅ Color schema cache invalidated and clients notified for client {client_id}")
+
+        return {
+            "success": True,
+            "message": "Color schema change processed successfully",
+            "client_id": client_id
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error processing color schema change: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/api/v1/internal/color-schema-mode-changed")
+async def handle_color_schema_mode_change(request: Request):
+    """Internal endpoint: Handle color schema mode change notification from backend"""
+    try:
+        data = await request.json()
+        client_id = data.get("client_id")
+        mode = data.get("mode")
+        event_type = data.get("event_type", "mode_update")
+
+        logger.info(f"🎨 DISABLED: Color schema mode change notification received for client {client_id}: {mode} (not processing to prevent infinite loop)")
+
+        # TEMPORARILY DISABLED: All event-driven color processing to prevent infinite loop
+        # # Invalidate color schema cache to force refresh
+        # from app.core.color_schema_manager import get_color_schema_manager
+        # color_manager = get_color_schema_manager()
+        # color_manager.invalidate_cache()
+
+        # # Broadcast to connected WebSocket clients for real-time updates
+        # from app.core.websocket_manager import get_websocket_manager
+        # websocket_manager = get_websocket_manager()
+
+        # # Send mode update to all connected clients for this client_id
+        # await websocket_manager.broadcast_to_client(client_id, {
+        #     "type": "color_schema_mode_updated",
+        #     "mode": mode,
+        #     "event_type": event_type,
+        #     "timestamp": datetime.utcnow().isoformat()
+        # })
+
+        return {
+            "success": True,
+            "message": "Color schema mode change notification received (processing disabled)",
+            "client_id": client_id,
+            "mode": mode
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error processing color schema mode change: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @router.post("/api/v1/jobs/{job_name}/start")

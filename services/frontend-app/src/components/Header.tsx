@@ -32,7 +32,7 @@ export default function Header() {
 
     try {
       const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-      const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
       // Step 1: Setup ETL access via Backend Service
       console.log('Setting up ETL access...')

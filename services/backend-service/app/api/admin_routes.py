@@ -23,9 +23,60 @@ from app.auth.auth_middleware import require_permission
 from app.auth.auth_service import get_auth_service
 from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
 from app.core.logging_config import get_logger
+import httpx
+import asyncio
+from app.core.config import get_settings
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+settings = get_settings()
+
+
+# 🚀 ETL Service Notification Functions
+async def notify_etl_color_schema_change(client_id: int, colors: dict):
+    """Notify ETL service of color schema changes"""
+    try:
+        # Get ETL service URL (assuming it runs on port 8000)
+        etl_url = f"http://localhost:8000/api/v1/internal/color-schema-changed"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(etl_url, json={
+                "client_id": client_id,
+                "colors": colors,
+                "event_type": "color_update"
+            })
+
+            if response.status_code == 200:
+                logger.info(f"✅ ETL service notified of color schema change for client {client_id}")
+            else:
+                logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Could not notify ETL service of color change: {e}")
+        # Don't fail the main operation if ETL notification fails
+
+
+async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
+    """Notify ETL service of color schema mode changes"""
+    try:
+        # Get ETL service URL
+        etl_url = f"http://localhost:8000/api/v1/internal/color-schema-mode-changed"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(etl_url, json={
+                "client_id": client_id,
+                "mode": mode,
+                "event_type": "mode_update"
+            })
+
+            if response.status_code == 200:
+                logger.info(f"✅ ETL service notified of color schema mode change for client {client_id}")
+            else:
+                logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Could not notify ETL service of mode change: {e}")
+        # Don't fail the main operation if ETL notification fails
 
 
 # Pydantic models for API
@@ -3062,6 +3113,9 @@ async def update_color_schema(
 
             session.commit()
 
+            # 🚀 NEW: Notify ETL service of color schema change
+            await notify_etl_color_schema_change(user.client_id, colors)
+
             return {
                 "success": True,
                 "message": "Color schema updated successfully",
@@ -3116,6 +3170,9 @@ async def update_color_schema_mode(
                 session.add(setting)
 
             session.commit()
+
+            # 🚀 NEW: Notify ETL service of color schema mode change
+            await notify_etl_color_schema_mode_change(user.client_id, request.mode)
 
             return {
                 "success": True,

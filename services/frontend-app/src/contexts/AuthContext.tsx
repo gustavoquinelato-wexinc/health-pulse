@@ -2,12 +2,7 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import clientLogger from '../utils/clientLogger'
 
-// Configure axios defaults - Force Backend Service URL in development
-if (import.meta.env.DEV) {
-  axios.defaults.baseURL = 'http://localhost:3001'
-} else {
-  axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-}
+// Axios configuration is handled below - no duplicate configuration needed
 
 interface ColorSchema {
   color1: string
@@ -42,11 +37,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Configure axios defaults
-// In development, use relative URLs so Vite proxy can handle routing
-// In production, use the full API URL
-const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
-axios.defaults.baseURL = API_BASE_URL
+// Configure axios defaults - Use backend URL consistently
+axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 axios.defaults.withCredentials = true  // Include cookies in all requests
 
 // Global axios response interceptor for handling authentication errors
@@ -71,6 +63,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       const response = await axios.get('/api/v1/admin/color-schema')
+
       if (response.data.success) {
         setColorSchemaLoaded(true)
         return {
@@ -78,7 +71,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           colors: response.data.colors
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('AuthContext: Failed to load color schema:', error)
     }
     return null
@@ -282,8 +275,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(formattedUser)
 
         // Load color schema
-        loadColorSchema().catch(error => {
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',
+                color2: '#253746',
+                color3: '#00C7B1',
+                color4: '#A2DDF8',
+                color5: '#FFBF3F'
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+          }
+        }).catch(error => {
           console.warn('Failed to load color schema during session check:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
       }
     } catch (error) {
@@ -324,9 +346,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
         loadColorSchema().then(colorSchemaData => {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',  // WEX Red
+                color2: '#253746',  // Dark Blue
+                color3: '#00C7B1',  // Teal
+                color4: '#A2DDF8',  // Light Blue
+                color5: '#FFBF3F'   // Yellow
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
           console.warn('Failed to load color schema during validation:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
       } else {
         // Invalid response format, clear token
@@ -387,9 +434,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
         loadColorSchema().then(colorSchemaData => {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',
+                color2: '#253746',
+                color3: '#00C7B1',
+                color4: '#A2DDF8',
+                color5: '#FFBF3F'
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
           console.warn('Failed to load color schema after login:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
 
         return true

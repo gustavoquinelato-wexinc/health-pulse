@@ -163,6 +163,38 @@ class WebSocketManager:
         if job_name in self.latest_progress:
             del self.latest_progress[job_name]
 
+    async def broadcast_to_client(self, client_id: int, message: Dict[str, Any]):
+        """Send a message to all WebSocket connections (for client-wide updates like color schema)."""
+        total_sent = 0
+        message_text = json.dumps(message)
+
+        # Send to all job connections (since we don't track client_id per connection)
+        for job_name, websockets in list(self.connections.items()):
+            disconnected_clients = []
+
+            for websocket in websockets:
+                try:
+                    await websocket.send_text(message_text)
+                    total_sent += 1
+                except WebSocketDisconnect:
+                    disconnected_clients.append(websocket)
+                except Exception as e:
+                    logger.warning(f"Failed to send color schema update to WebSocket client: {e}")
+                    disconnected_clients.append(websocket)
+
+            # Clean up disconnected clients
+            for websocket in disconnected_clients:
+                self.disconnect(websocket, job_name)
+
+        if total_sent > 0:
+            logger.info(f"🎨 Broadcasted color schema update to {total_sent} WebSocket connections")
+        else:
+            logger.debug("No active WebSocket connections to broadcast color schema update")
+
+    async def broadcast_to_all(self, message: Dict[str, Any]):
+        """Send a message to all active WebSocket connections."""
+        await self.broadcast_to_client(0, message)  # Use 0 as a placeholder client_id
+
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()

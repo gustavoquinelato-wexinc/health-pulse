@@ -140,7 +140,10 @@
         async function loadUserInfo() {
             try {
                 const token = getAuthToken();
-                if (!token) return;
+                if (!token) {
+                    console.warn('No auth token available for user info');
+                    return;
+                }
 
                 const response = await fetch('/api/v1/auth/validate', {
                     headers: {
@@ -154,6 +157,9 @@
                         currentUser = data.user;
                         updateUserDisplay();
                     }
+                } else if (response.status === 401) {
+                    console.warn('User token validation failed - user may need to re-login');
+                    // Don't redirect here - let individual pages handle authentication
                 }
             } catch (error) {
                 console.error('Error loading user info:', error);
@@ -297,8 +303,8 @@
             // Cross-browser theme sync completely removed to prevent infinite API calls
             console.log('ETL Service: Theme sync disabled - using default theme only');
 
-            // Load user information - DISABLED to prevent 401 errors
-            // loadUserInfo();
+            // Load user information
+            loadUserInfo();
 
             // Update navigation active state
             updateActiveNavigation();

@@ -266,6 +266,12 @@ async def lifespan(_: FastAPI):
         await clear_all_user_sessions()
 
         logger.info("ETL Service started successfully")
+
+        # Initialize color schema manager
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        logger.info("🎨 Color schema manager initialized")
+
         yield
 
     except asyncio.CancelledError:
