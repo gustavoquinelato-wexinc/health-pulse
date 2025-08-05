@@ -37,8 +37,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Configure axios defaults - Use Vite proxy instead of direct backend URL to avoid CORS issues
-// axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+// Configure axios defaults - Use direct backend URL since CORS is properly configured
+axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 axios.defaults.withCredentials = true  // Include cookies in all requests
 
 // Global axios response interceptor for handling authentication errors
@@ -593,6 +593,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isAdmin: !!user && user.role === 'admin'
   }
+
+
 
   // Listen for cross-service authentication messages
   useEffect(() => {

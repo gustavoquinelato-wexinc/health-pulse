@@ -4,8 +4,8 @@ import { defineConfig, loadEnv } from 'vite'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file from root directory (two levels up)
-  const env = loadEnv(mode, path.resolve(__dirname, '../../'), '')
+  // Load env file from current service directory
+  const env = loadEnv(mode, __dirname, '')
 
   return {
     plugins: [react()],
@@ -20,18 +20,19 @@ export default defineConfig(({ mode }) => {
       watch: {
         usePolling: true,
       },
-      proxy: {
-        '/api': {
-          target: env.VITE_API_BASE_URL || 'http://localhost:3001',
-          changeOrigin: true,
-          secure: false,
-        },
-        '/auth': {
-          target: env.VITE_API_BASE_URL || 'http://localhost:3001',
-          changeOrigin: true,
-          secure: false,
-        },
-      },
+      // Proxy disabled - using direct axios calls with CORS
+      // proxy: {
+      //   '/api': {
+      //     target: env.VITE_API_BASE_URL || 'http://localhost:3001',
+      //     changeOrigin: true,
+      //     secure: false,
+      //   },
+      //   '/auth': {
+      //     target: env.VITE_API_BASE_URL || 'http://localhost:3001',
+      //     changeOrigin: true,
+      //     secure: false,
+      //   },
+      // },
     },
     build: {
       outDir: 'dist',

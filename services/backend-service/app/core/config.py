@@ -35,20 +35,24 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 3600
     
-    # Jira Configuration
-    JIRA_URL: str
-    JIRA_USERNAME: str
-    JIRA_TOKEN: str
+    # Jira Configuration (optional - mainly used by ETL service)
+    JIRA_URL: Optional[str] = None
+    JIRA_USERNAME: Optional[str] = None
+    JIRA_TOKEN: Optional[str] = None
 
     @property
     def jira_base_url(self) -> str:
         """Returns Jira base API URL."""
-        return f"{self.JIRA_URL}/rest/api/2"
+        if self.JIRA_URL:
+            return f"{self.JIRA_URL}/rest/api/2"
+        return ""
 
     @property
     def jira_dev_status_url(self) -> str:
         """Returns Jira dev status API URL."""
-        return f"{self.JIRA_URL}/rest/dev-status/1.0"
+        if self.JIRA_URL:
+            return f"{self.JIRA_URL}/rest/dev-status/1.0"
+        return ""
     
     # GitHub Configuration (for dev status)
     GITHUB_TOKEN: Optional[str] = None
@@ -96,9 +100,9 @@ class Settings(BaseSettings):
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DATABASE}"
     
     @property
-    def jira_base_url(self) -> str:
-        """Base URL for Jira APIs."""
-        return f"{self.JIRA_URL}/rest/api/2"
+    def jira_base_url_legacy(self) -> str:
+        """Legacy property - use jira_base_url instead."""
+        return self.jira_base_url
     
 
     
