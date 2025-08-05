@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 from sqlalchemy import func
+import httpx
 
 from app.core.logging_config import get_logger
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
@@ -28,6 +29,7 @@ from app.auth.centralized_auth_middleware import (
     require_web_authentication, get_current_user_optional
 )
 from app.auth.centralized_auth_service import get_centralized_auth_service
+from app.core.config import settings
 
 logger = get_logger(__name__)
 
@@ -228,8 +230,42 @@ async def home_page(request: Request, token: Optional[str] = None):
     except Exception:
         pass  # No token available
 
-    # Get color schema (smart caching prevents excessive calls)
-    color_schema_data = await color_manager.get_color_schema(auth_token)
+    # Get color schema - use direct backend call like workflows page for consistency
+    color_schema_data = {"mode": "default"}  # Default fallback
+
+    if auth_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get color schema from backend
+                response_color = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                    headers={"Authorization": f"Bearer {auth_token}"}
+                )
+
+                if response_color.status_code == 200:
+                    data = response_color.json()
+                    if data.get("success"):
+                        # Also get theme mode from backend
+                        theme_response = await client.get(
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                            headers={"Authorization": f"Bearer {auth_token}"}
+                        )
+
+                        theme_mode = 'light'  # default
+                        if theme_response.status_code == 200:
+                            theme_data = theme_response.json()
+                            if theme_data.get('success'):
+                                theme_mode = theme_data.get('mode', 'light')
+
+                        # Combine color schema and theme data
+                        color_schema_data = {
+                            "success": True,
+                            "mode": data.get("mode", "default"),
+                            "colors": data.get("colors", {}),
+                            "theme": theme_mode
+                        }
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema for home page: {e}")
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -341,7 +377,7 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
         database = get_database()
         logger.info(f"Database connection established for job details")
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Get job schedule details
             logger.info(f"Querying JobSchedule for job_name={job_name}, client_id={user.client_id}")
 
@@ -413,7 +449,7 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Projects summary
             projects_total = session.query(JiraProject).filter(JiraProject.client_id == user.client_id).count()
             projects_active = session.query(JiraProject).filter(
@@ -830,15 +866,42 @@ async def issuetype_hierarchies_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Use ColorSchemaManager for consistent color loading (same as home page)
-        color_schema_data = None
-        try:
-            if token:
-                from app.core.color_schema_manager import get_color_schema_manager
-                color_manager = get_color_schema_manager()
-                color_schema_data = await color_manager.get_color_schema(token)
-        except Exception as e:
-            logger.debug(f"Could not fetch color schema: {e}")
+        # Get color schema - use direct backend call for consistency with other pages
+        color_schema_data = {"mode": "default"}  # Default fallback
+
+        if token:
+            try:
+                async with httpx.AsyncClient() as client:
+                    # Get color schema from backend
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
+            except Exception as e:
+                logger.debug(f"Could not fetch color schema for issuetype hierarchies: {e}")
 
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
@@ -1334,7 +1397,7 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Filter job schedule by client_id
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
@@ -1403,7 +1466,7 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Get GitHub integration
             github_integration = session.query(Integration).filter(func.upper(Integration.name) == 'GITHUB').first()
 
@@ -1464,7 +1527,7 @@ async def get_jobs_status(user: UserData = Depends(verify_token)):
 
         # Enhance with checkpoint data using optimized query
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Get job objects filtered by client_id
             jobs = session.query(JobSchedule).filter(
                 JobSchedule.client_id == user.client_id,
@@ -1638,31 +1701,19 @@ async def handle_color_schema_mode_change(request: Request):
         data = await request.json()
         client_id = data.get("client_id")
         mode = data.get("mode")
-        event_type = data.get("event_type", "mode_update")
 
-        logger.info(f"🎨 DISABLED: Color schema mode change notification received for client {client_id}: {mode} (not processing to prevent infinite loop)")
+        logger.info(f"🎨 Color schema mode change notification received for client {client_id}: {mode}")
 
-        # TEMPORARILY DISABLED: All event-driven color processing to prevent infinite loop
-        # # Invalidate color schema cache to force refresh
-        # from app.core.color_schema_manager import get_color_schema_manager
-        # color_manager = get_color_schema_manager()
-        # color_manager.invalidate_cache()
+        # Invalidate color schema cache to force refresh on next page load
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_manager.invalidate_cache()
 
-        # # Broadcast to connected WebSocket clients for real-time updates
-        # from app.core.websocket_manager import get_websocket_manager
-        # websocket_manager = get_websocket_manager()
-
-        # # Send mode update to all connected clients for this client_id
-        # await websocket_manager.broadcast_to_client(client_id, {
-        #     "type": "color_schema_mode_updated",
-        #     "mode": mode,
-        #     "event_type": event_type,
-        #     "timestamp": datetime.utcnow().isoformat()
-        # })
+        logger.info(f"✅ Color schema cache invalidated for client {client_id}")
 
         return {
             "success": True,
-            "message": "Color schema mode change notification received (processing disabled)",
+            "message": "Color schema mode change processed successfully",
             "client_id": client_id,
             "mode": mode
         }
@@ -1777,7 +1828,7 @@ async def stop_job(job_name: str, user: UserData = Depends(require_admin_authent
         if cancelled:
             # Also update database status
             database = get_database()
-            with database.get_session() as session:
+            with database.get_write_session_context() as session:
                 job = session.query(JobSchedule).filter(
                     JobSchedule.job_name == job_name,
                     JobSchedule.active == True
@@ -1821,7 +1872,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
         job_manager = get_job_manager()
 
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # Single optimized query for both jobs
             jobs = session.query(
                 JobSchedule.job_name,
@@ -1889,7 +1940,7 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User
             )
         
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             job = session.query(JobSchedule).filter(JobSchedule.job_name == job_name).first()
             
             if not job:
@@ -1925,7 +1976,7 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
     """Pause a specific job"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get the job to pause
             job_to_pause = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
@@ -1967,7 +2018,7 @@ async def unpause_job(job_name: str, user: UserData = Depends(require_admin_auth
     """Unpause a specific job"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get both jobs to determine unpause logic
             all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
 
@@ -2095,7 +2146,7 @@ async def set_job_active(job_name: str, user: UserData = Depends(require_admin_a
             )
 
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get both jobs
             jira_job = session.query(JobSchedule).filter(
                 JobSchedule.job_name == 'jira_sync',

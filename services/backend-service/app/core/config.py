@@ -29,11 +29,24 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str
     POSTGRES_DATABASE: str
     
-    # Database Connection Pool Settings
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
-    DB_POOL_TIMEOUT: int = 30
-    DB_POOL_RECYCLE: int = 3600
+    # Read Replica Configuration
+    POSTGRES_REPLICA_HOST: Optional[str] = Field(default=None, env="POSTGRES_REPLICA_HOST")
+    POSTGRES_REPLICA_PORT: int = Field(default=5432, env="POSTGRES_REPLICA_PORT")
+
+    # Primary Database Pool Settings (Write-heavy operations)
+    DB_POOL_SIZE: int = Field(default=5, env="DB_POOL_SIZE")
+    DB_MAX_OVERFLOW: int = Field(default=10, env="DB_MAX_OVERFLOW")
+    DB_POOL_TIMEOUT: int = Field(default=30, env="DB_POOL_TIMEOUT")
+    DB_POOL_RECYCLE: int = Field(default=3600, env="DB_POOL_RECYCLE")
+
+    # Replica Database Pool Settings (Read-heavy operations)
+    DB_REPLICA_POOL_SIZE: int = Field(default=5, env="DB_REPLICA_POOL_SIZE")
+    DB_REPLICA_MAX_OVERFLOW: int = Field(default=10, env="DB_REPLICA_MAX_OVERFLOW")
+    DB_REPLICA_POOL_TIMEOUT: int = Field(default=30, env="DB_REPLICA_POOL_TIMEOUT")
+
+    # Feature Flags
+    USE_READ_REPLICA: bool = Field(default=False, env="USE_READ_REPLICA")
+    REPLICA_FALLBACK_ENABLED: bool = Field(default=True, env="REPLICA_FALLBACK_ENABLED")
     
     # Jira Configuration (optional - mainly used by ETL service)
     JIRA_URL: Optional[str] = None
@@ -98,6 +111,13 @@ class Settings(BaseSettings):
     def postgres_connection_string(self) -> str:
         """Builds the PostgreSQL connection string."""
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DATABASE}"
+
+    @property
+    def postgres_replica_connection_string(self) -> str:
+        """Read replica connection string (falls back to primary if no replica configured)"""
+        replica_host = self.POSTGRES_REPLICA_HOST or self.POSTGRES_HOST
+        replica_port = self.POSTGRES_REPLICA_PORT if self.POSTGRES_REPLICA_HOST else self.POSTGRES_PORT
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{replica_host}:{replica_port}/{self.POSTGRES_DATABASE}"
     
     @property
     def jira_base_url_legacy(self) -> str:

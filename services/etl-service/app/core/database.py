@@ -1,13 +1,14 @@
 """
-PostgreSQL database connection management.
+PostgreSQL database connection management with replica support.
 Migrated from Snowflake to PostgreSQL for better performance.
+Enhanced with read replica routing for improved scalability.
 """
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Optional
 import logging
 import asyncio
 
@@ -19,17 +20,19 @@ settings = get_settings()
 
 
 class PostgreSQLDatabase:
-    """PostgreSQL connection manager."""
+    """PostgreSQL connection manager with replica support."""
 
     def __init__(self):
-        self.engine = None
+        self.engine = None  # Primary database engine
+        self.replica_engine = None  # Replica database engine
         self.SessionLocal = None
-        self._initialize_engine()
+        self.replica_available = True
+        self._initialize_engines()
 
-    def _initialize_engine(self):
-        """Initializes SQLAlchemy engine with PostgreSQL connection."""
+    def _initialize_engines(self):
+        """Initializes SQLAlchemy engines for primary and replica databases."""
         try:
-            # Create SQLAlchemy engine for PostgreSQL
+            # Create primary SQLAlchemy engine for PostgreSQL
             self.engine = create_engine(
                 settings.postgres_connection_string,
                 poolclass=QueuePool,
@@ -41,28 +44,42 @@ class PostgreSQLDatabase:
                 echo=False  # Disable SQLAlchemy logging completely
             )
 
-            # Create sessionmaker
+            # Create sessionmaker for primary
             self.SessionLocal = sessionmaker(
                 autocommit=False,
                 autoflush=False,
                 bind=self.engine
             )
 
-            logger.info("PostgreSQL database connection initialized successfully")
+            # Create replica engine if configured
+            if settings.USE_READ_REPLICA and settings.POSTGRES_REPLICA_HOST:
+                self.replica_engine = create_engine(
+                    settings.postgres_replica_connection_string,
+                    poolclass=QueuePool,
+                    pool_size=settings.DB_REPLICA_POOL_SIZE,
+                    max_overflow=settings.DB_REPLICA_MAX_OVERFLOW,
+                    pool_timeout=settings.DB_REPLICA_POOL_TIMEOUT,
+                    pool_recycle=settings.DB_POOL_RECYCLE,
+                    pool_pre_ping=True,
+                    echo=False
+                )
+                logger.info("PostgreSQL database connections initialized successfully (primary + replica)")
+            else:
+                logger.info("PostgreSQL database connection initialized successfully (primary only)")
 
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL connection: {e}")
             raise
     
     def get_session(self) -> Session:
-        """Returns a new database session."""
+        """Returns a new database session (legacy method - uses primary)."""
         if not self.SessionLocal:
             raise RuntimeError("Database not initialized")
         return self.SessionLocal()
 
     @contextmanager
     def get_session_context(self) -> Generator[Session, None, None]:
-        """Context manager for database session."""
+        """Context manager for database session (legacy method - uses primary)."""
         session = self.get_session()
         try:
             yield session
@@ -74,13 +91,76 @@ class PostgreSQLDatabase:
         finally:
             session.close()
 
+    def get_write_session(self) -> Session:
+        """Get a write session (always routes to primary database)."""
+        if not self.SessionLocal:
+            raise RuntimeError("Database not initialized")
+        return self.SessionLocal()
+
+    def get_read_session(self) -> Session:
+        """Get a read session (routes to replica if available, fallback to primary)."""
+        if self.replica_engine and self.replica_available and settings.USE_READ_REPLICA:
+            try:
+                ReplicaSessionLocal = sessionmaker(bind=self.replica_engine)
+                return ReplicaSessionLocal()
+            except Exception as e:
+                logger.warning(f"Replica connection failed, falling back to primary: {e}")
+                self.replica_available = False
+
+        # Fallback to primary
+        return self.get_write_session()
+
+    @contextmanager
+    def get_write_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for write operations (always primary)."""
+        session = self.get_write_session()
+        try:
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Write session error: {e}")
+            raise
+        finally:
+            session.close()
+
+    @contextmanager
+    def get_read_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for read operations (replica if available)."""
+        session = self.get_read_session()
+        try:
+            yield session
+        except Exception as e:
+            logger.error(f"Read session error: {e}")
+            raise
+        finally:
+            session.close()
+
+    @contextmanager
+    def get_etl_session_context(self) -> Generator[Session, None, None]:
+        """Long-running ETL operations with chunked commits and optimized settings."""
+        session = self.get_write_session()
+        try:
+            # Optimize for bulk operations
+            session.execute(text("SET statement_timeout = '300s'"))  # 5 minutes
+            session.execute(text("SET idle_in_transaction_session_timeout = '600s'"))
+            session.execute(text("SET synchronous_commit = off"))  # Async commits for performance
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"ETL session error: {e}")
+            raise
+        finally:
+            session.close()
+
     @contextmanager
     def get_job_session_context(self) -> Generator[Session, None, None]:
         """
         Context manager for long-running job sessions with optimized settings.
         Uses shorter timeouts and autocommit for better concurrency.
         """
-        session = self.get_session()
+        session = self.get_write_session()
         try:
             # Configure session for job execution
             session.execute(text("SET statement_timeout = '30s'"))  # Prevent long-running queries
@@ -203,9 +283,16 @@ def get_database() -> PostgreSQLDatabase:
 
 
 def get_db_session() -> Generator[Session, None, None]:
-    """Dependency to get database session in FastAPI."""
+    """Dependency to get database session in FastAPI (write operations)."""
     database = get_database()
     with database.get_session_context() as session:
+        yield session
+
+
+def get_db_read_session() -> Generator[Session, None, None]:
+    """Dependency to get read database session in FastAPI (read operations - uses replica if available)."""
+    database = get_database()
+    with database.get_read_session_context() as session:
         yield session
 
 

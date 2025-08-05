@@ -49,6 +49,7 @@
                 }
             } catch (error) {
                 console.error('Error loading color schema:', error);
+                // Fallback to default theme if anything goes wrong
                 document.documentElement.setAttribute('data-theme', 'light');
                 document.documentElement.setAttribute('data-color-schema', 'default');
             }
