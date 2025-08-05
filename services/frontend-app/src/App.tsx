@@ -10,6 +10,7 @@ import DeploymentFrequencyPage from './pages/DeploymentFrequencyPage'
 import DoraOverviewPage from './pages/DoraOverviewPage'
 import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 
+import ClientManagementPage from './pages/ClientManagementPage'
 import HomePage from './pages/HomePage'
 import HomePageBackup from './pages/HomePageBackup'
 import HomePageOptionB from './pages/HomePageOptionB'
@@ -18,6 +19,7 @@ import LoginPage from './pages/LoginPage'
 import NotificationsPage from './pages/NotificationsPage'
 import SettingsPage from './pages/SettingsPage'
 import TimeToRestorePage from './pages/TimeToRestorePage'
+import UserManagementPage from './pages/UserManagementPage'
 import UserPreferencesPage from './pages/UserPreferencesPage'
 
 function App() {
@@ -131,6 +133,23 @@ function App() {
                   element={
                     <AdminRoute>
                       <ColorSchemeSettingsPage />
+                    </AdminRoute>
+                  }
+                />
+
+                <Route
+                  path="/settings/user-management"
+                  element={
+                    <AdminRoute>
+                      <UserManagementPage />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="/settings/client-management"
+                  element={
+                    <AdminRoute>
+                      <ClientManagementPage />
                     </AdminRoute>
                   }
                 />

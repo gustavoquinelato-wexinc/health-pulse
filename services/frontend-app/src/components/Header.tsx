@@ -32,15 +32,35 @@ export default function Header() {
 
     try {
       const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
-      // POST token to ETL service
+      // Step 1: Setup ETL access via Backend Service
+      console.log('Setting up ETL access...')
+      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      })
+
+      if (!setupResponse.ok) {
+        console.error('Failed to setup ETL access:', setupResponse.statusText)
+        return
+      }
+
+      const setupData = await setupResponse.json()
+      const etlToken = setupData.token
+
+      // Step 2: Navigate to ETL service with the token
       const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          token: token,
+          token: etlToken,
           return_url: window.location.href
         }),
         credentials: 'include' // Important for cookies
@@ -49,10 +69,16 @@ export default function Header() {
       if (response.ok) {
         const data = await response.json()
         if (data.redirect_url) {
-          // Navigate to ETL service
           if (openInNewTab) {
+            // Right click: Open in new tab without switching focus
             window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+
+            // Immediately refocus current window to prevent tab switch
+            setTimeout(() => {
+              window.focus()
+            }, 10)
           } else {
+            // Normal click: Navigate in same page (like ETL service behavior)
             window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
           }
         }
@@ -246,19 +272,12 @@ export default function Header() {
         {/* ETL Management */}
         {user?.role === 'admin' && (
           <motion.a
-            href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home?token=${encodeURIComponent(localStorage.getItem('pulse_token') || '')}`}
+            href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home`}
             onClick={(e) => {
               e.preventDefault();
-              // Check if Ctrl/Cmd key is pressed (indicates "open in new tab" intent)
-              const openInNewTab = e.ctrlKey || e.metaKey;
-              handleETLDirectNavigation(openInNewTab);
-            }}
-            onAuxClick={(e) => {
-              // Middle click: open in new tab
-              if (e.button === 1) {
-                e.preventDefault();
-                handleETLDirectNavigation(true);
-              }
+              // Normal left click: navigate in same page with authentication
+              handleETLDirectNavigation(false);
+              return false;
             }}
             className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors inline-block"
             whileHover={{ scale: 1.05 }}

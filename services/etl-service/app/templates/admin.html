@@ -438,11 +438,9 @@
         alert(`Deactivate integration ${integrationId} confirmation would show here`);
     }
 
-    // Logout function
+    // Logout function - redirect to ETL service logout for proper session invalidation
     function logout() {
-        localStorage.removeItem('pulse_token');
-        document.cookie = 'pulse_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-        window.location.href = '/login';
+        window.location.href = '/logout';
     }
 </script>
 {% endblock %}

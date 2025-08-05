@@ -3,6 +3,7 @@ Main FastAPI application for ETL Service.
 Configures the application, routes, scheduling and initialization.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
@@ -10,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+import os
 import signal
+import sys
 import uvicorn
 
 try:
@@ -75,6 +78,25 @@ scheduler = AsyncIOScheduler() if SCHEDULER_AVAILABLE else None
 # Global shutdown flag to prevent multiple cleanup attempts
 _shutdown_initiated = False
 
+# Note: Signal handlers removed - FastAPI/uvicorn handles shutdown signals properly
+
+def run_server():
+    """Custom server runner that suppresses CancelledError traceback"""
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host="0.0.0.0",
+            port=int(os.getenv("PORT", "8000")),
+            reload=os.getenv("ENVIRONMENT", "development") == "development",
+            log_level="info"
+        )
+    except KeyboardInterrupt:
+        print("\n[INFO] Keyboard interrupt received, shutting down gracefully...")
+    except Exception as e:
+        print(f"[ERROR] Server error: {e}")
+    finally:
+        print("[INFO] Server shutdown complete")
+
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """Middleware to handle authentication checks before route processing."""
@@ -97,6 +119,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+
+        # Always allow OPTIONS requests (CORS preflight) to pass through
+        if request.method == "OPTIONS":
+            return await call_next(request)
 
         # Skip authentication for public routes
         if (path in self.PUBLIC_ROUTES or
@@ -244,6 +270,12 @@ async def lifespan(_: FastAPI):
         await clear_all_user_sessions()
 
         logger.info("ETL Service started successfully")
+
+        # Initialize color schema manager
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        logger.info("🎨 Color schema manager initialized")
+
         yield
 
     except asyncio.CancelledError:
@@ -289,8 +321,10 @@ async def lifespan(_: FastAPI):
 
             print("[INFO] ETL Service shutdown complete")
 
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as e:
             # Silently suppress all exceptions during shutdown
+            # Use print instead of logger to avoid potential issues during shutdown
+            print(f"[DEBUG] Shutdown cleanup completed with exception: {type(e).__name__}")
             pass
 
 
@@ -364,9 +398,10 @@ app = FastAPI(
 app.add_middleware(AuthenticationMiddleware)
 
 # CORS configuration (runs second)
+logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify allowed origins
+    allow_origins=settings.cors_origins_list,  # Use configured origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -631,26 +666,32 @@ async def initialize_scheduler():
         return
 
     try:
-        # Initialize default settings in database
-        from app.core.settings_manager import SettingsManager, get_orchestrator_interval, is_orchestrator_enabled
-        SettingsManager.initialize_default_settings()
-
-        # Set timezone
+        # Set timezone first (doesn't require database)
         scheduler.configure(timezone=settings.SCHEDULER_TIMEZONE)
 
-        # 🎯 SIMPLE CLIENT-SPECIFIC ORCHESTRATOR (Multi-Instance Approach)
-        # This ETL instance serves only one client (defined by CLIENT_NAME env var)
-        client_name = settings.CLIENT_NAME
-
-        # Get client ID from name (case-insensitive lookup)
+        # Try to initialize database-dependent components
         try:
+            # Initialize default settings in database
+            from app.core.settings_manager import SettingsManager, get_orchestrator_interval, is_orchestrator_enabled
+            SettingsManager.initialize_default_settings()
+
+            # 🎯 SIMPLE CLIENT-SPECIFIC ORCHESTRATOR (Multi-Instance Approach)
+            # This ETL instance serves only one client (defined by CLIENT_NAME env var)
+            client_name = settings.CLIENT_NAME
+
+            # Get client ID from name (case-insensitive lookup)
             from app.core.config import get_client_id_from_name
             client_id = get_client_id_from_name(client_name)
             logger.info(f"🎯 ETL Instance configured for: {client_name} (ID: {client_id})")
-        except Exception as e:
-            logger.error(f"❌ Client configuration error: {e}")
-            logger.error("This ETL instance cannot start without a valid active client")
-            raise Exception(f"Invalid client configuration: CLIENT_NAME='{client_name}'")
+
+        except Exception as db_error:
+            logger.warning(f"Database not available during scheduler initialization: {db_error}")
+            logger.warning("Scheduler will start in limited mode - jobs can be triggered manually")
+
+            # Start scheduler without jobs
+            scheduler.start()
+            logger.info("Scheduler started in limited mode (no database connection)")
+            return
 
         # Get orchestrator settings for this client
         interval_minutes = get_orchestrator_interval(client_id)
@@ -945,4 +986,5 @@ if __name__ == "__main__":
         print(f"[ERROR] Unexpected error during server execution: {e}")
 
 
-
+if __name__ == "__main__":
+    run_server()

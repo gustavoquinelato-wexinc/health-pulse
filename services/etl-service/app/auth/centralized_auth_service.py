@@ -64,6 +64,14 @@ class TokenCache:
             if expired_keys:
                 logger.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
 
+    async def clear_all(self):
+        """Clear all cache entries (useful when backend service restarts)."""
+        async with self._lock:
+            cache_size = len(self.cache)
+            self.cache.clear()
+            if cache_size > 0:
+                logger.info(f"Cleared all {cache_size} cache entries")
+
 
 class CentralizedAuthService:
     """Service to validate authentication through Backend Service with caching."""
@@ -130,16 +138,24 @@ class CentralizedAuthService:
                         return user_data
                     else:
                         logger.warning(f"Invalid response format from backend service. Response: {data}")
+                        # Remove invalid token from cache
+                        await self.cache.invalidate(token_hash)
                         return None
                 elif response.status_code == 401:
                     logger.debug("Token validation failed: unauthorized")
+                    # Remove unauthorized token from cache
+                    await self.cache.invalidate(token_hash)
                     return None
                 else:
                     logger.error(f"Backend service returned status {response.status_code}")
+                    # Remove failed token from cache
+                    await self.cache.invalidate(token_hash)
                     return None
 
         except httpx.TimeoutException:
             logger.error(f"Timeout while validating token with backend service at {self.backend_service_url}")
+            # Remove token from cache on timeout to force re-validation
+            await self.cache.invalidate(token_hash)
             return None
         except httpx.RequestError as e:
             logger.error(f"Request error while validating token: {e}")
@@ -147,11 +163,15 @@ class CentralizedAuthService:
             logger.error(f"Full URL attempted: {self.backend_service_url}/api/v1/auth/validate")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+            # Remove token from cache on request error to force re-validation
+            await self.cache.invalidate(token_hash)
             return None
         except Exception as e:
             logger.error(f"Unexpected error during token validation: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+            # Remove token from cache on unexpected error to force re-validation
+            await self.cache.invalidate(token_hash)
             return None
     
     async def validate_user_permissions(self, user_data: Dict[str, Any], required_role: str = None) -> bool:
@@ -190,71 +210,17 @@ class CentralizedAuthService:
             logger.error(f"Error validating user permissions: {e}")
             return False
 
-    async def create_navigation_session(self, token: str, user_data: Dict[str, Any]) -> bool:
-        """
-        Create a proper session in the backend service for navigation.
-        This ensures the user has a valid session for subsequent ETL requests.
-        """
-        try:
-            client_config = {
-                "timeout": httpx.Timeout(30.0),
-                "verify": False  # For development with self-signed certs
-            }
-
-            async with httpx.AsyncClient(**client_config) as client:
-                # Call backend service to create/refresh session
-                response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"user_data": user_data}
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Navigation session created successfully for user: {user_data.get('email')}")
-                    return True
-                else:
-                    logger.warning(f"Failed to create navigation session: {response.status_code}")
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error creating navigation session: {e}")
-            return False
+    # Navigation session creation removed - now handled by Redis shared sessions
 
     async def ensure_session_exists(self, token: str, user_data: Dict[str, Any]) -> bool:
         """
         Ensure a session exists for the given token and user.
-        Delegates to Backend Service for session management.
+        With Redis shared sessions, this is no longer needed but kept for compatibility.
         """
-        try:
-            # Use the Backend Service to create/refresh the session
-            # This is the proper way - ETL service should not manage sessions directly
-
-            client_config = {
-                'timeout': httpx.Timeout(30.0),
-                'verify': False  # For development - set to True in production
-            }
-
-            async with httpx.AsyncClient(**client_config) as client:
-                # Call backend service to create/refresh session
-                response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/create-navigation-session",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"user_data": user_data}
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Navigation session ensured via Backend Service for user: {user_data.get('email')}")
-                    return True
-                else:
-                    logger.warning(f"Failed to ensure session via Backend Service: {response.status_code}")
-                    # Don't fail the navigation if session creation fails
-                    # The token is still valid, just no database session
-                    return True
-
-        except Exception as e:
-            logger.error(f"Error ensuring session exists: {e}")
-            # Don't fail the navigation if session creation fails
-            return True
+        # With Redis shared sessions, sessions are automatically managed
+        # Just return True to maintain compatibility
+        logger.debug(f"Session existence ensured via Redis for user: {user_data.get('email')}")
+        return True
 
     async def invalidate_session(self, token: str) -> bool:
         """Invalidate a session by calling the Backend Service and clearing cache"""
@@ -268,7 +234,7 @@ class CentralizedAuthService:
             logger.info(f"Token (first 20 chars): {token[:20]}...")
 
             async with httpx.AsyncClient() as client:
-                url = f"{self.backend_service_url}/api/v1/admin/auth/invalidate-session"
+                url = f"{self.backend_service_url}/api/v1/auth/logout"
                 logger.info(f"POST {url}")
 
                 response = await client.post(
@@ -280,8 +246,11 @@ class CentralizedAuthService:
                 logger.info(f"Response status: {response.status_code}")
                 logger.info(f"Response text: {response.text}")
 
-                if response.status_code == 200:
-                    logger.info("✅ Session invalidated successfully via Backend Service")
+                if response.status_code in [200, 302]:
+                    if response.status_code == 200:
+                        logger.info("✅ Session invalidated successfully via Backend Service")
+                    else:
+                        logger.info("✅ Session invalidated successfully via Backend Service (redirect response)")
                     return True
                 else:
                     logger.warning(f"❌ Failed to invalidate session: {response.status_code} - {response.text}")

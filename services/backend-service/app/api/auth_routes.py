@@ -6,9 +6,11 @@ Handles login, logout, token validation, and session management.
 from fastapi import APIRouter, HTTPException, status, Request, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+import httpx
 
 from app.core.database import get_db_session
 from app.core.logging_config import get_logger
+from app.core.config import get_settings
 from app.auth.auth_service import get_auth_service
 from app.auth.auth_middleware import require_authentication
 from app.schemas.api_schemas import LoginRequest, LoginResponse, TokenValidationResponse
@@ -49,11 +51,32 @@ async def login(login_request: LoginRequest, request: Request):
         
         logger.info(f"✅ Login successful for email: {login_request.email}")
 
-        return LoginResponse(
+        # Create response with token
+        response_data = LoginResponse(
             success=True,
             token=auth_result["token"],
             user=auth_result["user"]
         )
+
+        # Create JSON response to set cookies
+        response = JSONResponse(content=response_data.dict())
+
+        # Set HTTP-only cookie for Frontend service
+        response.set_cookie(
+            key="pulse_token",
+            value=auth_result["token"],
+            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
+            httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",  # Allow cross-site requests for navigation
+            path="/"  # Ensure cookie is sent to all paths
+        )
+
+        # Set up cross-service authentication (Backend → ETL)
+        await setup_cross_service_authentication(auth_result["token"])
+
+        logger.info(f"✅ Session cookie set and cross-service authentication configured")
+        return response
         
     except HTTPException:
         raise
@@ -88,14 +111,36 @@ async def logout(request: Request):
         
         # Invalidate session
         auth_service = get_auth_service()
-        success = await auth_service.invalidate_session(token)
+        success = await auth_service.logout(token)
         
         if success:
             logger.info("✅ Logout successful - session invalidated")
-            return {"message": "Logout successful", "success": True}
+            response = JSONResponse(content={"message": "Logout successful", "success": True})
+            # Clear the session cookie
+            response.delete_cookie(
+                key="pulse_token",
+                path="/"
+            )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+            return response
         else:
             logger.warning("❌ Logout failed - session not found")
-            return {"message": "Session not found", "success": False}
+            response = JSONResponse(content={"message": "Session not found", "success": False})
+            # Clear the cookie anyway in case it exists
+            response.delete_cookie(
+                key="pulse_token",
+                path="/"
+            )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+            return response
             
     except HTTPException:
         raise
@@ -107,6 +152,56 @@ async def logout(request: Request):
         )
 
 
+@router.post("/logout-all")
+async def logout_all(current_user: User = Depends(require_authentication)):
+    """
+    Logout user from all devices/sessions.
+    Invalidates all active sessions for the current user.
+    """
+    logger.info(f"🔐 Logout-all request for user: {current_user.email}")
+
+    try:
+        # Invalidate all sessions for the user
+        auth_service = get_auth_service()
+        success = await auth_service.logout_all_sessions(current_user.id)
+
+        if success:
+            logger.info(f"✅ Logout-all successful for user: {current_user.email}")
+            response = JSONResponse(content={"message": "Logged out from all devices", "success": True})
+            # Clear the session cookie
+            response.delete_cookie(
+                key="pulse_token",
+                path="/"
+            )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+            return response
+        else:
+            logger.warning(f"❌ Logout-all failed for user: {current_user.email}")
+            response = JSONResponse(content={"message": "Failed to logout from all devices", "success": False})
+            # Clear the cookie anyway
+            response.delete_cookie(
+                key="pulse_token",
+                path="/"
+            )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+            return response
+
+    except Exception as e:
+        logger.error(f"Logout-all error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout-all failed due to server error"
+        )
+
+
 @router.post("/validate", response_model=TokenValidationResponse)
 async def validate_token(request: Request):
     """
@@ -114,14 +209,24 @@ async def validate_token(request: Request):
     Returns user information if token is valid.
     """
     try:
-        # Get token from Authorization header
+        # Get token from Authorization header or cookie
+        token = None
+
+        # 1. Check Authorization header first
         auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            logger.info(f"Backend validating token from header: {token[:30]}... (length: {len(token)})")
 
-        if not auth_header or not auth_header.startswith("Bearer "):
+        # 2. Fallback to cookie if no Authorization header
+        if not token:
+            token = request.cookies.get("pulse_token")
+            if token:
+                logger.info(f"Backend validating token from cookie: {token[:30]}... (length: {len(token)})")
+
+        if not token:
+            logger.debug("No token found in Authorization header or cookies")
             return TokenValidationResponse(valid=False, user=None)
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
-        logger.info(f"Backend validating token: {token[:30]}... (length: {len(token)})")
 
         # Validate token
         auth_service = get_auth_service()
@@ -148,59 +253,7 @@ async def validate_token(request: Request):
         return TokenValidationResponse(valid=False, user=None)
 
 
-@router.post("/create-navigation-session")
-async def create_navigation_session(request: Request, user: User = Depends(require_authentication)):
-    """
-    Create a proper session for navigation from frontend to ETL service.
-    This ensures the user has a valid session for subsequent ETL requests.
-    """
-    try:
-        # Get client info from request
-        ip_address = request.client.host if request.client else None
-        user_agent = request.headers.get("user-agent", "ETL Navigation")
-
-        # Get the token from the Authorization header
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authorization header"
-            )
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
-
-        # Create/refresh session in database
-        auth_service = get_auth_service()
-        session_created = await auth_service.create_or_refresh_session(
-            user=user,
-            token=token,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
-
-        if session_created:
-            logger.info(f"✅ Navigation session created for user: {user.email}")
-            return {
-                "success": True,
-                "message": "Navigation session created successfully",
-                "user_id": user.id,
-                "email": user.email
-            }
-        else:
-            logger.warning(f"❌ Failed to create navigation session for user: {user.email}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create navigation session"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Navigation session creation error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Navigation session creation failed"
-        )
+# Navigation session endpoint removed - now handled by Redis shared sessions
 
 
 @router.post("/validate-service")
@@ -230,6 +283,73 @@ async def validate_service_token(user: User = Depends(require_authentication)):
         )
 
 
+@router.post("/cross-service-login")
+async def cross_service_login(request: Request):
+    """
+    Cross-service login endpoint for ETL → Frontend authentication sharing.
+    Allows ETL service to notify frontend about successful authentication.
+    """
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required"
+            )
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        # Validate token
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+        logger.info(f"✅ Cross-service login successful for user: {user.email}")
+
+        # Create response with token cookie for frontend
+        response = JSONResponse(content={
+            "success": True,
+            "message": "Cross-service authentication established",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+                "is_admin": user.is_admin,
+                "client_id": user.client_id
+            }
+        })
+
+        # Set HTTP-only cookie for Frontend service
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
+            httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",  # Allow cross-site requests for navigation
+            path="/"  # Ensure cookie is sent to all paths
+        )
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cross-service login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cross-service login failed"
+        )
+
+
 @router.get("/user-info")
 async def get_user_info(user: User = Depends(require_authentication)):
     """
@@ -253,4 +373,65 @@ async def get_user_info(user: User = Depends(require_authentication)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get user information"
+        )
+
+
+async def setup_cross_service_authentication(token: str):
+    """
+    Set up cross-service authentication by ensuring the token is valid in Redis.
+    With Redis shared sessions, this is mostly a validation step.
+    """
+    try:
+        logger.info(f"🔗 Setting up cross-service authentication (Redis shared sessions)")
+
+        # Validate that the token is valid and stored in Redis
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if user:
+            logger.info(f"✅ Cross-service authentication configured successfully for user: {user.email}")
+        else:
+            logger.warning(f"⚠️ Cross-service authentication setup failed: Invalid token")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Cross-service authentication setup failed: {e}")
+        # Don't fail the setup if validation fails
+        # User can still navigate manually
+
+
+@router.post("/setup-etl-access")
+async def setup_etl_access(request: Request, current_user: User = Depends(require_authentication)):
+    """
+    Set up ETL service access for the current user.
+    Called by Frontend before navigating to ETL service.
+    """
+    try:
+        # Get the current token from the Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid authorization header"
+            )
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        logger.info(f"🔗 Setting up ETL access for user: {current_user.email}")
+
+        # Set up cross-service authentication (validate token in Redis)
+        await setup_cross_service_authentication(token)
+
+        return {
+            "success": True,
+            "message": "ETL access configured",
+            "token": token  # Return the same token for Frontend to use
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error setting up ETL access: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to setup ETL access"
         )

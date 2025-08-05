@@ -215,7 +215,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     // Save to API
     try {
       await saveThemeModeToAPI(newTheme)
-      console.log('Theme mode saved to API:', newTheme)
     } catch (error) {
       console.error('Failed to save theme mode:', error)
     }

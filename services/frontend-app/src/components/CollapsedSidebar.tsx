@@ -54,7 +54,9 @@ const secondaryItems: NavigationItem[] = [
     subItems: [
       { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
       { id: 'user-preferences', label: 'User Preferences', path: '/settings/user-preferences' },
-      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' }
+      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
+      { id: 'user-management', label: 'User Management', path: '/settings/user-management' },
+      { id: 'client-management', label: 'Client Management', path: '/settings/client-management' }
     ]
   }
 ]
@@ -145,11 +147,11 @@ export default function CollapsedSidebar() {
 
 
 
-  const handleNavClick = (path: string, item?: NavigationItem) => {
+  const handleNavClick = (path: string, item?: NavigationItem, openInNewTab = false) => {
     // Handle special actions
     if (item?.isAction) {
       if (item.id === 'etl-direct') {
-        handleETLDirectNavigation()
+        handleETLDirectNavigation(openInNewTab)
         return
       }
     }
@@ -159,7 +161,7 @@ export default function CollapsedSidebar() {
   }
 
   // POST-based ETL navigation function
-  const handleETLDirectNavigation = async () => {
+  const handleETLDirectNavigation = async (openInNewTab = false) => {
     const token = localStorage.getItem('pulse_token')
     if (!token) {
       console.error('No authentication token found')
@@ -168,15 +170,35 @@ export default function CollapsedSidebar() {
 
     try {
       const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+      const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
 
-      // POST token to ETL service
+      // Step 1: Setup ETL access via Backend Service
+      console.log('Setting up ETL access...')
+      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      })
+
+      if (!setupResponse.ok) {
+        console.error('Failed to setup ETL access:', setupResponse.statusText)
+        return
+      }
+
+      const setupData = await setupResponse.json()
+      const etlToken = setupData.token
+
+      // Step 2: Navigate to ETL service with the token
       const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          token: token,
+          token: etlToken,
           return_url: window.location.href
         }),
         credentials: 'include' // Important for cookies
@@ -185,8 +207,18 @@ export default function CollapsedSidebar() {
       if (response.ok) {
         const data = await response.json()
         if (data.redirect_url) {
-          // Open ETL service in new tab
-          window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+          if (openInNewTab) {
+            // Right click: Open in new tab without switching focus
+            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
+
+            // Immediately refocus current window to prevent tab switch
+            setTimeout(() => {
+              window.focus()
+            }, 10)
+          } else {
+            // Normal click: Navigate in same page (like ETL service behavior)
+            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
+          }
         }
       } else {
         console.error('ETL navigation failed:', response.statusText)
@@ -260,7 +292,11 @@ export default function CollapsedSidebar() {
             .map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
-                  onClick={() => handleNavClick(item.path, item)}
+                  onClick={() => handleNavClick(item.path, item, false)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    handleNavClick(item.path, item, true);
+                  }}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
                   className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)

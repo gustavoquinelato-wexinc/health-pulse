@@ -6,7 +6,7 @@ and system configuration. Only accessible to admin users.
 """
 
 from typing import List, Optional, Dict
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from pydantic import BaseModel, EmailStr
@@ -23,9 +23,60 @@ from app.auth.auth_middleware import require_permission
 from app.auth.auth_service import get_auth_service
 from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
 from app.core.logging_config import get_logger
+import httpx
+import asyncio
+from app.core.config import get_settings
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+settings = get_settings()
+
+
+# 🚀 ETL Service Notification Functions
+async def notify_etl_color_schema_change(client_id: int, colors: dict):
+    """Notify ETL service of color schema changes"""
+    try:
+        # Get ETL service URL (assuming it runs on port 8000)
+        etl_url = f"http://localhost:8000/api/v1/internal/color-schema-changed"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(etl_url, json={
+                "client_id": client_id,
+                "colors": colors,
+                "event_type": "color_update"
+            })
+
+            if response.status_code == 200:
+                logger.info(f"✅ ETL service notified of color schema change for client {client_id}")
+            else:
+                logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Could not notify ETL service of color change: {e}")
+        # Don't fail the main operation if ETL notification fails
+
+
+async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
+    """Notify ETL service of color schema mode changes"""
+    try:
+        # Get ETL service URL
+        etl_url = f"http://localhost:8000/api/v1/internal/color-schema-mode-changed"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(etl_url, json={
+                "client_id": client_id,
+                "mode": mode,
+                "event_type": "mode_update"
+            })
+
+            if response.status_code == 200:
+                logger.info(f"✅ ETL service notified of color schema mode change for client {client_id}")
+            else:
+                logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Could not notify ETL service of mode change: {e}")
+        # Don't fail the main operation if ETL notification fails
 
 
 # Pydantic models for API
@@ -57,15 +108,40 @@ class UserUpdateRequest(BaseModel):
     is_admin: Optional[bool] = None
     active: Optional[bool] = None
 
-class SystemStatsResponse(BaseModel):
+class DatabaseStats(BaseModel):
+    database_size: str
+    table_count: int
+    total_records: int
+
+class UserStats(BaseModel):
     total_users: int
     active_users: int
     logged_users: int
     admin_users: int
-    roles_distribution: dict
-    database_stats: dict
-    database_size_mb: float
-    total_records: int
+
+class SystemStatsResponse(BaseModel):
+    database: DatabaseStats
+    users: UserStats
+    tables: dict
+
+class ClientResponse(BaseModel):
+    id: int
+    name: str
+    website: Optional[str]
+    logo_filename: Optional[str]
+    active: bool
+    created_at: str
+    last_updated_at: str
+
+class ClientCreateRequest(BaseModel):
+    name: str
+    website: Optional[str] = None
+    active: bool = True
+
+class ClientUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    website: Optional[str] = None
+    active: Optional[bool] = None
 
 class IntegrationResponse(BaseModel):
     id: int
@@ -168,8 +244,8 @@ async def create_user(
 
             # Set password if provided (for local auth)
             if user_data.password:
-                from app.auth.auth_service import AuthService
-                auth_service = AuthService(database)
+                from app.auth.auth_service import get_auth_service
+                auth_service = get_auth_service()
                 new_user.password_hash = auth_service._hash_password(user_data.password)
                 new_user.auth_provider = 'local'
 
@@ -335,7 +411,7 @@ async def delete_user(
         )
 
 
-@router.get("/stats", response_model=SystemStatsResponse)
+@router.get("/system/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
     admin_user: User = Depends(require_permission("admin_panel", "read"))
 ):
@@ -439,32 +515,34 @@ async def get_system_stats(
                     logger.warning(f"Could not count records for {table_name}: {e}")
                     database_stats[table_name] = 0
 
-            # Get database size in MB
-            database_size_mb = 0.0
+            # Get database size
+            database_size_pretty = "Unknown"
             try:
                 # Query PostgreSQL for database size
                 from sqlalchemy import text
                 size_result = session.execute(
-                    text("SELECT pg_size_pretty(pg_database_size(current_database())) as size, "
-                         "pg_database_size(current_database()) as size_bytes")
+                    text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
                 ).fetchone()
 
                 if size_result:
-                    # Convert bytes to MB
-                    database_size_mb = round(size_result.size_bytes / (1024 * 1024), 2)
+                    database_size_pretty = size_result.size
 
             except Exception as e:
                 logger.warning(f"Could not get database size: {e}")
 
             return SystemStatsResponse(
-                total_users=total_users,
-                active_users=active_users,
-                logged_users=logged_users,
-                admin_users=admin_users,
-                roles_distribution=roles_distribution,
-                database_stats=database_stats,
-                database_size_mb=database_size_mb,
-                total_records=total_records
+                database=DatabaseStats(
+                    database_size=database_size_pretty,
+                    table_count=len(database_stats),
+                    total_records=total_records
+                ),
+                users=UserStats(
+                    total_users=total_users,
+                    active_users=active_users,
+                    logged_users=logged_users,
+                    admin_users=admin_users
+                ),
+                tables=database_stats
             )
 
     except Exception as e:
@@ -3035,6 +3113,9 @@ async def update_color_schema(
 
             session.commit()
 
+            # 🚀 NEW: Notify ETL service of color schema change
+            await notify_etl_color_schema_change(user.client_id, colors)
+
             return {
                 "success": True,
                 "message": "Color schema updated successfully",
@@ -3089,6 +3170,9 @@ async def update_color_schema_mode(
                 session.add(setting)
 
             session.commit()
+
+            # 🚀 NEW: Notify ETL service of color schema mode change
+            await notify_etl_color_schema_mode_change(user.client_id, request.mode)
 
             return {
                 "success": True,
@@ -3184,5 +3268,339 @@ async def update_theme_mode(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update theme mode"
+        )
+
+
+# Client Management Endpoints
+
+@router.get("/clients", response_model=List[ClientResponse])
+async def get_all_clients(
+    skip: int = 0,
+    limit: int = 100,
+    user: User = Depends(require_permission("admin_panel", "read"))
+):
+    """Get current user's client information"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # ✅ SECURITY: Only show the current user's client
+            clients = session.query(Client).filter(
+                Client.id == user.client_id
+            ).offset(skip).limit(limit).all()
+
+            return [
+                ClientResponse(
+                    id=client.id,
+                    name=client.name,
+                    website=client.website,
+                    logo_filename=client.logo_filename,
+                    active=client.active,
+                    created_at=client.created_at.isoformat() if client.created_at else "",
+                    last_updated_at=client.last_updated_at.isoformat() if client.last_updated_at else ""
+                )
+                for client in clients
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching clients: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch clients"
+        )
+
+
+@router.post("/clients", response_model=ClientResponse)
+async def create_client(
+    client_data: ClientCreateRequest,
+    admin_user: User = Depends(require_permission("admin_panel", "execute"))
+):
+    """Create a new client"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Check if client name already exists
+            existing_client = session.query(Client).filter(
+                Client.name == client_data.name
+            ).first()
+
+            if existing_client:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Client name already exists"
+                )
+
+            # Create new client
+            new_client = Client(
+                name=client_data.name,
+                website=client_data.website,
+                active=client_data.active,
+                created_at=DateTimeHelper.now_utc(),
+                last_updated_at=DateTimeHelper.now_utc()
+            )
+
+            session.add(new_client)
+            session.commit()
+            session.refresh(new_client)
+
+            logger.info(f"✅ Client created: {new_client.name} by admin {admin_user.email}")
+
+            return ClientResponse(
+                id=new_client.id,
+                name=new_client.name,
+                website=new_client.website,
+                logo_filename=new_client.logo_filename,
+                active=new_client.active,
+                created_at=new_client.created_at.isoformat(),
+                last_updated_at=new_client.last_updated_at.isoformat()
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating client: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create client"
+        )
+
+
+@router.put("/clients/{client_id}", response_model=ClientResponse)
+async def update_client(
+    client_id: int,
+    client_data: ClientUpdateRequest,
+    admin_user: User = Depends(require_permission("admin_panel", "execute"))
+):
+    """Update an existing client"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Find the client
+            client = session.query(Client).filter(Client.id == client_id).first()
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Client not found"
+                )
+
+            # Check if new name conflicts with existing client
+            if client_data.name and client_data.name != client.name:
+                existing_client = session.query(Client).filter(
+                    Client.name == client_data.name,
+                    Client.id != client_id
+                ).first()
+
+                if existing_client:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Client name already exists"
+                    )
+
+            # Update fields
+            if client_data.name is not None:
+                client.name = client_data.name
+            if client_data.website is not None:
+                client.website = client_data.website
+            if client_data.active is not None:
+                client.active = client_data.active
+
+            client.last_updated_at = DateTimeHelper.now_utc()
+
+            session.commit()
+            session.refresh(client)
+
+            logger.info(f"✅ Client updated: {client.name} by admin {admin_user.email}")
+
+            return ClientResponse(
+                id=client.id,
+                name=client.name,
+                website=client.website,
+                logo_filename=client.logo_filename,
+                active=client.active,
+                created_at=client.created_at.isoformat(),
+                last_updated_at=client.last_updated_at.isoformat()
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating client: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update client"
+        )
+
+
+@router.delete("/clients/{client_id}")
+async def delete_client(
+    client_id: int,
+    admin_user: User = Depends(require_permission("admin_panel", "delete"))
+):
+    """Delete a client (with dependency checking)"""
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # Find the client
+            client = session.query(Client).filter(Client.id == client_id).first()
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Client not found"
+                )
+
+            # Check for dependencies (users, integrations, etc.)
+            user_count = session.query(User).filter(User.client_id == client_id).count()
+            integration_count = session.query(Integration).filter(Integration.client_id == client_id).count()
+
+            if user_count > 0 or integration_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot delete client: {user_count} users and {integration_count} integrations exist. Please reassign or delete them first."
+                )
+
+            # Delete logo file if exists
+            if client.logo_filename:
+                import os
+                try:
+                    # Delete from frontend static folder
+                    frontend_logo_path = f"services/frontend-app/public/static/logos/{client.logo_filename}"
+                    if os.path.exists(frontend_logo_path):
+                        os.remove(frontend_logo_path)
+
+                    # Delete from ETL static folder
+                    etl_logo_path = f"services/etl-service/app/static/logos/{client.logo_filename}"
+                    if os.path.exists(etl_logo_path):
+                        os.remove(etl_logo_path)
+
+                    logger.info(f"✅ Logo files deleted for client: {client.name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to delete logo files: {e}")
+
+            # Delete the client
+            session.delete(client)
+            session.commit()
+
+            logger.info(f"✅ Client deleted: {client.name} by admin {admin_user.email}")
+
+            return {
+                "success": True,
+                "message": f"Client '{client.name}' deleted successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting client: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete client"
+        )
+
+
+@router.post("/clients/{client_id}/logo")
+async def upload_client_logo(
+    client_id: int,
+    logo: UploadFile = File(...),
+    admin_user: User = Depends(require_permission("admin_panel", "execute"))
+):
+    """Upload logo for a client (saves to both frontend and ETL static folders)"""
+    try:
+        # Validate file type
+        if not logo.content_type or not logo.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+
+        # Validate file size (max 5MB)
+        if logo.size and logo.size > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size must be less than 5MB"
+            )
+
+        database = get_database()
+        with database.get_session() as session:
+            from app.core.utils import DateTimeHelper
+            import os
+            import uuid
+            from pathlib import Path
+
+            # Find the client
+            client = session.query(Client).filter(Client.id == client_id).first()
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Client not found"
+                )
+
+            # Generate unique filename
+            file_extension = logo.filename.split('.')[-1] if logo.filename and '.' in logo.filename else 'png'
+            unique_filename = f"{client.name.lower().replace(' ', '_')}_{uuid.uuid4().hex[:8]}.{file_extension}"
+
+            # Create directories if they don't exist
+            frontend_logo_dir = Path("services/frontend-app/public/static/logos")
+            etl_logo_dir = Path("services/etl-service/app/static/logos")
+
+            frontend_logo_dir.mkdir(parents=True, exist_ok=True)
+            etl_logo_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save to both locations
+            frontend_logo_path = frontend_logo_dir / unique_filename
+            etl_logo_path = etl_logo_dir / unique_filename
+
+            # Read file content
+            logo_content = await logo.read()
+
+            # Write to both locations
+            with open(frontend_logo_path, "wb") as f:
+                f.write(logo_content)
+
+            with open(etl_logo_path, "wb") as f:
+                f.write(logo_content)
+
+            # Delete old logo files if they exist
+            if client.logo_filename:
+                try:
+                    old_frontend_path = frontend_logo_dir / client.logo_filename
+                    old_etl_path = etl_logo_dir / client.logo_filename
+
+                    if old_frontend_path.exists():
+                        old_frontend_path.unlink()
+                    if old_etl_path.exists():
+                        old_etl_path.unlink()
+
+                    logger.info(f"✅ Old logo files deleted for client: {client.name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to delete old logo files: {e}")
+
+            # Update client record
+            client.logo_filename = unique_filename
+            client.last_updated_at = DateTimeHelper.now_utc()
+
+            session.commit()
+            session.refresh(client)
+
+            logger.info(f"✅ Logo uploaded for client: {client.name} by admin {admin_user.email}")
+
+            return ClientResponse(
+                id=client.id,
+                name=client.name,
+                website=client.website,
+                logo_filename=client.logo_filename,
+                active=client.active,
+                created_at=client.created_at.isoformat(),
+                last_updated_at=client.last_updated_at.isoformat()
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading client logo: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload logo"
         )
 

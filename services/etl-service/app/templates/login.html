@@ -333,10 +333,37 @@
 
                 if (response.ok) {
                     // Store token and redirect to home
+                    // Store token and redirect to home
                     localStorage.setItem('pulse_token', data.token);
 
                     // Also set cookie for compatibility
                     document.cookie = `pulse_token=${data.token}; path=/; max-age=86400`; // 24 hours
+
+                    // Set up cross-service authentication for Frontend
+                    // Set up cross-service authentication for Frontend
+                    try {
+                        // Set cookie for frontend domain (localhost)
+                        document.cookie = `pulse_token=${data.token}; path=/; domain=localhost; max-age=86400`;
+
+                        // Try to notify frontend service about the authentication
+                        const frontendUrl = 'http://localhost:3000';
+
+                        // Use postMessage to communicate with any open frontend windows
+                        if (window.opener) {
+                            window.opener.postMessage({
+                                type: 'AUTH_SUCCESS',
+                                token: data.token,
+                                user: data.user
+                            }, frontendUrl);
+                        }
+
+                        // Cross-service authentication is handled via cookies and postMessage
+                        // No need for additional API calls that might cause errors
+
+                        console.log('✅ Cross-service authentication setup completed');
+                    } catch (error) {
+                        console.warn('Cross-service authentication setup failed:', error);
+                    }
 
                     window.location.href = '/home';
                 } else {

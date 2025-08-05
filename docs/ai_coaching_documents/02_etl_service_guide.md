@@ -380,8 +380,13 @@ class Settings(BaseSettings):
 ### **Authentication**
 - ✅ **Do** validate tokens via Backend Service
 - ✅ **Do** handle authentication errors gracefully
+- ✅ **Do** support bidirectional authentication (ETL → Frontend navigation)
+- ✅ **Do** use postMessage for cross-service communication
+- ✅ **Do** handle 302 redirects as successful logout responses
 - ❌ **Don't** implement local authentication logic
 - ❌ **Don't** bypass centralized auth system
+- ❌ **Don't** make direct Frontend-ETL API calls (use Backend Service)
+- ❌ **Don't** pass tokens in URLs (use POST with proper headers)
 
 ### **Real-time Features**
 - ✅ **Do** implement WebSocket reconnection logic

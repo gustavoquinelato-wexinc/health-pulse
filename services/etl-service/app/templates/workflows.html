@@ -518,6 +518,9 @@
         const workflow = workflows.find(w => w.id === id);
         if (!workflow) return;
 
+        // Debug: Log workflow data to see step_category
+        console.log('Editing workflow:', workflow);
+
         // Set modal title for edit mode
         document.getElementById('workflowModalTitle').textContent = 'Edit Workflow';
 
@@ -527,6 +530,9 @@
         document.getElementById('stepCategory').value = workflow.step_category || 'in_progress';
         document.getElementById('workflowIntegration').value = workflow.integration_id || '';
         document.getElementById('workflowActive').checked = workflow.active;
+
+        // Debug: Log what was set in the step category field
+        console.log('Step category set to:', workflow.step_category || 'in_progress');
 
         currentWorkflowId = id;
         openModal('workflowModal');
@@ -560,7 +566,7 @@
             const dependencies = await response.json();
 
             // If no dependencies, delete directly
-            if (!dependencies.has_dependencies) {
+            if (dependencies.can_delete_safely) {
                 await deleteWorkflowDirectly(id, workflowName);
                 return;
             }
@@ -684,7 +690,7 @@
             const dependencies = await response.json();
 
             // If no dependencies, deactivate directly
-            if (!dependencies.has_dependencies) {
+            if (dependencies.can_delete_safely) {
                 await deactivateWorkflowDirectly(id, workflowName);
                 return;
             }

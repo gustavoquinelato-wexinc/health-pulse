@@ -3,6 +3,8 @@
 {% block title %}Pulse ETL Management{% endblock %}
 
 {% block content %}
+
+
 <!-- Header Section with Title and Settings -->
 <div class="mb-8">
     <div class="flex items-center justify-between mb-4">
@@ -35,9 +37,9 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
         <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-1); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-circle-info text-base" style="color: var(--color-1);"></i>
+                <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
             </div>
             <div class="pr-10">
                 <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Status</h3>
@@ -50,13 +52,13 @@
 
         <!-- Countdown Card -->
         <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--color-2); opacity: 0.15;"></div>
+            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-clock text-base" style="color: var(--color-2);"></i>
+                <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
             </div>
             <div class="pr-10">
                 <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Next Run</h3>
-                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--color-2);">
+                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--text-primary);">
                     --:--:--
                 </div>
             </div>
@@ -270,6 +272,11 @@
     /* Status Dot Classes */
     .status-dot-color-2 { background-color: var(--color-2); }
 
+    /* Loading Indicator Styles */
+    #loadingIndicator {
+        transition: all 0.3s ease-in-out;
+    }
+
     /* WebSocket Progress Styles */
     .ws-progress-container {
         width: 100%;
@@ -333,12 +340,22 @@
 <script>
     let refreshTimer = null;
 
-    // WebSocket connections for real-time progress
+    // WebSocket connections for real-time progress with connection management
     let websockets = {
         jira_sync: null,
         github_sync: null,
         orchestrator: null
     };
+
+    // Connection management
+    let connectionAttempts = {
+        jira_sync: 0,
+        github_sync: 0,
+        orchestrator: 0
+    };
+
+    const maxReconnectAttempts = 3;
+    let isPageUnloading = false;
 
     // Progress and exception data
     let jobProgress = {
@@ -348,13 +365,152 @@
     };
 
     // Initialize dashboard
-    document.addEventListener('DOMContentLoaded', function () {
-        checkAuth();
+    document.addEventListener('DOMContentLoaded', async function () {
+        // Validate token and clear stale data if needed
+        const isValidToken = await validateToken();
+        if (!isValidToken) {
+            console.error('Token validation failed - redirecting to login');
+            handleAuthenticationFailure();
+            return;
+        }
+
+        // Smart authentication with loop prevention
+        const token = getAuthToken();
+        if (!token) {
+            console.error('No auth token available after validation');
+            handleAuthenticationFailure();
+            return;
+        }
+
+        // User info is loaded by the modern layout template
+
+        // Load initial data ONCE only
         refreshData();
-        setupAutoRefresh();
         refreshOrchestratorStatus();
-        initializeWebSockets();
+
+        // Set up page unload detection to properly close WebSocket connections
+        window.addEventListener('beforeunload', function() {
+            isPageUnloading = true;
+
+            // Close all WebSocket connections
+            Object.keys(websockets).forEach(jobName => {
+                if (websockets[jobName]) {
+                    websockets[jobName].close(1000, 'Page unloading'); // 1000 = normal closure
+                    websockets[jobName] = null;
+                }
+            });
+        });
+
+        // Colors are handled by the modern layout template - no need to load again
+
+        // Enable WebSockets for real-time job progress AND color updates (with small delay to ensure auth is ready)
+        setTimeout(() => {
+            initializeWebSockets();
+        }, 500);
+
+
     });
+
+    // Clear all authentication data
+    function clearAllAuthenticationData() {
+        console.log('🧹 Clearing all authentication data...');
+
+        // Clear localStorage completely
+        localStorage.clear();
+
+        // Clear sessionStorage
+        sessionStorage.clear();
+
+        // Clear all cookies
+        document.cookie.split(";").forEach(cookie => {
+            const eqPos = cookie.indexOf("=");
+            const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+            // Clear for current domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+            // Clear for parent domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`;
+            // Clear for all subdomains
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`;
+        });
+
+        console.log('🧹 All authentication data cleared');
+    }
+
+    // Cross-service navigation helper
+    function navigateToFrontend(openInNewTab = false) {
+        const token = getAuthToken();
+        if (!token) {
+            console.error('No authentication token found for cross-service navigation');
+            return;
+        }
+
+        const frontendUrl = 'http://localhost:3000';
+
+        try {
+            // Set up cross-service authentication
+            fetch(`${frontendUrl}/api/v1/auth/cross-service-login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                credentials: 'include'
+            }).then(response => {
+                if (response.ok) {
+                    console.log('✅ Cross-service authentication established with frontend');
+
+                    // Navigate to frontend
+                    if (openInNewTab) {
+                        window.open(frontendUrl, '_blank');
+                    } else {
+                        window.location.href = frontendUrl;
+                    }
+                } else {
+                    console.warn('Cross-service authentication failed, navigating anyway');
+                    if (openInNewTab) {
+                        window.open(frontendUrl, '_blank');
+                    } else {
+                        window.location.href = frontendUrl;
+                    }
+                }
+            }).catch(error => {
+                // Only log if it's not a network error (frontend not running)
+                if (!error.message.includes('fetch') && !error.message.includes('NetworkError')) {
+                    console.warn('Cross-service authentication error, navigating anyway:', error);
+                }
+                if (openInNewTab) {
+                    window.open(frontendUrl, '_blank');
+                } else {
+                    window.location.href = frontendUrl;
+                }
+            });
+        } catch (error) {
+            console.error('Navigation error:', error);
+        }
+    }
+
+    // Close all WebSocket connections (for debugging)
+    function closeAllWebSockets() {
+        isPageUnloading = true; // Prevent reconnections
+
+        Object.keys(websockets).forEach(jobName => {
+            if (websockets[jobName]) {
+                websockets[jobName].close(1000, 'Manual close');
+                websockets[jobName] = null;
+            }
+            connectionAttempts[jobName] = 0; // Reset attempts
+        });
+
+        // Reset unloading flag after a delay
+        setTimeout(() => {
+            isPageUnloading = false;
+        }, 1000);
+    }
+
+    // Expose functions globally for debugging
+    window.clearAuthData = clearAllAuthenticationData;
+    window.navigateToFrontend = navigateToFrontend;
+    window.closeAllWebSockets = closeAllWebSockets;
 
     // Authentication helper
     function getAuthToken() {
@@ -365,6 +521,8 @@
                 const [name, value] = cookie.trim().split('=');
                 if (name === 'pulse_token') {
                     token = value;
+                    // Save to localStorage for future use
+                    localStorage.setItem('pulse_token', token);
                     break;
                 }
             }
@@ -372,13 +530,173 @@
         return token;
     }
 
+    // Check if token is valid by making a test API call
+    async function validateToken() {
+        const token = getAuthToken();
+        if (!token) {
+            console.warn('No token found - clearing any stale data');
+            clearAllAuthenticationData();
+            return false;
+        }
+
+        try {
+            const response = await fetch('/api/v1/auth/validate', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.status === 401) {
+                console.warn('Token validation failed - clearing stale authentication data');
+                clearAllAuthenticationData();
+                return false;
+            }
+
+            return response.ok;
+        } catch (error) {
+            console.warn('Token validation error - clearing stale authentication data:', error);
+            clearAllAuthenticationData();
+            return false;
+        }
+    }
+
     function checkAuth() {
         const token = getAuthToken();
         if (!token) {
+            console.error('Authentication check failed - no token available');
+            handleAuthenticationFailure();
+            return false;
+        }
+        return true;
+    }
+
+    // Smart authentication failure handling with loop prevention
+    function handleAuthenticationFailure() {
+        const redirectKey = 'pulse_auth_redirect_count';
+        const redirectTimeKey = 'pulse_auth_redirect_time';
+        const maxRedirects = 3;
+        const resetTimeMs = 60000; // 1 minute
+
+        try {
+            const now = Date.now();
+            const lastRedirectTime = parseInt(localStorage.getItem(redirectTimeKey) || '0');
+            const redirectCount = parseInt(localStorage.getItem(redirectKey) || '0');
+
+            // Reset counter if enough time has passed
+            if (now - lastRedirectTime > resetTimeMs) {
+                localStorage.setItem(redirectKey, '0');
+                localStorage.setItem(redirectTimeKey, now.toString());
+            }
+
+            // Check if we've exceeded redirect limit
+            if (redirectCount >= maxRedirects) {
+                console.warn('Too many authentication redirects - showing login message instead');
+                showAuthenticationRequired();
+                return;
+            }
+
+            // Increment counter and redirect
+            localStorage.setItem(redirectKey, (redirectCount + 1).toString());
+            localStorage.setItem(redirectTimeKey, now.toString());
+
+            console.log(`Redirecting to login (attempt ${redirectCount + 1}/${maxRedirects})`);
             window.location.href = '/login';
-            return;
+
+        } catch (error) {
+            console.error('Error in authentication handling:', error);
+            showAuthenticationRequired();
         }
     }
+
+    // Show authentication required message instead of redirecting
+    function showAuthenticationRequired() {
+        const container = document.body;
+        container.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; background-color: var(--bg-primary, #f8f9fa);">
+                <div style="text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <h2 style="color: #dc3545; margin-bottom: 1rem;">Authentication Required</h2>
+                    <p style="margin-bottom: 1.5rem; color: #6c757d;">You need to be logged in to access this page.</p>
+                    <a href="/login" style="display: inline-block; padding: 0.5rem 1rem; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">
+                        Go to Login
+                    </a>
+                </div>
+            </div>
+        `;
+    }
+
+    // User info loading is handled by the modern layout template
+
+
+
+    function applyColorSchemaToPage(colorData) {
+        if (colorData.colors) {
+            const root = document.documentElement;
+            root.style.setProperty('--color-1', colorData.colors.color1);
+            root.style.setProperty('--color-2', colorData.colors.color2);
+            root.style.setProperty('--color-3', colorData.colors.color3);
+            root.style.setProperty('--color-4', colorData.colors.color4);
+            root.style.setProperty('--color-5', colorData.colors.color5);
+
+            // Update data attributes for CSS
+            root.setAttribute('data-color-schema', colorData.mode);
+            root.setAttribute('data-theme', colorData.theme || 'light');
+        }
+    }
+
+    // Handle real-time color updates via WebSocket
+    function handleColorSchemaUpdate(data) {
+        if (data.type === 'color_schema_updated' && data.colors) {
+            // Apply new colors immediately
+            const colorData = {
+                mode: 'custom',
+                colors: data.colors,
+                theme: 'light'
+            };
+            applyColorSchemaToPage(colorData);
+
+            // Show notification to user
+            showNotification('Color scheme updated!', 'success');
+        } else if (data.type === 'color_schema_mode_updated') {
+            // Show notification about mode change - no automatic reload to prevent infinite loops
+            showNotification(`Color scheme mode changed to ${data.mode}`, 'info');
+        }
+    }
+
+    function showNotification(message, type = 'info') {
+        // Simple notification system
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: ${type === 'success' ? '#10B981' : '#3B82F6'};
+            color: white;
+            border-radius: 6px;
+            z-index: 10000;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 3000);
+    }
+
+
+
+
+
+
 
     // WebSocket Management
     function initializeWebSockets() {
@@ -389,8 +707,20 @@
     }
 
     function connectWebSocket(jobName) {
+        // Prevent connection if page is unloading
+        if (isPageUnloading) {
+            return;
+        }
+
+        // Check if we've exceeded max reconnection attempts
+        if (connectionAttempts[jobName] >= maxReconnectAttempts) {
+            return;
+        }
+
+        // Close existing connection if any
         if (websockets[jobName]) {
             websockets[jobName].close();
+            websockets[jobName] = null;
         }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -401,6 +731,7 @@
 
             ws.onopen = function () {
                 websockets[jobName] = ws;
+                connectionAttempts[jobName] = 0; // Reset attempts on successful connection
             };
 
             ws.onmessage = function (event) {
@@ -412,18 +743,27 @@
                 }
             };
 
-            ws.onclose = function () {
-                console.log(`WebSocket disconnected for ${jobName}`);
+            ws.onclose = function (event) {
                 websockets[jobName] = null;
-                setTimeout(() => {
-                    if (!websockets[jobName]) {
-                        connectWebSocket(jobName);
-                    }
-                }, 5000);
+
+                // Only attempt reconnection if not intentionally closed and page is not unloading
+                if (!isPageUnloading && event.code !== 1000 && connectionAttempts[jobName] < maxReconnectAttempts) {
+                    connectionAttempts[jobName]++;
+                    const delay = Math.min(5000 * connectionAttempts[jobName], 30000); // Exponential backoff, max 30s
+
+                    setTimeout(() => {
+                        if (!websockets[jobName] && !isPageUnloading) {
+                            connectWebSocket(jobName);
+                        }
+                    }, delay);
+                }
             };
 
             ws.onerror = function (error) {
-                console.error(`WebSocket error for ${jobName}:`, error);
+                // Only log WebSocket errors if we're not in the process of unloading
+                if (!isPageUnloading) {
+                    console.error(`WebSocket error for ${jobName}:`, error);
+                }
             };
 
         } catch (e) {
@@ -444,6 +784,11 @@
                 break;
             case 'completion':
                 handleJobCompletion(jobName, data.success, data.summary);
+                break;
+            // 🚀 Handle real-time color schema updates
+            case 'color_schema_updated':
+            case 'color_schema_mode_updated':
+                handleColorSchemaUpdate(data);
                 break;
             default:
                 console.log(`Unknown WebSocket message type: ${data.type}`);
@@ -503,6 +848,10 @@
     async function refreshData() {
         try {
             const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
             const response = await fetch('/api/v1/jobs/status', {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -510,7 +859,8 @@
             });
 
             if (response.status === 401) {
-                window.location.href = '/login';
+                console.error('Authentication failed - token may be expired');
+                handleAuthenticationFailure();
                 return;
             }
 
@@ -767,6 +1117,10 @@
     async function setJobActive(jobName) {
         try {
             const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
             const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
                 method: 'POST',
                 headers: {
@@ -1041,22 +1395,7 @@
         }
     }
 
-    function deleteLogFile(filename) {
-        if (confirm(`Are you sure you want to delete ${filename}? This action cannot be undone.`)) {
-            showNotification(`Deleting ${filename}...`, 'info');
-            // TODO: Implement actual delete API call
-        }
-    }
 
-    function bulkCleanupLogs() {
-        const days = document.getElementById('bulkCleanupDays').value;
-        const message = days === '0' ? 'delete ALL log files' : `delete log files older than ${days} days`;
-
-        if (confirm(`Are you sure you want to ${message}? This action cannot be undone.`)) {
-            showNotification(`Log cleanup for ${days === '0' ? 'all files' : days + ' days'} initiated`, 'info');
-            // TODO: Implement actual log cleanup API call
-        }
-    }
 
 
 
@@ -1204,6 +1543,10 @@
 
         try {
             const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
             const response = await fetch(`/api/v1/jobs/${jobName}/start`, {
                 method: 'POST',
                 headers: {
@@ -1404,8 +1747,7 @@
         try {
             const token = getAuthToken();
             if (!token) {
-                console.error('No auth token available');
-                return;
+                throw new Error('No authentication token found');
             }
 
             const response = await fetch('/api/v1/orchestrator/status', {
@@ -1415,7 +1757,8 @@
             });
 
             if (response.status === 401) {
-                window.location.href = '/login';
+                console.error('Authentication failed - token may be expired');
+                handleAuthenticationFailure();
                 return;
             }
 

@@ -23,6 +23,7 @@
                 const serverSchemaElement = document.getElementById('server-color-schema');
                 if (serverSchemaElement) {
                     const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
+
                     const theme = serverColorSchema.theme || 'light';
                     const colorSchemaMode = serverColorSchema.mode || 'default';
 
@@ -139,7 +140,10 @@
         async function loadUserInfo() {
             try {
                 const token = getAuthToken();
-                if (!token) return;
+                if (!token) {
+                    console.warn('No auth token available for user info');
+                    return;
+                }
 
                 const response = await fetch('/api/v1/auth/validate', {
                     headers: {
@@ -153,6 +157,9 @@
                         currentUser = data.user;
                         updateUserDisplay();
                     }
+                } else if (response.status === 401) {
+                    console.warn('User token validation failed - user may need to re-login');
+                    // Don't redirect here - let individual pages handle authentication
                 }
             } catch (error) {
                 console.error('Error loading user info:', error);
@@ -201,19 +208,66 @@
         }
 
         // Theme Management
-        function toggleTheme() {
+        async function toggleTheme() {
             const html = document.documentElement;
             const currentTheme = html.getAttribute('data-theme');
             const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-            html.setAttribute('data-theme', newTheme);
 
+            // Update UI immediately for responsiveness
+            html.setAttribute('data-theme', newTheme);
             const icon = document.getElementById('theme-icon');
             if (icon) {
                 icon.textContent = newTheme === 'light' ? '🌙' : '☀️';
             }
 
-            // Save to localStorage
-            localStorage.setItem('pulse_theme', newTheme);
+            // Save to database for cross-browser sync
+            try {
+                // Get current auth token
+                const token = getCookie('pulse_token');
+                if (!token) {
+                    console.warn('ETL Service: No auth token found for theme update');
+                    return;
+                }
+
+                // Call backend service directly for theme update
+                const backendUrl = window.location.protocol + '//' + window.location.hostname + ':3001';
+                const response = await fetch(`${backendUrl}/api/v1/admin/theme-mode`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ mode: newTheme })
+                });
+
+                if (response.ok) {
+                    console.log('ETL Service: Theme saved to database:', newTheme);
+                    // Update localStorage for caching
+                    localStorage.setItem('pulse_theme', newTheme);
+                } else {
+                    console.warn('ETL Service: Failed to save theme to database');
+                    // Revert UI change if database update failed
+                    html.setAttribute('data-theme', currentTheme);
+                    if (icon) {
+                        icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+                    }
+                }
+            } catch (error) {
+                console.error('ETL Service: Error saving theme to database:', error);
+                // Revert UI change if database update failed
+                html.setAttribute('data-theme', currentTheme);
+                if (icon) {
+                    icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+                }
+            }
+        }
+
+        // Helper function to get cookie value
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
         }
 
         // User Menu
@@ -238,13 +292,15 @@
 
         // Initialize layout
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialize theme
-            const savedTheme = localStorage.getItem('pulse_theme') || 'light';
-            document.documentElement.setAttribute('data-theme', savedTheme);
+            // Initialize theme - respect server-side setting if available
+            const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('pulse_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
             const icon = document.getElementById('theme-icon');
             if (icon) {
-                icon.textContent = savedTheme === 'light' ? '🌙' : '☀️';
+                icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
             }
+
+            // Cross-browser theme sync completely removed to prevent infinite API calls
 
             // Load user information
             loadUserInfo();
@@ -426,6 +482,56 @@
                 }
             }
         });
+
+        // Logout function
+        async function logout() {
+            try {
+                console.log('🔐 Logging out...');
+
+                // Get current token
+                const token = getAuthToken();
+
+                if (token) {
+                    // Call ETL logout endpoint to invalidate session
+                    try {
+                        const response = await fetch('/api/logout', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        if (response.ok) {
+                            console.log('✅ Server logout successful');
+                        } else {
+                            console.warn('⚠️ Server logout failed, continuing with client cleanup');
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Server logout error, continuing with client cleanup:', error);
+                    }
+                }
+
+                // Clear all authentication data
+                localStorage.removeItem('pulse_token');
+                document.cookie = 'pulse_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+
+                // Clear any axios default headers
+                if (window.axios && window.axios.defaults) {
+                    delete window.axios.defaults.headers.common['Authorization'];
+                }
+
+                console.log('✅ Authentication data cleared');
+
+                // Redirect to login page
+                window.location.href = '/login';
+
+            } catch (error) {
+                console.error('❌ Logout error:', error);
+                // Still redirect to login even if there's an error
+                window.location.href = '/login';
+            }
+        }
     </script>
     
     {% block extra_scripts %}{% endblock %}

@@ -9,6 +9,11 @@
 .env.development.local
 .env.test.local
 
+# Client-specific environment files (NEVER COMMIT)
+.env.wex               # WEX client-specific configuration
+.env.techcorp          # TechCorp client-specific configuration
+.env.*                 # Any other client-specific .env files
+
 # Legacy environment files (if they contain secrets)
 .env                   # Main env file (may contain secrets)
 .env.frontend          # Frontend config (may contain API keys)

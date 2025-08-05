@@ -2,6 +2,8 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import clientLogger from '../utils/clientLogger'
 
+// Axios configuration is handled below - no duplicate configuration needed
+
 interface ColorSchema {
   color1: string
   color2: string
@@ -35,11 +37,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Configure axios defaults
-// In development, use relative URLs so Vite proxy can handle routing
-// In production, use the full API URL
-const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
-axios.defaults.baseURL = API_BASE_URL
+// Configure axios defaults - Use direct backend URL since CORS is properly configured
+axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+axios.defaults.withCredentials = true  // Include cookies in all requests
+
+// Global axios response interceptor for handling authentication errors
+let isInterceptorSetup = false
 
 interface AuthProviderProps {
   children: ReactNode
@@ -49,6 +52,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [colorSchemaLoaded, setColorSchemaLoaded] = useState(false)
+  const [sessionCheckInterval, setSessionCheckInterval] = useState<NodeJS.Timeout | null>(null)
 
   // Load color schema from API (with caching)
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -59,6 +63,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       const response = await axios.get('/api/v1/admin/color-schema')
+
       if (response.data.success) {
         setColorSchemaLoaded(true)
         return {
@@ -66,11 +71,85 @@ export function AuthProvider({ children }: AuthProviderProps) {
           colors: response.data.colors
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('AuthContext: Failed to load color schema:', error)
     }
     return null
   }
+
+  // Start periodic session validation
+  const startSessionValidation = () => {
+    // Clear any existing interval
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval)
+    }
+
+    // Check session every 10 minutes (less aggressive to prevent false logouts)
+    const interval = setInterval(async () => {
+      if (user) {
+        console.log('AuthContext: Performing periodic session validation...')
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            // Explicitly set Authorization header for validation
+            const response = await axios.post('/api/v1/auth/validate', {}, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            })
+            if (!response.data.success) {
+              console.warn('AuthContext: Session expired during periodic check')
+              logout()
+            } else {
+              console.log('AuthContext: Session validation successful')
+            }
+          } catch (error) {
+            console.warn('AuthContext: Session validation failed during periodic check:', error)
+            // Don't logout on network errors - only on 401
+            if (error.response?.status === 401) {
+              logout()
+            }
+          }
+        } else {
+          console.warn('AuthContext: No token found during periodic check')
+          logout()
+        }
+      }
+    }, 10 * 60 * 1000) // 10 minutes
+
+    setSessionCheckInterval(interval)
+    // Session validation started
+  }
+
+  // Setup axios interceptor for automatic 401 handling
+  const setupAxiosInterceptor = () => {
+    if (isInterceptorSetup) return
+
+    axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          console.warn('AuthContext: 401 Unauthorized - logging out user')
+          logout()
+        }
+        return Promise.reject(error)
+      }
+    )
+
+    isInterceptorSetup = true
+    // Axios interceptor configured
+  }
+
+  // Stop periodic session validation
+  const stopSessionValidation = () => {
+    if (sessionCheckInterval) {
+      clearInterval(sessionCheckInterval)
+      setSessionCheckInterval(null)
+      console.log('AuthContext: Stopped periodic session validation')
+    }
+  }
+
+
 
   // Check for existing token on app start
   useEffect(() => {
@@ -103,14 +182,148 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Validate token with backend
       validateToken()
     } else {
-      setIsLoading(false)
+      // No localStorage token, but check if there's an existing session in Backend Service
+      checkExistingSession()
+    }
+
+    // Cross-service authentication is handled via postMessage and cookies
+  }, [])
+
+  // Cleanup effect to stop session validation on unmount
+  useEffect(() => {
+    return () => {
+      stopSessionValidation()
     }
   }, [])
+
+  // TEMPORARILY DISABLED: Check session when window regains focus
+  // This was causing aggressive logouts - will re-enable after debugging
+  /*
+  useEffect(() => {
+    const handleWindowFocus = async () => {
+      if (user) {
+        console.log('AuthContext: Window focused - checking session validity...')
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            const response = await axios.post('/auth/validate', {}, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (!response.data.success) {
+              console.warn('AuthContext: Session invalid on window focus - logging out')
+              logout()
+            }
+          } catch (error) {
+            console.warn('AuthContext: Session check failed on window focus:', error)
+            if (error.response?.status === 401) {
+              logout()
+            }
+          }
+        } else {
+          console.warn('AuthContext: No token found on window focus - logging out')
+          logout()
+        }
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [user])
+  */
+
+
+
+  const checkExistingSession = async () => {
+    try {
+      setIsLoading(true)
+
+      // Check if there's an existing session in Backend Service (via cookies)
+      // Don't send Authorization header since we don't have a token
+      const response = await axios.post('/api/v1/auth/validate', {}, {
+        headers: {
+          // Remove Authorization header for this request
+          'Authorization': undefined
+        },
+        // Include cookies in the request
+        withCredentials: true
+      })
+
+      if (response.data.valid && response.data.user) {
+        // Found existing session! The token should already be in cookies
+        const { user } = response.data
+
+        // Try to get token from cookies (set by ETL service)
+        const cookieToken = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('pulse_token='))
+          ?.split('=')[1]
+
+        if (cookieToken) {
+          localStorage.setItem('pulse_token', cookieToken)
+          axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+        }
+
+        const formattedUser = {
+          id: user.id.toString(),
+          email: user.email,
+          name: user.first_name && user.last_name
+            ? `${user.first_name} ${user.last_name}`
+            : user.first_name || user.last_name || user.email.split('@')[0],
+          role: user.role,
+          client_id: user.client_id,
+          colorSchemaData: undefined
+        }
+
+        setUser(formattedUser)
+
+        // Load color schema
+        loadColorSchema().then(colorSchemaData => {
+          if (colorSchemaData) {
+            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',
+                color2: '#253746',
+                color3: '#00C7B1',
+                color4: '#A2DDF8',
+                color5: '#FFBF3F'
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+          }
+        }).catch(error => {
+          console.warn('Failed to load color schema during session check:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+        })
+      }
+    } catch (error) {
+      // No existing session found, this is normal
+      console.debug('No existing session found:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const validateToken = async () => {
     try {
       // Make API call to validate token with backend
-      const response = await axios.post('/auth/validate')
+      const response = await axios.post('/api/v1/auth/validate')
 
       if (response.data.valid && response.data.user) {
         const { user } = response.data
@@ -129,13 +342,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         setUser(formattedUser)
 
+        // Setup axios interceptor and start periodic session validation
+        setupAxiosInterceptor()
+        startSessionValidation()
+
         // Load color schema after user is set (non-blocking)
         loadColorSchema().then(colorSchemaData => {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',  // WEX Red
+                color2: '#253746',  // Dark Blue
+                color3: '#00C7B1',  // Teal
+                color4: '#A2DDF8',  // Light Blue
+                color5: '#FFBF3F'   // Yellow
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
           console.warn('Failed to load color schema during validation:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
       } else {
         // Invalid response format, clear token
@@ -143,9 +385,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         delete axios.defaults.headers.common['Authorization']
       }
     } catch (error) {
-      // Token is invalid or expired, clear it (this is normal when not logged in)
-      localStorage.removeItem('pulse_token')
-      delete axios.defaults.headers.common['Authorization']
+      // Token is invalid or expired, clear all authentication data
+      console.warn('Token validation failed, clearing all authentication state:', error)
+      clearAllAuthenticationData()
     } finally {
       setIsLoading(false)
     }
@@ -185,13 +427,45 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set user data first
         setUser(formattedUser)
 
+        // Setup axios interceptor and start periodic session validation
+        setupAxiosInterceptor()
+        startSessionValidation()
+
+        // Cross-service cookie setup is now handled by Backend Service
+        // No direct Frontend → ETL communication needed
+
         // Load color schema after user is set (non-blocking)
         loadColorSchema().then(colorSchemaData => {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+          } else {
+            // Fallback: Set default color schema if API fails
+            const fallbackColorSchema: ColorSchemaData = {
+              mode: 'default',
+              colors: {
+                color1: '#C8102E',
+                color2: '#253746',
+                color3: '#00C7B1',
+                color4: '#A2DDF8',
+                color5: '#FFBF3F'
+              }
+            }
+            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
           console.warn('Failed to load color schema after login:', error)
+          // Set fallback colors even on error
+          const fallbackColorSchema: ColorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
 
         return true
@@ -213,27 +487,101 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  const clearAllAuthenticationData = () => {
+    // Clear localStorage completely
+    localStorage.clear()
+
+    // Clear sessionStorage
+    sessionStorage.clear()
+
+    // Clear all cookies
+    document.cookie.split(";").forEach(cookie => {
+      const eqPos = cookie.indexOf("=")
+      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
+      // Clear for current domain
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+      // Clear for parent domain
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`
+      // Clear for all subdomains
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`
+    })
+
+    // Clear axios headers
+    delete axios.defaults.headers.common['Authorization']
+
+    // Clear user state
+    setUser(null)
+    setColorSchemaLoaded(false)
+
+    console.log('🧹 All authentication data cleared')
+  }
+
   const logout = async () => {
     try {
       // Try to invalidate session on the backend
       const token = localStorage.getItem('pulse_token')
       if (token) {
         try {
-          await axios.post('/auth/logout')
+          await axios.post('/api/v1/auth/logout')
           console.log('Session invalidated on backend')
         } catch (error) {
           console.warn('Failed to invalidate session on backend:', error)
           // Continue with local logout even if backend call fails
         }
+
+        // Also try to clear ETL service session by calling its API logout endpoint
+        try {
+          const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+          await fetch(`${etlServiceUrl}/api/logout`, {
+            method: 'POST',
+            credentials: 'include', // Include cookies
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          })
+          console.log('ETL service logout successful')
+        } catch (error) {
+          console.warn('Failed to logout from ETL service:', error)
+          // Continue with local logout even if ETL logout fails
+        }
       }
     } catch (error) {
       console.warn('Error during logout:', error)
     } finally {
-      // Always clear local storage and state
-      localStorage.removeItem('pulse_token')
-      delete axios.defaults.headers.common['Authorization']
+      // Stop periodic session validation
+      stopSessionValidation()
+
+      // Use comprehensive authentication data clearing
+      clearAllAuthenticationData()
+
+      // Clear browser cache for auth-related requests
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => {
+            if (name.includes('auth') || name.includes('api')) {
+              caches.delete(name)
+            }
+          })
+        })
+      }
+
+      // Unregister service workers to clear any cached authentication state
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => {
+            registration.unregister()
+          })
+        })
+      }
+
+      // Reset state
       setUser(null)
       setColorSchemaLoaded(false) // Reset color schema cache
+
+      // Force a hard refresh to clear any remaining cached state
+      setTimeout(() => {
+        window.location.href = '/login?message=logged_out'
+      }, 100)
     }
   }
 
@@ -245,6 +593,49 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isAdmin: !!user && user.role === 'admin'
   }
+
+
+
+  // Listen for cross-service authentication messages
+  useEffect(() => {
+    const handleCrossServiceAuth = (event: MessageEvent) => {
+      // Only accept messages from trusted origins
+      const trustedOrigins = ['http://localhost:8000']; // ETL service
+      if (!trustedOrigins.includes(event.origin)) {
+        return;
+      }
+
+      if (event.data.type === 'AUTH_SUCCESS' && event.data.token) {
+        console.log('✅ Received cross-service authentication from ETL service');
+
+        // Store the token
+        localStorage.setItem('pulse_token', event.data.token);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${event.data.token}`;
+
+        // Set user data if provided
+        if (event.data.user) {
+          setUser(event.data.user);
+          setIsLoading(false);
+        } else {
+          // Validate the token to get user data
+          validateToken();
+        }
+      }
+    };
+
+    window.addEventListener('message', handleCrossServiceAuth);
+    return () => {
+      window.removeEventListener('message', handleCrossServiceAuth);
+    };
+  }, []);
+
+  // Expose clear function globally for debugging
+  useEffect(() => {
+    (window as any).clearAuthData = clearAllAuthenticationData;
+    return () => {
+      delete (window as any).clearAuthData;
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={value}>

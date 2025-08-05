@@ -1,5 +1,7 @@
 # Pulse Platform - Unified Engineering Analytics Platform
 
+> **📢 Configuration Update**: Environment files are now service-specific! Each service has its own complete `.env` file. See [Configuration](#️-configuration) section for the new setup process.
+
 ## 🏗️ **Platform Architecture Overview**
 
 The Pulse Platform is a unified engineering analytics platform that seamlessly integrates ETL management capabilities through embedded iframe technology, providing a comprehensive solution for DORA metrics, engineering analytics, and data pipeline orchestration.
@@ -119,12 +121,32 @@ External Integrations:
 - **Viewer Users**: Read-only access to dashboards
 
 ### **Development Setup**
+
+#### **1. Configure Environment Files**
+```bash
+# Backend Service
+cd services/backend-service
+cp .env.example .env
+# Edit .env with your database credentials and JWT secrets
+
+# ETL Service
+cd services/etl-service
+cp .env.example .env
+# Edit .env with your client name and API credentials
+
+# Frontend App
+cd services/frontend-app
+cp .env.example .env
+# Edit .env with your service URLs (usually defaults are fine)
+```
+
+#### **2. Start Services**
 ```bash
 # 1. Start Backend Service (Authentication Hub)
-cd services/backend-service && npm run dev
+cd services/backend-service && python -m uvicorn app.main:app --reload --port 3001
 
-# 2. Start ETL Service (Embedded Component)
-cd services/etl-service && python -m uvicorn app.main:app --reload
+# 2. Start ETL Service (Data Processing)
+cd services/etl-service && python -m uvicorn app.main:app --reload --port 8000
 
 # 3. Start Frontend Platform (Main Interface)
 cd services/frontend-app && npm run dev
@@ -222,15 +244,15 @@ cd services/frontend-app && npm run dev
 git clone <repository-url>
 cd pulse-platform
 
-# Configure multi-client environment files
-cp .env.shared.example .env.shared
-cp .env.etl.wex.example .env.etl.wex
-cp .env.backend.example .env.backend
+# Configure service-specific environment files
+cd services/backend-service && cp .env.example .env
+cd ../etl-service && cp .env.example .env
+cd ../frontend-app && cp .env.example .env
 
 # Edit environment files with your configuration
-# .env.shared - Database and shared configuration
-# .env.etl.wex - WEX client-specific API keys and settings
-# .env.backend - Backend service configuration
+# backend-service/.env - Database, JWT secrets, CORS configuration
+# etl-service/.env - Client name, API credentials, database configuration
+# frontend-app/.env - Service URLs, feature flags
 ```
 
 ### **2. Environment Setup**
@@ -246,8 +268,8 @@ docker-compose -f docker-compose.multi-client.yml up -d
 
 #### **For Manual Development**
 ```bash
-# Create combined environment file for migration runner
-cat .env.shared .env.etl.wex > .env
+# Environment files are now service-specific (no combination needed)
+# Each service has its own complete .env file
 
 # Install dependencies (centralized requirements management)
 python scripts/install_requirements.py all
@@ -280,27 +302,28 @@ docker-compose -f docker-compose.multi-client.yml up etl-wex -d
 ```bash
 # Backend Service
 cd services/backend-service
-cp ../..env.shared ../..env.backend .env
+cp .env.example .env  # Edit with your credentials
 python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --reload
 
-# ETL Service (WEX client)
+# ETL Service
 cd services/etl-service
-cat ../../.env.shared ../../.env.etl.wex > .env
+cp .env.example .env  # Edit with your client config and API tokens
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Frontend
 cd services/frontend-app
+cp .env.example .env  # Edit with your service URLs
 npm install
 npm run dev
 ```
 
-### **5. Access Services**
-- **Frontend:** http://localhost:5173
+### **3. Access Services**
+- **Frontend:** http://localhost:3000
 - **ETL Dashboard:** http://localhost:8000
 - **Backend Service API:** http://localhost:3001
 - **ETL API Documentation:** http://localhost:8000/docs (admin access required)
 
-### **6. Initial Configuration**
+### **4. Initial Configuration**
 ```bash
 # Test API connections
 cd services/etl-service
@@ -312,74 +335,103 @@ python scripts/test_jobs.py --test-connection
 
 ## ⚙️ **Configuration**
 
-### **Multi-Client Environment Setup**
+### **Service-Specific Environment Setup**
 
-The platform uses **separate environment files** for different configuration layers:
+Each service has its own complete configuration file for independence and clarity:
 
-#### **Shared Configuration (`.env.shared`)**
+#### **Backend Service (`services/backend-service/.env`)**
 ```env
-# PostgreSQL Database (shared across all clients)
+# Database Configuration
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=pulse
+POSTGRES_PASSWORD=your_database_password
 POSTGRES_DATABASE=pulse_db
-
-# Redis Configuration
-REDIS_HOST=localhost
-REDIS_PORT=6379
 
 # Service URLs
 BACKEND_SERVICE_URL=http://localhost:3001
 ETL_SERVICE_URL=http://localhost:8000
-```
+VITE_API_BASE_URL=http://localhost:3001
 
-#### **Client-Specific Configuration (`.env.etl.wex`)**
-```env
-# Client Identification
-CLIENT_NAME=WEX
-
-# Jira Configuration (WEX-specific)
-JIRA_URL=https://wexinc.atlassian.net
-JIRA_USERNAME=your-email@wexinc.com
-JIRA_TOKEN=your-wex-jira-api-token
-
-# GitHub Configuration (WEX-specific)
-GITHUB_TOKEN=your-wex-github-token
-GITHUB_ORG=wexinc
-```
-
-#### **Backend Service Configuration (`.env.backend`)**
-```env
 # JWT Security
 JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 
-# Admin User (created automatically)
-ADMIN_EMAIL=admin@company.com
-ADMIN_PASSWORD=secure-admin-password-change-in-production
+# CORS Configuration
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:8000
 ```
 
-### **Environment File Usage**
+#### **ETL Service (`services/etl-service/.env`)**
+```env
+# Database Configuration (same as backend)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_database_password
+POSTGRES_DATABASE=pulse_db
+
+# Client Configuration
+CLIENT_NAME=WEX
+
+# API Credentials
+JIRA_URL=https://wexinc.atlassian.net
+JIRA_USERNAME=your-email@wexinc.com
+JIRA_TOKEN=your-wex-jira-api-token
+GITHUB_TOKEN=your-wex-github-token
+
+# Service URLs
+BACKEND_SERVICE_URL=http://localhost:3001
+ETL_SERVICE_URL=http://localhost:8000
+
+# CORS Configuration
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:3001
+```
+
+#### **Frontend App (`services/frontend-app/.env`)**
+```env
+# API Endpoints
+VITE_API_BASE_URL=http://localhost:3001
+VITE_ETL_SERVICE_URL=http://localhost:8000
+
+# Application Settings
+VITE_APP_NAME=Pulse Platform
+VITE_ENVIRONMENT=development
+
+# Feature Flags
+VITE_ENABLE_REAL_TIME=true
+VITE_ENABLE_AI_FEATURES=true
+VITE_ENABLE_DARK_MODE=true
+```
+
+### **Environment File Setup**
+
+#### **Quick Setup (Copy from Templates)**
+```bash
+# Backend Service
+cd services/backend-service
+cp .env.example .env
+# Edit .env with your database credentials and JWT secrets
+
+# ETL Service
+cd services/etl-service
+cp .env.example .env
+# Edit .env with your client name and API credentials
+
+# Frontend App
+cd services/frontend-app
+cp .env.example .env
+# Edit .env with your service URLs (defaults usually work)
+```
 
 #### **For Migration Runner & Scripts**
 ```bash
-# Migration runner requires combined environment file in root
-cat .env.shared .env.etl.wex > .env
-python scripts/migration_runner.py
-```
-
-#### **For Manual Service Execution**
-```bash
-# ETL Service needs combined environment
+# Migration runner uses ETL service configuration
 cd services/etl-service
-cat ../../.env.shared ../../.env.etl.wex > .env
-python -m uvicorn app.main:app --reload
+python ../../scripts/migration_runner.py
 
-# Backend Service needs combined environment
+# Backend Service uses its own .env file
 cd services/backend-service
-cat ../../.env.shared ../../.env.backend > .env
 python -m uvicorn app.main:app --reload
 ```
 
@@ -395,19 +447,22 @@ The platform uses Docker Compose for orchestration. Key configuration files:
 
 - `docker-compose.multi-client.yml` - Multi-client production environment
 - `docker-compose.yml` - Single-client development environment
-- `.env.shared` - **Shared configuration (database, Redis, service URLs)**
-- `.env.etl.{client}` - **Client-specific ETL configuration**
-- `.env.backend` - **Backend service configuration**
+- `services/backend-service/.env` - **Backend service configuration**
+- `services/etl-service/.env` - **ETL service configuration (client-specific)**
+- `services/frontend-app/.env` - **Frontend application configuration**
 - `start-multi-instance.sh` - Multi-client management script
 
 ### **Adding New Clients**
 
 To add a new client (e.g., TechCorp):
 
-1. **Create client environment file:**
+1. **Create client-specific ETL configuration:**
 ```bash
-cp .env.etl.wex .env.etl.techcorp
-# Edit .env.etl.techcorp with TechCorp-specific settings
+cd services/etl-service
+cp .env .env.techcorp.backup  # Backup current config
+# Edit .env with TechCorp-specific settings:
+# - CLIENT_NAME=TechCorp
+# - Update API credentials for TechCorp's systems
 ```
 
 2. **Update Docker Compose:**
@@ -417,9 +472,8 @@ etl-techcorp:
   build: ./services/etl-service
   environment:
     - CLIENT_NAME=TechCorp
-  env_file:
-    - .env.shared
-    - .env.etl.techcorp
+  volumes:
+    - ./services/etl-service:/app
 ```
 
 3. **Update startup scripts:**

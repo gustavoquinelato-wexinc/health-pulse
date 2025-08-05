@@ -65,26 +65,50 @@ async def verify_token(user: UserData = Depends(require_authentication)):
 @router.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Redirect to home if authenticated, otherwise to login"""
+    logger.info("🏠 Root route accessed - checking authentication")
+
     # Check if user has a valid token
     token = request.cookies.get("pulse_token")
+    logger.info(f"🍪 Cookie token found: {'Yes' if token else 'No'}")
 
+    if token:
+        logger.info(f"🔍 Validating token: {token[:20]}...")
+        try:
+            # Validate token via centralized auth service
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(token)
+            if user_data:
+                logger.info(f"✅ User authenticated: {user_data.get('email')} - redirecting to /home")
+                # User is authenticated, redirect to home
+                return RedirectResponse(url="/home")
+            else:
+                logger.info("❌ Token validation returned no user data")
+        except Exception as e:
+            logger.error(f"❌ Token validation failed for root route: {e}")
+
+    # No valid token, redirect to login
+    logger.info("🔐 No valid authentication - redirecting to /login")
+    return RedirectResponse(url="/login")
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Serve login page - redirect to home if already authenticated"""
+    logger.info("🔐 Login page accessed - checking if user is already authenticated")
+
+    # Check if user is already authenticated
+    token = request.cookies.get("pulse_token")
     if token:
         try:
             # Validate token via centralized auth service
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
             if user_data:
-                # User is authenticated, redirect to home
+                logger.info(f"✅ User already authenticated: {user_data.get('email')} - redirecting to /home")
                 return RedirectResponse(url="/home")
         except Exception as e:
-            logger.debug(f"Token validation failed for root route: {e}")
+            logger.debug(f"Token validation failed on login page: {e}")
 
-    # No valid token, redirect to login
-    return RedirectResponse(url="/login")
-
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    """Serve login page"""
+    # User not authenticated, show login page
     from app.core.config import get_settings
     settings = get_settings()
 
@@ -95,8 +119,9 @@ async def login_page(request: Request):
         "request": request,
         "backend_service_url": backend_url
     })
-    # Clear any existing tokens when showing login page
-    response.delete_cookie("pulse_token", path="/")
+    # Only clear cookies if user is not authenticated
+    if not token:
+        response.delete_cookie("pulse_token", path="/")
     return response
 
 @router.post("/login")
@@ -186,31 +211,25 @@ async def home_page(request: Request, token: Optional[str] = None):
         except Exception as e:
             logger.error(f"❌ Portal embedding: Token validation error: {e}")
 
-    # Try to get color schema for authenticated users to prevent flash
-    color_schema_data = None
-    try:
-        # Check for token in cookies
-        token = request.cookies.get("pulse_token")
-        if token:
-            auth_service = get_centralized_auth_service()
-            user_data = await auth_service.verify_token(token)
-            if user_data:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
+    # 🚀 EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
+    from app.core.color_schema_manager import get_color_schema_manager
 
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("success"):
-                            color_schema_data = data
-    except Exception as e:
-        logger.debug(f"Could not fetch color schema: {e}")
+    color_manager = get_color_schema_manager()
+
+    # Get auth token for backend API call (one-time on page load)
+    auth_token = None
+    try:
+        # Try to get token from cookie or header
+        auth_token = request.cookies.get("pulse_token")
+        if not auth_token:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                auth_token = auth_header[7:]
+    except Exception:
+        pass  # No token available
+
+    # Get color schema (smart caching prevents excessive calls)
+    color_schema_data = await color_manager.get_color_schema(auth_token)
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -677,7 +696,25 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {auth_token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -737,7 +774,25 @@ async def issuetype_mappings_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -775,24 +830,13 @@ async def issuetype_hierarchies_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Try to get color schema for authenticated users to prevent flash
+        # Use ColorSchemaManager for consistent color loading (same as home page)
         color_schema_data = None
         try:
             if token:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
-
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("success"):
-                            color_schema_data = data
+                from app.core.color_schema_manager import get_color_schema_manager
+                color_manager = get_color_schema_manager()
+                color_schema_data = await color_manager.get_color_schema(token)
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -847,7 +891,25 @@ async def workflows_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            color_schema_data = data
+                            # Also get theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -897,8 +959,109 @@ async def logout_page(request: Request):
     except Exception as e:
         logger.warning(f"Error during logout token handling: {e}")
 
-    logger.info("Creating logout response with cookie deletion...")
-    response = RedirectResponse(url="/login?message=logged_out", status_code=302)
+    logger.info("Creating logout response with comprehensive cleanup...")
+
+    # Create an HTML response that clears localStorage and cache before redirecting
+    cleanup_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Logging out...</title>
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta http-equiv="Expires" content="0">
+    </head>
+    <body>
+        <div style="text-align: center; margin-top: 50px; font-family: Arial, sans-serif;">
+            <h2>Logging out...</h2>
+            <p>Please wait while we clear your session data.</p>
+        </div>
+        <script>
+            // Clear all localStorage
+            try {
+                localStorage.clear();
+                console.log('✅ localStorage cleared');
+            } catch (e) {
+                console.warn('Failed to clear localStorage:', e);
+            }
+
+            // Clear all sessionStorage
+            try {
+                sessionStorage.clear();
+                console.log('✅ sessionStorage cleared');
+            } catch (e) {
+                console.warn('Failed to clear sessionStorage:', e);
+            }
+
+            // Clear specific auth-related items
+            const authKeys = ['pulse_token', 'pulse_user', 'colorScheme', 'theme'];
+            authKeys.forEach(key => {
+                try {
+                    localStorage.removeItem(key);
+                    sessionStorage.removeItem(key);
+                } catch (e) {
+                    console.warn(`Failed to remove ${key}:`, e);
+                }
+            });
+
+            // Clear browser cache for auth-related requests
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => {
+                        if (name.includes('auth') || name.includes('api') || name.includes('etl')) {
+                            caches.delete(name);
+                        }
+                    });
+                    console.log('✅ Browser cache cleared');
+                }).catch(e => {
+                    console.warn('Failed to clear cache:', e);
+                });
+            }
+
+            // Clear all cookies via JavaScript (in addition to server-side clearing)
+            document.cookie.split(";").forEach(cookie => {
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+                // Clear cookie for current domain and path
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + window.location.hostname;
+            });
+            console.log('✅ Cookies cleared via JavaScript');
+
+            // Try to notify frontend service about logout (cross-service coordination)
+            try {
+                const frontendUrl = 'http://localhost:3000'; // Frontend service URL
+                // Use postMessage to communicate with frontend if it's open in another tab
+                if (window.opener) {
+                    window.opener.postMessage({ type: 'LOGOUT_FROM_ETL' }, frontendUrl);
+                }
+
+                // Also try to clear frontend localStorage if same origin
+                if (window.location.hostname === 'localhost') {
+                    // This will only work if both services are on the same domain
+                    try {
+                        window.localStorage.clear();
+                        window.sessionStorage.clear();
+                    } catch (e) {
+                        console.warn('Could not clear frontend storage (different origin):', e);
+                    }
+                }
+                console.log('✅ Cross-service logout coordination attempted');
+            } catch (e) {
+                console.warn('Cross-service logout coordination failed:', e);
+            }
+
+            // Redirect after cleanup
+            setTimeout(() => {
+                window.location.href = '/login?message=logged_out';
+            }, 1000);
+        </script>
+    </body>
+    </html>
+    """
+
+    response = HTMLResponse(content=cleanup_html, status_code=200)
 
     # Clear the pulse_token cookie by setting it to empty with immediate expiration
     logger.info("Clearing pulse_token cookie by setting to empty with immediate expiration...")
@@ -928,13 +1091,13 @@ async def logout_page(request: Request):
     response.delete_cookie(key="pulse_token")
 
     # Clear other potential auth cookies
-    other_cookies = ["session", "auth_token", "token", "jwt"]
+    other_cookies = ["session", "auth_token", "token", "jwt", "pulse_user"]
     for cookie_name in other_cookies:
         response.delete_cookie(key=cookie_name, path="/")
         response.delete_cookie(key=cookie_name)
 
     logger.info("=== LOGOUT PROCESS COMPLETED ===")
-    logger.info(f"Redirecting to: /login?message=logged_out")
+    logger.info(f"Returning cleanup HTML with redirect to: /login?message=logged_out")
 
     # Add aggressive cache control headers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
@@ -943,6 +1106,57 @@ async def logout_page(request: Request):
     response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
 
     return response
+
+
+@router.post("/api/logout", response_class=JSONResponse)
+async def api_logout(request: Request):
+    """API endpoint for cross-service logout - clears session without redirect"""
+
+    logger.info("=== API LOGOUT PROCESS STARTED ===")
+
+    # Invalidate the token on the server side
+    try:
+        token = request.cookies.get("pulse_token")
+        if token:
+            logger.info(f"Found token during API logout: {token[:20]}...")
+
+            # Invalidate session using centralized auth service
+            try:
+                logger.info("Attempting to invalidate session in Backend Service...")
+                from app.auth.centralized_auth_service import get_centralized_auth_service
+                auth_service = get_centralized_auth_service()
+                success = await auth_service.invalidate_session(token)
+                if success:
+                    logger.info("✅ Session invalidated successfully in Backend Service")
+                else:
+                    logger.warning("❌ Failed to invalidate session in Backend Service")
+            except Exception as e:
+                logger.error(f"❌ Error invalidating session: {e}")
+        else:
+            logger.info("No token found in cookies during API logout")
+    except Exception as e:
+        logger.warning(f"Error during API logout token handling: {e}")
+
+    logger.info("Creating API logout response...")
+    response = JSONResponse(content={"message": "Logout successful", "success": True})
+
+    # Clear all cookies
+    response.delete_cookie(key="pulse_token", path="/")
+    response.delete_cookie(key="pulse_token")
+
+    other_cookies = ["session", "auth_token", "token", "jwt", "pulse_user"]
+    for cookie_name in other_cookies:
+        response.delete_cookie(key=cookie_name, path="/")
+        response.delete_cookie(key=cookie_name)
+
+    # Add cache control headers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    logger.info("=== API LOGOUT PROCESS COMPLETED ===")
+    return response
+
 
 # Navigation endpoint for cross-service authentication
 @router.post("/auth/navigate")
@@ -1004,12 +1218,12 @@ async def navigate_with_token(request: Request):
             # Form request - direct redirect
             response = RedirectResponse(url="/home", status_code=302)
 
-        # Set session cookie for ETL service
+        # Set session cookie for ETL service (accessible by JavaScript for API calls)
         response.set_cookie(
             key="pulse_token",
             value=token,
-            max_age=3600,  # 1 hour
-            httponly=True,
+            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
+            httponly=False,  # Allow JavaScript access for API calls
             secure=False,  # Set to True in production with HTTPS
             samesite="lax",
             path="/"
@@ -1335,84 +1549,129 @@ async def get_home_status_api(user: UserData = Depends(require_admin_authenticat
 
 @router.get("/api/v1/user/color-schema")
 async def get_user_color_schema(request: Request, user: UserData = Depends(require_web_authentication)):
-    """Get user's color schema settings from backend service"""
+    """Get user's color schema settings using event-driven smart caching"""
+    from app.core.color_schema_manager import get_color_schema_manager
+
+    color_manager = get_color_schema_manager()
+
+    # Get auth token
+    auth_token = None
     try:
-        import httpx
-        from app.core.config import get_settings
+        auth_token = request.cookies.get("pulse_token")
+        if not auth_token:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                auth_token = auth_header[7:]
+    except Exception:
+        pass
 
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
+    # Get color schema with smart caching (no auto-refresh, only event-driven updates)
+    return await color_manager.get_color_schema(auth_token)
 
-        # Get token from request (same way as authentication middleware)
-        token = None
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-        else:
-            # Try to get from cookies
-            token = request.cookies.get("pulse_token")
 
-        if not token:
-            logger.warning("No token found for color schema request")
-            return {
-                "success": False,
-                "mode": "default",
-                "colors": {},
-                "theme": "light"
-            }
+@router.get("/api/v1/debug/color-schema-cache")
+async def get_color_schema_cache_status(user: UserData = Depends(require_web_authentication)):
+    """Debug endpoint to check color schema cache status"""
+    from app.core.color_schema_manager import get_color_schema_manager
 
-        # Forward request to backend service
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{backend_url}/api/v1/admin/color-schema",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                timeout=10.0
-            )
+    color_manager = get_color_schema_manager()
+    cache_info = color_manager.get_cache_info()
 
-            if response.status_code == 200:
-                backend_data = response.json()
+    return {
+        "success": True,
+        "cache_info": cache_info,
+        "timestamp": DateTimeHelper.now_utc().isoformat()
+    }
 
-                # Also get theme mode from backend
-                theme_response = await client.get(
-                    f"{backend_url}/api/v1/admin/theme-mode",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
-                )
 
-                theme_mode = 'light'  # default
-                if theme_response.status_code == 200:
-                    theme_data = theme_response.json()
-                    if theme_data.get('success'):
-                        theme_mode = theme_data.get('mode', 'light')
+# 🚀 Internal API Endpoints for Backend Service Communication
+@router.post("/api/v1/internal/color-schema-changed")
+async def handle_color_schema_change(request: Request):
+    """Internal endpoint: Handle color schema change notification from backend"""
+    try:
+        data = await request.json()
+        client_id = data.get("client_id")
+        colors = data.get("colors", {})
+        event_type = data.get("event_type", "color_update")
 
-                return {
-                    "success": True,
-                    "mode": backend_data.get("mode", "default"),
-                    "colors": backend_data.get("colors", {}),
-                    "theme": theme_mode
-                }
-            else:
-                logger.warning(f"Backend color schema request failed: {response.status_code}")
-                return {
-                    "success": False,
-                    "mode": "default",
-                    "colors": {},
-                    "theme": "light"
-                }
+        logger.info(f"🎨 Received color schema change notification for client {client_id}")
+        logger.debug(f"Colors: {colors}")
+
+        # Invalidate color schema cache to force refresh
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_manager.invalidate_cache()
+
+        # Broadcast to connected WebSocket clients for real-time updates
+        from app.core.websocket_manager import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+
+        # Send color update to all connected clients for this client_id
+        from datetime import datetime
+        await websocket_manager.broadcast_to_client(client_id, {
+            "type": "color_schema_updated",
+            "colors": colors,
+            "event_type": event_type,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        logger.info(f"✅ Color schema cache invalidated and clients notified for client {client_id}")
+
+        return {
+            "success": True,
+            "message": "Color schema change processed successfully",
+            "client_id": client_id
+        }
 
     except Exception as e:
-        logger.error(f"Error getting user color schema: {e}")
+        logger.error(f"❌ Error processing color schema change: {e}")
         return {
             "success": False,
-            "mode": "default",
-            "colors": {},
-            "theme": "light"
+            "error": str(e)
+        }
+
+
+@router.post("/api/v1/internal/color-schema-mode-changed")
+async def handle_color_schema_mode_change(request: Request):
+    """Internal endpoint: Handle color schema mode change notification from backend"""
+    try:
+        data = await request.json()
+        client_id = data.get("client_id")
+        mode = data.get("mode")
+        event_type = data.get("event_type", "mode_update")
+
+        logger.info(f"🎨 DISABLED: Color schema mode change notification received for client {client_id}: {mode} (not processing to prevent infinite loop)")
+
+        # TEMPORARILY DISABLED: All event-driven color processing to prevent infinite loop
+        # # Invalidate color schema cache to force refresh
+        # from app.core.color_schema_manager import get_color_schema_manager
+        # color_manager = get_color_schema_manager()
+        # color_manager.invalidate_cache()
+
+        # # Broadcast to connected WebSocket clients for real-time updates
+        # from app.core.websocket_manager import get_websocket_manager
+        # websocket_manager = get_websocket_manager()
+
+        # # Send mode update to all connected clients for this client_id
+        # await websocket_manager.broadcast_to_client(client_id, {
+        #     "type": "color_schema_mode_updated",
+        #     "mode": mode,
+        #     "event_type": event_type,
+        #     "timestamp": datetime.utcnow().isoformat()
+        # })
+
+        return {
+            "success": True,
+            "message": "Color schema mode change notification received (processing disabled)",
+            "client_id": client_id,
+            "mode": mode
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error processing color schema mode change: {e}")
+        return {
+            "success": False,
+            "error": str(e)
         }
 
 
@@ -2477,4 +2736,6 @@ async def test_websocket_message(request: Request):
             "success": False,
             "error": str(e)
         }
+
+
 

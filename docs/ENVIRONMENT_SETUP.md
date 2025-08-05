@@ -1,6 +1,6 @@
 # 🔒 Environment Configuration Guide
 
-This guide explains the new service-specific environment configuration that follows security best practices and the principle of least privilege.
+This guide explains the service-specific environment configuration that follows security best practices and the principle of least privilege. Updated to reflect the latest session management and authentication improvements.
 
 ## 🎯 **Architecture Overview**
 
@@ -26,17 +26,22 @@ This guide explains the new service-specific environment configuration that foll
 
 ```
 pulse-platform/
-├── .env.shared              # 🔒 Shared config (DB, URLs) - NO secrets
+├── .env.shared              # 🔒 Shared config (DB, Redis, URLs) - NO secrets
 ├── .env.backend             # 🔒 Backend secrets (JWT, sessions)
-├── .env.etl.wex            # 🔒 WEX-specific ETL secrets
-├── .env.etl.techcorp       # 🔒 TechCorp-specific ETL secrets
-├── .env.frontend           # 🔒 Frontend config (public only)
+├── .env.frontend            # 🔒 Frontend config (public only)
+├── .env.etl.wex            # 🔒 WEX-specific ETL secrets & API tokens
+├── .env.etl.techcorp       # 🔒 TechCorp-specific ETL secrets & API tokens
+├── .env.etl.acme           # 🔒 ACME-specific ETL secrets & API tokens
+├── .env.shared.example      # ✅ Template for shared config
+├── .env.backend.example     # ✅ Template for backend secrets
+├── .env.frontend.example    # ✅ Template for frontend config
+├── .env.etl.example         # ✅ Template for client-specific ETL config
 ├── docker-compose.dev.yml   # Development environment
 ├── docker-compose.multi-client.yml  # Multi-instance production
 └── services/
-    ├── backend-service/
-    ├── etl-service/
-    └── frontend-app/
+    ├── backend-service/     # Authentication & API hub
+    ├── etl-service/         # Data processing & job orchestration
+    └── frontend-app/        # User interface
 ```
 
 ## 🔧 **Environment File Breakdown**
