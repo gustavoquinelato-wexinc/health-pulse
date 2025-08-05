@@ -16,27 +16,32 @@ scripts/
 
 ## Environment Requirements
 
-### **Root Environment File**
+### **Service-Specific Environment Files**
 
-Most cross-service scripts require a combined environment file in the root directory:
+Each service now has its own complete environment file with no combination needed:
 
 ```bash
-# Create combined environment file (required for most scripts)
-cat .env.shared .env.etl.wex > .env
+# Backend service (includes migration runner)
+services/backend-service/.env
 
-# Verify environment file exists
-ls -la .env
+# ETL service
+services/etl-service/.env
+
+# Frontend service
+services/frontend-app/.env
 ```
 
-### **Why Combined Environment File is Needed**
+### **Migration System Location**
 
-- **Migration Runner**: Uses ETL service configuration classes
-- **Database Scripts**: Need both shared and client-specific settings
-- **Cross-Service Operations**: Require access to multiple service configurations
+The migration system is now located in the backend service:
+
+- **Migration Runner**: `services/backend-service/scripts/migration_runner.py`
+- **Migrations Folder**: `services/backend-service/scripts/migrations/`
+- **Configuration**: Uses backend service's own `.env` file
 
 ## Migration System
 
-The migration system provides a robust way to manage database schema changes across environments:
+The migration system is now located in the backend service and provides a robust way to manage database schema changes across environments:
 
 - **Forward Migrations**: Apply schema changes and data updates
 - **Rollback Migrations**: Safely revert changes when needed
@@ -45,22 +50,28 @@ The migration system provides a robust way to manage database schema changes acr
 
 ### Usage
 
-**Prerequisites**: Ensure combined environment file exists in root:
+**Prerequisites**: Ensure backend service has its own .env file:
 ```bash
-# Create combined environment file (required)
-cat .env.shared .env.etl.wex > .env
+# Backend service should have its own complete .env file
+ls services/backend-service/.env
 ```
 
-**Migration Commands**:
+**Migration Commands** (run from backend service directory):
 ```bash
+# Navigate to backend service
+cd services/backend-service
+
 # Check migration status
 python scripts/migration_runner.py --status
 
 # Apply all pending migrations
-python scripts/migration_runner.py
+python scripts/migration_runner.py --apply-all
 
 # Rollback to specific migration
 python scripts/migration_runner.py --rollback-to 001
+
+# Create new migration
+python scripts/migration_runner.py --new "Add new feature"
 
 # Apply specific migration manually
 python scripts/migrations/001_initial_schema.py --apply
@@ -72,7 +83,7 @@ python scripts/migrations/001_initial_schema.py --rollback
 python scripts/migration_runner.py --help
 ```
 
-**Common Error**: If you get validation errors about missing fields (CLIENT_NAME, POSTGRES_HOST, etc.), you need to create the combined environment file first.
+**Common Error**: If you get validation errors about missing fields, ensure the backend service's .env file contains all required database configuration.
 
 ## Centralized Dependency Management
 
@@ -116,16 +127,24 @@ python scripts/install_requirements.py --help
 # 1. Install dependencies
 python scripts/install_requirements.py all
 
-# 2. Create environment files
-cat .env.shared .env.etl.wex > .env
+# 2. Ensure each service has its own .env file
+ls services/backend-service/.env
+ls services/etl-service/.env
+ls services/frontend-app/.env
 
-# 3. Run migrations
-python scripts/migration_runner.py
+# 3. Run migrations from backend service
+cd services/backend-service
+python scripts/migration_runner.py --apply-all
 
 # 4. Start services manually
 cd services/etl-service
-cat ../../.env.shared ../../.env.etl.wex > .env
 python -m uvicorn app.main:app --reload
+
+cd services/backend-service
+python -m uvicorn app.main:app --reload
+
+cd services/frontend-app
+npm run dev
 ```
 
 ## Best Practices

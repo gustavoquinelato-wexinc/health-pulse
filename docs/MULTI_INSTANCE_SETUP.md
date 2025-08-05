@@ -32,8 +32,9 @@ docker-compose -f docker-compose.multi-client.yml down
 
 1. **Prepare environment files:**
    ```bash
-   # Create combined environment file for migration runner (if needed)
-   cat .env.shared .env.etl.wex > .env
+   # Ensure each service has its own .env file
+   ls services/backend-service/.env
+   ls services/etl-service/.env
 
    # Install dependencies using centralized management
    python scripts/install_requirements.py etl-service
@@ -43,7 +44,6 @@ docker-compose -f docker-compose.multi-client.yml down
 2. **Start Backend Service:**
    ```bash
    cd services/backend-service
-   cat ../../.env.shared ../../.env.backend > .env
    python -m uvicorn app.main:app --host 0.0.0.0 --port 3002 --reload
    ```
 

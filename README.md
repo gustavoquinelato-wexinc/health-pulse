@@ -268,7 +268,7 @@ docker-compose -f docker-compose.multi-client.yml up -d
 
 #### **For Manual Development**
 ```bash
-# Environment files are now service-specific (no combination needed)
+# Environment files are service-specific (no combination needed)
 # Each service has its own complete .env file
 
 # Install dependencies (centralized requirements management)
@@ -279,8 +279,9 @@ python scripts/install_requirements.py etl-service
 
 ### **3. Database Setup**
 ```bash
-# Run migrations (requires combined .env file in root)
-python scripts/migration_runner.py
+# Run migrations from backend service (uses backend service .env)
+cd services/backend-service
+python scripts/migration_runner.py --apply-all
 
 # Or reset database with sample data (development only)
 cd services/etl-service
@@ -426,12 +427,11 @@ cp .env.example .env
 
 #### **For Migration Runner & Scripts**
 ```bash
-# Migration runner uses ETL service configuration
-cd services/etl-service
-python ../../scripts/migration_runner.py
+# Migration runner is now in backend service and uses backend service configuration
+cd services/backend-service
+python scripts/migration_runner.py --status
 
 # Backend Service uses its own .env file
-cd services/backend-service
 python -m uvicorn app.main:app --reload
 ```
 
@@ -733,12 +733,13 @@ docker-compose up -d --scale etl=3
 #### **Environment Configuration Issues**
 ```bash
 # Missing .env file for migration runner
-cat .env.shared .env.etl.wex > .env
-python scripts/migration_runner.py
+cd services/backend-service
+ls .env  # Should exist
+python scripts/migration_runner.py --status
 
 # Service can't find environment variables
 cd services/etl-service
-cat ../../.env.shared ../../.env.etl.wex > .env
+ls .env  # Should exist
 
 # Check environment file contents
 head -20 .env

@@ -26,11 +26,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 
-# Add the ETL service to the path to access database configuration
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'services', 'etl-service'))
+# Add the backend service to the path to access database configuration
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 def get_database_connection():
-    """Get database connection using ETL service configuration."""
+    """Get database connection using backend service configuration."""
     try:
         from app.core.config import Settings
         config = Settings()
@@ -1098,86 +1098,114 @@ def apply(connection):
 
         print("✅ Issuetype mappings inserted")
 
-        # Insert default integrations (only if environment variables are available)
+        # Insert default integrations (create basic records, configure credentials later)
         print("📋 Creating default integrations...")
 
-        # Try to read environment variables for integration configuration
+        # Create basic integration records first (without credentials)
+        integrations_created = 0
+
+        # Create Jira integration (basic record)
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING;
+        """, ("JIRA", "https://your-jira-instance.atlassian.net", None, None, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id))
+        integrations_created += 1
+        print("   ✅ Jira integration created (inactive - configure credentials to activate)")
+
+        # Create GitHub integration (basic record)
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING;
+        """, ("GITHUB", "https://api.github.com", None, None, "health-", "2000-01-01 00:00:00", client_id))
+        integrations_created += 1
+        print("   ✅ GitHub integration created (inactive - configure credentials to activate)")
+
+        # Create Aha! integration (basic record)
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING;
+        """, ("AHA!", "https://your-company.aha.io", None, None, None, "2000-01-01 00:00:00", client_id))
+        integrations_created += 1
+        print("   ✅ Aha! integration created (inactive - configure credentials to activate)")
+
+        # Create Azure DevOps integration (basic record)
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING;
+        """, ("AZURE DEVOPS", "https://dev.azure.com/your-org", None, None, "2000-01-01 00:00:00", client_id))
+        integrations_created += 1
+        print("   ✅ Azure DevOps integration created (inactive - configure credentials to activate)")
+
+        # Try to configure credentials if environment variables are available
         try:
             from app.core.config import Settings
             from app.core.config import AppConfig
             from app.core.utils import DateTimeHelper
 
             settings = Settings()
-            integrations_created = 0
 
-            # Create Jira integration (only if credentials are available)
+            # Configure Jira integration with credentials if available
             if settings.JIRA_URL and settings.JIRA_USERNAME and settings.JIRA_TOKEN:
-                # Get encryption key
                 key = AppConfig.load_key()
                 encrypted_token = AppConfig.encrypt_token(settings.JIRA_TOKEN, key)
-
-                # Set Jira last_sync_at to today at 12:00 PM Central Time
                 today_noon = DateTimeHelper.now_central().replace(hour=12, minute=0, second=0, microsecond=0)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("JIRA", settings.JIRA_URL, settings.JIRA_USERNAME, encrypted_token, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", today_noon, client_id))
-                integrations_created += 1
-                print("   ✅ Jira integration created with encrypted credentials")
+                    UPDATE integrations
+                    SET url = %s, username = %s, password = %s, last_sync_at = %s, active = TRUE, last_updated_at = NOW()
+                    WHERE name = 'JIRA' AND client_id = %s;
+                """, (settings.JIRA_URL, settings.JIRA_USERNAME, encrypted_token, today_noon, client_id))
+                print("   ✅ Jira integration configured with encrypted credentials and activated")
             else:
-                print("   ⚠️  Jira integration skipped - missing environment variables (JIRA_URL, JIRA_USERNAME, JIRA_TOKEN)")
+                print("   💡 Jira integration created but not configured - add JIRA_URL, JIRA_USERNAME, JIRA_TOKEN to activate")
 
-            # Create GitHub integration (only if token is available)
+            # Configure GitHub integration with credentials if available
             if settings.GITHUB_TOKEN:
                 key = AppConfig.load_key()
                 encrypted_token = AppConfig.encrypt_token(settings.GITHUB_TOKEN, key)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("GITHUB", "https://api.github.com", None, encrypted_token, "health-", "2000-01-01 00:00:00", client_id))
-                integrations_created += 1
-                print("   ✅ GitHub integration created with encrypted credentials")
+                    UPDATE integrations
+                    SET password = %s, active = TRUE, last_updated_at = NOW()
+                    WHERE name = 'GITHUB' AND client_id = %s;
+                """, (encrypted_token, client_id))
+                print("   ✅ GitHub integration configured with encrypted credentials and activated")
             else:
-                print("   ⚠️  GitHub integration skipped - missing environment variable (GITHUB_TOKEN)")
+                print("   💡 GitHub integration created but not configured - add GITHUB_TOKEN to activate")
 
-            # Create Aha! integration (optional)
+            # Configure Aha! integration with credentials if available
             if settings.AHA_TOKEN and settings.AHA_URL:
                 key = AppConfig.load_key()
                 encrypted_token = AppConfig.encrypt_token(settings.AHA_TOKEN, key)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("AHA!", settings.AHA_URL, None, encrypted_token, None, "2000-01-01 00:00:00", client_id))
-                integrations_created += 1
-                print("   ✅ Aha! integration created with encrypted credentials")
+                    UPDATE integrations
+                    SET url = %s, password = %s, active = TRUE, last_updated_at = NOW()
+                    WHERE name = 'AHA!' AND client_id = %s;
+                """, (settings.AHA_URL, encrypted_token, client_id))
+                print("   ✅ Aha! integration configured with encrypted credentials and activated")
             else:
-                print("   ⚠️  Aha! integration skipped - missing environment variables (AHA_TOKEN, AHA_URL)")
+                print("   💡 Aha! integration created but not configured - add AHA_TOKEN, AHA_URL to activate")
 
-            # Create Azure DevOps integration (optional)
+            # Configure Azure DevOps integration with credentials if available
             if settings.AZDO_TOKEN and settings.AZDO_URL:
                 key = AppConfig.load_key()
                 encrypted_token = AppConfig.encrypt_token(settings.AZDO_TOKEN, key)
 
                 cursor.execute("""
-                    INSERT INTO integrations (name, url, username, password, last_sync_at, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    ON CONFLICT (name, client_id) DO NOTHING;
-                """, ("AZURE DEVOPS", settings.AZDO_URL, None, encrypted_token, "2000-01-01 00:00:00", client_id))
-                integrations_created += 1
-                print("   ✅ Azure DevOps integration created with encrypted credentials")
+                    UPDATE integrations
+                    SET url = %s, password = %s, active = TRUE, last_updated_at = NOW()
+                    WHERE name = 'AZURE DEVOPS' AND client_id = %s;
+                """, (settings.AZDO_URL, encrypted_token, client_id))
+                print("   ✅ Azure DevOps integration configured with encrypted credentials and activated")
             else:
-                print("   ⚠️  Azure DevOps integration skipped - missing environment variables (AZDO_TOKEN, AZDO_URL)")
+                print("   💡 Azure DevOps integration created but not configured - add AZDO_TOKEN, AZDO_URL to activate")
 
-            if integrations_created > 0:
-                print(f"✅ Created {integrations_created} integration(s) with proper encryption")
-            else:
-                print("⚠️  No integrations created - configure environment variables and re-run migration if needed")
+            print(f"✅ Created {integrations_created} integration(s) - configure credentials to activate")
 
         except Exception as e:
             print(f"⚠️  Could not create integrations with encrypted credentials: {e}")
@@ -1267,8 +1295,8 @@ def apply(connection):
 
         print("✅ All integration-specific tables properly assigned to integrations")
 
-        # Now make integration_id NOT NULL for all IntegrationBaseEntity tables
-        print("📋 Setting integration_id columns to NOT NULL...")
+        # Only make integration_id NOT NULL for tables that have all records properly linked
+        print("📋 Setting integration_id columns to NOT NULL (where applicable)...")
         integration_tables = [
             'workflows', 'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings',
             'repositories', 'pull_requests', 'pull_request_reviews',
@@ -1276,8 +1304,16 @@ def apply(connection):
         ]
 
         for table in integration_tables:
-            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN integration_id SET NOT NULL;")
-            print(f"   ✅ Set {table}.integration_id to NOT NULL")
+            # Check if there are any NULL integration_id values
+            cursor.execute(f"SELECT COUNT(*) as null_count FROM {table} WHERE integration_id IS NULL;")
+            null_count = cursor.fetchone()['null_count']
+
+            if null_count == 0:
+                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN integration_id SET NOT NULL;")
+                print(f"   ✅ Set {table}.integration_id to NOT NULL")
+            else:
+                print(f"   ⚠️  Skipped {table}.integration_id NOT NULL constraint - {null_count} records have NULL values")
+                print(f"      💡 Configure integrations and re-run migration to enforce constraint")
 
         # Insert system settings
         print("📋 Creating system settings...")
@@ -1465,9 +1501,16 @@ def apply(connection):
 
         print("✅ Job schedules linked to integrations")
 
-        # Now make job_schedules.integration_id NOT NULL since all jobs should be linked
-        cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
-        print("✅ Set job_schedules.integration_id to NOT NULL")
+        # Only make job_schedules.integration_id NOT NULL if all jobs are properly linked
+        cursor.execute("SELECT COUNT(*) as null_count FROM job_schedules WHERE integration_id IS NULL;")
+        null_count = cursor.fetchone()['null_count']
+
+        if null_count == 0:
+            cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
+            print("✅ Set job_schedules.integration_id to NOT NULL")
+        else:
+            print(f"⚠️  Skipped job_schedules.integration_id NOT NULL constraint - {null_count} records have NULL values")
+            print("💡 Configure integrations and re-run migration to enforce constraint")
 
         # Create second client and duplicate data (from migration 003)
         print("📋 Creating second client (TechCorp) and duplicating data...")
