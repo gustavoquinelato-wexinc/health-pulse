@@ -1,23 +1,31 @@
 # Pulse Platform - Global .gitignore
+# 🚨 SECURITY WARNING: This file prevents committing sensitive data
+# 🔒 NEVER commit .env files - they contain API keys and secrets!
 
-# Environment files with secrets (NEVER COMMIT)
-.env.backend*           # Backend secrets (JWT, sessions)
-.env.etl.*             # Client-specific ETL secrets (API tokens, encryption keys)
-.env.production*       # Production secrets
-.env.staging*          # Staging secrets
-.env.local*            # Local overrides
-.env.development.local
-.env.test.local
+# ⚠️  CRITICAL: Environment files with secrets (NEVER COMMIT THESE!)
+.env                   # Main environment file - CONTAINS SECRETS!
+.env.*                 # Any .env files with suffixes - CONTAINS SECRETS!
+.env.local             # Local environment overrides
+.env.development       # Development environment
+.env.staging           # Staging environment
+.env.production        # Production environment
+.env.test              # Test environment
 
 # Client-specific environment files (NEVER COMMIT)
 .env.wex               # WEX client-specific configuration
 .env.techcorp          # TechCorp client-specific configuration
-.env.*                 # Any other client-specific .env files
+.env.enterprise        # Enterprise client configuration
 
-# Legacy environment files (if they contain secrets)
-.env                   # Main env file (may contain secrets)
-.env.frontend          # Frontend config (may contain API keys)
-.env.shared            # Shared config (may contain secrets)
+# Legacy/backup environment files
+.env.backup            # Backup environment files
+.env.old               # Old environment files
+.env.bak               # Backup files
+
+# Service-specific environment files in root
+.env.backend           # Backend service config
+.env.etl               # ETL service config
+.env.frontend          # Frontend config
+.env.shared            # Shared config
 
 # Service-specific environment files (NEVER COMMIT)
 services/*/env
