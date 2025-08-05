@@ -50,16 +50,18 @@ The Pulse Platform is a unified engineering analytics platform that seamlessly i
                     └───────────────────────┼───────────────────────┘
                                            │
                                            ▼
-                                ┌─────────────────┐
-                                │  PostgreSQL     │
-                                │  (Database)     │
-                                │  Port: 5432     │
-                                │                 │
-                                │ • User Data     │
-                                │ • Job State     │
-                                │ • Analytics     │
-                                │ • Audit Logs    │
-                                └─────────────────┘
+                        ┌─────────────────┐    ┌─────────────────┐
+                        │  PostgreSQL     │───►│  PostgreSQL     │
+                        │  PRIMARY        │    │  REPLICA        │
+                        │  Port: 5432     │    │  Port: 5433     │
+                        │                 │    │                 │
+                        │ • Write Ops     │    │ • Read Ops      │
+                        │ • User Mgmt     │    │ • Analytics     │
+                        │ • Job Control   │    │ • Dashboards    │
+                        │ • Auth/Sessions │    │ • Reports       │
+                        └─────────────────┘    └─────────────────┘
+                                │                       ▲
+                                └───WAL Streaming───────┘
 ```
 
 ## 🌟 **Key Platform Features**
@@ -278,6 +280,25 @@ python scripts/install_requirements.py etl-service
 ```
 
 ### **3. Database Setup**
+
+#### **Option A: Replica Architecture (Recommended for Production)**
+```bash
+# Start PostgreSQL primary and replica databases
+docker-compose -f docker-compose.db.yml up -d
+
+# Verify both databases are running
+docker ps | grep pulse-postgres
+
+# Run migrations (uses primary database)
+cd services/backend-service
+python scripts/migration_runner.py --apply-all
+
+# Test replication
+docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT 'PRIMARY' as db_type;"
+docker exec pulse-postgres-replica psql -U postgres -d pulse_db -c "SELECT 'REPLICA' as db_type, pg_is_in_recovery();"
+```
+
+#### **Option B: Single Database (Development)**
 ```bash
 # Run migrations from backend service (uses backend service .env)
 cd services/backend-service
@@ -340,13 +361,35 @@ python scripts/test_jobs.py --test-connection
 
 Each service has its own complete configuration file for independence and clarity:
 
-#### **Backend Service (`services/backend-service/.env`)**
+#### **Root-Level Configuration (`.env`)**
 ```env
-# Database Configuration
+# Primary Database Configuration
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_database_password
+POSTGRES_PASSWORD=pulse
+POSTGRES_DATABASE=pulse_db
+
+# Replica Database Configuration (Optional - enables replica architecture)
+POSTGRES_REPLICA_HOST=localhost
+POSTGRES_REPLICA_PORT=5433
+USE_READ_REPLICA=true
+REPLICA_FALLBACK_ENABLED=true
+
+# Connection Pool Settings (Enterprise Optimized)
+DB_POOL_SIZE=20                    # Primary database pool
+DB_MAX_OVERFLOW=30
+DB_REPLICA_POOL_SIZE=15           # Replica database pool
+DB_REPLICA_MAX_OVERFLOW=20
+```
+
+#### **Backend Service (`services/backend-service/.env`)**
+```env
+# Database Configuration (inherits from root .env)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=pulse
 POSTGRES_DATABASE=pulse_db
 
 # Service URLs
@@ -563,12 +606,47 @@ npm run build
 
 ### **Database Management**
 
+#### **Replica Database Management**
+```bash
+# Start replica infrastructure
+docker-compose -f docker-compose.db.yml up -d
+
+# Check database status
+docker ps | grep pulse-postgres
+
+# Monitor replication status
+docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT * FROM pg_replication_slots;"
+
+# Check replication lag
+docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT pg_current_wal_lsn();"
+docker exec pulse-postgres-replica psql -U postgres -d pulse_db -c "SELECT pg_last_wal_replay_lsn();"
+
+# Stop databases
+docker-compose -f docker-compose.db.yml down
+
+# Reset databases (DELETES ALL DATA!)
+docker-compose -f docker-compose.db.yml down -v
+```
+
+#### **Database Connections**
+```bash
+# Connect to primary database (read/write)
+docker exec -it pulse-postgres-primary psql -U postgres -d pulse_db
+
+# Connect to replica database (read-only)
+docker exec -it pulse-postgres-replica psql -U postgres -d pulse_db
+
+# External connections (DBeaver, pgAdmin, etc.)
+# Primary:  localhost:5432 (read/write)
+# Replica:  localhost:5433 (read-only)
+```
+
 #### **Database Migrations (Production Method)**
 ```bash
 # Ensure root .env file exists for migration runner
 cat .env.shared .env.etl.wex > .env
 
-# Run migrations
+# Run migrations (applies to primary, replicates to replica)
 python scripts/migration_runner.py
 
 # Rollback to specific migration

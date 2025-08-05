@@ -57,16 +57,20 @@ Row 2: Caching Layer            │              ┌─────────�
                                                └─────────────────┘
                                                        │
                                                        ▼
-Row 3: Database Layer                         ┌─────────────────┐
-                                              │  PostgreSQL     │
-                                              │  (Database)     │
-                                              │  Port: 5432     │
-                                              │                 │
-                                              │ • Primary DB    │
-                                              │ • Job State     │
-                                              │ • User Data     │
-                                              │ • Audit Logs    │
-                                              └─────────────────┘
+Row 3: Database Layer (Replica Architecture)
+                                    ┌─────────────────┐    ┌─────────────────┐
+                                    │  PostgreSQL     │───►│  PostgreSQL     │
+                                    │  PRIMARY        │    │  REPLICA        │
+                                    │  Port: 5432     │    │  Port: 5433     │
+                                    │                 │    │                 │
+                                    │ • Write Ops     │    │ • Read Ops      │
+                                    │ • User Mgmt     │    │ • Analytics     │
+                                    │ • Admin Ops     │    │ • Dashboards    │
+                                    │ • Job Control   │    │ • Reports       │
+                                    │ • Auth/Sessions │    │ • Hot Standby   │
+                                    └─────────────────┘    └─────────────────┘
+                                            │                       ▲
+                                            └───WAL Streaming───────┘
 
 External Integrations:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -396,6 +400,80 @@ Client B User → Frontend → Backend → JWT (client_id=B) → Client B Data O
 - **Integration Testing:** Service interaction testing
 - **End-to-End Testing:** Complete workflow testing
 - **Performance Testing:** Load and stress testing
+
+## 🔄 **Database Replica Architecture**
+
+### **Read/Write Splitting Strategy**
+
+The platform implements PostgreSQL streaming replication for improved performance and scalability:
+
+```
+Application Layer Query Routing:
+┌─────────────────────────────────────────────────────────────┐
+│                    Database Router                          │
+│  ┌─────────────────┐              ┌─────────────────┐      │
+│  │  Write Session  │              │  Read Session   │      │
+│  │  (Primary Only) │              │ (Replica First) │      │
+│  └─────────────────┘              └─────────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+           │                                    │
+           ▼                                    ▼
+┌─────────────────┐                  ┌─────────────────┐
+│  PRIMARY DB     │─────────────────►│  REPLICA DB     │
+│  Port: 5432     │  WAL Streaming   │  Port: 5433     │
+│                 │                  │                 │
+│ • User Mgmt     │                  │ • Analytics     │
+│ • Admin Ops     │                  │ • Dashboards    │
+│ • Job Control   │                  │ • Reports       │
+│ • Auth/Sessions │                  │ • Metrics       │
+│ • All Writes    │                  │ • Read-Only     │
+└─────────────────┘                  └─────────────────┘
+```
+
+### **Operation Routing Rules**
+
+**Primary Database (Immediate Consistency Required):**
+- All write operations (INSERT, UPDATE, DELETE)
+- User authentication and session management
+- Job control operations (start/stop/pause)
+- Admin configuration changes
+- Client management and settings
+
+**Replica Database (Eventual Consistency Acceptable):**
+- Dashboard metrics and analytics
+- DORA metrics calculations
+- Historical reports and trends
+- Data visualization queries
+- Export operations
+
+### **Failover & Reliability**
+
+- **Automatic Failover:** Read queries fall back to primary if replica unavailable
+- **Health Monitoring:** Continuous replica lag and availability monitoring
+- **Connection Pooling:** Optimized pools for each database role
+  - Primary: 20 base + 30 overflow connections
+  - Replica: 15 base + 20 overflow connections
+- **Performance Optimization:** Specialized session contexts for different operation types
+
+### **Development & Deployment**
+
+**Database Management Commands:**
+```bash
+# Start replica infrastructure
+docker-compose -f docker-compose.db.yml up -d
+
+# Monitor replication status
+docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT * FROM pg_replication_slots;"
+
+# Check replica lag
+docker exec pulse-postgres-replica psql -U postgres -d pulse_db -c "SELECT pg_is_in_recovery();"
+```
+
+**Connection Details:**
+- **Primary:** `localhost:5432` (Read/Write)
+- **Replica:** `localhost:5433` (Read-Only)
+- **Database:** `pulse_db`
+- **Credentials:** `postgres/pulse`
 
 ---
 

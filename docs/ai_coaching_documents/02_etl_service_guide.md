@@ -341,26 +341,103 @@ async def navigate_with_token(request: Request):
 
 ## 📝 Configuration Management
 
-### **Settings Structure**
+### **Replica Database Configuration**
 ```python
 class Settings(BaseSettings):
-    # Database
-    DATABASE_URL: str
-    
+    # Primary Database (Write Operations)
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DATABASE: str = "pulse_db"
+
+    # Replica Database (Read Operations)
+    POSTGRES_REPLICA_HOST: Optional[str] = None
+    POSTGRES_REPLICA_PORT: int = 5433
+
+    # Connection Pool Settings
+    DB_POOL_SIZE: int = 20                    # Primary pool
+    DB_REPLICA_POOL_SIZE: int = 15           # Replica pool
+    DB_MAX_OVERFLOW: int = 30
+    DB_REPLICA_MAX_OVERFLOW: int = 20
+
+    # Feature Flags
+    USE_READ_REPLICA: bool = True
+    REPLICA_FALLBACK_ENABLED: bool = True
+
     # External Services
     BACKEND_SERVICE_URL: str
-    
+
     # Job Configuration
     SCHEDULER_TIMEZONE: str = "UTC"
-    
+
     # Security
     SECRET_KEY: str
     ENCRYPTION_KEY: str
 ```
 
+### **ETL Database Usage Patterns**
+```python
+# ✅ CORRECT: Use ETL session for bulk operations
+async def process_github_data(repository_data, prs_data):
+    database = get_database()
+
+    # Chunked processing with optimized ETL session
+    processor = ChunkedBulkProcessor(chunk_size=100)
+
+    async def process_chunk(session, pr_chunk):
+        for pr_data in pr_chunk:
+            # Process individual PR with write session
+            pr = PullRequest(...)
+            session.add(pr)
+
+    await processor.process_bulk_data(
+        prs_data,
+        process_chunk,
+        job_name="github_prs"
+    )
+
+# ✅ CORRECT: Use read session for job status queries
+@router.get("/jobs/status")
+async def get_job_status():
+    database = get_database()
+    with database.get_read_session_context() as session:
+        # Job status queries can use replica
+        jobs = session.query(Job).filter_by(client_id=client_id).all()
+
+# ✅ CORRECT: Use write session for job control
+@router.post("/jobs/{job_id}/start")
+async def start_job(job_id: int):
+    database = get_database()
+    with database.get_write_session_context() as session:
+        # Job control operations must use primary
+        job = session.query(Job).filter_by(id=job_id).first()
+        job.status = "RUNNING"
+```
+
+### **Transaction Chunking for Large Operations**
+```python
+# ✅ CORRECT: Process large datasets in chunks
+async def process_large_dataset(data_list):
+    database = get_database()
+    chunk_size = 100
+
+    for i in range(0, len(data_list), chunk_size):
+        chunk = data_list[i:i + chunk_size]
+
+        with database.get_etl_session_context() as session:
+            # Process chunk with optimized settings
+            for item in chunk:
+                # Process individual item
+                session.add(processed_item)
+            # Automatic commit per chunk
+
+        # Yield control to prevent UI blocking
+        await asyncio.sleep(0.01)
+```
+
 ### **Environment Variables**
-- **Required**: DATABASE_URL, BACKEND_SERVICE_URL
-- **Optional**: DEBUG, LOG_LEVEL, SCHEDULER_TIMEZONE
+- **Required**: POSTGRES_HOST, POSTGRES_DATABASE, BACKEND_SERVICE_URL
+- **Replica**: POSTGRES_REPLICA_HOST (optional, enables replica usage)
+- **Performance**: DB_POOL_SIZE, DB_REPLICA_POOL_SIZE
 - **Security**: SECRET_KEY, ENCRYPTION_KEY for data encryption
 
 ## 🚨 Common Patterns & Pitfalls

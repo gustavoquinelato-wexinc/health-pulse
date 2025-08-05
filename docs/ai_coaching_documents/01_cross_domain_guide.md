@@ -259,10 +259,68 @@ useEffect(() => {
 
 ## 🗄️ Database Architecture
 
+### **Replica Architecture (Enterprise Performance)**
+- **Primary Database**: `localhost:5432` - All write operations, user management, job control
+- **Replica Database**: `localhost:5433` - Read operations, analytics, dashboards, reports
+- **Automatic Routing**: Application-level query routing based on operation type
+- **Failover Support**: Automatic fallback to primary when replica unavailable
+
+### **Database Router Pattern**
+```python
+# ✅ CORRECT: Use appropriate session type
+with database.get_write_session_context() as session:
+    # User management, admin operations, job control
+    user = session.query(User).filter_by(id=user_id).first()
+    user.last_login_at = datetime.utcnow()
+
+with database.get_read_session_context() as session:
+    # Dashboard queries, analytics (uses replica)
+    metrics = session.query(Issue).filter_by(client_id=client_id).all()
+
+with database.get_analytics_session_context() as session:
+    # Complex analytics with read-only optimization
+    dora_data = session.execute(complex_analytics_query)
+```
+
+### **Operation Routing Rules**
+```python
+# PRIMARY DATABASE (Immediate Consistency Required)
+PRIMARY_OPERATIONS = [
+    'user_authentication',     # Login/session management
+    'admin_configuration',     # ETL admin operations
+    'job_control',            # Start/stop/pause jobs
+    'client_management',      # Settings, logo uploads
+    'integration_setup',      # API credentials, workflows
+    'all_write_operations'    # INSERT, UPDATE, DELETE
+]
+
+# REPLICA DATABASE (Eventual Consistency Acceptable)
+REPLICA_OPERATIONS = [
+    'dashboard_metrics',      # DORA metrics, analytics
+    'historical_reports',     # Trend analysis, exports
+    'data_visualization',     # Charts, graphs, statistics
+    'read_only_queries'       # Complex JOINs across tables
+]
+```
+
+### **Connection Pool Optimization**
+```bash
+# Primary Database (Write-heavy operations)
+DB_POOL_SIZE=20                    # Up from 5
+DB_MAX_OVERFLOW=30                 # Up from 10
+DB_POOL_TIMEOUT=60                 # Up from 30
+
+# Replica Database (Read-heavy operations)
+DB_REPLICA_POOL_SIZE=15           # Optimized for reads
+DB_REPLICA_MAX_OVERFLOW=20        # Less overflow needed
+DB_REPLICA_POOL_TIMEOUT=30        # Faster timeout
+```
+
 ### **Unified Models Pattern**
 - **Single Source**: `unified_models.py` in each service
 - **Shared Schema**: Both services use same database schema
 - **Relationships**: Proper FK constraints, avoid redundant data
+- **Replica Sync**: Entire schema replicated via WAL streaming
 
 ### **User & Session Management**
 ```python

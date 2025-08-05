@@ -1,6 +1,7 @@
 """
-PostgreSQL database connection management.
+PostgreSQL database connection management with replica support.
 Migrated from Snowflake to PostgreSQL for better performance.
+Enhanced with read replica routing for improved scalability.
 """
 
 from sqlalchemy import create_engine, text
@@ -12,6 +13,7 @@ import logging
 
 from app.core.config import get_settings
 from app.models.unified_models import Base
+from app.core.database_router import get_database_router, get_write_session, get_read_session
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -54,14 +56,14 @@ class PostgreSQLDatabase:
             raise
     
     def get_session(self) -> Session:
-        """Returns a new database session."""
+        """Returns a new database session (legacy method - uses primary)."""
         if not self.SessionLocal:
             raise RuntimeError("Database not initialized")
         return self.SessionLocal()
 
     @contextmanager
     def get_session_context(self) -> Generator[Session, None, None]:
-        """Context manager for database session."""
+        """Context manager for database session (legacy method - uses primary)."""
         session = self.get_session()
         try:
             yield session
@@ -72,6 +74,35 @@ class PostgreSQLDatabase:
             raise
         finally:
             session.close()
+
+    def get_write_session(self) -> Session:
+        """Get a write session (always routes to primary database)."""
+        return get_write_session()
+
+    def get_read_session(self) -> Session:
+        """Get a read session (routes to replica if available, fallback to primary)."""
+        return get_read_session()
+
+    @contextmanager
+    def get_write_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for write operations (always primary)."""
+        router = get_database_router()
+        with router.get_write_session_context() as session:
+            yield session
+
+    @contextmanager
+    def get_read_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for read operations (replica if available)."""
+        router = get_database_router()
+        with router.get_read_session_context() as session:
+            yield session
+
+    @contextmanager
+    def get_analytics_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for analytics queries (read-only, optimized)."""
+        router = get_database_router()
+        with router.get_analytics_session_context() as session:
+            yield session
     
     def is_connection_alive(self) -> bool:
         """Checks if the connection is alive."""

@@ -53,6 +53,15 @@
     --color-4-rgb: 14, 165, 233;
     --color-5-rgb: 245, 158, 11;
 
+    /* Status color RGB versions */
+    --status-success-rgb: 16, 185, 129;
+    --status-error-rgb: 239, 68, 68;
+    --status-warning-rgb: 245, 158, 11;
+    --status-info-rgb: 59, 130, 246;
+
+    /* Text color RGB versions */
+    --text-primary-rgb: 15, 23, 42;
+
     /* Light Theme Variables - Exact Frontend Match */
     --bg-primary: #ffffff;
     --bg-secondary: #f8fafc;
@@ -80,19 +89,8 @@
     --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 }
 
-/* Custom Color Schema Override - Matches Frontend */
-[data-color-schema="custom"] {
-    --color-1: #C8102E;
-    /* WEX Red */
-    --color-2: #253746;
-    /* Dark Blue */
-    --color-3: #00C7B1;
-    /* Teal */
-    --color-4: #A2DDF8;
-    /* Light Blue */
-    --color-5: #FFBF3F;
-    /* Yellow */
-}
+/* Custom Color Schema Override - Colors are applied dynamically via JavaScript */
+/* [data-color-schema="custom"] rule removed to allow dynamic color application */
 
 /* Base Styles - Modern Foundation */
 * {
@@ -803,6 +801,26 @@ body {
 }
 
 .btn-color-2-sm:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-color-1-sm {
+    background-color: var(--color-1);
+    color: white;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-color-1-sm:hover:not(:disabled) {
     opacity: 0.9;
     transform: translateY(-1px);
 }

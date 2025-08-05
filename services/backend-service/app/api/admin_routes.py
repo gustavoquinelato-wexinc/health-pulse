@@ -180,7 +180,7 @@ async def get_all_users(
     """Get all users for current user's client with pagination"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             users = session.query(User).filter(
                 User.client_id == user.client_id
@@ -215,7 +215,7 @@ async def create_user(
     """Create a new user"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Check if user already exists
             existing_user = session.query(User).filter(User.email == user_data.email).first()
             if existing_user:
@@ -285,7 +285,7 @@ async def update_user(
     """Update an existing user"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             user = session.query(User).filter(
                 User.id == user_id,
@@ -348,7 +348,7 @@ async def delete_user(
     """Delete a user (hard delete - permanently removes user)"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             user = session.query(User).filter(
                 User.id == user_id,
@@ -418,7 +418,7 @@ async def get_system_stats(
     """Get system statistics"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_analytics_session_context() as session:
             # ✅ SECURITY: User statistics filtered by client_id
             total_users = session.query(User).filter(User.client_id == admin_user.client_id).count()
             active_users = session.query(User).filter(
@@ -2866,7 +2866,7 @@ async def get_active_sessions(
     """Get all active user sessions"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.core.utils import DateTimeHelper
 
             # ✅ SECURITY: Query active sessions filtered by client_id

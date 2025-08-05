@@ -69,7 +69,6 @@ export default function ClientManagementPage() {
       setError(null)
 
       const response = await axios.get('/api/v1/admin/clients')
-      console.log('Loaded clients:', response.data)
       setClients(response.data)
     } catch (error: any) {
       console.error('Error loading clients:', error)
@@ -184,9 +183,7 @@ export default function ClientManagementPage() {
   const getLogoUrl = (client: Client) => {
     if (client.logo_filename) {
       // Use the public static folder path
-      const logoUrl = `/static/logos/${client.logo_filename}`
-      console.log('Logo URL for client', client.name, ':', logoUrl)
-      return logoUrl
+      return `/static/logos/${client.logo_filename}`
     }
     return null
   }

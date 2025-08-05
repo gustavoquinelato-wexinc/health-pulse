@@ -256,21 +256,21 @@
 <style>
     /* Job Control Styles */
     .glass-effect {
-        background: linear-gradient(135deg, var(--color-1), var(--color-2));
+        background: linear-gradient(135deg, var(--color-1), var(--color-1));
         border: 1px solid rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
     }
 
     /* Status Classes */
-    .status-running { background-color: #10b981; color: white; }
-    .status-pending { background-color: var(--color-2); color: white; }
-    .status-finished { background-color: #6b7280; color: white; }
-    .status-paused { background-color: #8b5cf6; color: white; }
-    .status-not-started { background-color: #374151; color: white; }
-    .status-error { background-color: #ef4444; color: white; }
+    .status-running { background-color: var(--status-success); color: white; }
+    .status-pending { background-color: var(--color-1); color: white; }
+    .status-finished { background-color: var(--neutral-tertiary); color: white; }
+    .status-paused { background-color: var(--color-4); color: white; }
+    .status-not-started { background-color: var(--neutral-secondary); color: white; }
+    .status-error { background-color: var(--status-error); color: white; }
 
     /* Status Dot Classes */
-    .status-dot-color-2 { background-color: var(--color-2); }
+    .status-dot-color-1 { background-color: var(--color-1); }
 
     /* Loading Indicator Styles */
     #loadingIndicator {
@@ -281,7 +281,7 @@
     .ws-progress-container {
         width: 100%;
         height: 8px;
-        background-color: rgba(255, 255, 255, 0.2);
+        background-color: var(--bg-tertiary);
         border-radius: 4px;
         overflow: hidden;
     }
@@ -309,7 +309,7 @@
     .exception-log {
         max-height: 150px;
         overflow-y: auto;
-        background-color: rgba(0, 0, 0, 0.2);
+        background-color: var(--bg-tertiary);
         border-radius: 4px;
         padding: 0.5rem;
     }
@@ -325,15 +325,29 @@
     }
 
     .exception-item.error {
-        color: #fca5a5;
+        color: var(--status-error);
     }
 
     .exception-item.warning {
-        color: #fcd34d;
+        color: var(--status-warning);
     }
 
     .exception-item.info {
-        color: #93c5fd;
+        color: var(--status-info);
+    }
+
+    /* GitHub icon background - responsive to theme */
+    .github-icon-bg {
+        background-color: rgba(0, 0, 0, 0.15) !important; /* Light mode: black with opacity */
+    }
+
+    [data-theme="dark"] .github-icon-bg {
+        background-color: rgba(255, 255, 255, 0.15) !important; /* Dark mode: white with opacity */
+    }
+
+    /* Jira icon background - lighter blue for both themes */
+    .jira-icon-bg {
+        background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
     }
 </style>
 
@@ -630,39 +644,8 @@
 
 
 
-    function applyColorSchemaToPage(colorData) {
-        if (colorData.colors) {
-            const root = document.documentElement;
-            root.style.setProperty('--color-1', colorData.colors.color1);
-            root.style.setProperty('--color-2', colorData.colors.color2);
-            root.style.setProperty('--color-3', colorData.colors.color3);
-            root.style.setProperty('--color-4', colorData.colors.color4);
-            root.style.setProperty('--color-5', colorData.colors.color5);
-
-            // Update data attributes for CSS
-            root.setAttribute('data-color-schema', colorData.mode);
-            root.setAttribute('data-theme', colorData.theme || 'light');
-        }
-    }
-
-    // Handle real-time color updates via WebSocket
-    function handleColorSchemaUpdate(data) {
-        if (data.type === 'color_schema_updated' && data.colors) {
-            // Apply new colors immediately
-            const colorData = {
-                mode: 'custom',
-                colors: data.colors,
-                theme: 'light'
-            };
-            applyColorSchemaToPage(colorData);
-
-            // Show notification to user
-            showNotification('Color scheme updated!', 'success');
-        } else if (data.type === 'color_schema_mode_updated') {
-            // Show notification about mode change - no automatic reload to prevent infinite loops
-            showNotification(`Color scheme mode changed to ${data.mode}`, 'info');
-        }
-    }
+    // Color schema is now handled automatically by CSS custom properties
+    // No JavaScript intervention needed - colors update on page refresh
 
     function showNotification(message, type = 'info') {
         // Simple notification system
@@ -674,7 +657,7 @@
             top: 20px;
             right: 20px;
             padding: 12px 20px;
-            background: ${type === 'success' ? '#10B981' : '#3B82F6'};
+            background: ${type === 'success' ? 'var(--status-success)' : 'var(--color-1)'};
             color: white;
             border-radius: 6px;
             z-index: 10000;
@@ -950,7 +933,7 @@
         // Use proper FontAwesome icons for Jira and GitHub
         const jobIcon = jobName === 'jira_sync' ? 'atlassian' : 'github';
         const jobIconClass = 'fab'; // Both are brand icons
-        const jobColor = jobName === 'jira_sync' ? '#0052CC' : '#000000'; // GitHub icon should be black
+        const jobColor = jobName === 'jira_sync' ? '#0052CC' : '#000000'; // Hardcoded integration colors
         const jobTitle = jobName === 'jira_sync' ? 'Jira Sync' : 'GitHub Sync';
 
         card.innerHTML = `
@@ -959,7 +942,7 @@
                 <div class="flex items-center justify-between mb-3">
                     <div class="flex items-center space-x-3">
                         <!-- Icon with background on left - bigger size -->
-                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative" style="background-color: ${jobName === 'jira_sync' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0, 0, 0, 0.15)'};">
+                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative ${jobName === 'jira_sync' ? 'jira-icon-bg' : 'github-icon-bg'}">
                             <i class="${jobIconClass} fa-${jobIcon} text-base" style="color: ${jobColor};"></i>
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
@@ -1013,8 +996,8 @@
 
         if (jobData.error_message) {
             details += `
-                <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3);">
-                    <div class="text-xs font-medium mb-1" style="color: #dc2626;">Error Message:</div>
+                <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(var(--status-error-rgb), 0.1); border-color: rgba(var(--status-error-rgb), 0.3);">
+                    <div class="text-xs font-medium mb-1" style="color: var(--status-error);">Error Message:</div>
                     <div class="text-xs" style="color: var(--text-primary);">${jobData.error_message}</div>
                 </div>
             `;
@@ -1027,8 +1010,8 @@
         if (!checkpointData) return '';
 
         let recoveryHtml = `
-            <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3);">
-                <div class="text-xs font-medium mb-2" style="color: #d97706;">
+            <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(var(--status-warning-rgb), 0.1); border-color: rgba(var(--status-warning-rgb), 0.3);">
+                <div class="text-xs font-medium mb-2" style="color: var(--status-warning);">
                     <i class="fas fa-redo mr-1"></i>Recovery Information:
                 </div>
         `;
@@ -1084,7 +1067,7 @@
         let buttons = `
             <button onclick="setJobActive('${jobName}')"
                     ${!canActivateSafe ? 'disabled' : ''}
-                    class="${canActivateSafe ? 'btn-color-2-sm' : 'btn-neutral-disabled'}"
+                    class="${canActivateSafe ? 'btn-color-1-sm' : 'btn-neutral-disabled'}"
                     title="${!canActivateSafe && otherJobRunning ? 'Cannot activate while another job is running' : ''}">
                 <i class="fas fa-play mr-1"></i>Force Pending
             </button>
@@ -1330,7 +1313,7 @@
                 notification.style.backgroundColor = '#ef4444';
                 break;
             case 'warning':
-                notification.style.backgroundColor = 'var(--color-2)';
+                notification.style.backgroundColor = 'var(--color-1)';
                 break;
             default:
                 notification.style.backgroundColor = '#3b82f6';
@@ -1402,7 +1385,7 @@
     function getStatusClass(status) {
         switch (status) {
             case 'RUNNING': return 'btn-status-info'; // Blue
-            case 'PENDING': return 'btn-color-2'; // Color #2
+            case 'PENDING': return 'btn-color-1'; // Color #1
             case 'FINISHED': return 'btn-status-success'; // Green
             case 'PAUSED': return 'btn-status-warning'; // Yellow/Amber
             case 'NOT_STARTED': return 'btn-neutral-primary'; // Enterprise dark
@@ -1424,7 +1407,7 @@
     function getStatusDotClass(status) {
         switch (status) {
             case 'RUNNING': return 'bg-green-500';
-            case 'PENDING': return 'status-dot-color-2';
+            case 'PENDING': return 'status-dot-color-1';
             case 'FINISHED': return 'bg-gray-500';
             case 'PAUSED': return 'bg-orange-500';
             case 'NOT_STARTED': return 'bg-gray-400';
@@ -2042,7 +2025,7 @@
                 const jobTitle = document.getElementById('jobDetailsTitle');
 
                 if (jobName === 'github_sync') {
-                    jobIcon.innerHTML = '<i class="fab fa-github mr-2" style="color: #333;"></i>';
+                    jobIcon.innerHTML = '<i class="fab fa-github mr-2" style="color: var(--text-primary);"></i>';
                     jobTitle.textContent = 'GitHub Sync Job Details';
                 } else {
                     jobIcon.innerHTML = '<i class="fas fa-info-circle mr-2"></i>';
@@ -2245,12 +2228,12 @@
                     ${jobDetails.error_message ? `
                     <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
                         <button onclick="toggleErrorMessage()" class="w-full text-left flex justify-between items-center">
-                            <h3 class="text-md font-semibold text-red-600">
+                            <h3 class="text-md font-semibold" style="color: var(--status-error);">
                                 <i class="fas fa-exclamation-triangle mr-2"></i>Error Message
                             </h3>
-                            <i id="errorToggleIcon" class="fas fa-chevron-down text-red-600"></i>
+                            <i id="errorToggleIcon" class="fas fa-chevron-down" style="color: var(--status-error);"></i>
                         </button>
-                        <div id="errorMessageContent" class="hidden mt-2 text-red-600 p-2 rounded text-sm max-h-32 overflow-y-auto" style="background-color: rgba(239, 68, 68, 0.1);">
+                        <div id="errorMessageContent" class="hidden mt-2 p-2 rounded text-sm max-h-32 overflow-y-auto" style="color: var(--status-error); background-color: rgba(var(--status-error-rgb), 0.1);">
                             ${jobDetails.error_message}
                         </div>
                     </div>

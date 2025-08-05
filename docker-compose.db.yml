@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Primary Database
+  postgres-primary:
+    image: postgres:17
+    container_name: pulse-postgres-primary
+    environment:
+      POSTGRES_DB: pulse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./docker/postgres/primary/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./docker/postgres/primary/pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - ./docker/postgres/primary/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh
+    command: >
+      postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d pulse_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Read Replica Database
+  postgres-replica:
+    image: postgres:17
+    container_name: pulse-postgres-replica
+    environment:
+      POSTGRES_DB: pulse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+      POSTGRES_PRIMARY_HOST: postgres-primary
+      POSTGRES_PRIMARY_PORT: 5432
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./docker/postgres/replica/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d pulse_db" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_primary_data:
+    name: pulse_postgres_primary_data
+  postgres_replica_data:
+    name: pulse_postgres_replica_data
+
+networks:
+  pulse-network:
+    driver: bridge
+    name: pulse-network

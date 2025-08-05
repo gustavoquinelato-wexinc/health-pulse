@@ -218,6 +218,56 @@ def get_active_sessions():
 
 ## 🔧 Database Operations
 
+### **Replica-Aware Database Usage**
+```python
+# ✅ CORRECT: Use write session for user management
+@router.post("/users")
+async def create_user(user_data: UserCreateRequest):
+    database = get_database()
+    with database.get_write_session_context() as session:
+        # User creation goes to primary database
+        new_user = User(...)
+        session.add(new_user)
+        # Automatic commit on context exit
+
+# ✅ CORRECT: Use read session for user listing
+@router.get("/users")
+async def get_users():
+    database = get_database()
+    with database.get_read_session_context() as session:
+        # User listing can use replica
+        users = session.query(User).filter_by(client_id=client_id).all()
+
+# ✅ CORRECT: Use analytics session for system stats
+@router.get("/system/stats")
+async def get_system_stats():
+    database = get_database()
+    with database.get_analytics_session_context() as session:
+        # Complex analytics queries use optimized replica session
+        stats = session.execute(complex_stats_query)
+```
+
+### **Session Type Selection Guide**
+```python
+# Write Session (Primary Database) - Use for:
+- User creation, updates, deletion
+- Session management (login/logout)
+- Permission changes
+- Admin configuration
+- Any INSERT/UPDATE/DELETE operations
+
+# Read Session (Replica Database) - Use for:
+- User listing and search
+- Permission checking (if not real-time critical)
+- General data retrieval
+
+# Analytics Session (Replica Database, Optimized) - Use for:
+- System statistics
+- Dashboard metrics
+- Complex reporting queries
+- Data exports
+```
+
 ### **User-Related Queries**
 ```python
 # User search with filters (MUST include client_id filtering)
