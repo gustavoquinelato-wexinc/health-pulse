@@ -283,9 +283,16 @@ def get_database() -> PostgreSQLDatabase:
 
 
 def get_db_session() -> Generator[Session, None, None]:
-    """Dependency to get database session in FastAPI."""
+    """Dependency to get database session in FastAPI (write operations)."""
     database = get_database()
     with database.get_session_context() as session:
+        yield session
+
+
+def get_db_read_session() -> Generator[Session, None, None]:
+    """Dependency to get read database session in FastAPI (read operations - uses replica if available)."""
+    database = get_database()
+    with database.get_read_session_context() as session:
         yield session
 
 

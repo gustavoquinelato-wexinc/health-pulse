@@ -14,8 +14,8 @@ done
 
 echo "✅ Primary database is ready!"
 
-# Only set up replica if data directory is empty
-if [ ! -f "$PGDATA/PG_VERSION" ]; then
+# Only set up replica if standby.signal doesn't exist (indicating it's not already a replica)
+if [ ! -f "$PGDATA/standby.signal" ]; then
     echo "🧹 Setting up fresh replica..."
 
     # Remove any existing data directory contents
@@ -40,7 +40,6 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
 # Replica configuration
 primary_conninfo = 'host=$POSTGRES_PRIMARY_HOST port=$POSTGRES_PRIMARY_PORT user=$POSTGRES_REPLICATION_USER password=$POSTGRES_REPLICATION_PASSWORD application_name=replica'
 primary_slot_name = 'replica_slot'
-promote_trigger_file = '/tmp/promote_replica'
 hot_standby = on
 EOF
 

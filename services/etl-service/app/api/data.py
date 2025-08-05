@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from typing import Optional, List
-from app.core.database import get_db_session
+from app.core.database import get_db_read_session, get_db_session
 from app.models.unified_models import (
     Issue, PullRequestCommit, PullRequest, Project, Client, Repository
 )
@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.get("/etl/data/summary", response_model=DataSummaryResponse)
 async def get_data_summary(
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """
@@ -83,7 +83,7 @@ async def get_issues(
     offset: int = Query(0, ge=0, description="Number of issues to skip"),
     project_key: Optional[str] = Query(None, description="Filter by project key"),
     status: Optional[str] = Query(None, description="Filter by issue status"),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """
@@ -145,7 +145,7 @@ async def get_commits(
     limit: int = Query(100, ge=1, le=1000, description="Number of commits to return"),
     offset: int = Query(0, ge=0, description="Number of commits to skip"),
     repository: Optional[str] = Query(None, description="Filter by repository name"),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """
@@ -206,7 +206,7 @@ async def get_pull_requests(
     offset: int = Query(0, ge=0, description="Number of PRs to skip"),
     repository: Optional[str] = Query(None, description="Filter by repository name"),
     state: Optional[str] = Query(None, description="Filter by PR state"),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """

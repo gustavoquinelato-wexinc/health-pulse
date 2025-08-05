@@ -133,7 +133,7 @@ async def get_system_stats(
     """Get system statistics"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # User statistics - now handled by Backend Service
             # Placeholder values - should be fetched from Backend Service
             total_users = 0
@@ -268,7 +268,7 @@ async def get_integrations(
     """Get all integrations for current user's client"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             integrations = session.query(Integration).filter(
                 Integration.client_id == user.client_id
@@ -302,7 +302,7 @@ async def get_integration_details(
     """Get integration details for editing"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
@@ -347,7 +347,7 @@ async def update_integration(
     """Update an integration"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get the integration
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             integration = session.query(Integration).filter(
@@ -399,7 +399,7 @@ async def activate_integration(
     """Activate an integration"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from datetime import datetime
 
             integration = session.query(Integration).filter(
@@ -479,7 +479,7 @@ async def delete_integration(
     """Delete an integration"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import Project, Issue
 
             integration = session.query(Integration).filter(
@@ -536,7 +536,7 @@ async def get_status_mappings(
     """Get all status mappings"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # Query status mappings with workflow and integration information
             from app.models.unified_models import StatusMapping, Workflow, Integration
 
@@ -592,7 +592,7 @@ async def create_status_mapping(
     """Create a new status mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import StatusMapping
             from datetime import datetime
 
@@ -632,7 +632,7 @@ async def get_status_mapping_details(
     """Get status mapping details for editing"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import StatusMapping
 
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
@@ -681,7 +681,7 @@ async def update_status_mapping(
     """Update a status mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import StatusMapping
 
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
@@ -730,7 +730,7 @@ async def delete_status_mapping(
     """Delete a status mapping (soft delete to preserve referential integrity)"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import StatusMapping, Status
 
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
@@ -782,7 +782,7 @@ async def activate_status_mapping(
     """Activate a status mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from datetime import datetime
 
             mapping = session.query(StatusMapping).filter(
@@ -1008,7 +1008,7 @@ async def get_workflows(
     """Get all workflows"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import Workflow, Integration
 
             workflows = session.query(
@@ -1051,7 +1051,7 @@ async def get_workflow_details(
     """Get workflow details for editing"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import Workflow
 
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
@@ -1091,7 +1091,7 @@ async def get_workflow_stats(
     """Get workflow statistics for the workflows page"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import Workflow, StatusMapping
             from sqlalchemy import func
 
@@ -1263,7 +1263,7 @@ async def update_workflow(
     """Update a workflow"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import Workflow, Integration
 
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
@@ -1537,7 +1537,7 @@ async def create_workflow(
     """Create a new workflow"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import Workflow, Integration
             from datetime import datetime
 
@@ -1715,7 +1715,7 @@ async def toggle_flow_step_active(
     """Toggle the active status of a flow step (simple activate/deactivate)"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import Workflow
 
             # Verify flow step exists and belongs to user's client
@@ -1762,7 +1762,7 @@ async def delete_flow_step(
     """Delete a flow step (only allows true deletion when no dependencies exist)"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import Workflow, StatusMapping
 
             step = session.query(Workflow).filter(
@@ -1813,7 +1813,7 @@ async def get_issuetype_mapping_options(
     """Get available options for issue type mapping dropdowns"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import IssuetypeMapping, Issuetype
             from sqlalchemy import distinct
 
@@ -1868,7 +1868,7 @@ async def get_issuetype_mappings(
     """Get all issue type mappings"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # Query issue type mappings with hierarchy and integration information
             from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy, Integration
 
@@ -1920,7 +1920,7 @@ async def activate_issuetype_mapping(
     """Activate an issue type mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeMapping
             from datetime import datetime
 
@@ -2079,7 +2079,7 @@ async def create_issuetype_mapping(
     """Create a new issue type mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy
             from datetime import datetime
 
@@ -2146,7 +2146,7 @@ async def update_issuetype_mapping(
     """Update an issue type mapping"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy
             from datetime import datetime
 
@@ -2412,7 +2412,7 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
     """Get all issue type hierarchies"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             from app.models.unified_models import IssuetypeHierarchy, Integration
 
             hierarchies = session.query(
@@ -2472,7 +2472,7 @@ async def create_issuetype_hierarchy(
     """Create a new issuetype hierarchy"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeHierarchy
             from datetime import datetime
 
@@ -2517,7 +2517,7 @@ async def update_issuetype_hierarchy(
     """Update an issuetype hierarchy"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeHierarchy
             from datetime import datetime
 
@@ -2577,7 +2577,7 @@ async def delete_issuetype_hierarchy(
     """Delete an issuetype hierarchy"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping
 
             hierarchy = session.query(IssuetypeHierarchy).filter(
@@ -2824,7 +2824,7 @@ async def activate_issuetype_hierarchy(
     """Activate an issue type hierarchy"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from datetime import datetime
 
             hierarchy = session.query(IssuetypeHierarchy).filter(

@@ -58,11 +58,31 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis Cache and Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
 volumes:
   postgres_primary_data:
     name: pulse_postgres_primary_data
   postgres_replica_data:
     name: pulse_postgres_replica_data
+  redis_data:
+    name: pulse_redis_data
 
 networks:
   pulse-network:

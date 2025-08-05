@@ -1,480 +1,386 @@
-# Pulse Platform - Architecture Documentation
+# Architecture Guide
 
-## 🏗️ **System Architecture**
+**Pulse Platform System Architecture & Design**
 
-### **Unified Platform Architecture**
+This document provides a comprehensive overview of the Pulse Platform's architecture, including system topology, multi-tenancy design, database architecture, and deployment configurations.
 
-The Pulse Platform is now a unified engineering analytics platform with embedded ETL management capabilities:
+## 🏗️ System Architecture Overview
+
+### Three-Tier Architecture
+
+Pulse Platform follows a modern microservices architecture with clear separation of concerns:
 
 ```
-Row 1: Unified Platform Services
-┌─────────────────────────────────────────┐    ┌─────────────────┐    ┌───────────────────┐
-│  Pulse Platform Frontend               │◄──►│  Backend        │    │  AI Service       │
-│  (React/Vite) - Port: 5173            │    │  (Node.js)      │    │  (LangGraph)      │
-│                                        │    │  Port: 3001     │    │  Port: 8001       │
-│ ┌─────────────────────────────────────┐ │    │                 │    │                   │
-│ │ Main Platform Features              │ │    │ • API Gateway   │    │ • AI Orchestrator │
-│ │ • DORA Metrics Dashboard           │ │    │ • Authentication│    │ • Agent Workflows │
-│ │ • Engineering Analytics            │ │    │ • User Mgmt     │    │ • MCP Servers     │
-│ │ • Real-time Monitoring             │ │    │ • Session Mgmt  │    │ • Tool Integration│
-│ │ • AI Chat Interface                │ │◄───┼─ Client Mgmt    │    │                   │
-│ └─────────────────────────────────────┘ │    │                 │    │                   │
-│                                        │    │                 │    │                   │
-│ ┌─────────────────────────────────────┐ │    │                 │    │                   │
-│ │ Embedded ETL Management             │ │    │                 │    │                   │
-│ │ • iframe Integration (Port: 8000)   │ │◄───┼─────────────────┼────┼───────────────────┤
-│ │ • Job Orchestration                │ │    │                 │    │                   │
-│ │ • Data Pipeline Control            │ │    │                 │    │                   │
-│ │ • Progress Monitoring              │ │    │                 │    │                   │
-│ │ • Admin-only Access                │ │    │                 │    │                   │
-│ └─────────────────────────────────────┘ │    │                 │    │                   │
-└─────────────────────────────────────────┘    └─────────────────┘    └───────────────────┘
-                    │                                    │                       │
-                    └────────────────────────────────────┼───────────────────────┘
-                                                        │
-                                            ┌─────────────────┐
-                                            │  ETL Service    │
-                                            │  (FastAPI)      │
-                                            │  Port: 8000     │
-                                            │                 │
-                                            │ • Data Extract  │
-                                            │ • Job Control   │
-                                            │ • Progress Track│
-                                            │ • Recovery      │
-                                            │ • Admin APIs    │
-                                            └─────────────────┘
-                                │                       │                       │
-                                ▼                       ▼                       ▼
-Row 2: Caching Layer            │              ┌─────────────────┐              │
-                                └─────────────►│  Redis Cache    │◄─────────────┘
-                                               │  (Caching)      │
-                                               │  Port: 6379     │
-                                               │                 │
-                                               │ • Query Cache   │
-                                               │ • Session Cache │
-                                               │ • Job Queue     │
-                                               │ • Performance   │
-                                               └─────────────────┘
-                                                       │
-                                                       ▼
-Row 3: Database Layer (Replica Architecture)
-                                    ┌─────────────────┐    ┌─────────────────┐
-                                    │  PostgreSQL     │───►│  PostgreSQL     │
-                                    │  PRIMARY        │    │  REPLICA        │
-                                    │  Port: 5432     │    │  Port: 5433     │
-                                    │                 │    │                 │
-                                    │ • Write Ops     │    │ • Read Ops      │
-                                    │ • User Mgmt     │    │ • Analytics     │
-                                    │ • Admin Ops     │    │ • Dashboards    │
-                                    │ • Job Control   │    │ • Reports       │
-                                    │ • Auth/Sessions │    │ • Hot Standby   │
-                                    └─────────────────┘    └─────────────────┘
-                                            │                       ▲
-                                            └───WAL Streaming───────┘
-
-External Integrations:
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Data APIs      │    │  AI/LLM APIs    │    │  MCP Ecosystem  │
-│                 │    │                 │    │                 │
-│ • Jira Cloud    │    │ • OpenAI        │    │ • MCP Servers   │
-│ • GitHub API    │    │ • Claude        │    │ • Tool Protocols│
-│ • Rate Limits   │    │ • Local LLMs    │    │ • Agent Tools   │
-│ • Auth Tokens   │    │ • Embeddings    │    │ • Context Mgmt  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         ▲                       ▲                       ▲
-         │                       │                       │
-    ETL Service            AI Service              Frontend (Direct)
+┌─────────────────────────────────────────────────────────────────┐
+│                    Frontend Application                         │
+│                   (React/TypeScript - Port 3000)               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📊 Executive Dashboards    🎨 Client Branding                  │
+│  📈 DORA Metrics           🌙 Dark/Light Mode                   │
+│  🔧 Admin Interface        📱 Responsive Design                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                    │                       │
+                    ▼                       ▼
+┌─────────────────┐              ┌─────────────────┐
+│  Backend        │              │  ETL Service    │
+│  Service        │◄────────────►│  (FastAPI)      │
+│  (FastAPI)      │              │  Port: 8000     │
+│  Port: 3001     │              │                 │
+│                 │              │ • Data Extract  │
+│ • Authentication│              │ • Job Control   │
+│ • User Mgmt     │              │ • Orchestration │
+│ • Session Mgmt  │              │ • Recovery      │
+│ • API Gateway   │              │ • Admin APIs    │
+│ • Client Mgmt   │              │                 │
+└─────────────────┘              └─────────────────┘
+                    │                       │
+                    └───────────────────────┼───────────────────────┐
+                                           │                       │
+                                           ▼                       ▼
+                        ┌─────────────────┐    ┌─────────────────┐
+                        │  PostgreSQL     │───►│  PostgreSQL     │
+                        │  PRIMARY        │    │  REPLICA        │
+                        │  Port: 5432     │    │  Port: 5433     │
+                        │                 │    │                 │
+                        │ • Write Ops     │    │ • Read Ops      │
+                        │ • User Mgmt     │    │ • Analytics     │
+                        │ • Job Control   │    │ • Dashboards    │
+                        │ • Auth/Sessions │    │ • Reports       │
+                        └─────────────────┘    └─────────────────┘
+                                │                       ▲
+                                └───WAL Streaming───────┘
 ```
 
-### **Data Flow Architecture**
+### Service Responsibilities
 
+#### Frontend Application (Port 3000)
+- **Executive Dashboards**: C-level friendly visualizations and KPIs
+- **DORA Metrics**: Lead time, deployment frequency, change failure rate, MTTR
+- **User Interface**: Responsive design with client-specific branding
+- **Authentication Flow**: JWT token management and session handling
+- **Real-time Updates**: WebSocket integration for live data
+
+#### Backend Service (Port 3001)
+- **Authentication Hub**: Centralized JWT-based authentication
+- **User Management**: Registration, login, session management, RBAC
+- **API Gateway**: Unified interface for frontend and ETL service
+- **Client Management**: Multi-tenant client isolation and configuration
+- **Analytics APIs**: DORA metrics, GitHub analytics, portfolio insights
+
+#### ETL Service (Port 8000)
+- **Data Processing**: Extract, transform, load operations
+- **Job Orchestration**: Smart scheduling with recovery strategies
+- **Integration Management**: Jira, GitHub, and custom data sources
+- **Real-time Monitoring**: WebSocket updates and progress tracking
+- **Admin Interface**: Configuration and management tools
+
+## 🏢 Multi-Tenant Architecture
+
+### Client Isolation Strategy
+
+Pulse Platform implements **complete client isolation** at multiple levels:
+
+#### Database Level Isolation
+```sql
+-- All tables include client_id for tenant separation
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    email VARCHAR(255) NOT NULL,
+    -- ... other fields
+    UNIQUE(client_id, email)
+);
+
+-- Every query filters by client_id
+SELECT * FROM users WHERE client_id = ? AND active = true;
+```
+
+#### Application Level Isolation
+- **JWT Tokens**: Include client_id in token payload
+- **API Endpoints**: All endpoints validate client ownership
+- **Session Management**: Client-scoped session storage
+- **Job Processing**: Background jobs respect client boundaries
+
+#### Configuration Isolation
+- **Client-Specific Settings**: Stored in system_settings table
+- **Custom Branding**: Per-client logos and color schemes
+- **Integration Configs**: Separate API credentials per client
+- **Feature Flags**: Client-specific feature enablement
+
+### Multi-Instance Deployment
+
+For handling multiple clients simultaneously:
+
+```bash
+# Multiple ETL instances for different clients
+CLIENT_NAME=wex python -m uvicorn app.main:app --port 8000
+CLIENT_NAME=techcorp python -m uvicorn app.main:app --port 8001
+CLIENT_NAME=enterprise python -m uvicorn app.main:app --port 8002
+```
+
+## 🗄️ Database Architecture
+
+### Primary-Replica Setup
+
+The platform uses PostgreSQL with streaming replication for high availability:
+
+#### Primary Database (Port 5432)
+- **Write Operations**: All INSERT, UPDATE, DELETE operations
+- **User Management**: Authentication and session data
+- **Job Control**: ETL job status and configuration
+- **Real-time Data**: Live updates and notifications
+
+#### Replica Database (Port 5433)
+- **Read Operations**: Analytics queries and dashboard data
+- **Reporting**: Historical data analysis and metrics
+- **Performance**: Offloads read traffic from primary
+- **Backup**: Additional data redundancy
+
+#### Replication Configuration
+```sql
+-- Primary database configuration
+wal_level = replica
+max_wal_senders = 3
+wal_keep_segments = 64
+archive_mode = on
+
+-- Replica configuration
+hot_standby = on
+primary_conninfo = 'host=primary port=5432 user=replicator'
+primary_slot_name = 'replica_slot'
+```
+
+### Schema Design
+
+#### Core Tables
+```sql
+-- Multi-tenant client management
+clients (id, name, active, created_at, last_updated_at)
+
+-- User accounts with RBAC
+users (id, client_id, email, password_hash, role, active)
+
+-- Session tracking
+user_sessions (id, user_id, client_id, token_hash, active, created_at)
+
+-- Client-specific configurations
+system_settings (id, client_id, setting_key, setting_value, setting_type)
+```
+
+#### Integration Tables
+```sql
+-- API connection configurations
+integrations (id, client_id, integration_type, config_data, active)
+
+-- Project metadata
+jira_projects (id, client_id, integration_id, project_key, project_name)
+
+-- Repository tracking
+github_repositories (id, client_id, integration_id, repo_name, repo_url)
+```
+
+#### Analytics Tables
+```sql
+-- Pull request data and metrics
+github_pull_requests (id, client_id, repo_id, pr_number, title, state, created_at, merged_at)
+
+-- Issue tracking and analysis
+jira_issues (id, client_id, project_id, issue_key, summary, status, created_date)
+
+-- Calculated DORA metrics
+dora_metrics (id, client_id, metric_type, metric_value, calculation_date)
+```
+
+## 🐳 Docker Architecture
+
+### Development Environment
+
+#### Database Services (docker-compose.db.yml)
+```yaml
+services:
+  postgres-primary:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: pulse_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./docker/postgres/primary:/docker-entrypoint-initdb.d
+
+  postgres-replica:
+    image: postgres:17
+    environment:
+      POSTGRES_PRIMARY_HOST: postgres-primary
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./docker/postgres/replica:/docker-entrypoint-initdb.d
+    depends_on:
+      - postgres-primary
+```
+
+#### Application Services (docker-compose.yml)
+```yaml
+services:
+  backend-service:
+    build: ./services/backend-service
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
+      - DATABASE_REPLICA_URL=postgresql://postgres:pulse@postgres-replica:5432/pulse_db
+    depends_on:
+      - postgres-primary
+      - postgres-replica
+
+  etl-service:
+    build: ./services/etl-service
+    ports:
+      - "8000:8000"
+    environment:
+      - CLIENT_NAME=${CLIENT_NAME}
+      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
+    depends_on:
+      - postgres-primary
+      - backend-service
+
+  frontend-app:
+    build: ./services/frontend-app
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://backend-service:3001
+      - VITE_ETL_URL=http://etl-service:8000
+    depends_on:
+      - backend-service
+```
+
+### Production Environment
+
+#### Multi-Client Configuration
+```yaml
+# docker-compose.multi-client.yml
+services:
+  # Multiple ETL instances for different clients
+  etl-wex:
+    build: ./services/etl-service
+    environment:
+      - CLIENT_NAME=WEX
+      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
+    ports:
+      - "8000:8000"
+
+  etl-techcorp:
+    build: ./services/etl-service
+    environment:
+      - CLIENT_NAME=TechCorp
+      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
+    ports:
+      - "8001:8000"
+
+  # Load balancer for frontend
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend-app
+      - backend-service
+```
+
+## 🔄 Data Flow Architecture
+
+### Request Flow
+
+#### Authentication Flow
+```
+1. User Login → Frontend
+2. Frontend → Backend Service (POST /api/v1/auth/login)
+3. Backend → Primary Database (validate credentials)
+4. Backend → Frontend (JWT token + user data)
+5. Frontend stores token for subsequent requests
+```
+
+#### Data Processing Flow
+```
+1. ETL Job Trigger → ETL Service
+2. ETL Service → External APIs (Jira/GitHub)
+3. ETL Service → Primary Database (store raw data)
+4. ETL Service → Data Processing (transform & analyze)
+5. ETL Service → Primary Database (store processed data)
+6. Primary Database → Replica Database (streaming replication)
+7. Frontend → Backend Service → Replica Database (read analytics)
+```
+
+#### Real-time Updates Flow
+```
+1. ETL Job Progress → WebSocket Manager
+2. WebSocket Manager → Connected Clients (real-time updates)
+3. Frontend receives updates → UI refresh
+4. Dashboard updates without page reload
+```
+
+### Integration Architecture
+
+#### External API Integration
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │  External APIs  │───►│  ETL Service    │───►│  PostgreSQL     │
 │                 │    │                 │    │                 │
-│ • Jira Issues   │    │ • Extract       │    │ • Unified       │
-│ • GitHub PRs    │    │ • Transform     │    │   Schema        │
-│ • Repositories  │    │ • Load          │    │ • Normalized    │
-│ • Changelogs    │    │ • Validate      │    │   Data          │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                       │
-                                                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Frontend UI    │◄───│  AI Service     │◄───│  Data Analysis  │
-│                 │    │                 │    │                 │
-│ • Dashboards    │    │ • ML Models     │    │ • Pattern       │
-│ • Reports       │    │ • Analytics     │    │   Recognition   │
-│ • Alerts        │    │ • Insights      │    │ • Predictions   │
-│ • Monitoring    │    │ • Predictions   │    │ • Correlations  │
+│ • Jira Cloud    │    │ • Rate Limiting │    │ • Normalized    │
+│ • GitHub API    │    │ • Error Handling│    │   Schema        │
+│ • Custom APIs   │    │ • Data Transform│    │ • Client        │
+│                 │    │ • Validation    │    │   Isolation     │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🔗 **Embedded ETL Architecture**
+## 🚀 Deployment Strategies
 
-### **Platform Integration Model**
+### Development Deployment
+- **Local Development**: Manual service startup with hot reload
+- **Docker Development**: Containerized services with volume mounts
+- **Database**: Single PostgreSQL instance or primary-replica setup
 
-The Pulse Platform now provides a unified user experience by embedding ETL management directly within the main frontend application:
+### Staging Deployment
+- **Container Orchestration**: Docker Compose with production-like configuration
+- **Database**: Primary-replica setup with backup strategies
+- **Load Testing**: Performance validation and bottleneck identification
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Pulse Platform Frontend                     │
-│                         (Port: 5173)                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ DORA Metrics    │  │ Engineering     │  │ Settings        │ │
-│  │ Dashboard       │  │ Analytics       │  │ Management      │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │              ETL Management (Admin Only)                   │ │
-│  │  ┌─────────────────────────────────────────────────────┐   │ │
-│  │  │            Embedded ETL Interface                   │   │ │
-│  │  │              (iframe: Port 8000)                    │   │ │
-│  │  │                                                     │   │ │
-│  │  │  • Job Orchestration Dashboard                      │   │ │
-│  │  │  • Data Pipeline Configuration                      │   │ │
-│  │  │  • Real-time Progress Monitoring                    │   │ │
-│  │  │  • Integration Management                           │   │ │
-│  │  │  • Admin Panel Access                               │   │ │
-│  │  │                                                     │   │ │
-│  │  │  Authentication: Shared JWT tokens                  │   │ │
-│  │  │  Theme: Inherited from parent                       │   │ │
-│  │  │  Branding: Client-specific logos                    │   │ │
-│  │  └─────────────────────────────────────────────────────┘   │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Production Deployment
+- **Container Platform**: Kubernetes or Docker Swarm
+- **Database**: High-availability PostgreSQL cluster
+- **Load Balancing**: Nginx or cloud load balancer
+- **SSL/TLS**: Automated certificate management
+- **Monitoring**: Comprehensive logging and metrics collection
 
-### **Authentication Flow**
+## 🔧 Configuration Management
 
-```
-1. User Login (Platform)
-   ├─ Frontend authenticates with Backend Service
-   ├─ JWT token stored in localStorage + cookies
-   └─ User role/permissions validated
+### Environment-Based Configuration
+- **Development**: Local .env files with development settings
+- **Staging**: Environment variables with staging configurations
+- **Production**: Secure secret management with production settings
 
-2. ETL Access (Admin Only)
-   ├─ Frontend checks user.is_admin
-   ├─ If admin: Load ETL iframe with token
-   ├─ ETL Service validates token with Backend
-   └─ Seamless embedded experience
+### Client-Specific Configuration
+- **Database Storage**: Client settings stored in system_settings table
+- **Runtime Configuration**: Dynamic configuration loading per client
+- **Feature Flags**: Client-specific feature enablement
 
-3. Token Management
-   ├─ Shared JWT across all services
-   ├─ Automatic token refresh
-   └─ Centralized session management
-```
-
-### **Branding Strategy**
-
-```
-Login Pages (Platform Branding):
-├─ Frontend Login: Pulse Platform logo
-├─ ETL Login: Pulse Platform logo (fallback)
-└─ Consistent platform identity
-
-Internal Pages (Client Branding):
-├─ Frontend Header: Client-specific logo (WEX, etc.)
-├─ ETL Dashboard: Client-specific logo
-└─ Dynamic logo loading based on user's client
-```
-
-## 🔄 **Service Details**
-
-### **ETL Service (Embedded)**
-- **Technology:** Python FastAPI
-- **Port:** 8000
-- **Responsibilities:**
-  - **Data Processing:**
-    - Data extraction from external APIs (Jira, GitHub)
-    - Job orchestration and scheduling
-    - Real-time progress tracking
-    - Checkpoint-based recovery
-  - **Embedded Interface:**
-    - Admin-only web interface
-    - iframe-compatible design
-    - Centralized authentication integration
-    - Client-specific branding support
-  - **API Services:**
-    - RESTful APIs for job management
-    - WebSocket communication for real-time updates
-    - Health monitoring endpoints
-    - Admin panel APIs
-
-### **Frontend Service (Unified Platform)**
-- **Technology:** React + Vite + TypeScript
-- **Port:** 5173
-- **Responsibilities:**
-  - **Primary Platform Interface:**
-    - DORA Metrics Dashboard
-    - Engineering Analytics
-    - Real-time monitoring
-    - User management interface
-  - **Embedded ETL Management:**
-    - iframe integration with ETL Service
-    - Admin-only access control
-    - Seamless authentication flow
-    - Unified theme and branding
-  - **Platform Features:**
-    - Client-specific branding
-    - Role-based navigation
-    - Responsive design
-    - Real-time updates
-
-### **Backend Service**
-- **Technology:** Node.js + TypeScript
-- **Port:** 3001
-- **Responsibilities:**
-  - API gateway and routing
-  - Authentication and authorization
-  - User management
-  - Session handling
-
-### **AI Service**
-- **Technology:** Python FastAPI
-- **Port:** 8001
-- **Responsibilities:**
-  - Machine learning models
-  - Data analysis and insights
-  - Predictive analytics
-  - Report generation
-
-## 🗄️ **Database Schema**
-
-### **Core Tables**
-
-#### **Integration Management**
-- `integrations` - API connection configurations
-- `job_schedules` - Job execution schedules and status
-
-#### **Jira Data**
-- `jira_projects` - Project metadata
-- `jira_issues` - Issue data and relationships
-- `jira_changelogs` - Issue change history
-- `jira_pull_request_links` - Issue-PR relationships
-
-#### **GitHub Data**
-- `github_repositories` - Repository metadata
-- `github_pull_requests` - PR data and metrics
-- `github_commits` - Commit information
-- `github_reviews` - PR review data
-
-### **Data Relationships**
-
-```
-jira_projects ──┐
-                ├── jira_issues ──── jira_changelogs
-                └── jira_pull_request_links
-                            │
-github_repositories ────────┼── github_pull_requests
-                            │         │
-                            └─────────├── github_commits
-                                      └── github_reviews
-```
-
-## 🔧 **Job Orchestration**
-
-### **Job Scheduling**
-- **Smart Scheduling:** Alternating job execution
-- **Status Management:** PENDING → ACTIVE → FINISHED cycle
-- **Pause Support:** Jobs can be paused without affecting others
-- **Recovery:** Automatic checkpoint-based recovery
-
-### **Job States**
-- **PENDING:** Ready to run
-- **ACTIVE:** Currently executing
-- **FINISHED:** Completed successfully
-- **PAUSED:** Temporarily stopped
-- **FAILED:** Execution failed
-
-### **Checkpoint System**
-- **Fault Tolerance:** Jobs can resume from last checkpoint
-- **Progress Tracking:** Granular progress updates
-- **Data Integrity:** Consistent state management
-- **Recovery Logic:** Automatic failure recovery
-
-## 🌐 **Communication Patterns**
-
-### **REST APIs**
-- **Frontend ↔ Backend:** Standard REST API calls
-- **Backend ↔ ETL:** Service-to-service communication
-- **ETL ↔ AI:** Data processing pipelines
-
-### **WebSocket Communication**
-- **Real-time Updates:** Job progress and status
-- **Live Monitoring:** Dashboard updates
-- **Error Notifications:** Immediate error reporting
-
-### **External API Integration**
-- **Jira API:** Issue tracking and project management
-- **GitHub API:** Repository and development data
-- **Rate Limiting:** Intelligent API usage management
-- **Authentication:** Secure token-based access
-
-## 🔒 **Security Architecture**
-
-### **Multi-Client Security Model**
-```
-Client A User → Frontend → Backend → JWT (client_id=A) → Client A Data Only
-Client B User → Frontend → Backend → JWT (client_id=B) → Client B Data Only
-```
-
-### **Client Isolation Layers**
-1. **Authentication Layer:** JWT tokens include client_id context
-2. **Database Layer:** All queries filter by client_id
-3. **API Layer:** Endpoints validate client ownership
-4. **Job Layer:** Background jobs respect client boundaries
-
-### **Authorization Levels (Per Client)**
-- **Admin:** Full access to client's data and settings
-- **User:** Standard operations within client scope
-- **Viewer:** Read-only access to client data
-
-### **Data Security**
-- **Complete Client Isolation:** Zero cross-client data access
-- **Client-Scoped Operations:** All database operations filter by client_id
-- **Secure Multi-Tenancy:** Enterprise-grade client separation
-- **Encrypted Storage:** Sensitive data encryption per client
-- **Secure Communication:** HTTPS/TLS for all external calls
-- **Token Management:** JWT-based authentication with client context
-- **API Security:** Rate limiting and input validation per client
-
-## 📊 **Monitoring & Observability**
-
-### **Health Checks**
-- **Service Health:** Individual service status monitoring
-- **Database Health:** Connection and performance monitoring
-- **API Health:** External API connectivity checks
-- **System Resources:** Memory and CPU usage tracking
-
-### **Logging Strategy**
-- **Structured Logging:** JSON-formatted logs
-- **Log Levels:** DEBUG, INFO, WARNING, ERROR
-- **Centralized Logging:** Aggregated log collection
-- **Log Rotation:** Automatic log management
-
-### **Metrics Collection**
-- **Job Metrics:** Execution time, success rate, error rate
-- **API Metrics:** Response time, throughput, error rate
-- **System Metrics:** Resource usage, performance indicators
-- **Business Metrics:** Data processing volumes, insights generated
-
-## 🚀 **Deployment Architecture**
-
-### **Development Environment**
-- **Docker Compose:** Local development orchestration
-- **Hot Reload:** Automatic code reloading
-- **Debug Mode:** Enhanced logging and debugging
-- **Test Data:** Sample data for development
-
-### **Production Considerations**
-- **Container Orchestration:** Kubernetes or Docker Swarm
-- **Load Balancing:** Service load distribution
-- **High Availability:** Multi-instance deployment
-- **Backup Strategy:** Database and configuration backups
-
-### **Scaling Strategy**
-- **Horizontal Scaling:** Multiple service instances
-- **Database Scaling:** Read replicas and partitioning
-- **Caching Strategy:** Redis for performance optimization
-- **CDN Integration:** Static asset delivery
-
-## 🔧 **Development Patterns**
-
-### **Code Organization**
-- **Domain-Driven Design:** Business logic separation
-- **Clean Architecture:** Dependency inversion
-- **Repository Pattern:** Data access abstraction
-- **Service Layer:** Business logic encapsulation
-
-### **API Design**
-- **RESTful APIs:** Standard HTTP methods and status codes
-- **OpenAPI Specification:** Automated API documentation
-- **Versioning Strategy:** API version management
-- **Error Handling:** Consistent error response format
-
-### **Testing Strategy**
-- **Unit Testing:** Individual component testing
-- **Integration Testing:** Service interaction testing
-- **End-to-End Testing:** Complete workflow testing
-- **Performance Testing:** Load and stress testing
-
-## 🔄 **Database Replica Architecture**
-
-### **Read/Write Splitting Strategy**
-
-The platform implements PostgreSQL streaming replication for improved performance and scalability:
-
-```
-Application Layer Query Routing:
-┌─────────────────────────────────────────────────────────────┐
-│                    Database Router                          │
-│  ┌─────────────────┐              ┌─────────────────┐      │
-│  │  Write Session  │              │  Read Session   │      │
-│  │  (Primary Only) │              │ (Replica First) │      │
-│  └─────────────────┘              └─────────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-           │                                    │
-           ▼                                    ▼
-┌─────────────────┐                  ┌─────────────────┐
-│  PRIMARY DB     │─────────────────►│  REPLICA DB     │
-│  Port: 5432     │  WAL Streaming   │  Port: 5433     │
-│                 │                  │                 │
-│ • User Mgmt     │                  │ • Analytics     │
-│ • Admin Ops     │                  │ • Dashboards    │
-│ • Job Control   │                  │ • Reports       │
-│ • Auth/Sessions │                  │ • Metrics       │
-│ • All Writes    │                  │ • Read-Only     │
-└─────────────────┘                  └─────────────────┘
-```
-
-### **Operation Routing Rules**
-
-**Primary Database (Immediate Consistency Required):**
-- All write operations (INSERT, UPDATE, DELETE)
-- User authentication and session management
-- Job control operations (start/stop/pause)
-- Admin configuration changes
-- Client management and settings
-
-**Replica Database (Eventual Consistency Acceptable):**
-- Dashboard metrics and analytics
-- DORA metrics calculations
-- Historical reports and trends
-- Data visualization queries
-- Export operations
-
-### **Failover & Reliability**
-
-- **Automatic Failover:** Read queries fall back to primary if replica unavailable
-- **Health Monitoring:** Continuous replica lag and availability monitoring
-- **Connection Pooling:** Optimized pools for each database role
-  - Primary: 20 base + 30 overflow connections
-  - Replica: 15 base + 20 overflow connections
-- **Performance Optimization:** Specialized session contexts for different operation types
-
-### **Development & Deployment**
-
-**Database Management Commands:**
-```bash
-# Start replica infrastructure
-docker-compose -f docker-compose.db.yml up -d
-
-# Monitor replication status
-docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT * FROM pg_replication_slots;"
-
-# Check replica lag
-docker exec pulse-postgres-replica psql -U postgres -d pulse_db -c "SELECT pg_is_in_recovery();"
-```
-
-**Connection Details:**
-- **Primary:** `localhost:5432` (Read/Write)
-- **Replica:** `localhost:5433` (Read-Only)
-- **Database:** `pulse_db`
-- **Credentials:** `postgres/pulse`
+### Service Discovery
+- **Development**: Hardcoded service URLs
+- **Production**: Service mesh or container orchestration discovery
 
 ---
 
-**For implementation details, see service-specific documentation in each service directory.**
+This architecture provides a robust, scalable, and secure foundation for the Pulse Platform, supporting enterprise-grade multi-tenancy while maintaining high performance and reliability.

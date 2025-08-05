@@ -64,7 +64,7 @@ async def get_home_stats(
     """Get home page statistics"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # Count total records across main tables
             total_records = 0
             

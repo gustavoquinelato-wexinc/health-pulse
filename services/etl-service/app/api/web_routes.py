@@ -377,7 +377,7 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
         database = get_database()
         logger.info(f"Database connection established for job details")
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Get job schedule details
             logger.info(f"Querying JobSchedule for job_name={job_name}, client_id={user.client_id}")
 
@@ -449,7 +449,7 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Projects summary
             projects_total = session.query(JiraProject).filter(JiraProject.client_id == user.client_id).count()
             projects_active = session.query(JiraProject).filter(
@@ -1397,7 +1397,7 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Filter job schedule by client_id
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
@@ -1466,7 +1466,7 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 
         database = get_database()
 
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Get GitHub integration
             github_integration = session.query(Integration).filter(func.upper(Integration.name) == 'GITHUB').first()
 
@@ -1527,7 +1527,7 @@ async def get_jobs_status(user: UserData = Depends(verify_token)):
 
         # Enhance with checkpoint data using optimized query
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # ✅ SECURITY: Get job objects filtered by client_id
             jobs = session.query(JobSchedule).filter(
                 JobSchedule.client_id == user.client_id,
@@ -1828,7 +1828,7 @@ async def stop_job(job_name: str, user: UserData = Depends(require_admin_authent
         if cancelled:
             # Also update database status
             database = get_database()
-            with database.get_session() as session:
+            with database.get_write_session_context() as session:
                 job = session.query(JobSchedule).filter(
                     JobSchedule.job_name == job_name,
                     JobSchedule.active == True
@@ -1872,7 +1872,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
         job_manager = get_job_manager()
 
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             # Single optimized query for both jobs
             jobs = session.query(
                 JobSchedule.job_name,
@@ -1940,7 +1940,7 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User
             )
         
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             job = session.query(JobSchedule).filter(JobSchedule.job_name == job_name).first()
             
             if not job:
@@ -1976,7 +1976,7 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
     """Pause a specific job"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get the job to pause
             job_to_pause = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
@@ -2018,7 +2018,7 @@ async def unpause_job(job_name: str, user: UserData = Depends(require_admin_auth
     """Unpause a specific job"""
     try:
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get both jobs to determine unpause logic
             all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
 
@@ -2146,7 +2146,7 @@ async def set_job_active(job_name: str, user: UserData = Depends(require_admin_a
             )
 
         database = get_database()
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get both jobs
             jira_job = session.query(JobSchedule).filter(
                 JobSchedule.job_name == 'jira_sync',
