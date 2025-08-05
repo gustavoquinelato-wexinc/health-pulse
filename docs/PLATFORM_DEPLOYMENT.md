@@ -76,9 +76,9 @@ BACKEND_SERVICE_URL=http://localhost:3001
 ### **2. Database Setup**
 
 ```bash
-# Run migrations
-cd scripts
-python migration_runner.py
+# Run migrations from backend service
+cd services/backend-service
+python scripts/migration_runner.py --apply-all
 
 # Verify database setup
 psql -h localhost -U pulse_user -d pulse_db -c "\dt"

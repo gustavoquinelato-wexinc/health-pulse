@@ -1,16 +1,17 @@
 # 🔒 Environment Configuration Guide
 
-This guide explains the service-specific environment configuration that follows security best practices and the principle of least privilege. Updated to reflect the latest session management and authentication improvements.
+This guide explains the service-specific environment configuration that follows security best practices and the principle of least privilege. Each service now has its own complete `.env` file with only the configuration it needs.
 
 ## 🎯 **Architecture Overview**
 
-### **Before: Shared Environment (Security Risk)**
+### **Current: Service-Specific Environment (Secure)**
 ```
-❌ All services shared one .env file
-❌ ETL service had access to JWT secrets
-❌ Backend service had access to API tokens
-❌ Frontend had access to server secrets
-❌ Large security blast radius
+✅ Each service has its own complete .env file
+✅ ETL service only has access to its required configuration
+✅ Backend service only has access to its required configuration
+✅ Frontend service only has access to its required configuration
+✅ Minimal security blast radius
+✅ No shared or combined environment files needed
 ```
 
 ### **After: Service-Specific Environments (Secure)**
@@ -208,68 +209,72 @@ data:
   JIRA_TOKEN: <base64>
 ```
 
-## 🔄 **Migration Runner & Scripts**
+## 🔄 **Migration Runner & Database Scripts**
 
-### **Environment File Requirements**
+### **New Location and Approach**
 
-The migration runner and other root-level scripts require a **combined environment file** in the root directory:
+The migration system has been moved to the backend service for better architectural alignment:
 
 ```bash
-# Create combined environment file for migration runner
-cat .env.shared .env.etl.wex > .env
-
-# Run migrations
-python scripts/migration_runner.py
-
-# Check migration status
+# Run migrations from backend service
+cd services/backend-service
 python scripts/migration_runner.py --status
+
+# Apply all pending migrations
+python scripts/migration_runner.py --apply-all
 
 # Rollback to specific migration
 python scripts/migration_runner.py --rollback-to 001
+
+# Create new migration
+python scripts/migration_runner.py --new "Add new feature"
 ```
 
-### **Why Combined Environment File is Needed**
+### **Why Backend Service Hosts Migrations**
 
-1. **Migration Runner**: Uses ETL service configuration classes that expect all variables in one file
-2. **Database Scripts**: Need both shared database config and client-specific settings
-3. **Cross-Service Scripts**: Require access to multiple service configurations
+1. **Database Ownership**: Backend service manages database schema and connections
+2. **Service-Specific Config**: Uses backend service's own .env file (no combination needed)
+3. **Architectural Alignment**: Database operations belong with the database service
+4. **Security**: No need for cross-service configuration access
 
-### **Manual Service Execution**
+### **Service Execution**
 
-Each service needs its own combined environment file:
+Each service runs independently with its own complete environment file:
 
 ```bash
-# ETL Service (WEX client)
+# ETL Service
 cd services/etl-service
-cat ../../.env.shared ../../.env.etl.wex > .env
 python -m uvicorn app.main:app --reload
 
 # Backend Service
 cd services/backend-service
-cat ../../.env.shared ../../.env.backend > .env
 python -m uvicorn app.main:app --reload
+
+# Frontend Service
+cd services/frontend-app
+npm run dev
 ```
 
-### **Docker vs Manual Execution**
+### **Environment File Structure**
 
-| Method | Environment Handling | Use Case |
-|--------|---------------------|----------|
-| **Docker Compose** | Automatically combines env files | Production, testing |
-| **Manual Execution** | Requires manual file combination | Development, debugging |
-| **Migration Runner** | Needs combined `.env` in root | Database operations |
+| Service | Environment File | Contains |
+|---------|-----------------|----------|
+| **Backend Service** | `services/backend-service/.env` | Database config, JWT secrets, CORS settings |
+| **ETL Service** | `services/etl-service/.env` | Client config, API tokens, database config |
+| **Frontend Service** | `services/frontend-app/.env` | Service URLs, feature flags |
 
 ## ⚠️ **Important Notes**
 
 ### **Never Commit Secret Files**
 Add to `.gitignore`:
 ```
-.env.backend
-.env.etl*
-.env.production*
+services/backend-service/.env
+services/etl-service/.env
+services/frontend-app/.env
 ```
 
-### **Keep Shared Config Safe**
-`.env.shared` is safe to commit (no secrets)
+### **Example Files Are Safe**
+`.env.example` files in each service are safe to commit (no secrets)
 
 ### **Production Deployment**
 - Use proper secret management (Kubernetes secrets, AWS Secrets Manager, etc.)

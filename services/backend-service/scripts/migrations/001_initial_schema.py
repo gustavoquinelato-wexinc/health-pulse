@@ -26,11 +26,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 
-# Add the ETL service to the path to access database configuration
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'services', 'etl-service'))
+# Add the backend service to the path to access database configuration
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 def get_database_connection():
-    """Get database connection using ETL service configuration."""
+    """Get database connection using backend service configuration."""
     try:
         from app.core.config import Settings
         config = Settings()
@@ -1267,8 +1267,8 @@ def apply(connection):
 
         print("✅ All integration-specific tables properly assigned to integrations")
 
-        # Now make integration_id NOT NULL for all IntegrationBaseEntity tables
-        print("📋 Setting integration_id columns to NOT NULL...")
+        # Only make integration_id NOT NULL for tables that have all records properly linked
+        print("📋 Setting integration_id columns to NOT NULL (where applicable)...")
         integration_tables = [
             'workflows', 'status_mappings', 'issuetype_hierarchies', 'issuetype_mappings',
             'repositories', 'pull_requests', 'pull_request_reviews',
@@ -1276,8 +1276,16 @@ def apply(connection):
         ]
 
         for table in integration_tables:
-            cursor.execute(f"ALTER TABLE {table} ALTER COLUMN integration_id SET NOT NULL;")
-            print(f"   ✅ Set {table}.integration_id to NOT NULL")
+            # Check if there are any NULL integration_id values
+            cursor.execute(f"SELECT COUNT(*) as null_count FROM {table} WHERE integration_id IS NULL;")
+            null_count = cursor.fetchone()['null_count']
+
+            if null_count == 0:
+                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN integration_id SET NOT NULL;")
+                print(f"   ✅ Set {table}.integration_id to NOT NULL")
+            else:
+                print(f"   ⚠️  Skipped {table}.integration_id NOT NULL constraint - {null_count} records have NULL values")
+                print(f"      💡 Configure integrations and re-run migration to enforce constraint")
 
         # Insert system settings
         print("📋 Creating system settings...")
@@ -1465,9 +1473,16 @@ def apply(connection):
 
         print("✅ Job schedules linked to integrations")
 
-        # Now make job_schedules.integration_id NOT NULL since all jobs should be linked
-        cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
-        print("✅ Set job_schedules.integration_id to NOT NULL")
+        # Only make job_schedules.integration_id NOT NULL if all jobs are properly linked
+        cursor.execute("SELECT COUNT(*) as null_count FROM job_schedules WHERE integration_id IS NULL;")
+        null_count = cursor.fetchone()['null_count']
+
+        if null_count == 0:
+            cursor.execute("ALTER TABLE job_schedules ALTER COLUMN integration_id SET NOT NULL;")
+            print("✅ Set job_schedules.integration_id to NOT NULL")
+        else:
+            print(f"⚠️  Skipped job_schedules.integration_id NOT NULL constraint - {null_count} records have NULL values")
+            print("💡 Configure integrations and re-run migration to enforce constraint")
 
         # Create second client and duplicate data (from migration 003)
         print("📋 Creating second client (TechCorp) and duplicating data...")

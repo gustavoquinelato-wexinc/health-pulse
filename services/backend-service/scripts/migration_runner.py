@@ -3,13 +3,15 @@
 Migration Runner Utility
 Description: Manages and executes database migrations for the Pulse Platform
 Author: Pulse Platform Team
-Date: 2025-07-21
+Date: 2025-08-05
 
 This utility provides a centralized way to:
 - Apply multiple migrations in sequence
 - Rollback to specific migration versions
 - Check migration status across the system
 - Manage migration dependencies and ordering
+
+Note: This script is now located in backend-service/scripts/ and uses backend service configuration.
 """
 
 import os
@@ -21,11 +23,11 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime
 import re
 
-# Add the ETL service to the path to access database configuration
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services', 'etl-service'))
+# Add the backend service to the path to access database configuration
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 def get_database_connection():
-    """Get database connection using ETL service configuration."""
+    """Get database connection using backend service configuration."""
     try:
         from app.core.config import Settings
         config = Settings()
@@ -296,11 +298,11 @@ from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# Add the ETL service to the path to access database configuration
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'services', 'etl-service'))
+# Add the backend service to the path to access database configuration
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 def get_database_connection():
-    """Get database connection using ETL service configuration."""
+    """Get database connection using backend service configuration."""
     try:
         from app.core.config import Settings
         config = Settings()
