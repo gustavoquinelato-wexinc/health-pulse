@@ -959,8 +959,109 @@ async def logout_page(request: Request):
     except Exception as e:
         logger.warning(f"Error during logout token handling: {e}")
 
-    logger.info("Creating logout response with cookie deletion...")
-    response = RedirectResponse(url="/login?message=logged_out", status_code=302)
+    logger.info("Creating logout response with comprehensive cleanup...")
+
+    # Create an HTML response that clears localStorage and cache before redirecting
+    cleanup_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Logging out...</title>
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta http-equiv="Expires" content="0">
+    </head>
+    <body>
+        <div style="text-align: center; margin-top: 50px; font-family: Arial, sans-serif;">
+            <h2>Logging out...</h2>
+            <p>Please wait while we clear your session data.</p>
+        </div>
+        <script>
+            // Clear all localStorage
+            try {
+                localStorage.clear();
+                console.log('✅ localStorage cleared');
+            } catch (e) {
+                console.warn('Failed to clear localStorage:', e);
+            }
+
+            // Clear all sessionStorage
+            try {
+                sessionStorage.clear();
+                console.log('✅ sessionStorage cleared');
+            } catch (e) {
+                console.warn('Failed to clear sessionStorage:', e);
+            }
+
+            // Clear specific auth-related items
+            const authKeys = ['pulse_token', 'pulse_user', 'colorScheme', 'theme'];
+            authKeys.forEach(key => {
+                try {
+                    localStorage.removeItem(key);
+                    sessionStorage.removeItem(key);
+                } catch (e) {
+                    console.warn(`Failed to remove ${key}:`, e);
+                }
+            });
+
+            // Clear browser cache for auth-related requests
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => {
+                        if (name.includes('auth') || name.includes('api') || name.includes('etl')) {
+                            caches.delete(name);
+                        }
+                    });
+                    console.log('✅ Browser cache cleared');
+                }).catch(e => {
+                    console.warn('Failed to clear cache:', e);
+                });
+            }
+
+            // Clear all cookies via JavaScript (in addition to server-side clearing)
+            document.cookie.split(";").forEach(cookie => {
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+                // Clear cookie for current domain and path
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + window.location.hostname;
+            });
+            console.log('✅ Cookies cleared via JavaScript');
+
+            // Try to notify frontend service about logout (cross-service coordination)
+            try {
+                const frontendUrl = 'http://localhost:3000'; // Frontend service URL
+                // Use postMessage to communicate with frontend if it's open in another tab
+                if (window.opener) {
+                    window.opener.postMessage({ type: 'LOGOUT_FROM_ETL' }, frontendUrl);
+                }
+
+                // Also try to clear frontend localStorage if same origin
+                if (window.location.hostname === 'localhost') {
+                    // This will only work if both services are on the same domain
+                    try {
+                        window.localStorage.clear();
+                        window.sessionStorage.clear();
+                    } catch (e) {
+                        console.warn('Could not clear frontend storage (different origin):', e);
+                    }
+                }
+                console.log('✅ Cross-service logout coordination attempted');
+            } catch (e) {
+                console.warn('Cross-service logout coordination failed:', e);
+            }
+
+            // Redirect after cleanup
+            setTimeout(() => {
+                window.location.href = '/login?message=logged_out';
+            }, 1000);
+        </script>
+    </body>
+    </html>
+    """
+
+    response = HTMLResponse(content=cleanup_html, status_code=200)
 
     # Clear the pulse_token cookie by setting it to empty with immediate expiration
     logger.info("Clearing pulse_token cookie by setting to empty with immediate expiration...")
@@ -990,13 +1091,13 @@ async def logout_page(request: Request):
     response.delete_cookie(key="pulse_token")
 
     # Clear other potential auth cookies
-    other_cookies = ["session", "auth_token", "token", "jwt"]
+    other_cookies = ["session", "auth_token", "token", "jwt", "pulse_user"]
     for cookie_name in other_cookies:
         response.delete_cookie(key=cookie_name, path="/")
         response.delete_cookie(key=cookie_name)
 
     logger.info("=== LOGOUT PROCESS COMPLETED ===")
-    logger.info(f"Redirecting to: /login?message=logged_out")
+    logger.info(f"Returning cleanup HTML with redirect to: /login?message=logged_out")
 
     # Add aggressive cache control headers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
@@ -1005,6 +1106,57 @@ async def logout_page(request: Request):
     response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
 
     return response
+
+
+@router.post("/api/logout", response_class=JSONResponse)
+async def api_logout(request: Request):
+    """API endpoint for cross-service logout - clears session without redirect"""
+
+    logger.info("=== API LOGOUT PROCESS STARTED ===")
+
+    # Invalidate the token on the server side
+    try:
+        token = request.cookies.get("pulse_token")
+        if token:
+            logger.info(f"Found token during API logout: {token[:20]}...")
+
+            # Invalidate session using centralized auth service
+            try:
+                logger.info("Attempting to invalidate session in Backend Service...")
+                from app.auth.centralized_auth_service import get_centralized_auth_service
+                auth_service = get_centralized_auth_service()
+                success = await auth_service.invalidate_session(token)
+                if success:
+                    logger.info("✅ Session invalidated successfully in Backend Service")
+                else:
+                    logger.warning("❌ Failed to invalidate session in Backend Service")
+            except Exception as e:
+                logger.error(f"❌ Error invalidating session: {e}")
+        else:
+            logger.info("No token found in cookies during API logout")
+    except Exception as e:
+        logger.warning(f"Error during API logout token handling: {e}")
+
+    logger.info("Creating API logout response...")
+    response = JSONResponse(content={"message": "Logout successful", "success": True})
+
+    # Clear all cookies
+    response.delete_cookie(key="pulse_token", path="/")
+    response.delete_cookie(key="pulse_token")
+
+    other_cookies = ["session", "auth_token", "token", "jwt", "pulse_user"]
+    for cookie_name in other_cookies:
+        response.delete_cookie(key=cookie_name, path="/")
+        response.delete_cookie(key=cookie_name)
+
+    # Add cache control headers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    logger.info("=== API LOGOUT PROCESS COMPLETED ===")
+    return response
+
 
 # Navigation endpoint for cross-service authentication
 @router.post("/auth/navigate")

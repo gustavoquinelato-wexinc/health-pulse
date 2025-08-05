@@ -184,6 +184,29 @@ The platform uses a standardized 5-color system that provides consistency while 
 
 ## 🔐 Authentication Flow
 
+### **Bidirectional Authentication System**
+The Frontend supports bidirectional authentication where users can log in from either Frontend or ETL service and maintain seamless access across both services.
+
+#### **ETL Service Login Detection**
+```typescript
+// Listen for authentication from ETL service
+useEffect(() => {
+  const handleMessage = (event: MessageEvent) => {
+    if (event.data.type === 'AUTH_SUCCESS') {
+      // User logged in from ETL service
+      const { token, user } = event.data
+      localStorage.setItem('pulse_token', token)
+      setUser(user)
+      // Refresh page to load full user context
+      window.location.reload()
+    }
+  }
+
+  window.addEventListener('message', handleMessage)
+  return () => window.removeEventListener('message', handleMessage)
+}, [])
+```
+
 ### **Token Management**
 ```javascript
 // Multi-source token retrieval
@@ -648,8 +671,13 @@ async function apiCall(url, options = {}) {
 - ✅ **Do** check multiple token sources (localStorage, cookies)
 - ✅ **Do** invalidate session before clearing storage
 - ✅ **Do** handle 401 responses with redirect to login
+- ✅ **Do** listen for postMessage authentication from ETL service
+- ✅ **Do** use Backend Service for ETL navigation setup
+- ✅ **Do** handle bidirectional authentication flows
 - ❌ **Don't** clear localStorage before calling logout API
 - ❌ **Don't** ignore authentication errors
+- ❌ **Don't** make direct API calls to ETL service (use Backend Service)
+- ❌ **Don't** pass tokens in URLs for navigation
 
 ### **State Management**
 - ✅ **Do** use WebSocket for real-time updates

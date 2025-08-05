@@ -47,6 +47,153 @@ Platform Frontend ↔ ETL Service Direct Navigation:
 - **Multi-browser**: Each browser gets unique session ID
 - **"Self" Detection**: Use `/api/v1/admin/current-session` endpoint
 
+### **⚠️ Bidirectional Authentication Critical Patterns**
+
+**IMPORTANT**: The platform supports bidirectional authentication where users can log in from either Frontend or ETL service and maintain seamless access across both. This requires careful implementation to avoid authentication loops and session conflicts.
+
+#### **Frontend → ETL Navigation**
+```typescript
+// ✅ CORRECT: Use Backend Service as intermediary
+const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${token}` },
+  credentials: 'include'
+})
+
+const navResponse = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
+  method: 'POST',
+  body: JSON.stringify({ token, return_url: window.location.href }),
+  credentials: 'include'
+})
+```
+
+#### **ETL → Frontend Navigation**
+```javascript
+// ✅ CORRECT: Use postMessage for cross-service communication
+if (window.opener) {
+  window.opener.postMessage({
+    type: 'AUTH_SUCCESS',
+    token: data.token,
+    user: data.user
+  }, frontendUrl);
+}
+
+// Set cross-domain cookies for seamless access
+document.cookie = `pulse_token=${token}; path=/; domain=localhost; max-age=86400`;
+```
+
+#### **❌ ANTI-PATTERNS TO AVOID**
+- **Direct Frontend-ETL API calls**: Always route through Backend Service
+- **Token passing in URLs**: Use POST requests with proper headers
+- **Infinite redirect loops**: Check authentication state before redirecting
+- **Session invalidation failures**: Handle 302 redirects as successful logouts
+- **Cross-service API calls**: Frontend should never call ETL APIs directly
+
+## 🚨 **Critical Bidirectional Authentication Guidelines**
+
+### **⚠️ MANDATORY PATTERNS FOR AI AGENTS**
+
+When implementing or modifying authentication flows, **ALWAYS** follow these patterns to prevent architectural issues:
+
+#### **1. Service Communication Rules**
+```
+✅ CORRECT FLOW:
+Frontend ↔ Backend Service ↔ ETL Service
+
+❌ INCORRECT FLOW:
+Frontend ↔ ETL Service (NEVER DIRECT)
+```
+
+#### **2. Authentication State Management**
+```typescript
+// ✅ CORRECT: Check authentication before redirecting
+const isAuthenticated = await validateToken()
+if (!isAuthenticated) {
+  // Only redirect if not authenticated
+  window.location.href = '/login'
+}
+
+// ❌ INCORRECT: Redirect without checking state
+window.location.href = '/login' // Can cause loops
+```
+
+#### **3. Session Invalidation Handling**
+```javascript
+// ✅ CORRECT: Handle both 200 and 302 as success
+if (response.status_code in [200, 302]) {
+  logger.info("✅ Session invalidated successfully")
+  return True
+}
+
+// ❌ INCORRECT: Only accept 200 status
+if (response.status_code == 200) {
+  return True
+} else {
+  logger.error("❌ Failed to invalidate session") // False error
+}
+```
+
+#### **4. Cross-Service Navigation**
+```typescript
+// ✅ CORRECT: Use Backend Service as intermediary
+await fetch(`${BACKEND_URL}/auth/setup-etl-access`, {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${token}` }
+})
+
+// ❌ INCORRECT: Direct ETL service calls
+await fetch(`${ETL_URL}/some-endpoint`) // NEVER DO THIS
+```
+
+#### **5. Token Synchronization**
+```javascript
+// ✅ CORRECT: Use postMessage for cross-service communication
+window.opener.postMessage({
+  type: 'AUTH_SUCCESS',
+  token: data.token,
+  user: data.user
+}, frontendUrl)
+
+// ❌ INCORRECT: URL-based token passing
+window.location.href = `/frontend?token=${token}` // Security risk
+```
+
+### **🔍 Debugging Bidirectional Auth Issues**
+
+#### **Common Symptoms & Solutions**
+1. **"Failed to invalidate session" warnings**
+   - **Cause**: ETL service expecting 200, getting 302 redirect
+   - **Fix**: Accept both 200 and 302 as successful logout
+
+2. **Infinite redirect loops**
+   - **Cause**: Not checking authentication state before redirecting
+   - **Fix**: Always validate token before redirect decisions
+
+3. **Cross-service authentication failures**
+   - **Cause**: Direct Frontend-ETL API calls
+   - **Fix**: Route all communication through Backend Service
+
+4. **Token synchronization issues**
+   - **Cause**: Missing postMessage listeners or cookie domain issues
+   - **Fix**: Implement proper cross-window communication
+
+#### **Testing Bidirectional Authentication**
+```bash
+# Test Frontend → ETL navigation
+1. Login to Frontend
+2. Click ETL Management
+3. Verify seamless access without re-login
+
+# Test ETL → Frontend navigation
+1. Login directly to ETL service
+2. Click Pulse logo
+3. Verify Frontend receives authentication via postMessage
+
+# Test logout from both services
+1. Logout from Frontend → verify ETL session cleared
+2. Logout from ETL → verify Frontend session cleared
+```
+
 ## 🔗 **Platform Integration Patterns**
 
 ### **Embedded Service Architecture**

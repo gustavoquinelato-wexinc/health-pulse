@@ -120,6 +120,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
+        # Always allow OPTIONS requests (CORS preflight) to pass through
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip authentication for public routes
         if (path in self.PUBLIC_ROUTES or
             path.startswith("/static/") or
@@ -394,9 +398,10 @@ app = FastAPI(
 app.add_middleware(AuthenticationMiddleware)
 
 # CORS configuration (runs second)
+logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify allowed origins
+    allow_origins=settings.cors_origins_list,  # Use configured origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

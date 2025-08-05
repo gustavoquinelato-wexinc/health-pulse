@@ -63,7 +63,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     # Routes that don't require authentication
     PUBLIC_ROUTES = {
         "/", "/login", "/health", "/healthz", "/redoc", "/openapi.json",
-        "/logout", "/auth/login"
+        "/logout", "/auth/login", "/auth/validate"
     }
 
     # Routes that should redirect to login if not authenticated
@@ -78,13 +78,21 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        method = request.method
+
+        # Always allow OPTIONS requests (CORS preflight) to pass through
+        if method == "OPTIONS":
+            logger.debug(f"OPTIONS request for {path} - allowing through")
+            return await call_next(request)
 
         # Skip authentication for public routes
         if path in self.PUBLIC_ROUTES or path.startswith("/static/"):
+            logger.debug(f"Public route {path} - skipping auth")
             return await call_next(request)
 
         # Skip authentication for API routes (they handle their own auth)
-        if path.startswith("/api/"):
+        if path.startswith("/api/") or path.startswith("/auth/"):
+            logger.debug(f"API/Auth route {path} - skipping middleware auth")
             return await call_next(request)
 
         # For protected web routes and unknown routes, check authentication
@@ -252,16 +260,7 @@ app = FastAPI(
 
 # Middleware configuration (order matters - last added runs first)
 
-# CORS configuration (runs first - must handle preflight requests)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify allowed origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Authentication middleware (runs second - after CORS)
+# Authentication middleware
 app.add_middleware(AuthenticationMiddleware)
 
 # Rate limiting (configurable)
@@ -274,6 +273,16 @@ app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
+
+# CORS configuration (added LAST - runs FIRST - must handle preflight requests)
+logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,  # Use configured origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include Backend Service API routes
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])

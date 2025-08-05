@@ -23,7 +23,7 @@
                 const serverSchemaElement = document.getElementById('server-color-schema');
                 if (serverSchemaElement) {
                     const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
-                    console.log('ETL Service: Server color schema data:', serverColorSchema);
+
                     const theme = serverColorSchema.theme || 'light';
                     const colorSchemaMode = serverColorSchema.mode || 'default';
 
@@ -301,7 +301,6 @@
             }
 
             // Cross-browser theme sync completely removed to prevent infinite API calls
-            console.log('ETL Service: Theme sync disabled - using default theme only');
 
             // Load user information
             loadUserInfo();
@@ -483,6 +482,56 @@
                 }
             }
         });
+
+        // Logout function
+        async function logout() {
+            try {
+                console.log('🔐 Logging out...');
+
+                // Get current token
+                const token = getAuthToken();
+
+                if (token) {
+                    // Call ETL logout endpoint to invalidate session
+                    try {
+                        const response = await fetch('/api/logout', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        if (response.ok) {
+                            console.log('✅ Server logout successful');
+                        } else {
+                            console.warn('⚠️ Server logout failed, continuing with client cleanup');
+                        }
+                    } catch (error) {
+                        console.warn('⚠️ Server logout error, continuing with client cleanup:', error);
+                    }
+                }
+
+                // Clear all authentication data
+                localStorage.removeItem('pulse_token');
+                document.cookie = 'pulse_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+
+                // Clear any axios default headers
+                if (window.axios && window.axios.defaults) {
+                    delete window.axios.defaults.headers.common['Authorization'];
+                }
+
+                console.log('✅ Authentication data cleared');
+
+                // Redirect to login page
+                window.location.href = '/login';
+
+            } catch (error) {
+                console.error('❌ Logout error:', error);
+                // Still redirect to login even if there's an error
+                window.location.href = '/login';
+            }
+        }
     </script>
     
     {% block extra_scripts %}{% endblock %}

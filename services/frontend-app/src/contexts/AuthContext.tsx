@@ -37,8 +37,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Configure axios defaults - Use backend URL consistently
-axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+// Configure axios defaults - Use Vite proxy instead of direct backend URL to avoid CORS issues
+// axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 axios.defaults.withCredentials = true  // Include cookies in all requests
 
 // Global axios response interceptor for handling authentication errors
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (token) {
           try {
             // Explicitly set Authorization header for validation
-            const response = await axios.post('/auth/validate', {}, {
+            const response = await axios.post('/api/v1/auth/validate', {}, {
               headers: {
                 'Authorization': `Bearer ${token}`
               }
@@ -185,6 +185,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // No localStorage token, but check if there's an existing session in Backend Service
       checkExistingSession()
     }
+
+    // Cross-service authentication is handled via postMessage and cookies
   }, [])
 
   // Cleanup effect to stop session validation on unmount
@@ -231,13 +233,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [user])
   */
 
+
+
   const checkExistingSession = async () => {
     try {
       setIsLoading(true)
 
       // Check if there's an existing session in Backend Service (via cookies)
       // Don't send Authorization header since we don't have a token
-      const response = await axios.post('/auth/validate', {}, {
+      const response = await axios.post('/api/v1/auth/validate', {}, {
         headers: {
           // Remove Authorization header for this request
           'Authorization': undefined
@@ -319,7 +323,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const validateToken = async () => {
     try {
       // Make API call to validate token with backend
-      const response = await axios.post('/auth/validate')
+      const response = await axios.post('/api/v1/auth/validate')
 
       if (response.data.valid && response.data.user) {
         const { user } = response.data
@@ -381,9 +385,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         delete axios.defaults.headers.common['Authorization']
       }
     } catch (error) {
-      // Token is invalid or expired, clear it (this is normal when not logged in)
-      localStorage.removeItem('pulse_token')
-      delete axios.defaults.headers.common['Authorization']
+      // Token is invalid or expired, clear all authentication data
+      console.warn('Token validation failed, clearing all authentication state:', error)
+      clearAllAuthenticationData()
     } finally {
       setIsLoading(false)
     }
@@ -483,17 +487,62 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  const clearAllAuthenticationData = () => {
+    // Clear localStorage completely
+    localStorage.clear()
+
+    // Clear sessionStorage
+    sessionStorage.clear()
+
+    // Clear all cookies
+    document.cookie.split(";").forEach(cookie => {
+      const eqPos = cookie.indexOf("=")
+      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
+      // Clear for current domain
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+      // Clear for parent domain
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`
+      // Clear for all subdomains
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`
+    })
+
+    // Clear axios headers
+    delete axios.defaults.headers.common['Authorization']
+
+    // Clear user state
+    setUser(null)
+    setColorSchemaLoaded(false)
+
+    console.log('🧹 All authentication data cleared')
+  }
+
   const logout = async () => {
     try {
       // Try to invalidate session on the backend
       const token = localStorage.getItem('pulse_token')
       if (token) {
         try {
-          await axios.post('/auth/logout')
+          await axios.post('/api/v1/auth/logout')
           console.log('Session invalidated on backend')
         } catch (error) {
           console.warn('Failed to invalidate session on backend:', error)
           // Continue with local logout even if backend call fails
+        }
+
+        // Also try to clear ETL service session by calling its API logout endpoint
+        try {
+          const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+          await fetch(`${etlServiceUrl}/api/logout`, {
+            method: 'POST',
+            credentials: 'include', // Include cookies
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          })
+          console.log('ETL service logout successful')
+        } catch (error) {
+          console.warn('Failed to logout from ETL service:', error)
+          // Continue with local logout even if ETL logout fails
         }
       }
     } catch (error) {
@@ -502,11 +551,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Stop periodic session validation
       stopSessionValidation()
 
-      // Always clear local storage and state
-      localStorage.removeItem('pulse_token')
-      delete axios.defaults.headers.common['Authorization']
+      // Use comprehensive authentication data clearing
+      clearAllAuthenticationData()
+
+      // Clear browser cache for auth-related requests
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => {
+            if (name.includes('auth') || name.includes('api')) {
+              caches.delete(name)
+            }
+          })
+        })
+      }
+
+      // Unregister service workers to clear any cached authentication state
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => {
+            registration.unregister()
+          })
+        })
+      }
+
+      // Reset state
       setUser(null)
       setColorSchemaLoaded(false) // Reset color schema cache
+
+      // Force a hard refresh to clear any remaining cached state
+      setTimeout(() => {
+        window.location.href = '/login?message=logged_out'
+      }, 100)
     }
   }
 
@@ -518,6 +593,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isAdmin: !!user && user.role === 'admin'
   }
+
+  // Listen for cross-service authentication messages
+  useEffect(() => {
+    const handleCrossServiceAuth = (event: MessageEvent) => {
+      // Only accept messages from trusted origins
+      const trustedOrigins = ['http://localhost:8000']; // ETL service
+      if (!trustedOrigins.includes(event.origin)) {
+        return;
+      }
+
+      if (event.data.type === 'AUTH_SUCCESS' && event.data.token) {
+        console.log('✅ Received cross-service authentication from ETL service');
+
+        // Store the token
+        localStorage.setItem('pulse_token', event.data.token);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${event.data.token}`;
+
+        // Set user data if provided
+        if (event.data.user) {
+          setUser(event.data.user);
+          setIsLoading(false);
+        } else {
+          // Validate the token to get user data
+          validateToken();
+        }
+      }
+    };
+
+    window.addEventListener('message', handleCrossServiceAuth);
+    return () => {
+      window.removeEventListener('message', handleCrossServiceAuth);
+    };
+  }, []);
+
+  // Expose clear function globally for debugging
+  useEffect(() => {
+    (window as any).clearAuthData = clearAllAuthenticationData;
+    return () => {
+      delete (window as any).clearAuthData;
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={value}>

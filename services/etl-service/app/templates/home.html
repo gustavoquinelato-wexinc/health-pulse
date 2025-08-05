@@ -3,6 +3,8 @@
 {% block title %}Pulse ETL Management{% endblock %}
 
 {% block content %}
+
+
 <!-- Header Section with Title and Settings -->
 <div class="mb-8">
     <div class="flex items-center justify-between mb-4">
@@ -270,6 +272,11 @@
     /* Status Dot Classes */
     .status-dot-color-2 { background-color: var(--color-2); }
 
+    /* Loading Indicator Styles */
+    #loadingIndicator {
+        transition: all 0.3s ease-in-out;
+    }
+
     /* WebSocket Progress Styles */
     .ws-progress-container {
         width: 100%;
@@ -333,12 +340,22 @@
 <script>
     let refreshTimer = null;
 
-    // WebSocket connections for real-time progress
+    // WebSocket connections for real-time progress with connection management
     let websockets = {
         jira_sync: null,
         github_sync: null,
         orchestrator: null
     };
+
+    // Connection management
+    let connectionAttempts = {
+        jira_sync: 0,
+        github_sync: 0,
+        orchestrator: 0
+    };
+
+    const maxReconnectAttempts = 3;
+    let isPageUnloading = false;
 
     // Progress and exception data
     let jobProgress = {
@@ -348,11 +365,19 @@
     };
 
     // Initialize dashboard
-    document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', async function () {
+        // Validate token and clear stale data if needed
+        const isValidToken = await validateToken();
+        if (!isValidToken) {
+            console.error('Token validation failed - redirecting to login');
+            handleAuthenticationFailure();
+            return;
+        }
+
         // Smart authentication with loop prevention
         const token = getAuthToken();
         if (!token) {
-            console.error('No auth token available');
+            console.error('No auth token available after validation');
             handleAuthenticationFailure();
             return;
         }
@@ -363,13 +388,129 @@
         refreshData();
         refreshOrchestratorStatus();
 
+        // Set up page unload detection to properly close WebSocket connections
+        window.addEventListener('beforeunload', function() {
+            isPageUnloading = true;
+
+            // Close all WebSocket connections
+            Object.keys(websockets).forEach(jobName => {
+                if (websockets[jobName]) {
+                    websockets[jobName].close(1000, 'Page unloading'); // 1000 = normal closure
+                    websockets[jobName] = null;
+                }
+            });
+        });
+
         // Colors are handled by the modern layout template - no need to load again
 
-        // Enable WebSockets for real-time job progress AND color updates
-        initializeWebSockets();
+        // Enable WebSockets for real-time job progress AND color updates (with small delay to ensure auth is ready)
+        setTimeout(() => {
+            initializeWebSockets();
+        }, 500);
 
-        console.log('ETL Service: Event-driven color updates enabled - no auto-refresh polling');
+
     });
+
+    // Clear all authentication data
+    function clearAllAuthenticationData() {
+        console.log('🧹 Clearing all authentication data...');
+
+        // Clear localStorage completely
+        localStorage.clear();
+
+        // Clear sessionStorage
+        sessionStorage.clear();
+
+        // Clear all cookies
+        document.cookie.split(";").forEach(cookie => {
+            const eqPos = cookie.indexOf("=");
+            const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+            // Clear for current domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+            // Clear for parent domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`;
+            // Clear for all subdomains
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`;
+        });
+
+        console.log('🧹 All authentication data cleared');
+    }
+
+    // Cross-service navigation helper
+    function navigateToFrontend(openInNewTab = false) {
+        const token = getAuthToken();
+        if (!token) {
+            console.error('No authentication token found for cross-service navigation');
+            return;
+        }
+
+        const frontendUrl = 'http://localhost:3000';
+
+        try {
+            // Set up cross-service authentication
+            fetch(`${frontendUrl}/api/v1/auth/cross-service-login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                credentials: 'include'
+            }).then(response => {
+                if (response.ok) {
+                    console.log('✅ Cross-service authentication established with frontend');
+
+                    // Navigate to frontend
+                    if (openInNewTab) {
+                        window.open(frontendUrl, '_blank');
+                    } else {
+                        window.location.href = frontendUrl;
+                    }
+                } else {
+                    console.warn('Cross-service authentication failed, navigating anyway');
+                    if (openInNewTab) {
+                        window.open(frontendUrl, '_blank');
+                    } else {
+                        window.location.href = frontendUrl;
+                    }
+                }
+            }).catch(error => {
+                // Only log if it's not a network error (frontend not running)
+                if (!error.message.includes('fetch') && !error.message.includes('NetworkError')) {
+                    console.warn('Cross-service authentication error, navigating anyway:', error);
+                }
+                if (openInNewTab) {
+                    window.open(frontendUrl, '_blank');
+                } else {
+                    window.location.href = frontendUrl;
+                }
+            });
+        } catch (error) {
+            console.error('Navigation error:', error);
+        }
+    }
+
+    // Close all WebSocket connections (for debugging)
+    function closeAllWebSockets() {
+        isPageUnloading = true; // Prevent reconnections
+
+        Object.keys(websockets).forEach(jobName => {
+            if (websockets[jobName]) {
+                websockets[jobName].close(1000, 'Manual close');
+                websockets[jobName] = null;
+            }
+            connectionAttempts[jobName] = 0; // Reset attempts
+        });
+
+        // Reset unloading flag after a delay
+        setTimeout(() => {
+            isPageUnloading = false;
+        }, 1000);
+    }
+
+    // Expose functions globally for debugging
+    window.clearAuthData = clearAllAuthenticationData;
+    window.navigateToFrontend = navigateToFrontend;
+    window.closeAllWebSockets = closeAllWebSockets;
 
     // Authentication helper
     function getAuthToken() {
@@ -387,6 +528,38 @@
             }
         }
         return token;
+    }
+
+    // Check if token is valid by making a test API call
+    async function validateToken() {
+        const token = getAuthToken();
+        if (!token) {
+            console.warn('No token found - clearing any stale data');
+            clearAllAuthenticationData();
+            return false;
+        }
+
+        try {
+            const response = await fetch('/api/v1/auth/validate', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.status === 401) {
+                console.warn('Token validation failed - clearing stale authentication data');
+                clearAllAuthenticationData();
+                return false;
+            }
+
+            return response.ok;
+        } catch (error) {
+            console.warn('Token validation error - clearing stale authentication data:', error);
+            clearAllAuthenticationData();
+            return false;
+        }
     }
 
     function checkAuth() {
@@ -523,21 +696,7 @@
 
 
 
-    // Controlled auto-refresh for job status only (no theme polling)
-    function setupControlledAutoRefresh() {
-        // Refresh job status every 30 seconds (much less frequent than before)
-        setInterval(() => {
-            // Only refresh if page is visible (not in background tab)
-            if (!document.hidden) {
-                refreshData();
-                refreshOrchestratorStatus();
-            }
-        }, 30000); // 30 seconds
 
-        // Color schema updates are now handled via WebSocket events (no polling needed)
-
-        console.log('ETL Service: Controlled auto-refresh setup (30s job status, 5min color schema)');
-    }
 
     // WebSocket Management
     function initializeWebSockets() {
@@ -548,8 +707,20 @@
     }
 
     function connectWebSocket(jobName) {
+        // Prevent connection if page is unloading
+        if (isPageUnloading) {
+            return;
+        }
+
+        // Check if we've exceeded max reconnection attempts
+        if (connectionAttempts[jobName] >= maxReconnectAttempts) {
+            return;
+        }
+
+        // Close existing connection if any
         if (websockets[jobName]) {
             websockets[jobName].close();
+            websockets[jobName] = null;
         }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -560,6 +731,7 @@
 
             ws.onopen = function () {
                 websockets[jobName] = ws;
+                connectionAttempts[jobName] = 0; // Reset attempts on successful connection
             };
 
             ws.onmessage = function (event) {
@@ -571,18 +743,27 @@
                 }
             };
 
-            ws.onclose = function () {
-                console.log(`WebSocket disconnected for ${jobName}`);
+            ws.onclose = function (event) {
                 websockets[jobName] = null;
-                setTimeout(() => {
-                    if (!websockets[jobName]) {
-                        connectWebSocket(jobName);
-                    }
-                }, 5000);
+
+                // Only attempt reconnection if not intentionally closed and page is not unloading
+                if (!isPageUnloading && event.code !== 1000 && connectionAttempts[jobName] < maxReconnectAttempts) {
+                    connectionAttempts[jobName]++;
+                    const delay = Math.min(5000 * connectionAttempts[jobName], 30000); // Exponential backoff, max 30s
+
+                    setTimeout(() => {
+                        if (!websockets[jobName] && !isPageUnloading) {
+                            connectWebSocket(jobName);
+                        }
+                    }, delay);
+                }
             };
 
             ws.onerror = function (error) {
-                console.error(`WebSocket error for ${jobName}:`, error);
+                // Only log WebSocket errors if we're not in the process of unloading
+                if (!isPageUnloading) {
+                    console.error(`WebSocket error for ${jobName}:`, error);
+                }
             };
 
         } catch (e) {
@@ -1214,22 +1395,7 @@
         }
     }
 
-    function deleteLogFile(filename) {
-        if (confirm(`Are you sure you want to delete ${filename}? This action cannot be undone.`)) {
-            showNotification(`Deleting ${filename}...`, 'info');
-            // TODO: Implement actual delete API call
-        }
-    }
 
-    function bulkCleanupLogs() {
-        const days = document.getElementById('bulkCleanupDays').value;
-        const message = days === '0' ? 'delete ALL log files' : `delete log files older than ${days} days`;
-
-        if (confirm(`Are you sure you want to ${message}? This action cannot be undone.`)) {
-            showNotification(`Log cleanup for ${days === '0' ? 'all files' : days + ' days'} initiated`, 'info');
-            // TODO: Implement actual log cleanup API call
-        }
-    }
 
 
 

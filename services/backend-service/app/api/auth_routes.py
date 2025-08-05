@@ -121,6 +121,11 @@ async def logout(request: Request):
                 key="pulse_token",
                 path="/"
             )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
             return response
         else:
             logger.warning("❌ Logout failed - session not found")
@@ -130,6 +135,11 @@ async def logout(request: Request):
                 key="pulse_token",
                 path="/"
             )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
             return response
             
     except HTTPException:
@@ -163,6 +173,11 @@ async def logout_all(current_user: User = Depends(require_authentication)):
                 key="pulse_token",
                 path="/"
             )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
             return response
         else:
             logger.warning(f"❌ Logout-all failed for user: {current_user.email}")
@@ -172,6 +187,11 @@ async def logout_all(current_user: User = Depends(require_authentication)):
                 key="pulse_token",
                 path="/"
             )
+            # Add cache control headers to prevent caching
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
             return response
 
     except Exception as e:
@@ -260,6 +280,73 @@ async def validate_service_token(user: User = Depends(require_authentication)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Token validation failed"
+        )
+
+
+@router.post("/cross-service-login")
+async def cross_service_login(request: Request):
+    """
+    Cross-service login endpoint for ETL → Frontend authentication sharing.
+    Allows ETL service to notify frontend about successful authentication.
+    """
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required"
+            )
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        # Validate token
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(token)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+        logger.info(f"✅ Cross-service login successful for user: {user.email}")
+
+        # Create response with token cookie for frontend
+        response = JSONResponse(content={
+            "success": True,
+            "message": "Cross-service authentication established",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+                "is_admin": user.is_admin,
+                "client_id": user.client_id
+            }
+        })
+
+        # Set HTTP-only cookie for Frontend service
+        response.set_cookie(
+            key="pulse_token",
+            value=token,
+            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
+            httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",  # Allow cross-site requests for navigation
+            path="/"  # Ensure cookie is sent to all paths
+        )
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cross-service login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Cross-service login failed"
         )
 
 
