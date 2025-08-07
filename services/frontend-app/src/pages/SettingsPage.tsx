@@ -30,7 +30,7 @@ export default function SettingsPage() {
   const [statsError, setStatsError] = useState<string | null>(null)
 
   // Set document title
-  useDocumentTitle('Settings')
+  useDocumentTitle('Admin Settings')
 
   // Load system stats for admin users
   useEffect(() => {
@@ -69,10 +69,10 @@ export default function SettingsPage() {
           >
             <div className="space-y-2">
               <h1 className="text-3xl font-bold text-primary">
-                Settings
+                Admin Settings
               </h1>
               <p className="text-secondary">
-                Configure your Pulse platform preferences
+                Configure platform-wide settings and manage organizational preferences
               </p>
             </div>
 
@@ -212,7 +212,7 @@ export default function SettingsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
                 className="card p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => navigate('/settings/color-scheme')}
+                onClick={() => navigate('/admin/color-scheme')}
               >
                 <div className="flex items-center space-x-3 mb-4">
                   <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-violet-500 rounded-lg flex items-center justify-center">
@@ -229,24 +229,6 @@ export default function SettingsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="card p-6 hover:shadow-lg transition-shadow cursor-pointer opacity-50"
-              >
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white text-lg">👤</span>
-                  </div>
-                  <h3 className="text-lg font-semibold text-primary">User Preferences</h3>
-                </div>
-                <p className="text-secondary text-sm">
-                  Manage your account settings and personal preferences
-                </p>
-                <span className="text-xs text-muted mt-2 block">Coming Soon</span>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
                 className="card p-6 hover:shadow-lg transition-shadow cursor-pointer opacity-50"
               >
                 <div className="flex items-center space-x-3 mb-4">
@@ -269,7 +251,7 @@ export default function SettingsPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.4 }}
                     className="card p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                    onClick={() => navigate('/settings/user-management')}
+                    onClick={() => navigate('/admin/user-management')}
                   >
                     <div className="flex items-center space-x-3 mb-4">
                       <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
@@ -287,7 +269,7 @@ export default function SettingsPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }}
                     className="card p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                    onClick={() => navigate('/settings/client-management')}
+                    onClick={() => navigate('/admin/client-management')}
                   >
                     <div className="flex items-center space-x-3 mb-4">
                       <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center">

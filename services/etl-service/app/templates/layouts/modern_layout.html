@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light" data-color-schema="default">
+<html lang="en" data-theme="{{ color_schema.theme if color_schema and color_schema.theme else 'light' }}" data-color-schema="{{ color_schema.mode if color_schema and color_schema.mode else 'default' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -63,7 +63,7 @@
         {% if not embedded %}
         <!-- Header - Full Width at Top -->
         {% from 'components/header.html' import header %}
-        {{ header(title='PULSE ETL MANAGEMENT') }}
+        {{ header(title='PULSE ETL MANAGEMENT', client_logo=client_logo, client_name=client_name) }}
         {% endif %}
 
         <!-- Content Area Below Header -->
@@ -218,7 +218,7 @@
             html.setAttribute('data-theme', newTheme);
             const icon = document.getElementById('theme-icon');
             if (icon) {
-                icon.textContent = newTheme === 'light' ? '🌙' : '☀️';
+                icon.className = newTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
             }
 
             // Save to database for cross-browser sync
@@ -230,9 +230,9 @@
                     return;
                 }
 
-                // Call backend service directly for theme update
+                // Call backend service directly for user theme update
                 const backendUrl = window.location.protocol + '//' + window.location.hostname + ':3001';
-                const response = await fetch(`${backendUrl}/api/v1/admin/theme-mode`, {
+                const response = await fetch(`${backendUrl}/api/v1/user/theme-mode`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -298,7 +298,7 @@
             document.documentElement.setAttribute('data-theme', currentTheme);
             const icon = document.getElementById('theme-icon');
             if (icon) {
-                icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+                icon.className = currentTheme === 'light' ? 'fas fa-moon' : 'fas fa-sun';
             }
 
             // Cross-browser theme sync completely removed to prevent infinite API calls

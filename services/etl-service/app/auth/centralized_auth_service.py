@@ -112,7 +112,8 @@ class CentralizedAuthService:
                 return cached_data
 
             # Cache miss - call backend service
-            logger.debug(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+            logger.info(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+            logger.info(f"Token being validated: {token[:30]}... (length: {len(token)})")
 
             # Create client with explicit configuration for local connections
             client_config = {
@@ -129,12 +130,12 @@ class CentralizedAuthService:
 
                 if response.status_code == 200:
                     data = response.json()
-                    logger.debug(f"Backend service response: {data}")
+                    logger.info(f"Backend service response: {data}")
                     if data.get("valid") and data.get("user"):
                         user_data = data["user"]
                         # Cache the successful validation
                         await self.cache.set(token_hash, user_data)
-                        logger.debug(f"Token validation successful for user: {user_data['email']}")
+                        logger.info(f"Token validation successful for user: {user_data['email']}")
                         return user_data
                     else:
                         logger.warning(f"Invalid response format from backend service. Response: {data}")

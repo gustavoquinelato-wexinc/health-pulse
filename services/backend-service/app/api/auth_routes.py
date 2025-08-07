@@ -233,6 +233,7 @@ async def validate_token(request: Request):
         user = await auth_service.verify_token(token)
 
         if user:
+            logger.info(f"Backend token validation successful for user: {user.email}")
             return TokenValidationResponse(
                 valid=True,
                 user={
@@ -246,6 +247,7 @@ async def validate_token(request: Request):
                 }
             )
         else:
+            logger.warning(f"Backend token validation failed for token: {token[:30]}... (length: {len(token)})")
             return TokenValidationResponse(valid=False, user=None)
             
     except Exception as e:

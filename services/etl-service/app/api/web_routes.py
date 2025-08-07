@@ -21,6 +21,7 @@ from sqlalchemy import func
 import httpx
 
 from app.core.logging_config import get_logger
+from app.core.utils import DateTimeHelper
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
 from app.core.database import get_database, get_db_session
 from app.models.unified_models import JobSchedule
@@ -32,6 +33,48 @@ from app.auth.centralized_auth_service import get_centralized_auth_service
 from app.core.config import settings
 
 logger = get_logger(__name__)
+
+# Helper function to get current user's client information
+async def get_user_client_info(token: str) -> dict:
+    """Get current user's client information for template rendering"""
+    try:
+        if not token:
+            return {"client_logo": None, "client_name": "Client"}
+
+        # Validate token and get user data
+        auth_service = get_centralized_auth_service()
+        user_data = await auth_service.verify_token(token)
+
+        if not user_data:
+            return {"client_logo": None, "client_name": "Client"}
+
+        # Get client information from database
+        from app.core.database import get_database
+        from app.models.unified_models import Client
+
+        database = get_database()
+        with database.get_session() as session:
+            client = session.query(Client).filter(
+                Client.id == user_data.get('client_id'),
+                Client.active == True
+            ).first()
+
+            if client:
+                # Combine assets_folder and logo_filename for the full path
+                logo_path = None
+                if client.assets_folder and client.logo_filename:
+                    logo_path = f"{client.assets_folder}/{client.logo_filename}"
+
+                return {
+                    "client_logo": logo_path,
+                    "client_name": client.name
+                }
+
+        return {"client_logo": None, "client_name": "Client"}
+
+    except Exception as e:
+        logger.warning(f"Failed to get client info: {e}")
+        return {"client_logo": None, "client_name": "Client"}
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -245,9 +288,9 @@ async def home_page(request: Request, token: Optional[str] = None):
                 if response_color.status_code == 200:
                     data = response_color.json()
                     if data.get("success"):
-                        # Also get theme mode from backend
+                        # Also get user-specific theme mode from backend
                         theme_response = await client.get(
-                            f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                             headers={"Authorization": f"Bearer {auth_token}"}
                         )
 
@@ -270,12 +313,18 @@ async def home_page(request: Request, token: Optional[str] = None):
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
 
+    # Get client information for header
+    auth_token = request.cookies.get("pulse_token")
+    client_info = await get_user_client_info(auth_token)
+
     # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
     return templates.TemplateResponse("home.html", {
         "request": request,
         "color_schema": color_schema_data,
-        "embedded": embedded
+        "embedded": embedded,
+        "client_logo": client_info["client_logo"],
+        "client_name": client_info["client_name"]
     })
 
 
@@ -294,7 +343,15 @@ async def old_dashboard_page(request: Request, token: Optional[str] = None):
         # Get color schema (use default for old dashboard)
         color_schema_data = {"mode": "default"}
 
-        return templates.TemplateResponse("old_dashboard.html", {"request": request, "color_schema": color_schema_data})
+        # Get client information for header
+        client_info = await get_user_client_info(auth_token)
+
+        return templates.TemplateResponse("old_dashboard.html", {
+            "request": request,
+            "color_schema": color_schema_data,
+            "client_logo": client_info["client_logo"],
+            "client_name": client_info["client_name"]
+        })
 
     except Exception as e:
         logger.error(f"Old dashboard page error: {e}")
@@ -732,9 +789,9 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {auth_token}"}
                             )
 
@@ -810,9 +867,9 @@ async def issuetype_mappings_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -881,9 +938,9 @@ async def issuetype_hierarchies_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -954,9 +1011,9 @@ async def workflows_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -979,11 +1036,16 @@ async def workflows_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get client information for header
+        client_info = await get_user_client_info(token)
+
         return templates.TemplateResponse("workflows.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "client_logo": client_info["client_logo"],
+            "client_name": client_info["client_name"]
         })
 
     except Exception as e:
@@ -1117,7 +1179,7 @@ async def logout_page(request: Request):
 
             // Redirect after cleanup
             setTimeout(() => {
-                window.location.href = '/login?message=logged_out';
+                window.location.href = '/login';
             }, 1000);
         </script>
     </body>
@@ -1160,7 +1222,7 @@ async def logout_page(request: Request):
         response.delete_cookie(key=cookie_name)
 
     logger.info("=== LOGOUT PROCESS COMPLETED ===")
-    logger.info(f"Returning cleanup HTML with redirect to: /login?message=logged_out")
+    logger.info(f"Returning cleanup HTML with redirect to: /login")
 
     # Add aggressive cache control headers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
@@ -1629,7 +1691,8 @@ async def get_user_color_schema(request: Request, user: UserData = Depends(requi
         pass
 
     # Get color schema with smart caching (no auto-refresh, only event-driven updates)
-    return await color_manager.get_color_schema(auth_token)
+    user_id = str(user.id) if user and hasattr(user, 'id') else "default"
+    return await color_manager.get_color_schema(auth_token, user_id)
 
 
 @router.get("/api/v1/debug/color-schema-cache")
@@ -1638,7 +1701,8 @@ async def get_color_schema_cache_status(user: UserData = Depends(require_web_aut
     from app.core.color_schema_manager import get_color_schema_manager
 
     color_manager = get_color_schema_manager()
-    cache_info = color_manager.get_cache_info()
+    user_id = str(user.id) if user and hasattr(user, 'id') else "default"
+    cache_info = color_manager.get_cache_info(user_id)
 
     return {
         "success": True,
@@ -1720,6 +1784,38 @@ async def handle_color_schema_mode_change(request: Request):
 
     except Exception as e:
         logger.error(f"❌ Error processing color schema mode change: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/api/v1/internal/user-theme-changed")
+async def handle_user_theme_change(request: Request):
+    """Internal endpoint: Handle user theme change notification from backend"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        theme_mode = data.get("theme_mode")
+
+        logger.info(f"🎨 User theme change notification received for user {user_id}: {theme_mode}")
+
+        # Invalidate user-specific color schema cache to force refresh on next page load
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_manager.invalidate_cache(str(user_id))
+
+        logger.info(f"✅ Color schema cache invalidated for user {user_id}")
+
+        return {
+            "success": True,
+            "message": "User theme change processed successfully",
+            "user_id": user_id,
+            "theme_mode": theme_mode
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error processing user theme change: {e}")
         return {
             "success": False,
             "error": str(e)

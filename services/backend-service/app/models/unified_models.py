@@ -18,6 +18,7 @@ class Client(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     name = Column(String, nullable=False, quote=False, name="name")
     website = Column(String, nullable=True, quote=False, name="website")
+    assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
@@ -79,6 +80,10 @@ class User(Base, BaseEntity):
     auth_provider = Column(String(50), nullable=False, default='local', quote=False, name="auth_provider")  # 'local', 'okta'
     okta_user_id = Column(String(255), unique=True, quote=False, name="okta_user_id")  # OKTA's user ID
     password_hash = Column(String(255), quote=False, name="password_hash")  # Only for local auth
+    theme_mode = Column(String(10), nullable=False, default='light', quote=False, name="theme_mode")  # 'light', 'dark'
+
+    # Profile image fields
+    profile_image_filename = Column(String(255), quote=False, name="profile_image_filename")  # Image filename
 
     # Metadata
     last_login_at = Column(DateTime, quote=False, name="last_login_at")

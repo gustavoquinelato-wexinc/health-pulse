@@ -18,6 +18,7 @@ class Client(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     name = Column(String, nullable=False, quote=False, name="name")
     website = Column(String, nullable=True, quote=False, name="website")
+    assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())

@@ -110,6 +110,7 @@ class AuthService:
                     user.role = session_data.get("role")
                     user.is_admin = session_data.get("is_admin")
                     user.client_id = session_data.get("client_id")
+                    user.theme_mode = session_data.get("theme_mode", "light")
                     user.active = True  # Redis sessions are always active
 
                     # Extend session on activity
@@ -158,6 +159,7 @@ class AuthService:
                     detached_user.active = user.active
                     detached_user.client_id = user.client_id
                     detached_user.auth_provider = user.auth_provider
+                    detached_user.theme_mode = user.theme_mode
                     detached_user.last_login_at = user.last_login_at
                     detached_user.created_at = user.created_at
                     detached_user.last_updated_at = user.last_updated_at
@@ -174,7 +176,8 @@ class AuthService:
                             "last_name": user.last_name,
                             "role": user.role,
                             "is_admin": user.is_admin,
-                            "client_id": user.client_id
+                            "client_id": user.client_id,
+                            "theme_mode": user.theme_mode
                         }
                         await self.redis_session_manager.store_session(token_hash, user_data)
 
@@ -298,7 +301,8 @@ class AuthService:
                     "last_name": user.last_name,
                     "role": user.role,
                     "is_admin": user.is_admin,
-                    "client_id": user.client_id
+                    "client_id": user.client_id,
+                    "theme_mode": user.theme_mode
                 }
                 ttl_seconds = int(self.token_expiry.total_seconds())
                 await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)

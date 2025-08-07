@@ -248,6 +248,34 @@ allow_methods=["GET", "POST", "PUT", "DELETE"]
 allow_headers=["Authorization", "Content-Type"]
 ```
 
+### Endpoint Permissions
+
+#### User vs Admin Endpoints
+```python
+# User-specific endpoints (accessible to all authenticated users)
+/api/v1/user/theme-mode          # Personal theme preferences
+/api/v1/user/profile             # User profile management
+/api/v1/user/password            # Password changes
+
+# Admin-only endpoints (require admin role)
+/api/v1/admin/color-scheme       # Client-wide color schema
+/api/v1/admin/user-management    # User CRUD operations
+/api/v1/admin/client-management  # Client configuration
+```
+
+#### Permission Validation
+```python
+# User endpoint - requires authentication only
+@router.get("/api/v1/user/theme-mode")
+async def get_user_theme(user: User = Depends(get_current_user)):
+    # Any authenticated user can access their own settings
+
+# Admin endpoint - requires admin role
+@router.get("/api/v1/admin/users")
+async def get_users(user: User = Depends(require_permission(Resource.USERS, Action.READ))):
+    # Only admin users can access this endpoint
+```
+
 ## 🔒 Data Security
 
 ### Encryption Standards

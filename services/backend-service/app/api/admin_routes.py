@@ -96,6 +96,8 @@ async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
 class UserResponse(BaseModel):
     id: int
     email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     role: str
     active: bool
     created_at: Optional[str] = None
@@ -103,13 +105,19 @@ class UserResponse(BaseModel):
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     password: str
     role: str
 
 class UserUpdateRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: Optional[EmailStr] = None
     role: Optional[str] = None
     active: Optional[bool] = None
+    password: Optional[str] = None
+    current_password: Optional[str] = None
 
 class DatabaseStats(BaseModel):
     database_size: str
@@ -142,14 +150,12 @@ class ColorSchemaRequest(BaseModel):
 class ColorSchemaModeRequest(BaseModel):
     mode: str  # "default" or "custom"
 
-class ThemeModeRequest(BaseModel):
-    mode: str  # "light" or "dark"
-
 class ClientResponse(BaseModel):
     id: int
     name: str
     website: Optional[str] = None
     active: bool
+    assets_folder: Optional[str] = None
     logo_filename: Optional[str] = None
 
 class ClientCreateRequest(BaseModel):
@@ -192,7 +198,9 @@ async def get_all_users(
                 UserResponse(
                     id=u.id,
                     email=u.email,
-                    role=u.role.value,
+                    first_name=u.first_name,
+                    last_name=u.last_name,
+                    role=u.role,
                     active=u.active,
                     created_at=u.created_at.isoformat() if u.created_at else None,
                     last_login_at=u.last_login_at.isoformat() if u.last_login_at else None
@@ -232,26 +240,27 @@ async def create_user(
                 )
 
             # Validate role
-            try:
-                role_enum = Role(user_data.role)
-            except ValueError:
+            valid_roles = ['admin', 'user', 'viewer']
+            if user_data.role not in valid_roles:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid role: {user_data.role}"
+                    detail=f"Invalid role: {user_data.role}. Must be one of: {valid_roles}"
                 )
 
             # Hash password
             auth_service = get_auth_service()
-            hashed_password = auth_service.hash_password(user_data.password)
+            hashed_password = auth_service._hash_password(user_data.password)
 
             # Create new user
             new_user = User(
                 email=user_data.email,
+                first_name=user_data.first_name,
+                last_name=user_data.last_name,
                 password_hash=hashed_password,
-                role=role_enum,
+                role=user_data.role,
                 client_id=admin_user.client_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
+                created_at=DateTimeHelper.now_utc(),
                 last_login_at=None
             )
 
@@ -263,7 +272,9 @@ async def create_user(
             return UserResponse(
                 id=new_user.id,
                 email=new_user.email,
-                role=new_user.role.value,
+                first_name=new_user.first_name,
+                last_name=new_user.last_name,
+                role=new_user.role,
                 active=new_user.active,
                 created_at=new_user.created_at.isoformat() if new_user.created_at else None,
                 last_login_at=None
@@ -304,6 +315,12 @@ async def update_user(
                 )
 
             # Update fields if provided
+            if user_data.first_name is not None:
+                user_to_update.first_name = user_data.first_name
+
+            if user_data.last_name is not None:
+                user_to_update.last_name = user_data.last_name
+
             if user_data.email is not None:
                 # Check if email is already taken by another user
                 existing_user = session.query(User).filter(
@@ -320,17 +337,41 @@ async def update_user(
                 user_to_update.email = user_data.email
 
             if user_data.role is not None:
-                try:
-                    role_enum = Role(user_data.role)
-                    user_to_update.role = role_enum
-                except ValueError:
+                # Validate role
+                valid_roles = ['admin', 'user', 'viewer']
+                if user_data.role not in valid_roles:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid role: {user_data.role}"
+                        detail=f"Invalid role: {user_data.role}. Must be one of: {valid_roles}"
                     )
+                user_to_update.role = user_data.role
 
             if user_data.active is not None:
                 user_to_update.active = user_data.active
+
+            # Handle password change
+            if user_data.password is not None:
+                from app.auth.auth_service import get_auth_service
+
+                # Validate current password if provided
+                if user_data.current_password is not None:
+                    auth_service = get_auth_service()
+                    if not auth_service._verify_password(user_data.current_password, user_to_update.password_hash):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Current password is incorrect"
+                        )
+
+                    # Check if new password is different from current password
+                    if auth_service._verify_password(user_data.password, user_to_update.password_hash):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="New password must be different from current password"
+                        )
+
+                # Hash new password
+                auth_service = get_auth_service()
+                user_to_update.password_hash = auth_service._hash_password(user_data.password)
 
             session.commit()
 
@@ -339,7 +380,9 @@ async def update_user(
             return UserResponse(
                 id=user_to_update.id,
                 email=user_to_update.email,
-                role=user_to_update.role.value,
+                first_name=user_to_update.first_name,
+                last_name=user_to_update.last_name,
+                role=user_to_update.role,
                 active=user_to_update.active,
                 created_at=user_to_update.created_at.isoformat() if user_to_update.created_at else None,
                 last_login_at=user_to_update.last_login_at.isoformat() if user_to_update.last_login_at else None
@@ -639,7 +682,7 @@ async def get_active_sessions(
                     user_id=user_session.user_id,
                     user_email=user_obj.email,
                     created_at=user_session.created_at.isoformat() if user_session.created_at else "",
-                    last_activity_at=user_session.last_activity_at.isoformat() if user_session.last_activity_at else "",
+                    last_activity_at=user_session.last_updated_at.isoformat() if user_session.last_updated_at else "",
                     ip_address=user_session.ip_address,
                     user_agent=user_session.user_agent
                 )
@@ -968,82 +1011,10 @@ async def update_color_schema_mode(
         )
 
 
-@router.get("/theme-mode")
-async def get_theme_mode(
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
-):
-    """Get the current theme mode for the client"""
-    try:
-        database = get_database()
-        with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id
-            theme_setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
-
-            theme_mode = theme_setting.setting_value if theme_setting else "light"
-
-            return {
-                "success": True,
-                "mode": theme_mode
-            }
-
-    except Exception as e:
-        logger.error(f"Error fetching theme mode: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch theme mode"
-        )
 
 
-@router.post("/theme-mode")
-async def update_theme_mode(
-    request: ThemeModeRequest,
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
-):
-    """Update the theme mode for the client"""
-    try:
-        # Validate theme mode
-        if request.mode not in ["light", "dark"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Theme mode must be 'light' or 'dark'"
-            )
 
-        database = get_database()
-        with database.get_write_session_context() as session:
-            # ✅ SECURITY: Get or create the theme mode setting filtered by client_id
-            setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
 
-            if setting:
-                setting.setting_value = request.mode
-                setting.last_updated_at = func.now()
-            else:
-                new_setting = SystemSettings(
-                    setting_key="theme_mode",
-                    setting_value=request.mode,
-                    setting_type='string',
-                    client_id=user.client_id,
-                    description="Theme mode (light or dark)"
-                )
-                session.add(new_setting)
-
-            session.commit()
-
-            logger.info(f"User {user.email} updated theme mode to {request.mode}")
-
-            return {"message": f"Theme mode updated to {request.mode}"}
-
-    except Exception as e:
-        logger.error(f"Error updating theme mode: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update theme mode"
-        )
 
 
 # ============================================================================
@@ -1071,6 +1042,7 @@ async def get_all_clients(
                     name=client.name,
                     website=client.website,
                     active=client.active,
+                    assets_folder=client.assets_folder,
                     logo_filename=client.logo_filename
                 )
                 for client in clients
@@ -1124,6 +1096,7 @@ async def create_client(
                 name=new_client.name,
                 website=new_client.website,
                 active=new_client.active,
+                assets_folder=new_client.assets_folder,
                 logo_filename=new_client.logo_filename
             )
 
@@ -1257,14 +1230,13 @@ async def delete_client(
 async def upload_client_logo(
     client_id: int,
     logo: UploadFile = File(...),
-    admin_user: User = Depends(require_permission("admin_panel", "admin"))
+    admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
     """Upload a logo for a client"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
-            import uuid
             from pathlib import Path
 
             # Find the client
@@ -1278,49 +1250,57 @@ async def upload_client_logo(
                     detail="Client not found"
                 )
 
-            # Validate file type
-            allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-            if logo.content_type not in allowed_types:
+            # Validate file type - only PNG files allowed
+            if logo.content_type != "image/png":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed."
+                    detail="Invalid file type. Only PNG files are allowed."
                 )
 
-            # Generate unique filename
-            file_extension = logo.filename.split('.')[-1] if '.' in logo.filename else 'png'
-            unique_filename = f"client_{client_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
-
-            # Create directories if they don't exist
-            frontend_logo_dir = Path("services/frontend-app/public/logos")
-            etl_logo_dir = Path("services/etl-service/static/logos")
-
-            frontend_logo_dir.mkdir(parents=True, exist_ok=True)
-            etl_logo_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save file to both locations
-            frontend_logo_path = frontend_logo_dir / unique_filename
-            etl_logo_path = etl_logo_dir / unique_filename
-
-            # Read file content
+            # Validate file size (max 5MB)
             file_content = await logo.read()
+            if len(file_content) > 5 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File size must be less than 5MB."
+                )
 
-            # Write to both locations
+            # Generate client-specific filename (always PNG)
+            client_name_lower = client.name.lower()
+            client_filename = f"{client_name_lower}-logo.png"
+
+            # Create client-specific directories (relative to project root)
+            # Path: services/backend-service/app/api/admin_routes.py -> go up 3 levels to project root
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            frontend_client_dir = project_root / f"services/frontend-app/public/assets/{client_name_lower}"
+            etl_client_dir = project_root / f"services/etl-service/app/static/assets/{client_name_lower}"
+
+            frontend_client_dir.mkdir(parents=True, exist_ok=True)
+            etl_client_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save file to both client directories
+            frontend_logo_path = frontend_client_dir / client_filename
+            etl_logo_path = etl_client_dir / client_filename
+
+            # Write to both locations (file_content already read during validation)
             with open(frontend_logo_path, "wb") as f:
                 f.write(file_content)
 
             with open(etl_logo_path, "wb") as f:
                 f.write(file_content)
 
-            # Update client record
-            client.logo_filename = unique_filename
-            client.last_updated_at = DateTimeHelper.utcnow()
+            # Update client record with assets folder and filename
+            client.assets_folder = client_name_lower
+            client.logo_filename = client_filename
+            client.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
 
             logger.info(f"Admin {admin_user.email} uploaded logo for client {client.name}")
 
             return {
                 "message": "Logo uploaded successfully",
-                "filename": unique_filename,
+                "assets_folder": client.assets_folder,
+                "logo_filename": client.logo_filename,
                 "client_id": client_id
             }
 

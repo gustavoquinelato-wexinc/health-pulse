@@ -104,7 +104,8 @@ SELECT * FROM users WHERE client_id = ? AND active = true;
 - **Job Processing**: Background jobs respect client boundaries
 
 #### Configuration Isolation
-- **Client-Specific Settings**: Stored in system_settings table
+- **Client-Specific Settings**: Stored in system_settings table (color schemas, branding)
+- **User-Specific Settings**: Stored in users table (theme_mode preferences)
 - **Custom Branding**: Per-client logos and color schemes
 - **Integration Configs**: Separate API credentials per client
 - **Feature Flags**: Client-specific feature enablement

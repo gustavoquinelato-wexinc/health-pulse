@@ -1,11 +1,15 @@
 <!-- Modern Header Component -->
-{% macro header(title='Pulse ETL Management', show_user_menu=true, show_theme_toggle=true) %}
-<header class="modern-header flex items-center justify-between px-6">
+{% macro header(title='Pulse ETL Management', show_user_menu=true, show_theme_toggle=true, client_logo=none, client_name='Client') %}
+<header class="modern-header header-enhanced flex items-center justify-between px-6">
     <!-- Logo and Title -->
     <div class="flex items-center space-x-4">
-        <!-- WEX Logo -->
+        <!-- Client Logo -->
         <div class="h-8">
-            <img src="/static/wex-logo-image.png" alt="WEX Logo" class="h-full object-contain">
+            {% if client_logo %}
+                <img src="/static/assets/{{ client_logo }}" alt="{{ client_name }} Logo" class="h-full object-contain">
+            {% else %}
+                <img src="/static/wex-logo-image.png" alt="{{ client_name }} Logo" class="h-full object-contain">
+            {% endif %}
         </div>
 
         <!-- Divider -->
@@ -25,21 +29,21 @@
     <!-- Right Side Actions -->
     <div class="flex items-center space-x-4">
         <!-- Pulse Icon -->
-        <a id="pulse-link" href="http://localhost:3000/home" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg transition-colors inline-block" style="background-color: var(--bg-tertiary);" title="Pulse" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
+        <a id="pulse-link" href="http://localhost:3000/home" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg nav-item transition-colors inline-block" style="background-color: var(--bg-tertiary);" title="Pulse" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
             <img src="/static/heart-pulse-fill-svgrepo-com.svg" alt="Pulse" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%);">
         </a>
 
         {% if show_theme_toggle %}
         <!-- Theme Toggle -->
-        <button onclick="toggleTheme()" class="p-2 rounded-lg transition-colors" style="background-color: var(--bg-tertiary);" title="Toggle Theme" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
-            <span id="theme-icon">🌙</span>
+        <button onclick="toggleTheme()" class="p-2 rounded-lg nav-item transition-colors" style="background-color: var(--bg-tertiary);" title="Toggle Theme" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
+            <i id="theme-icon" class="fas fa-moon"></i>
         </button>
         {% endif %}
 
         {% if show_user_menu %}
         <!-- User Menu -->
         <div class="relative">
-            <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 transition-colors" style="background-color: var(--bg-tertiary); border-radius: 0.5rem;" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
+            <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 nav-item transition-colors" style="background-color: var(--bg-tertiary); border-radius: 0.5rem;" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
                 <div class="w-8 h-8 flex items-center justify-center" style="background: linear-gradient(135deg, var(--color-3), var(--color-4)); border-radius: 9999px;">
                     <span class="text-sm font-medium text-white" id="user-initials">U</span>
                 </div>

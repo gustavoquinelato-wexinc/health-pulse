@@ -1,4 +1,10 @@
 import { motion } from 'framer-motion';
+import {
+  BarChart3,
+  Home,
+  Settings,
+  TrendingUp
+} from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface NavigationItem {
   id: string;
   label: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   path: string;
   adminOnly?: boolean;
   isAction?: boolean;
@@ -21,13 +27,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'home',
     label: 'Home',
-    icon: '🏠',
+    icon: Home,
     path: '/home'
   },
   {
     id: 'dora',
     label: 'DORA Metrics',
-    icon: '📊',
+    icon: BarChart3,
     path: '/dora',
     subItems: [
       { id: 'deployment-frequency', label: 'Deployment Frequency', path: '/dora/deployment-frequency' },
@@ -39,24 +45,27 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'engineering',
     label: 'Engineering Analytics',
-    icon: '⚙️',
+    icon: TrendingUp,
     path: '/engineering'
   },
 
 ]
 
-const secondaryItems: NavigationItem[] = [
+// Personal settings - accessible to all users (removed profile from sidebar)
+const personalItems: NavigationItem[] = []
+
+// Admin settings - only for admins
+const adminItems: NavigationItem[] = [
   {
-    id: 'settings',
-    label: 'Settings',
-    icon: '🔧',
-    path: '/settings',
+    id: 'admin',
+    label: 'Admin',
+    icon: Settings,
+    path: '/admin',
     subItems: [
-      { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
-      { id: 'user-preferences', label: 'User Preferences', path: '/settings/user-preferences' },
-      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
-      { id: 'user-management', label: 'User Management', path: '/settings/user-management' },
-      { id: 'client-management', label: 'Client Management', path: '/settings/client-management' }
+      { id: 'color-scheme', label: 'Color Scheme', path: '/admin/color-scheme' },
+      { id: 'user-management', label: 'User Management', path: '/admin/user-management' },
+      { id: 'client-management', label: 'Client Management', path: '/admin/client-management' },
+      { id: 'notifications', label: 'Notifications', path: '/admin/notifications' }
     ]
   }
 ]
@@ -283,10 +292,10 @@ export default function CollapsedSidebar() {
       {/* Collapsed Sidebar */}
       <aside
         ref={sidebarRef}
-        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 bg-secondary border-r border-default shadow-lg z-40 overflow-visible flex flex-col"
+        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 sidebar-container z-40 overflow-visible flex flex-col"
       >
         {/* Main Navigation */}
-        <div className="flex-1 flex flex-col space-y-2 py-4 px-2">
+        <div className="flex-1 flex flex-col justify-center space-y-3 px-2">
           {navigationItems
             .filter(item => !item.adminOnly || isAdmin) // Filter admin-only items
             .map((item) => (
@@ -299,9 +308,9 @@ export default function CollapsedSidebar() {
                   }}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                    ? 'text-white shadow-lg'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                    ? 'nav-item-active text-white'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary'
                     }`}
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
@@ -309,24 +318,48 @@ export default function CollapsedSidebar() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <item.icon className="w-5 h-5" />
                 </motion.button>
               </div>
             ))}
         </div>
 
-        {/* Settings at Bottom - Admin Only */}
+        {/* Personal Settings - All Users */}
+        <div className="border-t border-default px-2 py-4">
+          {personalItems.map((item) => (
+            <div key={item.id} className="relative">
+              <motion.button
+                onClick={() => handleNavClick(item.path, item)}
+                onMouseEnter={(e) => handleMouseEnter(e, item)}
+                onMouseLeave={handleMouseLeave}
+                className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                  ? 'nav-item-active text-white'
+                  : 'text-secondary hover:bg-tertiary hover:text-primary'
+                  }`}
+                style={isActive(item) ? {
+                  background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                } : {}}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <item.icon className="w-6 h-6" />
+              </motion.button>
+            </div>
+          ))}
+        </div>
+
+        {/* Admin Settings - Admin Only */}
         {isAdmin && (
           <div className="border-t border-default px-2 py-4">
-            {secondaryItems.map((item) => (
+            {adminItems.map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
                   onClick={() => handleNavClick(item.path, item)}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                    ? 'text-white shadow-lg'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                    ? 'nav-item-active text-white'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary'
                     }`}
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
@@ -334,7 +367,7 @@ export default function CollapsedSidebar() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <item.icon className="w-5 h-5" />
                 </motion.button>
               </div>
             ))}
@@ -349,7 +382,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...secondaryItems].find(i => i.id === hoveredItem)
+            const item = [...navigationItems, ...personalItems, ...adminItems].find(i => i.id === hoveredItem)
             if (!item || (item as any).subItems) return null
 
             return (
@@ -372,7 +405,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...secondaryItems].find(i => i.id === openSubmenu)
+            const item = [...navigationItems, ...personalItems, ...adminItems].find(i => i.id === openSubmenu)
             if (!item || !(item as any).subItems) return null
 
             return (

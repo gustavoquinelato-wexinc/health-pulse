@@ -49,11 +49,13 @@ SettingsManager.set_setting("custom_colors", color_data, client_id, "json")
 ### Theme Configuration
 
 #### theme_mode
-- **Purpose**: Controls light/dark mode for the entire platform
-- **Type**: string
+- **Purpose**: Controls light/dark mode preference per user
+- **Type**: string (stored in users table, not system_settings)
 - **Valid Values**: "light", "dark"
 - **Default**: "light"
-- **Scope**: Affects all UI components across frontend and ETL service
+- **Scope**: User-specific preference affecting UI across frontend and ETL service
+- **Storage**: `users.theme_mode` column
+- **API**: `/api/v1/user/theme-mode` (user-specific, not admin)
 - **Example**: `"dark"`
 
 #### color_schema_mode

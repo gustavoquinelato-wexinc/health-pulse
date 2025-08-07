@@ -1749,3 +1749,142 @@ body {
 .modern-sidebar>div:last-child {
     margin-top: auto !important;
 }
+
+/* ========================================
+   ENTERPRISE UX ENHANCEMENTS
+   ======================================== */
+
+/* Enhanced Card Components - Enterprise Style */
+.card-elevated {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-elevated:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    transform: translateY(-3px);
+}
+
+/* Enhanced Navigation & Sidebar Styles */
+.nav-item {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-item:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transform: scale(1.05);
+}
+
+.nav-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.3s ease;
+}
+
+.nav-item:hover::before {
+    left: 100%;
+}
+
+.nav-item-active {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background: linear-gradient(135deg, var(--color-1), var(--color-2));
+}
+
+/* Professional Sidebar Container */
+.sidebar-container {
+    background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .sidebar-container {
+    background: linear-gradient(to bottom, #1f2937, #111827);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+}
+
+/* Enhanced Button Styles - Enterprise Grade */
+.btn-enhanced {
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-enhanced:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transform: translateY(-1px);
+}
+
+.btn-enhanced:active {
+    transform: scale(0.95);
+}
+
+.btn-enhanced::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.btn-enhanced:hover::before {
+    left: 100%;
+}
+
+/* Enhanced Form Elements */
+.form-input-enhanced {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-input-enhanced:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+
+.form-input-enhanced:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Professional Header Enhancements */
+.header-enhanced {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(8px);
+}
+
+/* Micro-interaction Classes */
+.hover-lift {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+    transform: translateY(-2px);
+}
+
+.hover-scale {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-scale:hover {
+    transform: scale(1.05);
+}
+
+.hover-glow {
+    transition: box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-glow:hover {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}

@@ -39,7 +39,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Configure axios defaults - Use direct backend URL since CORS is properly configured
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-axios.defaults.withCredentials = true  // Include cookies in all requests
+// Note: withCredentials is set per-request basis to avoid CORS issues
 
 // Global axios response interceptor for handling authentication errors
 let isInterceptorSetup = false
@@ -52,7 +52,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [colorSchemaLoaded, setColorSchemaLoaded] = useState(false)
-  const [sessionCheckInterval, setSessionCheckInterval] = useState<NodeJS.Timeout | null>(null)
+  const [sessionCheckInterval, setSessionCheckInterval] = useState<number | null>(null)
 
   // Load color schema from API (with caching)
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             } else {
               console.log('AuthContext: Session validation successful')
             }
-          } catch (error) {
+          } catch (error: any) {
             console.warn('AuthContext: Session validation failed during periodic check:', error)
             // Don't logout on network errors - only on 401
             if (error.response?.status === 401) {
@@ -580,7 +580,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // Force a hard refresh to clear any remaining cached state
       setTimeout(() => {
-        window.location.href = '/login?message=logged_out'
+        window.location.href = '/login'
       }, 100)
     }
   }

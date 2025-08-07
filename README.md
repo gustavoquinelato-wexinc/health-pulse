@@ -39,7 +39,7 @@ Pulse Platform transforms raw development data into actionable business intellig
 **🎨 Executive Experience**
 - Clean, professional UI designed for senior leadership
 - Customizable color schemes and branding per client
-- Light/dark mode support with enterprise aesthetics
+- User-specific light/dark mode preferences with enterprise aesthetics
 - Mobile-responsive design for on-the-go access
 
 ## 🏗️ Architecture Highlights
