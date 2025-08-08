@@ -31,7 +31,7 @@ from app.models.unified_models import (
     StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
     ProjectsIssuetypes, ProjectsStatuses
 )
-from app.auth.auth_middleware import require_permission
+from app.auth.auth_middleware import require_permission, require_authentication
 from app.auth.auth_service import get_auth_service
 from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
 from app.core.logging_config import get_logger
@@ -96,6 +96,8 @@ async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
 class UserResponse(BaseModel):
     id: int
     email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     role: str
     active: bool
     created_at: Optional[str] = None
@@ -103,29 +105,50 @@ class UserResponse(BaseModel):
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     password: str
     role: str
 
 class UserUpdateRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: Optional[EmailStr] = None
     role: Optional[str] = None
     active: Optional[bool] = None
+    password: Optional[str] = None
+    current_password: Optional[str] = None
 
 class DatabaseStats(BaseModel):
     database_size: str
     table_count: int
     total_records: int
+    monthly_growth_percentage: Optional[float] = None
 
 class UserStats(BaseModel):
     total_users: int
     active_users: int
     logged_users: int
     admin_users: int
+    today_active: int
+    week_active: int
+    month_active: int
+    inactive_30_days: int
+
+class PerformanceStats(BaseModel):
+    connection_pool_utilization: float
+    active_connections: int
+    total_connections: int
+    avg_response_time_ms: Optional[float] = None
+    database_health: str
 
 class SystemStatsResponse(BaseModel):
     database: DatabaseStats
     users: UserStats
+    performance: PerformanceStats
     tables: Dict[str, int]
+    table_categories: Optional[Dict[str, Dict[str, int]]] = None
+    database_size_mb: Optional[float] = None
 
 class ActiveSessionResponse(BaseModel):
     id: int
@@ -142,14 +165,12 @@ class ColorSchemaRequest(BaseModel):
 class ColorSchemaModeRequest(BaseModel):
     mode: str  # "default" or "custom"
 
-class ThemeModeRequest(BaseModel):
-    mode: str  # "light" or "dark"
-
 class ClientResponse(BaseModel):
     id: int
     name: str
     website: Optional[str] = None
     active: bool
+    assets_folder: Optional[str] = None
     logo_filename: Optional[str] = None
 
 class ClientCreateRequest(BaseModel):
@@ -177,7 +198,7 @@ class PermissionMatrixResponse(BaseModel):
 async def get_all_users(
     skip: int = 0,
     limit: int = 100,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
 ):
     """Get all users for current user's client with pagination"""
     try:
@@ -192,7 +213,9 @@ async def get_all_users(
                 UserResponse(
                     id=u.id,
                     email=u.email,
-                    role=u.role.value,
+                    first_name=u.first_name,
+                    last_name=u.last_name,
+                    role=u.role,
                     active=u.active,
                     created_at=u.created_at.isoformat() if u.created_at else None,
                     last_login_at=u.last_login_at.isoformat() if u.last_login_at else None
@@ -232,26 +255,28 @@ async def create_user(
                 )
 
             # Validate role
-            try:
-                role_enum = Role(user_data.role)
-            except ValueError:
+            valid_roles = ['admin', 'user', 'viewer']
+            if user_data.role not in valid_roles:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid role: {user_data.role}"
+                    detail=f"Invalid role: {user_data.role}. Must be one of: {valid_roles}"
                 )
 
             # Hash password
             auth_service = get_auth_service()
-            hashed_password = auth_service.hash_password(user_data.password)
+            hashed_password = auth_service._hash_password(user_data.password)
 
             # Create new user
             new_user = User(
                 email=user_data.email,
+                first_name=user_data.first_name,
+                last_name=user_data.last_name,
                 password_hash=hashed_password,
-                role=role_enum,
+                role=user_data.role,
+                is_admin=(user_data.role == 'admin'),  # ✅ Set is_admin based on role
                 client_id=admin_user.client_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
+                created_at=DateTimeHelper.now_utc(),
                 last_login_at=None
             )
 
@@ -263,7 +288,9 @@ async def create_user(
             return UserResponse(
                 id=new_user.id,
                 email=new_user.email,
-                role=new_user.role.value,
+                first_name=new_user.first_name,
+                last_name=new_user.last_name,
+                role=new_user.role,
                 active=new_user.active,
                 created_at=new_user.created_at.isoformat() if new_user.created_at else None,
                 last_login_at=None
@@ -304,6 +331,12 @@ async def update_user(
                 )
 
             # Update fields if provided
+            if user_data.first_name is not None:
+                user_to_update.first_name = user_data.first_name
+
+            if user_data.last_name is not None:
+                user_to_update.last_name = user_data.last_name
+
             if user_data.email is not None:
                 # Check if email is already taken by another user
                 existing_user = session.query(User).filter(
@@ -320,17 +353,41 @@ async def update_user(
                 user_to_update.email = user_data.email
 
             if user_data.role is not None:
-                try:
-                    role_enum = Role(user_data.role)
-                    user_to_update.role = role_enum
-                except ValueError:
+                # Validate role
+                valid_roles = ['admin', 'user', 'viewer']
+                if user_data.role not in valid_roles:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid role: {user_data.role}"
+                        detail=f"Invalid role: {user_data.role}. Must be one of: {valid_roles}"
                     )
+                user_to_update.role = user_data.role
 
             if user_data.active is not None:
                 user_to_update.active = user_data.active
+
+            # Handle password change
+            if user_data.password is not None:
+                from app.auth.auth_service import get_auth_service
+
+                # Validate current password if provided
+                if user_data.current_password is not None:
+                    auth_service = get_auth_service()
+                    if not auth_service._verify_password(user_data.current_password, user_to_update.password_hash):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Current password is incorrect"
+                        )
+
+                    # Check if new password is different from current password
+                    if auth_service._verify_password(user_data.password, user_to_update.password_hash):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="New password must be different from current password"
+                        )
+
+                # Hash new password
+                auth_service = get_auth_service()
+                user_to_update.password_hash = auth_service._hash_password(user_data.password)
 
             session.commit()
 
@@ -339,7 +396,9 @@ async def update_user(
             return UserResponse(
                 id=user_to_update.id,
                 email=user_to_update.email,
-                role=user_to_update.role.value,
+                first_name=user_to_update.first_name,
+                last_name=user_to_update.last_name,
+                role=user_to_update.role,
                 active=user_to_update.active,
                 created_at=user_to_update.created_at.isoformat() if user_to_update.created_at else None,
                 last_login_at=user_to_update.last_login_at.isoformat() if user_to_update.last_login_at else None
@@ -422,7 +481,7 @@ async def delete_user(
 
 @router.get("/system/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
-    admin_user: User = Depends(require_permission("admin_panel", "read"))
+    admin_user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
 ):
     """Get system statistics for the admin dashboard"""
     try:
@@ -455,55 +514,322 @@ async def get_system_stats(
                 User.role == Role.ADMIN
             ).count()
 
-            # Get table counts for this client
+            # Calculate time-based user activity metrics
+            from datetime import timedelta
+            from app.core.utils import DateTimeHelper
+            now_utc = DateTimeHelper.now_utc()
+
+            # Initialize time-based metrics with safe defaults
+            today_active = 0
+            week_active = 0
+            month_active = 0
+            inactive_30_days = 0
+
+            # Only calculate time-based metrics if UserSession table has data
+            try:
+                # Check if UserSession table exists and has records
+                session_count = session.query(UserSession).count()
+
+                if session_count > 0:
+                    # Today active users (users with sessions created today)
+                    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= today_start
+                    ).distinct().count()
+
+                    # Week active users (users with sessions created in last 7 days)
+                    week_start = now_utc - timedelta(days=7)
+                    week_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= week_start
+                    ).distinct().count()
+
+                    # Month active users (users with sessions created in last 30 days)
+                    month_start = now_utc - timedelta(days=30)
+                    month_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= month_start
+                    ).distinct().count()
+
+                    # Inactive users (active users with no sessions in last 30 days)
+                    # Get list of user IDs who have sessions in the last 30 days
+                    active_user_ids = [
+                        row[0] for row in session.query(UserSession.user_id).filter(
+                            UserSession.created_at >= month_start
+                        ).distinct().all()
+                    ]
+
+                    # Count active users not in the active_user_ids list
+                    if active_user_ids:
+                        inactive_30_days = session.query(User).filter(
+                            User.client_id == client_id,
+                            User.active == True,
+                            ~User.id.in_(active_user_ids)
+                        ).count()
+                    else:
+                        # If no sessions exist, all active users are inactive
+                        inactive_30_days = active_users
+
+                else:
+                    logger.info("No user sessions found - using default values for time-based metrics")
+                    # If no sessions exist, all active users are considered inactive
+                    inactive_30_days = active_users
+
+            except Exception as e:
+                logger.warning(f"Error calculating time-based user metrics: {e}")
+                # Use safe defaults
+                today_active = 0
+                week_active = 0
+                month_active = 0
+                inactive_30_days = active_users  # All active users are inactive if we can't calculate
+
+            # Get comprehensive table counts for this client (matching ETL service)
             table_counts = {}
+            total_records = 0
 
-            # Count integrations
-            table_counts['integrations'] = session.query(Integration).filter(
-                Integration.client_id == client_id
-            ).count()
+            # Define all table models with client_id filtering
+            table_models = {
+                "user_sessions": UserSession,
+                "user_permissions": UserPermission,
+                "clients": Client,
+                "integrations": Integration,
+                "projects": Project,
+                "issues": Issue,
+                "issue_changelogs": IssueChangelog,
+                "repositories": Repository,
+                "pull_requests": PullRequest,
+                "pull_request_commits": PullRequestCommit,
+                "pull_request_reviews": PullRequestReview,
+                "pull_request_comments": PullRequestComment,
+                "jira_pull_request_links": JiraPullRequestLinks,
+                "issuetypes": Issuetype,
+                "statuses": Status,
+                "status_mappings": StatusMapping,
+                "workflows": Workflow,
+                "issuetype_mappings": IssuetypeMapping,
+                "issuetype_hierarchies": IssuetypeHierarchy,
+                "projects_issuetypes": ProjectsIssuetypes,
+                "projects_statuses": ProjectsStatuses,
+                "job_schedules": JobSchedule,
+                "system_settings": SystemSettings,
+                "migration_history": MigrationHistory
+            }
 
-            # Count projects
-            table_counts['projects'] = session.query(Project).filter(
-                Project.client_id == client_id
-            ).count()
+            # ✅ SECURITY: Count records filtered by client_id
+            for table_name, model in table_models.items():
+                try:
+                    # Handle different table types
+                    if table_name in ['migration_history']:
+                        # Global tables - count all records
+                        count = session.query(func.count(model.id)).scalar() or 0
+                    elif table_name == 'clients':
+                        # Clients table - count all clients (no client_id filtering)
+                        count = session.query(func.count(model.id)).scalar() or 0
+                    elif table_name in ['user_sessions', 'user_permissions']:
+                        # User-related tables - filter by user's client_id through user relationship
+                        if table_name == 'user_sessions':
+                            count = session.query(func.count(model.id)).join(
+                                User, model.user_id == User.id
+                            ).filter(User.client_id == client_id).scalar() or 0
+                        else:  # user_permissions
+                            count = session.query(func.count(model.id)).join(
+                                User, model.user_id == User.id
+                            ).filter(User.client_id == client_id).scalar() or 0
+                    else:
+                        # Standard client-specific tables
+                        if hasattr(model, 'client_id'):
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).filter(model.client_id == client_id).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).filter(model.client_id == client_id).scalar() or 0
+                        else:
+                            # Fallback for tables without client_id
+                            count = session.query(func.count(model.id)).scalar() or 0
 
-            # Count issues
-            table_counts['issues'] = session.query(Issue).filter(
-                Issue.client_id == client_id
-            ).count()
+                    table_counts[table_name] = count
+                    total_records += count
 
-            # Count repositories
-            table_counts['repositories'] = session.query(Repository).filter(
-                Repository.client_id == client_id
-            ).count()
+                except Exception as e:
+                    logger.warning(f"Could not count records for table {table_name}: {e}")
+                    table_counts[table_name] = 0
 
-            # Count pull requests
-            table_counts['pull_requests'] = session.query(PullRequest).filter(
-                PullRequest.client_id == client_id
-            ).count()
+            # Add users to total records
+            total_records += total_users
 
-            # Calculate total records
-            total_records = sum(table_counts.values()) + total_users
+            # Get database size in MB
+            database_size_mb = 0.0
+            database_size_formatted = "N/A"
+            try:
+                # Query PostgreSQL for database size
+                from sqlalchemy import text
+                size_result = session.execute(
+                    text("SELECT pg_size_pretty(pg_database_size(current_database())) as size, "
+                         "pg_database_size(current_database()) as size_bytes")
+                ).fetchone()
 
-            # Database stats (simplified for now)
+                if size_result:
+                    # Convert bytes to MB
+                    database_size_mb = round(size_result.size_bytes / (1024 * 1024), 2)
+                    database_size_formatted = size_result.size
+
+            except Exception as e:
+                logger.warning(f"Could not get database size: {e}")
+
+            # Include users table in table counts
+            table_counts['users'] = total_users
+
+            # Count ALL tables (not just active ones)
+            total_tables = len(table_counts)
+
+            # Calculate monthly growth percentage
+            monthly_growth = 0.0
+            try:
+                from datetime import datetime, timedelta
+                from sqlalchemy import and_
+                from app.core.utils import DateTimeHelper
+
+                # Get current month and last month date ranges in UTC (database timezone)
+                now = DateTimeHelper.now_utc()
+                current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                last_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
+
+                # Count records created this month vs last month for main data tables
+                current_month_records = 0
+                last_month_records = 0
+
+                # Focus on main data tables that have created_at fields
+                growth_tables = {
+                    'issues': Issue,
+                    'pull_requests': PullRequest,
+                    'repositories': Repository,
+                    'issue_changelogs': IssueChangelog,
+                    'pull_request_comments': PullRequestComment,
+                    'pull_request_commits': PullRequestCommit,
+                    'pull_request_reviews': PullRequestReview,
+                    'jira_pull_request_links': JiraPullRequestLinks
+                }
+
+                for table_name, model in growth_tables.items():
+                    if hasattr(model, 'created_at') and hasattr(model, 'client_id'):
+                        # Current month
+                        current_count = session.query(func.count(model.id)).filter(
+                            and_(
+                                model.client_id == client_id,
+                                model.created_at >= current_month_start
+                            )
+                        ).scalar() or 0
+                        current_month_records += current_count
+
+                        # Last month
+                        last_count = session.query(func.count(model.id)).filter(
+                            and_(
+                                model.client_id == client_id,
+                                model.created_at >= last_month_start,
+                                model.created_at < current_month_start
+                            )
+                        ).scalar() or 0
+                        last_month_records += last_count
+
+                # Calculate growth percentage
+                if last_month_records > 0:
+                    monthly_growth = ((current_month_records - last_month_records) / last_month_records) * 100
+                elif current_month_records > 0:
+                    monthly_growth = 100.0  # 100% growth if we had 0 last month but have records this month
+
+            except Exception as e:
+                logger.warning(f"Could not calculate monthly growth: {e}")
+                monthly_growth = None
+
+            # Database stats with detailed information
             database_stats = DatabaseStats(
-                database_size="N/A",  # Would need database-specific queries
-                table_count=len(table_counts) + 1,  # +1 for users table
-                total_records=total_records
+                database_size=database_size_formatted,
+                table_count=total_tables,
+                total_records=total_records,
+                monthly_growth_percentage=monthly_growth
             )
 
             user_stats = UserStats(
                 total_users=total_users,
                 active_users=active_users,
                 logged_users=logged_users,
-                admin_users=admin_users
+                admin_users=admin_users,
+                today_active=today_active,
+                week_active=week_active,
+                month_active=month_active,
+                inactive_30_days=inactive_30_days
+            )
+
+            # Categorize tables for better presentation (matching ETL service grouping)
+            table_categories = {
+                "Core Data": {
+                    "users": total_users,
+                    "user_sessions": table_counts.get('user_sessions', 0),
+                    "user_permissions": table_counts.get('user_permissions', 0),
+                    "clients": table_counts.get('clients', 0),
+                    "integrations": table_counts.get('integrations', 0),
+                    "projects": table_counts.get('projects', 0)
+                },
+                "Issues & Workflow": {
+                    "issues": table_counts.get('issues', 0),
+                    "issue_changelogs": table_counts.get('issue_changelogs', 0),
+                    "issuetypes": table_counts.get('issuetypes', 0),
+                    "statuses": table_counts.get('statuses', 0),
+                    "status_mappings": table_counts.get('status_mappings', 0),
+                    "workflows": table_counts.get('workflows', 0),
+                    "issuetype_mappings": table_counts.get('issuetype_mappings', 0),
+                    "issuetype_hierarchies": table_counts.get('issuetype_hierarchies', 0),
+                    "projects_issuetypes": table_counts.get('projects_issuetypes', 0),
+                    "projects_statuses": table_counts.get('projects_statuses', 0)
+                },
+                "Development Data": {
+                    "repositories": table_counts.get('repositories', 0),
+                    "pull_requests": table_counts.get('pull_requests', 0),
+                    "pull_request_commits": table_counts.get('pull_request_commits', 0),
+                    "pull_request_reviews": table_counts.get('pull_request_reviews', 0),
+                    "pull_request_comments": table_counts.get('pull_request_comments', 0)
+                },
+                "Linking & Mapping": {
+                    "jira_pull_request_links": table_counts.get('jira_pull_request_links', 0)
+                },
+                "System": {
+                    "job_schedules": table_counts.get('job_schedules', 0),
+                    "system_settings": table_counts.get('system_settings', 0),
+                    "migration_history": table_counts.get('migration_history', 0)
+                }
+            }
+
+            # Get real performance metrics
+            from app.core.database_router import get_database_router
+            db_router = get_database_router()
+            pool_stats = db_router.get_connection_pool_stats()
+
+            # Calculate performance metrics
+            primary_pool = pool_stats['primary']
+            performance_stats = PerformanceStats(
+                connection_pool_utilization=round(primary_pool['utilization'] * 100, 1),
+                active_connections=primary_pool['checked_out'],
+                total_connections=primary_pool['size'] + primary_pool['overflow'],
+                avg_response_time_ms=None,  # Would need query timing implementation
+                database_health="Healthy" if primary_pool['utilization'] < 0.8 else "High Load"
             )
 
             return SystemStatsResponse(
                 database=database_stats,
                 users=user_stats,
-                tables=table_counts
+                performance=performance_stats,
+                tables=table_counts,
+                table_categories=table_categories,
+                database_size_mb=database_size_mb
             )
 
     except Exception as e:
@@ -639,7 +965,7 @@ async def get_active_sessions(
                     user_id=user_session.user_id,
                     user_email=user_obj.email,
                     created_at=user_session.created_at.isoformat() if user_session.created_at else "",
-                    last_activity_at=user_session.last_activity_at.isoformat() if user_session.last_activity_at else "",
+                    last_activity_at=user_session.last_updated_at.isoformat() if user_session.last_updated_at else "",
                     ip_address=user_session.ip_address,
                     user_agent=user_session.user_agent
                 )
@@ -663,21 +989,48 @@ async def terminate_all_sessions(
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
+            from app.core.redis_session_manager import get_redis_session_manager
 
-            # ✅ SECURITY: Only terminate sessions for users in the same client
-            terminated_count = session.query(UserSession).join(
+            # ✅ SECURITY: Get session IDs for current client only (using join for filtering)
+            session_ids_to_terminate = session.query(UserSession.id).join(
                 User, UserSession.user_id == User.id
             ).filter(
                 User.client_id == user.client_id,
                 UserSession.active == True
-            ).update({
-                UserSession.active: False,
-                UserSession.terminated_at: DateTimeHelper.utcnow()
-            }, synchronize_session=False)
+            ).all()
+
+            # Extract the IDs from the result tuples
+            session_ids = [session_id[0] for session_id in session_ids_to_terminate]
+            terminated_count = len(session_ids)
+
+            # Get all user IDs for the current client for Redis cleanup
+            client_user_ids = session.query(User.id).filter(
+                User.client_id == user.client_id
+            ).all()
+            user_ids_list = [user_id[0] for user_id in client_user_ids]
+
+            # ✅ FIX: Update sessions without join to avoid SQLAlchemy error
+            if session_ids:
+                session.query(UserSession).filter(
+                    UserSession.id.in_(session_ids)
+                ).update({
+                    UserSession.active: False,
+                    UserSession.last_updated_at: DateTimeHelper.now_utc()
+                }, synchronize_session=False)
 
             session.commit()
 
-            logger.info(f"Admin {user.email} terminated {terminated_count} active sessions")
+            # Also clear Redis sessions for all users in the client
+            redis_manager = get_redis_session_manager()
+            if redis_manager.is_available():
+                for user_id in user_ids_list:
+                    try:
+                        await redis_manager.invalidate_all_user_sessions(user_id)
+                        logger.debug(f"Cleared Redis sessions for user {user_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clear Redis sessions for user {user_id}: {e}")
+
+            logger.info(f"Admin {user.email} terminated {terminated_count} active sessions (including Redis cleanup)")
 
             return {
                 "message": f"Terminated {terminated_count} active sessions",
@@ -720,7 +1073,7 @@ async def terminate_user_session(
 
             # Terminate the session
             user_session.active = False
-            user_session.terminated_at = DateTimeHelper.utcnow()
+            user_session.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
 
             logger.info(f"Admin {user.email} terminated session {session_id}")
@@ -784,7 +1137,7 @@ async def get_permission_matrix(
 
 @router.get("/color-schema")
 async def get_color_schema(
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
+    user: User = Depends(require_authentication)
 ):
     """Get custom color schema settings"""
     try:
@@ -968,82 +1321,10 @@ async def update_color_schema_mode(
         )
 
 
-@router.get("/theme-mode")
-async def get_theme_mode(
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
-):
-    """Get the current theme mode for the client"""
-    try:
-        database = get_database()
-        with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id
-            theme_setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
-
-            theme_mode = theme_setting.setting_value if theme_setting else "light"
-
-            return {
-                "success": True,
-                "mode": theme_mode
-            }
-
-    except Exception as e:
-        logger.error(f"Error fetching theme mode: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch theme mode"
-        )
 
 
-@router.post("/theme-mode")
-async def update_theme_mode(
-    request: ThemeModeRequest,
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
-):
-    """Update the theme mode for the client"""
-    try:
-        # Validate theme mode
-        if request.mode not in ["light", "dark"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Theme mode must be 'light' or 'dark'"
-            )
 
-        database = get_database()
-        with database.get_write_session_context() as session:
-            # ✅ SECURITY: Get or create the theme mode setting filtered by client_id
-            setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
 
-            if setting:
-                setting.setting_value = request.mode
-                setting.last_updated_at = func.now()
-            else:
-                new_setting = SystemSettings(
-                    setting_key="theme_mode",
-                    setting_value=request.mode,
-                    setting_type='string',
-                    client_id=user.client_id,
-                    description="Theme mode (light or dark)"
-                )
-                session.add(new_setting)
-
-            session.commit()
-
-            logger.info(f"User {user.email} updated theme mode to {request.mode}")
-
-            return {"message": f"Theme mode updated to {request.mode}"}
-
-    except Exception as e:
-        logger.error(f"Error updating theme mode: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update theme mode"
-        )
 
 
 # ============================================================================
@@ -1054,7 +1335,7 @@ async def update_theme_mode(
 async def get_all_clients(
     skip: int = 0,
     limit: int = 100,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: User = Depends(require_authentication)
 ):
     """Get current user's client information"""
     try:
@@ -1071,6 +1352,7 @@ async def get_all_clients(
                     name=client.name,
                     website=client.website,
                     active=client.active,
+                    assets_folder=client.assets_folder,
                     logo_filename=client.logo_filename
                 )
                 for client in clients
@@ -1124,6 +1406,7 @@ async def create_client(
                 name=new_client.name,
                 website=new_client.website,
                 active=new_client.active,
+                assets_folder=new_client.assets_folder,
                 logo_filename=new_client.logo_filename
             )
 
@@ -1257,14 +1540,13 @@ async def delete_client(
 async def upload_client_logo(
     client_id: int,
     logo: UploadFile = File(...),
-    admin_user: User = Depends(require_permission("admin_panel", "admin"))
+    admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
     """Upload a logo for a client"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
-            import uuid
             from pathlib import Path
 
             # Find the client
@@ -1278,49 +1560,57 @@ async def upload_client_logo(
                     detail="Client not found"
                 )
 
-            # Validate file type
-            allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-            if logo.content_type not in allowed_types:
+            # Validate file type - only PNG files allowed
+            if logo.content_type != "image/png":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed."
+                    detail="Invalid file type. Only PNG files are allowed."
                 )
 
-            # Generate unique filename
-            file_extension = logo.filename.split('.')[-1] if '.' in logo.filename else 'png'
-            unique_filename = f"client_{client_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
-
-            # Create directories if they don't exist
-            frontend_logo_dir = Path("services/frontend-app/public/logos")
-            etl_logo_dir = Path("services/etl-service/static/logos")
-
-            frontend_logo_dir.mkdir(parents=True, exist_ok=True)
-            etl_logo_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save file to both locations
-            frontend_logo_path = frontend_logo_dir / unique_filename
-            etl_logo_path = etl_logo_dir / unique_filename
-
-            # Read file content
+            # Validate file size (max 5MB)
             file_content = await logo.read()
+            if len(file_content) > 5 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File size must be less than 5MB."
+                )
 
-            # Write to both locations
+            # Generate client-specific filename (always PNG)
+            client_name_lower = client.name.lower()
+            client_filename = f"{client_name_lower}-logo.png"
+
+            # Create client-specific directories (relative to project root)
+            # Path: services/backend-service/app/api/admin_routes.py -> go up 3 levels to project root
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            frontend_client_dir = project_root / f"services/frontend-app/public/assets/{client_name_lower}"
+            etl_client_dir = project_root / f"services/etl-service/app/static/assets/{client_name_lower}"
+
+            frontend_client_dir.mkdir(parents=True, exist_ok=True)
+            etl_client_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save file to both client directories
+            frontend_logo_path = frontend_client_dir / client_filename
+            etl_logo_path = etl_client_dir / client_filename
+
+            # Write to both locations (file_content already read during validation)
             with open(frontend_logo_path, "wb") as f:
                 f.write(file_content)
 
             with open(etl_logo_path, "wb") as f:
                 f.write(file_content)
 
-            # Update client record
-            client.logo_filename = unique_filename
-            client.last_updated_at = DateTimeHelper.utcnow()
+            # Update client record with assets folder and filename
+            client.assets_folder = client_name_lower
+            client.logo_filename = client_filename
+            client.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
 
             logger.info(f"Admin {admin_user.email} uploaded logo for client {client.name}")
 
             return {
                 "message": "Logo uploaded successfully",
-                "filename": unique_filename,
+                "assets_folder": client.assets_folder,
+                "logo_filename": client.logo_filename,
                 "client_id": client_id
             }
 

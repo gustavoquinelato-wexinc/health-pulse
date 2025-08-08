@@ -27,10 +27,12 @@ class ColorSchemaManager:
     """
     
     def __init__(self):
-        # Cache configuration
+        # Cache configuration - now user-specific
         self.cache_ttl = 300  # 5 minutes in seconds
-        self.cached_schema: Optional[Dict[str, Any]] = None
-        self.last_fetch_time: Optional[float] = None
+        self.user_caches: Dict[str, Dict[str, Any]] = {}  # user_id -> cache data
+        self.max_cached_users = 100  # Maximum number of users to cache
+        self.cleanup_interval = 600  # Cleanup every 10 minutes
+        self.last_cleanup_time: Optional[float] = None
         
         # Rate limiting (anti-infinite-loop) - reduced for better responsiveness
         self.min_fetch_interval = 5  # Minimum 5 seconds between fetches (was 30)
@@ -58,12 +60,16 @@ class ColorSchemaManager:
         
         logger.info("🎨 ColorSchemaManager initialized with smart caching")
     
-    def is_cache_valid(self) -> bool:
-        """Check if cached data is still valid"""
-        if not self.cached_schema or not self.last_fetch_time:
+    def is_cache_valid(self, user_id: str) -> bool:
+        """Check if cached data is still valid for a specific user"""
+        if user_id not in self.user_caches:
             return False
-        
-        age = time.time() - self.last_fetch_time
+
+        user_cache = self.user_caches[user_id]
+        if not user_cache.get('schema') or not user_cache.get('last_fetch_time'):
+            return False
+
+        age = time.time() - user_cache['last_fetch_time']
         return age < self.cache_ttl
     
     def is_rate_limited(self) -> bool:
@@ -122,9 +128,9 @@ class ColorSchemaManager:
                     data = response.json()
 
                     if data.get("success"):
-                        # Also get theme mode
+                        # Also get user-specific theme mode
                         theme_response = await client.get(
-                            f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                             headers={"Authorization": f"Bearer {auth_token}"}
                         )
 
@@ -149,73 +155,148 @@ class ColorSchemaManager:
             logger.error(f"Failed to fetch color schema from backend: {e}")
             return None
     
-    async def get_color_schema(self, auth_token: Optional[str] = None, force_refresh: bool = False) -> Dict[str, Any]:
+    async def get_color_schema(self, auth_token: Optional[str] = None, user_id: Optional[str] = None, force_refresh: bool = False) -> Dict[str, Any]:
         """
         Get color schema with smart caching and fallback mechanisms.
-        
+
         Args:
             auth_token: Authentication token for backend API
+            user_id: User ID for user-specific caching
             force_refresh: Force refresh even if cache is valid
-            
+
         Returns:
             Color schema data with fallback to cached/default values
         """
         current_time = time.time()
         self.last_attempt_time = current_time
-        
+
+        # Default user_id if not provided
+        if not user_id:
+            user_id = "default"
+
+        # Perform periodic cache maintenance
+        self.perform_cache_maintenance()
+
         # Use cache if valid and not forced refresh
-        if not force_refresh and self.is_cache_valid():
-            logger.debug("📋 Using cached color schema")
-            return self.cached_schema
+        if not force_refresh and self.is_cache_valid(user_id):
+            logger.debug(f"📋 Using cached color schema for user {user_id}")
+            return self.user_caches[user_id]['schema']
         
+        # Get user's cached data if available
+        user_cached_schema = None
+        if user_id in self.user_caches:
+            user_cached_schema = self.user_caches[user_id]['schema']
+
         # Check rate limiting (anti-infinite-loop) - but allow fresh fetch if no cached data
-        if not force_refresh and self.is_rate_limited() and self.cached_schema:
-            logger.debug("⏱️ Rate limited - using cached schema")
-            return self.cached_schema
-        
+        if not force_refresh and self.is_rate_limited() and user_cached_schema:
+            logger.debug(f"⏱️ Rate limited - using cached schema for user {user_id}")
+            return user_cached_schema
+
         # Check circuit breaker - but allow fresh fetch if no cached data
-        if self.is_circuit_open() and self.cached_schema:
-            logger.debug("🚨 Circuit breaker open - using cached schema")
-            return self.cached_schema
-        
+        if self.is_circuit_open() and user_cached_schema:
+            logger.debug(f"🚨 Circuit breaker open - using cached schema for user {user_id}")
+            return user_cached_schema
+
         # Try to fetch fresh data
         if auth_token:
-            logger.debug("🔄 Fetching fresh color schema from backend")
+            logger.debug(f"🔄 Fetching fresh color schema from backend for user {user_id}")
             fresh_schema = await self.fetch_from_backend(auth_token)
-            
+
             if fresh_schema:
-                self.cached_schema = fresh_schema
+                # Store in user-specific cache
+                self.user_caches[user_id] = {
+                    'schema': fresh_schema,
+                    'last_fetch_time': time.time()
+                }
                 self.record_success()
-                logger.info("✅ Color schema updated from backend")
+                logger.info(f"✅ Color schema updated from backend for user {user_id}")
                 return fresh_schema
             else:
                 self.record_failure()
         else:
             logger.debug("🔑 No auth token provided - using cached or default schema")
-        
+
         # Fallback to cached data or default
-        fallback = self.cached_schema or self.default_schema
-        logger.debug("📋 Using fallback color schema")
+        fallback = user_cached_schema or self.default_schema
+        logger.debug(f"📋 Using fallback color schema for user {user_id}")
         return fallback
     
-    def invalidate_cache(self):
+    def cleanup_expired_caches(self):
+        """Remove expired cache entries to manage memory"""
+        current_time = time.time()
+        expired_users = []
+
+        for user_id, cache_data in self.user_caches.items():
+            last_fetch = cache_data.get('last_fetch_time', 0)
+            if current_time - last_fetch > self.cache_ttl:
+                expired_users.append(user_id)
+
+        for user_id in expired_users:
+            del self.user_caches[user_id]
+            logger.debug(f"🧹 Removed expired cache for user {user_id}")
+
+        if expired_users:
+            logger.info(f"🧹 Cleaned up {len(expired_users)} expired user caches")
+
+        self.last_cleanup_time = current_time
+
+    def enforce_cache_limits(self):
+        """Enforce maximum cache size by removing oldest entries"""
+        if len(self.user_caches) <= self.max_cached_users:
+            return
+
+        # Sort by last_fetch_time and remove oldest entries
+        sorted_users = sorted(
+            self.user_caches.items(),
+            key=lambda x: x[1].get('last_fetch_time', 0)
+        )
+
+        users_to_remove = len(self.user_caches) - self.max_cached_users
+        for i in range(users_to_remove):
+            user_id = sorted_users[i][0]
+            del self.user_caches[user_id]
+            logger.debug(f"🧹 Removed cache for user {user_id} (cache limit)")
+
+        logger.info(f"🧹 Enforced cache limit: removed {users_to_remove} oldest user caches")
+
+    def perform_cache_maintenance(self):
+        """Perform periodic cache maintenance"""
+        current_time = time.time()
+
+        # Only run cleanup if enough time has passed
+        if (self.last_cleanup_time is None or
+            current_time - self.last_cleanup_time > self.cleanup_interval):
+
+            self.cleanup_expired_caches()
+            self.enforce_cache_limits()
+
+    def invalidate_cache(self, user_id: Optional[str] = None):
         """Manually invalidate cache (for future event-driven updates)"""
-        self.last_fetch_time = None
-        logger.info("🗑️ Color schema cache invalidated")
+        if user_id:
+            # Invalidate specific user's cache
+            if user_id in self.user_caches:
+                del self.user_caches[user_id]
+                logger.info(f"🗑️ Color schema cache invalidated for user {user_id}")
+        else:
+            # Invalidate all user caches
+            self.user_caches.clear()
+            logger.info("🗑️ All color schema caches invalidated")
     
-    def get_cache_info(self) -> Dict[str, Any]:
+    def get_cache_info(self, user_id: str = "default") -> Dict[str, Any]:
         """Get cache status information for debugging"""
         current_time = time.time()
-        
+
         cache_age = None
-        if self.last_fetch_time:
-            cache_age = current_time - self.last_fetch_time
-        
+        if user_id in self.user_caches and self.user_caches[user_id].get('last_fetch_time'):
+            cache_age = current_time - self.user_caches[user_id]['last_fetch_time']
+
         return {
-            "cache_valid": self.is_cache_valid(),
+            "user_id": user_id,
+            "cache_valid": self.is_cache_valid(user_id),
             "cache_age_seconds": cache_age,
             "rate_limited": self.is_rate_limited(),
             "circuit_open": self.is_circuit_open(),
+            "total_cached_users": len(self.user_caches),
             "failure_count": self.failure_count,
             "has_cached_data": self.cached_schema is not None
         }

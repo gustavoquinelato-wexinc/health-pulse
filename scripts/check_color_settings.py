@@ -30,8 +30,7 @@ def check_color_settings():
             user=settings.DATABASE_USER,
             password=settings.DATABASE_PASSWORD
         )
-        
-        conn = get_database_connection()
+
         cursor = conn.cursor()
         
         print("🔍 Checking custom color settings in database...")

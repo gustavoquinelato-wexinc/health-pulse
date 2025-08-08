@@ -33,14 +33,54 @@ async def login(login_request: LoginRequest, request: Request):
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "Unknown")
         
-        # Authenticate user
+        # Authenticate user via centralized auth service first, then local
         auth_service = get_auth_service()
-        auth_result = await auth_service.authenticate_local(
-            email=login_request.email,
-            password=login_request.password,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
+
+        # Try centralized auth service first
+        try:
+            from app.core.config import get_settings
+            import httpx
+            settings = get_settings()
+            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{auth_service_url}/api/v1/validate-credentials",
+                    json={"email": login_request.email, "password": login_request.password},
+                    timeout=10.0
+                )
+
+                if response.status_code == 200:
+                    validation_data = response.json()
+                    if validation_data.get("valid"):
+                        # Centralized auth successful, create local session
+                        user_data = validation_data["user"]
+
+                        # Create local session using auth service
+                        auth_result = await auth_service.create_session_from_user_data(
+                            user_data=user_data,
+                            ip_address=ip_address,
+                            user_agent=user_agent
+                        )
+                    else:
+                        auth_result = None
+                else:
+                    # Fallback to local authentication
+                    auth_result = await auth_service.authenticate_local(
+                        email=login_request.email,
+                        password=login_request.password,
+                        ip_address=ip_address,
+                        user_agent=user_agent
+                    )
+        except Exception as e:
+            logger.warning(f"Centralized auth service unavailable, using local auth: {e}")
+            # Fallback to local authentication
+            auth_result = await auth_service.authenticate_local(
+                email=login_request.email,
+                password=login_request.password,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
         
         if not auth_result:
             logger.warning(f"❌ Login failed for email: {login_request.email}")
@@ -61,21 +101,22 @@ async def login(login_request: LoginRequest, request: Request):
         # Create JSON response to set cookies
         response = JSONResponse(content=response_data.dict())
 
-        # Set HTTP-only cookie for Frontend service
+        # Set subdomain-shared cookie for all services
+        from app.core.config import get_settings
+        settings = get_settings()
+
         response.set_cookie(
             key="pulse_token",
             value=auth_result["token"],
             max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
             httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
-            secure=False,  # Set to True in production with HTTPS
-            samesite="lax",  # Allow cross-site requests for navigation
-            path="/"  # Ensure cookie is sent to all paths
+            secure=settings.COOKIE_SECURE,  # From environment variable
+            samesite=settings.COOKIE_SAMESITE,  # From environment variable
+            path="/",  # Ensure cookie is sent to all paths
+            domain=settings.COOKIE_DOMAIN  # From environment variable
         )
 
-        # Set up cross-service authentication (Backend → ETL)
-        await setup_cross_service_authentication(auth_result["token"])
-
-        logger.info(f"✅ Session cookie set and cross-service authentication configured")
+        logger.info(f"✅ Subdomain-shared session cookie set for all services")
         return response
         
     except HTTPException:
@@ -228,11 +269,12 @@ async def validate_token(request: Request):
             logger.debug("No token found in Authorization header or cookies")
             return TokenValidationResponse(valid=False, user=None)
 
-        # Validate token
+        # Validate token - first try local, then centralized
         auth_service = get_auth_service()
         user = await auth_service.verify_token(token)
 
         if user:
+            logger.info(f"Backend token validation successful (local) for user: {user.email}")
             return TokenValidationResponse(
                 valid=True,
                 user={
@@ -245,8 +287,44 @@ async def validate_token(request: Request):
                     "client_id": user.client_id
                 }
             )
-        else:
-            return TokenValidationResponse(valid=False, user=None)
+
+        # If local validation fails, try centralized auth service
+        logger.debug("Local token validation failed, trying centralized auth service...")
+
+        try:
+            import httpx
+            from app.core.config import get_settings
+            settings = get_settings()
+            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{auth_service_url}/api/v1/token/validate",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=5.0
+                )
+
+                if response.status_code == 200:
+                    token_data = response.json()
+                    if token_data.get("valid"):
+                        user_data = token_data.get("user")
+                        logger.info(f"Backend token validation successful (centralized) for user: {user_data['email']}")
+
+                        # Cache the token locally for future requests
+                        await auth_service.store_session_from_token(token, user_data)
+
+                        return TokenValidationResponse(
+                            valid=True,
+                            user=user_data
+                        )
+
+                logger.debug("Centralized token validation also failed")
+
+        except Exception as e:
+            logger.warning(f"Error contacting centralized auth service: {e}")
+
+        logger.warning(f"Backend token validation failed for token: {token[:30]}... (length: {len(token)})")
+        return TokenValidationResponse(valid=False, user=None)
             
     except Exception as e:
         logger.error(f"Token validation error: {e}")
@@ -254,6 +332,9 @@ async def validate_token(request: Request):
 
 
 # Navigation session endpoint removed - now handled by Redis shared sessions
+
+
+# Session check endpoint removed - no longer needed with subdomain cookies
 
 
 @router.post("/validate-service")
@@ -283,71 +364,7 @@ async def validate_service_token(user: User = Depends(require_authentication)):
         )
 
 
-@router.post("/cross-service-login")
-async def cross_service_login(request: Request):
-    """
-    Cross-service login endpoint for ETL → Frontend authentication sharing.
-    Allows ETL service to notify frontend about successful authentication.
-    """
-    try:
-        # Get token from Authorization header
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authorization header required"
-            )
-
-        token = auth_header[7:]  # Remove "Bearer " prefix
-
-        # Validate token
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token"
-            )
-
-        logger.info(f"✅ Cross-service login successful for user: {user.email}")
-
-        # Create response with token cookie for frontend
-        response = JSONResponse(content={
-            "success": True,
-            "message": "Cross-service authentication established",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "role": user.role,
-                "is_admin": user.is_admin,
-                "client_id": user.client_id
-            }
-        })
-
-        # Set HTTP-only cookie for Frontend service
-        response.set_cookie(
-            key="pulse_token",
-            value=token,
-            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
-            httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
-            secure=False,  # Set to True in production with HTTPS
-            samesite="lax",  # Allow cross-site requests for navigation
-            path="/"  # Ensure cookie is sent to all paths
-        )
-
-        return response
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Cross-service login error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Cross-service login failed"
-        )
+# Cross-service login endpoint removed - no longer needed with subdomain cookies
 
 
 @router.get("/user-info")
@@ -376,27 +393,7 @@ async def get_user_info(user: User = Depends(require_authentication)):
         )
 
 
-async def setup_cross_service_authentication(token: str):
-    """
-    Set up cross-service authentication by ensuring the token is valid in Redis.
-    With Redis shared sessions, this is mostly a validation step.
-    """
-    try:
-        logger.info(f"🔗 Setting up cross-service authentication (Redis shared sessions)")
-
-        # Validate that the token is valid and stored in Redis
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
-
-        if user:
-            logger.info(f"✅ Cross-service authentication configured successfully for user: {user.email}")
-        else:
-            logger.warning(f"⚠️ Cross-service authentication setup failed: Invalid token")
-
-    except Exception as e:
-        logger.warning(f"⚠️ Cross-service authentication setup failed: {e}")
-        # Don't fail the setup if validation fails
-        # User can still navigate manually
+# Cross-service authentication setup function removed - no longer needed with subdomain cookies
 
 
 @router.post("/setup-etl-access")
@@ -418,8 +415,7 @@ async def setup_etl_access(request: Request, current_user: User = Depends(requir
 
         logger.info(f"🔗 Setting up ETL access for user: {current_user.email}")
 
-        # Set up cross-service authentication (validate token in Redis)
-        await setup_cross_service_authentication(token)
+        # With subdomain cookies, no additional setup needed
 
         return {
             "success": True,

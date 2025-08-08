@@ -27,10 +27,10 @@ export default function ColorSchemeSettingsPage() {
             <div className="space-y-2">
               <div className="flex items-center space-x-3">
                 <button
-                  onClick={() => navigate('/settings')}
+                  onClick={() => navigate('/admin')}
                   className="text-secondary hover:text-primary transition-colors"
                 >
-                  ← Back to Settings
+                  ← Back to Admin Settings
                 </button>
               </div>
               <h1 className="text-3xl font-bold text-primary">

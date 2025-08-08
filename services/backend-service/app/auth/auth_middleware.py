@@ -25,18 +25,63 @@ async def get_current_user(
     """
     Dependency to get the current authenticated user.
     Returns None if not authenticated (for optional authentication).
+    Supports both local and centralized authentication.
     """
     if not credentials:
         return None
-    
+
+    # First try local authentication
     auth_service = get_auth_service()
     user = await auth_service.verify_token(credentials.credentials)
-    
-    if user:
-        # Log successful authentication (avoid accessing user.email due to session expunge)
-        logger.debug("User authenticated successfully")
 
-    return user
+    if user:
+        logger.debug("User authenticated successfully (local)")
+        return user
+
+    # If local fails, try centralized authentication
+    try:
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{auth_service_url}/api/v1/token/validate",
+                headers={"Authorization": f"Bearer {credentials.credentials}"},
+                timeout=5.0
+            )
+
+            if response.status_code == 200:
+                token_data = response.json()
+                if token_data.get("valid"):
+                    user_data = token_data.get("user")
+                    logger.debug("User authenticated successfully (centralized)")
+
+                    # Cache the token locally for future requests
+                    await auth_service.store_session_from_token(credentials.credentials, user_data)
+
+                    # Create a User object from the centralized data
+                    user = User()
+                    user.id = user_data["id"]
+                    user.email = user_data["email"]
+                    user.first_name = user_data.get("first_name", "")
+                    user.last_name = user_data.get("last_name", "")
+                    user.role = user_data["role"]
+                    user.is_admin = user_data["is_admin"]
+                    user.client_id = user_data["client_id"]
+                    user.active = True
+                    user.auth_provider = "centralized"
+                    user.theme_mode = "light"  # Default
+
+                    return user
+
+        logger.debug("Centralized authentication also failed")
+
+    except Exception as e:
+        logger.warning(f"Error during centralized authentication: {e}")
+
+    return None
 
 
 async def require_authentication(
@@ -160,9 +205,9 @@ def require_permission(resource: str, action: str):
             resource_enum = Resource(resource)
             action_enum = Action(action)
 
-            # Check permission with database session for custom permissions
+            # Check permission with database session for custom permissions (use read replica)
             database = get_database()
-            with database.get_session() as session:
+            with database.get_read_session() as session:
                 if has_permission(user, resource_enum, action_enum, session):
                     logger.debug(f"Permission granted for user, resource: {resource}, action: {action}")
                     return user
@@ -199,9 +244,9 @@ def require_web_permission(resource: str, action: str):
             resource_enum = Resource(resource)
             action_enum = Action(action)
 
-            # Check permission with database session for custom permissions
+            # Check permission with database session for custom permissions (use read replica)
             database = get_database()
-            with database.get_session() as session:
+            with database.get_read_session() as session:
                 if has_permission(user, resource_enum, action_enum, session):
                     logger.debug(f"Web permission granted for user, resource: {resource}, action: {action}")
                     return user

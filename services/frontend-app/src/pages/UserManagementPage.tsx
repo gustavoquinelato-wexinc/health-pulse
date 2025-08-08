@@ -1,9 +1,11 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
+import { LogOut, UserX } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import { useAuth } from '../contexts/AuthContext'
 import useDocumentTitle from '../hooks/useDocumentTitle'
 
 interface User {
@@ -12,20 +14,19 @@ interface User {
   first_name?: string
   last_name?: string
   role: string
-  is_admin: boolean
   active: boolean
+  created_at?: string
   last_login_at?: string
 }
 
 interface ActiveSession {
-  session_id: string
-  user_name: string
-  email: string
-  role: string
-  login_time: string
-  last_activity: string
-  ip_address: string
-  user_agent: string
+  id: number
+  user_id: number
+  user_email: string
+  created_at: string
+  last_activity_at: string
+  ip_address?: string
+  user_agent?: string
 }
 
 interface CreateUserRequest {
@@ -41,10 +42,13 @@ interface UpdateUserRequest {
   last_name?: string
   role?: string
   active?: boolean
+  password?: string
+  current_password?: string
 }
 
 export default function UserManagementPage() {
   const navigate = useNavigate()
+  const { logout } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,10 +77,20 @@ export default function UserManagementPage() {
   const [touchedFields, setTouchedFields] = useState<{ [key: string]: boolean }>({})
   const [submitAttempted, setSubmitAttempted] = useState(false)
 
+  // Password change states for edit modal
+  const [showPasswordFields, setShowPasswordFields] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [confirmPasswordEdit, setConfirmPasswordEdit] = useState('')
+
   // Email validation
   const isValidEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     return emailRegex.test(email)
+  }
+
+  // Check if email already exists
+  const isEmailUnique = (email: string) => {
+    return !users.some(user => user.email.toLowerCase() === email.toLowerCase())
   }
 
   // Set document title
@@ -131,6 +145,7 @@ export default function UserManagementPage() {
     // Check if form is valid
     const isFormValid = createForm.email &&
       isValidEmail(createForm.email) &&
+      isEmailUnique(createForm.email) &&
       createForm.first_name?.trim() &&
       createForm.last_name?.trim() &&
       createForm.password?.trim() &&
@@ -184,10 +199,43 @@ export default function UserManagementPage() {
     if (!editingUser) return
 
     try {
-      await axios.put(`/api/v1/admin/users/${editingUser.id}`, updateForm)
+      // Validate password if changing
+      if (showPasswordFields) {
+        if (!currentPassword) {
+          setError('Current password is required')
+          return
+        }
+        if (!updateForm.password) {
+          setError('New password is required')
+          return
+        }
+        if (updateForm.password === currentPassword) {
+          setError('New password must be different from current password')
+          return
+        }
+        if (updateForm.password !== confirmPasswordEdit) {
+          setError('Passwords do not match')
+          return
+        }
+      }
+
+      // Create update payload
+      const updatePayload = { ...updateForm }
+      if (showPasswordFields) {
+        // Include current password for backend validation
+        updatePayload.current_password = currentPassword
+      } else {
+        // Remove password from payload if not changing password
+        delete updatePayload.password
+      }
+
+      await axios.put(`/api/v1/admin/users/${editingUser.id}`, updatePayload)
       setShowEditModal(false)
       setEditingUser(null)
       setUpdateForm({})
+      setShowPasswordFields(false)
+      setCurrentPassword('')
+      setConfirmPasswordEdit('')
       await loadUsers()
     } catch (error: any) {
       setError(error.response?.data?.detail || 'Failed to update user')
@@ -209,21 +257,47 @@ export default function UserManagementPage() {
 
   const handleTerminateSession = async (sessionId: string) => {
     try {
-      await axios.post(`/api/v1/admin/terminate-session/${sessionId}`)
+      const token = localStorage.getItem('pulse_token') || sessionStorage.getItem('pulse_token')
+      if (!token) {
+        setError('Authentication token not found. Please log in again.')
+        return
+      }
+
+      await axios.post(`/api/v1/admin/terminate-session/${sessionId}`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
       await loadActiveSessions()
+      setError(null) // Clear any previous errors
     } catch (error: any) {
       setError(error.response?.data?.detail || 'Failed to terminate session')
     }
   }
 
   const handleTerminateAllSessions = async () => {
-    if (!confirm('Are you sure you want to terminate all active sessions? This will log out all users.')) {
+    if (!confirm('Are you sure you want to terminate all active sessions? This will log out all users including yourself.')) {
       return
     }
 
     try {
-      await axios.post('/api/v1/admin/terminate-all-sessions')
-      await loadActiveSessions()
+      const token = localStorage.getItem('pulse_token') || sessionStorage.getItem('pulse_token')
+      if (!token) {
+        setError('Authentication token not found. Please log in again.')
+        return
+      }
+
+      await axios.post('/api/v1/admin/terminate-all-sessions', {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      // After terminating all sessions, automatically log out the current user
+      // since their session was also terminated
+      console.log('All sessions terminated - logging out current user')
+      logout() // This will redirect to login page
+
     } catch (error: any) {
       setError(error.response?.data?.detail || 'Failed to terminate all sessions')
     }
@@ -237,6 +311,11 @@ export default function UserManagementPage() {
       role: user.role,
       active: user.active
     })
+    // Reset password change states
+    setShowPasswordFields(false)
+    setCurrentPassword('')
+    setConfirmPasswordEdit('')
+    setError(null)
     setShowEditModal(true)
   }
 
@@ -327,23 +406,6 @@ export default function UserManagementPage() {
               </button>
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-red-500">⚠️</span>
-                    <span className="text-red-700">{error}</span>
-                  </div>
-                  <button
-                    onClick={() => setError(null)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Tabs */}
             <div className="border-b border-tertiary">
               <nav className="flex space-x-8">
@@ -388,11 +450,16 @@ export default function UserManagementPage() {
                         onClick={() => {
                           setCreateForm({ email: '', first_name: '', last_name: '', role: 'user', password: '' })
                           setConfirmPassword('')
+                          setError(null)
+                          setTouchedFields({})
+                          setSubmitAttempted(false)
                           setShowCreateModal(true)
                         }}
                         className="btn-crud-create flex items-center space-x-2"
                       >
-                        <span className="text-white mr-1">💾</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
                         <span>Create User</span>
                       </button>
                     </div>
@@ -497,10 +564,11 @@ export default function UserManagementPage() {
                     <div className="flex justify-between items-center">
                       <h3 className="text-lg font-semibold text-primary">Active Sessions ({activeSessions.length})</h3>
                       <button
+                        type="button"
                         onClick={handleTerminateAllSessions}
-                        className="btn-danger flex items-center space-x-2"
+                        className="btn-crud-delete flex items-center space-x-2"
                       >
-                        <span>🚪</span>
+                        <UserX className="w-4 h-4" />
                         <span>Terminate All Sessions</span>
                       </button>
                     </div>
@@ -514,16 +582,19 @@ export default function UserManagementPage() {
                                 User
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                                Role
+                                Status
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                                Login Time
+                                Session Start
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
                                 Last Activity
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
                                 IP Address
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
+                                User Agent
                               </th>
                               <th className="px-6 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider">
                                 Actions
@@ -532,33 +603,45 @@ export default function UserManagementPage() {
                           </thead>
                           <tbody className="bg-primary divide-y divide-tertiary">
                             {activeSessions.map((session) => (
-                              <tr key={session.session_id} className="hover:bg-tertiary">
+                              <tr key={session.id} className="hover:bg-tertiary">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div>
-                                    <div className="text-sm font-medium text-primary">{session.user_name}</div>
-                                    <div className="text-sm text-secondary">{session.email}</div>
+                                    <div className="text-sm font-medium text-primary">
+                                      {users.find(u => u.id === session.user_id)?.first_name} {users.find(u => u.id === session.user_id)?.last_name || `User ${session.user_id}`}
+                                    </div>
+                                    <div className="text-sm text-secondary">{session.user_email}</div>
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleColor(session.role)}`}>
-                                    {session.role}
+                                  <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                    Active
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
-                                  {formatDate(session.login_time)}
+                                  {formatDate(session.created_at)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
-                                  {formatDate(session.last_activity)}
+                                  {formatDate(session.last_activity_at)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
-                                  {session.ip_address}
+                                  {session.ip_address || 'N/A'}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary max-w-xs truncate" title={session.user_agent || 'N/A'}>
+                                  {session.user_agent ?
+                                    (session.user_agent.length > 50 ?
+                                      `${session.user_agent.substring(0, 50)}...` :
+                                      session.user_agent
+                                    ) : 'N/A'
+                                  }
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                   <button
-                                    onClick={() => handleTerminateSession(session.session_id)}
-                                    className="text-red-600 hover:text-red-900"
+                                    type="button"
+                                    onClick={() => handleTerminateSession(session.id.toString())}
+                                    className="btn-crud-delete text-xs flex items-center space-x-1"
                                   >
-                                    🚪 Terminate
+                                    <LogOut className="w-3 h-3" />
+                                    <span>Terminate</span>
                                   </button>
                                 </td>
                               </tr>
@@ -656,15 +739,38 @@ export default function UserManagementPage() {
               </button>
             </div>
 
+            {/* Error Display in Modal */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-red-500">⚠️</span>
+                    <span className="text-red-700 text-sm">{error}</span>
+                  </div>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-secondary mb-1">Email *</label>
                 <input
                   type="email"
                   value={createForm.email}
-                  onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-                  onBlur={() => setTouchedFields({ ...touchedFields, email: true })}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 bg-primary text-primary ${(touchedFields.email || submitAttempted) && (!createForm.email || !isValidEmail(createForm.email))
+                  onChange={(e) => {
+                    setCreateForm({ ...createForm, email: e.target.value })
+                    // Mark as touched only when user starts typing
+                    if (e.target.value.length > 0) {
+                      setTouchedFields({ ...touchedFields, email: true })
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 bg-primary text-primary ${(touchedFields.email || submitAttempted) && (!createForm.email || !isValidEmail(createForm.email) || !isEmailUnique(createForm.email))
                     ? 'border-red-500 focus:ring-red-500'
                     : 'border-tertiary focus:ring-blue-500'
                     }`}
@@ -676,6 +782,7 @@ export default function UserManagementPage() {
                   <>
                     {!createForm.email && <p className="text-red-500 text-xs mt-1">Email is required</p>}
                     {createForm.email && !isValidEmail(createForm.email) && <p className="text-red-500 text-xs mt-1">Please enter a valid email address</p>}
+                    {createForm.email && isValidEmail(createForm.email) && !isEmailUnique(createForm.email) && <p className="text-red-500 text-xs mt-1">This email address is already in use</p>}
                   </>
                 )}
               </div>
@@ -686,8 +793,13 @@ export default function UserManagementPage() {
                   <input
                     type="text"
                     value={createForm.first_name}
-                    onChange={(e) => setCreateForm({ ...createForm, first_name: e.target.value })}
-                    onBlur={() => setTouchedFields({ ...touchedFields, first_name: true })}
+                    onChange={(e) => {
+                      setCreateForm({ ...createForm, first_name: e.target.value })
+                      // Mark as touched only when user starts typing
+                      if (e.target.value.length > 0) {
+                        setTouchedFields({ ...touchedFields, first_name: true })
+                      }
+                    }}
                     className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 bg-primary text-primary ${(touchedFields.first_name || submitAttempted) && !createForm.first_name?.trim()
                       ? 'border-red-500 focus:ring-red-500'
                       : 'border-tertiary focus:ring-blue-500'
@@ -704,8 +816,13 @@ export default function UserManagementPage() {
                   <input
                     type="text"
                     value={createForm.last_name}
-                    onChange={(e) => setCreateForm({ ...createForm, last_name: e.target.value })}
-                    onBlur={() => setTouchedFields({ ...touchedFields, last_name: true })}
+                    onChange={(e) => {
+                      setCreateForm({ ...createForm, last_name: e.target.value })
+                      // Mark as touched only when user starts typing
+                      if (e.target.value.length > 0) {
+                        setTouchedFields({ ...touchedFields, last_name: true })
+                      }
+                    }}
                     className={`w-full px-3 py-2 border rounded-md focus:ring-2 bg-primary text-primary ${(touchedFields.last_name || submitAttempted) && !createForm.last_name?.trim()
                       ? 'border-red-500 focus:ring-red-500'
                       : 'border-tertiary focus:ring-blue-500'
@@ -737,8 +854,13 @@ export default function UserManagementPage() {
                 <input
                   type="password"
                   value={createForm.password}
-                  onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                  onBlur={() => setTouchedFields({ ...touchedFields, password: true })}
+                  onChange={(e) => {
+                    setCreateForm({ ...createForm, password: e.target.value })
+                    // Mark as touched only when user starts typing
+                    if (e.target.value.length > 0) {
+                      setTouchedFields({ ...touchedFields, password: true })
+                    }
+                  }}
                   className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 bg-primary text-primary ${(touchedFields.password || submitAttempted) && !createForm.password?.trim()
                     ? 'border-red-500 focus:ring-red-500'
                     : 'border-tertiary focus:ring-blue-500'
@@ -757,8 +879,13 @@ export default function UserManagementPage() {
                 <input
                   type="password"
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  onBlur={() => setTouchedFields({ ...touchedFields, confirm_password: true })}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value)
+                    // Mark as touched only when user starts typing
+                    if (e.target.value.length > 0) {
+                      setTouchedFields({ ...touchedFields, confirm_password: true })
+                    }
+                  }}
                   className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 bg-primary text-primary ${(touchedFields.confirm_password || submitAttempted) && (!confirmPassword?.trim() || createForm.password !== confirmPassword)
                     ? 'border-red-500 focus:ring-red-500'
                     : 'border-tertiary focus:ring-blue-500'
@@ -787,7 +914,6 @@ export default function UserManagementPage() {
                 onClick={handleCreateUser}
                 className="btn-crud-create"
               >
-                <span className="mr-1">💾</span>
                 Create User
               </button>
             </div>
@@ -812,6 +938,24 @@ export default function UserManagementPage() {
                 ✕
               </button>
             </div>
+
+            {/* Error Display in Edit Modal */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-red-500">⚠️</span>
+                    <span className="text-red-700 text-sm">{error}</span>
+                  </div>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-4">
               <div>
@@ -859,6 +1003,63 @@ export default function UserManagementPage() {
                 </select>
               </div>
 
+              {/* Password Change Section */}
+              <div className="border-t border-tertiary pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-secondary">Change Password</h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordFields(!showPasswordFields)}
+                    className="text-blue-600 hover:text-blue-800 text-sm"
+                  >
+                    {showPasswordFields ? 'Cancel' : 'Change Password'}
+                  </button>
+                </div>
+
+                {showPasswordFields && (
+                  <div className="space-y-3">
+                    {/* Hidden dummy field to prevent auto-fill */}
+                    <input type="password" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+                    <div>
+                      <label className="block text-sm font-medium text-secondary mb-1">Current Password</label>
+                      <input
+                        type="password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-primary text-primary"
+                        placeholder="Enter current password"
+                        autoComplete="off"
+                        data-form-type="other"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-secondary mb-1">New Password</label>
+                      <input
+                        type="password"
+                        value={updateForm.password || ''}
+                        onChange={(e) => setUpdateForm({ ...updateForm, password: e.target.value })}
+                        className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-primary text-primary"
+                        placeholder="Enter new password"
+                        autoComplete="off"
+                        data-form-type="other"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-secondary mb-1">Confirm New Password</label>
+                      <input
+                        type="password"
+                        value={confirmPasswordEdit}
+                        onChange={(e) => setConfirmPasswordEdit(e.target.value)}
+                        className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-primary text-primary"
+                        placeholder="Confirm new password"
+                        autoComplete="off"
+                        data-form-type="other"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="flex items-center space-x-2">
                   <input
@@ -883,7 +1084,6 @@ export default function UserManagementPage() {
                 onClick={handleUpdateUser}
                 className="btn-crud-edit"
               >
-                <span className="mr-1">💾</span>
                 Update User
               </button>
             </div>
@@ -901,7 +1101,7 @@ export default function UserManagementPage() {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-yellow-600">
-                ⏸️ Deactivate User
+                Deactivate User
               </h3>
               <button
                 onClick={() => setShowDeactivateModal(false)}
@@ -916,14 +1116,20 @@ export default function UserManagementPage() {
                 Are you sure you want to deactivate this user? They will no longer be able to access the system.
               </p>
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  <strong>User:</strong> {deactivatingUser.first_name && deactivatingUser.last_name
-                    ? `${deactivatingUser.first_name} ${deactivatingUser.last_name}`
-                    : deactivatingUser.email}
-                </p>
-                <p className="text-sm text-yellow-800">
-                  <strong>Email:</strong> {deactivatingUser.email}
-                </p>
+                {deactivatingUser.first_name && deactivatingUser.last_name ? (
+                  <>
+                    <p className="text-sm text-yellow-800">
+                      <strong>User:</strong> {deactivatingUser.first_name} {deactivatingUser.last_name}
+                    </p>
+                    <p className="text-sm text-yellow-800">
+                      <strong>Email:</strong> {deactivatingUser.email}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-yellow-800">
+                    <strong>User:</strong> {deactivatingUser.email}
+                  </p>
+                )}
                 <p className="text-sm text-yellow-800">
                   <strong>Role:</strong> {deactivatingUser.role}
                 </p>
@@ -941,7 +1147,6 @@ export default function UserManagementPage() {
                 onClick={handleDeactivateUser}
                 className="btn-status-warning"
               >
-                <span className="mr-1 text-white">⏸</span>
                 Deactivate
               </button>
             </div>
@@ -964,14 +1169,20 @@ export default function UserManagementPage() {
                 Are you sure you want to delete this user? This action cannot be undone.
               </p>
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800">
-                  <strong>User:</strong> {deletingUser.first_name && deletingUser.last_name
-                    ? `${deletingUser.first_name} ${deletingUser.last_name}`
-                    : deletingUser.email}
-                </p>
-                <p className="text-sm text-red-800">
-                  <strong>Email:</strong> {deletingUser.email}
-                </p>
+                {deletingUser.first_name && deletingUser.last_name ? (
+                  <>
+                    <p className="text-sm text-red-800">
+                      <strong>User:</strong> {deletingUser.first_name} {deletingUser.last_name}
+                    </p>
+                    <p className="text-sm text-red-800">
+                      <strong>Email:</strong> {deletingUser.email}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-red-800">
+                    <strong>User:</strong> {deletingUser.email}
+                  </p>
+                )}
                 <p className="text-sm text-red-800">
                   <strong>Role:</strong> {deletingUser.role}
                 </p>
@@ -987,7 +1198,7 @@ export default function UserManagementPage() {
               </button>
               <button
                 onClick={handleDeleteUser}
-                className="btn-danger"
+                className="btn-crud-delete"
               >
                 Delete User
               </button>

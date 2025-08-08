@@ -10,6 +10,7 @@ import DeploymentFrequencyPage from './pages/DeploymentFrequencyPage'
 import DoraOverviewPage from './pages/DoraOverviewPage'
 import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 
+import AuthCallbackPage from './pages/AuthCallbackPage'
 import ClientManagementPage from './pages/ClientManagementPage'
 import HomePage from './pages/HomePage'
 import HomePageBackup from './pages/HomePageBackup'
@@ -35,7 +36,9 @@ function App() {
           >
             <div className="min-h-screen bg-primary transition-colors duration-200">
               <Routes>
+                {/* Authentication Routes */}
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
                 {/* Main Routes */}
                 <Route
@@ -119,9 +122,19 @@ function App() {
 
 
 
-                {/* Settings Routes */}
+                {/* Personal Settings Routes - Accessible to all users */}
                 <Route
-                  path="/settings"
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <UserPreferencesPage />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Admin Settings Routes - Admin only */}
+                <Route
+                  path="/admin"
                   element={
                     <AdminRoute>
                       <SettingsPage />
@@ -129,16 +142,15 @@ function App() {
                   }
                 />
                 <Route
-                  path="/settings/color-scheme"
+                  path="/admin/color-scheme"
                   element={
                     <AdminRoute>
                       <ColorSchemeSettingsPage />
                     </AdminRoute>
                   }
                 />
-
                 <Route
-                  path="/settings/user-management"
+                  path="/admin/user-management"
                   element={
                     <AdminRoute>
                       <UserManagementPage />
@@ -146,7 +158,7 @@ function App() {
                   }
                 />
                 <Route
-                  path="/settings/client-management"
+                  path="/admin/client-management"
                   element={
                     <AdminRoute>
                       <ClientManagementPage />
@@ -154,15 +166,7 @@ function App() {
                   }
                 />
                 <Route
-                  path="/settings/user-preferences"
-                  element={
-                    <AdminRoute>
-                      <UserPreferencesPage />
-                    </AdminRoute>
-                  }
-                />
-                <Route
-                  path="/settings/notifications"
+                  path="/admin/notifications"
                   element={
                     <AdminRoute>
                       <NotificationsPage />
@@ -170,13 +174,21 @@ function App() {
                   }
                 />
 
+                {/* Legacy redirects for backward compatibility */}
+                <Route path="/settings" element={<Navigate to="/admin" replace />} />
+                <Route path="/settings/color-scheme" element={<Navigate to="/admin/color-scheme" replace />} />
+                <Route path="/settings/user-management" element={<Navigate to="/admin/user-management" replace />} />
+                <Route path="/settings/client-management" element={<Navigate to="/admin/client-management" replace />} />
+                <Route path="/settings/user-preferences" element={<Navigate to="/profile" replace />} />
+                <Route path="/settings/notifications" element={<Navigate to="/admin/notifications" replace />} />
+
                 <Route path="/" element={<Navigate to="/home" replace />} />
               </Routes>
             </div>
           </Router>
         </ThemeProvider>
       </AuthProvider>
-    </ClientErrorBoundary>
+    </ClientErrorBoundary >
   )
 }
 

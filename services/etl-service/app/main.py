@@ -449,7 +449,8 @@ app.include_router(
 # Mount static files (if directory exists)
 import os
 from pathlib import Path
-static_dir = Path(__file__).parent / "static"
+# Use root-level static directory instead of app/static
+static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

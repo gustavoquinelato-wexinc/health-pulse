@@ -6,9 +6,9 @@ This document provides a comprehensive overview of the Pulse Platform's architec
 
 ## 🏗️ System Architecture Overview
 
-### Three-Tier Architecture
+### Four-Tier Architecture
 
-Pulse Platform follows a modern microservices architecture with clear separation of concerns:
+Pulse Platform follows a modern microservices architecture with centralized authentication and clear separation of concerns:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -62,10 +62,17 @@ Pulse Platform follows a modern microservices architecture with clear separation
 - **Authentication Flow**: JWT token management and session handling
 - **Real-time Updates**: WebSocket integration for live data
 
+#### Auth Service (Port 4000)
+- **Centralized Authentication**: OAuth-like authorization flow
+- **Cross-Domain SSO**: Single sign-on across all services
+- **Provider Abstraction**: Local database and OKTA integration ready
+- **Token Generation**: JWT token creation and validation
+- **Session Coordination**: Cross-service session management
+
 #### Backend Service (Port 3001)
-- **Authentication Hub**: Centralized JWT-based authentication
-- **User Management**: Registration, login, session management, RBAC
+- **User Management**: Registration, RBAC, user CRUD operations
 - **API Gateway**: Unified interface for frontend and ETL service
+- **Token Validation**: JWT token verification with auth service
 - **Client Management**: Multi-tenant client isolation and configuration
 - **Analytics APIs**: DORA metrics, GitHub analytics, portfolio insights
 
@@ -104,7 +111,8 @@ SELECT * FROM users WHERE client_id = ? AND active = true;
 - **Job Processing**: Background jobs respect client boundaries
 
 #### Configuration Isolation
-- **Client-Specific Settings**: Stored in system_settings table
+- **Client-Specific Settings**: Stored in system_settings table (color schemas, branding)
+- **User-Specific Settings**: Stored in users table (theme_mode preferences)
 - **Custom Branding**: Per-client logos and color schemes
 - **Integration Configs**: Separate API credentials per client
 - **Feature Flags**: Client-specific feature enablement
@@ -155,232 +163,3 @@ primary_slot_name = 'replica_slot'
 ### Schema Design
 
 #### Core Tables
-```sql
--- Multi-tenant client management
-clients (id, name, active, created_at, last_updated_at)
-
--- User accounts with RBAC
-users (id, client_id, email, password_hash, role, active)
-
--- Session tracking
-user_sessions (id, user_id, client_id, token_hash, active, created_at)
-
--- Client-specific configurations
-system_settings (id, client_id, setting_key, setting_value, setting_type)
-```
-
-#### Integration Tables
-```sql
--- API connection configurations
-integrations (id, client_id, integration_type, config_data, active)
-
--- Project metadata
-jira_projects (id, client_id, integration_id, project_key, project_name)
-
--- Repository tracking
-github_repositories (id, client_id, integration_id, repo_name, repo_url)
-```
-
-#### Analytics Tables
-```sql
--- Pull request data and metrics
-github_pull_requests (id, client_id, repo_id, pr_number, title, state, created_at, merged_at)
-
--- Issue tracking and analysis
-jira_issues (id, client_id, project_id, issue_key, summary, status, created_date)
-
--- Calculated DORA metrics
-dora_metrics (id, client_id, metric_type, metric_value, calculation_date)
-```
-
-## 🐳 Docker Architecture
-
-### Development Environment
-
-#### Database Services (docker-compose.db.yml)
-```yaml
-services:
-  postgres-primary:
-    image: postgres:17
-    environment:
-      POSTGRES_DB: pulse_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: pulse
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_primary_data:/var/lib/postgresql/data
-      - ./docker/postgres/primary:/docker-entrypoint-initdb.d
-
-  postgres-replica:
-    image: postgres:17
-    environment:
-      POSTGRES_PRIMARY_HOST: postgres-primary
-      POSTGRES_REPLICATION_USER: replicator
-      POSTGRES_REPLICATION_PASSWORD: replicator_password
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_replica_data:/var/lib/postgresql/data
-      - ./docker/postgres/replica:/docker-entrypoint-initdb.d
-    depends_on:
-      - postgres-primary
-```
-
-#### Application Services (docker-compose.yml)
-```yaml
-services:
-  backend-service:
-    build: ./services/backend-service
-    ports:
-      - "3001:3001"
-    environment:
-      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
-      - DATABASE_REPLICA_URL=postgresql://postgres:pulse@postgres-replica:5432/pulse_db
-    depends_on:
-      - postgres-primary
-      - postgres-replica
-
-  etl-service:
-    build: ./services/etl-service
-    ports:
-      - "8000:8000"
-    environment:
-      - CLIENT_NAME=${CLIENT_NAME}
-      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
-    depends_on:
-      - postgres-primary
-      - backend-service
-
-  frontend-app:
-    build: ./services/frontend-app
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_BACKEND_URL=http://backend-service:3001
-      - VITE_ETL_URL=http://etl-service:8000
-    depends_on:
-      - backend-service
-```
-
-### Production Environment
-
-#### Multi-Client Configuration
-```yaml
-# docker-compose.multi-client.yml
-services:
-  # Multiple ETL instances for different clients
-  etl-wex:
-    build: ./services/etl-service
-    environment:
-      - CLIENT_NAME=WEX
-      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
-    ports:
-      - "8000:8000"
-
-  etl-techcorp:
-    build: ./services/etl-service
-    environment:
-      - CLIENT_NAME=TechCorp
-      - DATABASE_URL=postgresql://postgres:pulse@postgres-primary:5432/pulse_db
-    ports:
-      - "8001:8000"
-
-  # Load balancer for frontend
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/nginx/ssl
-    depends_on:
-      - frontend-app
-      - backend-service
-```
-
-## 🔄 Data Flow Architecture
-
-### Request Flow
-
-#### Authentication Flow
-```
-1. User Login → Frontend
-2. Frontend → Backend Service (POST /api/v1/auth/login)
-3. Backend → Primary Database (validate credentials)
-4. Backend → Frontend (JWT token + user data)
-5. Frontend stores token for subsequent requests
-```
-
-#### Data Processing Flow
-```
-1. ETL Job Trigger → ETL Service
-2. ETL Service → External APIs (Jira/GitHub)
-3. ETL Service → Primary Database (store raw data)
-4. ETL Service → Data Processing (transform & analyze)
-5. ETL Service → Primary Database (store processed data)
-6. Primary Database → Replica Database (streaming replication)
-7. Frontend → Backend Service → Replica Database (read analytics)
-```
-
-#### Real-time Updates Flow
-```
-1. ETL Job Progress → WebSocket Manager
-2. WebSocket Manager → Connected Clients (real-time updates)
-3. Frontend receives updates → UI refresh
-4. Dashboard updates without page reload
-```
-
-### Integration Architecture
-
-#### External API Integration
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  External APIs  │───►│  ETL Service    │───►│  PostgreSQL     │
-│                 │    │                 │    │                 │
-│ • Jira Cloud    │    │ • Rate Limiting │    │ • Normalized    │
-│ • GitHub API    │    │ • Error Handling│    │   Schema        │
-│ • Custom APIs   │    │ • Data Transform│    │ • Client        │
-│                 │    │ • Validation    │    │   Isolation     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
-
-## 🚀 Deployment Strategies
-
-### Development Deployment
-- **Local Development**: Manual service startup with hot reload
-- **Docker Development**: Containerized services with volume mounts
-- **Database**: Single PostgreSQL instance or primary-replica setup
-
-### Staging Deployment
-- **Container Orchestration**: Docker Compose with production-like configuration
-- **Database**: Primary-replica setup with backup strategies
-- **Load Testing**: Performance validation and bottleneck identification
-
-### Production Deployment
-- **Container Platform**: Kubernetes or Docker Swarm
-- **Database**: High-availability PostgreSQL cluster
-- **Load Balancing**: Nginx or cloud load balancer
-- **SSL/TLS**: Automated certificate management
-- **Monitoring**: Comprehensive logging and metrics collection
-
-## 🔧 Configuration Management
-
-### Environment-Based Configuration
-- **Development**: Local .env files with development settings
-- **Staging**: Environment variables with staging configurations
-- **Production**: Secure secret management with production settings
-
-### Client-Specific Configuration
-- **Database Storage**: Client settings stored in system_settings table
-- **Runtime Configuration**: Dynamic configuration loading per client
-- **Feature Flags**: Client-specific feature enablement
-
-### Service Discovery
-- **Development**: Hardcoded service URLs
-- **Production**: Service mesh or container orchestration discovery
-
----
-
-This architecture provides a robust, scalable, and secure foundation for the Pulse Platform, supporting enterprise-grade multi-tenancy while maintaining high performance and reliability.

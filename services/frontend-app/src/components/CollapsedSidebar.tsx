@@ -1,4 +1,10 @@
 import { motion } from 'framer-motion';
+import {
+  BarChart3,
+  Home,
+  Settings,
+  TrendingUp
+} from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface NavigationItem {
   id: string;
   label: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   path: string;
   adminOnly?: boolean;
   isAction?: boolean;
@@ -21,13 +27,13 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'home',
     label: 'Home',
-    icon: '🏠',
+    icon: Home,
     path: '/home'
   },
   {
     id: 'dora',
     label: 'DORA Metrics',
-    icon: '📊',
+    icon: BarChart3,
     path: '/dora',
     subItems: [
       { id: 'deployment-frequency', label: 'Deployment Frequency', path: '/dora/deployment-frequency' },
@@ -39,24 +45,26 @@ const navigationItems: NavigationItem[] = [
   {
     id: 'engineering',
     label: 'Engineering Analytics',
-    icon: '⚙️',
+    icon: TrendingUp,
     path: '/engineering'
   },
 
 ]
 
-const secondaryItems: NavigationItem[] = [
+
+
+// Admin settings - only for admins
+const adminItems: NavigationItem[] = [
   {
-    id: 'settings',
-    label: 'Settings',
-    icon: '🔧',
-    path: '/settings',
+    id: 'admin',
+    label: 'System Overview',
+    icon: Settings,
+    path: '/admin',
     subItems: [
-      { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
-      { id: 'user-preferences', label: 'User Preferences', path: '/settings/user-preferences' },
-      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
-      { id: 'user-management', label: 'User Management', path: '/settings/user-management' },
-      { id: 'client-management', label: 'Client Management', path: '/settings/client-management' }
+      { id: 'color-scheme', label: 'Color Scheme', path: '/admin/color-scheme' },
+      { id: 'user-management', label: 'User Management', path: '/admin/user-management' },
+      { id: 'client-management', label: 'Client Management', path: '/admin/client-management' },
+      { id: 'notifications', label: 'Notifications', path: '/admin/notifications' }
     ]
   }
 ]
@@ -160,71 +168,16 @@ export default function CollapsedSidebar() {
     navigate(path)
   }
 
-  // POST-based ETL navigation function
-  const handleETLDirectNavigation = async (openInNewTab = false) => {
-    const token = localStorage.getItem('pulse_token')
-    if (!token) {
-      console.error('No authentication token found')
-      return
-    }
+  // Simple ETL navigation function (subdomain cookies handle authentication)
+  const handleETLDirectNavigation = (openInNewTab = false) => {
+    const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    try {
-      const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-      const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
-
-      // Step 1: Setup ETL access via Backend Service
-      console.log('Setting up ETL access...')
-      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include'
-      })
-
-      if (!setupResponse.ok) {
-        console.error('Failed to setup ETL access:', setupResponse.statusText)
-        return
-      }
-
-      const setupData = await setupResponse.json()
-      const etlToken = setupData.token
-
-      // Step 2: Navigate to ETL service with the token
-      const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: etlToken,
-          return_url: window.location.href
-        }),
-        credentials: 'include' // Important for cookies
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.redirect_url) {
-          if (openInNewTab) {
-            // Right click: Open in new tab without switching focus
-            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
-
-            // Immediately refocus current window to prevent tab switch
-            setTimeout(() => {
-              window.focus()
-            }, 10)
-          } else {
-            // Normal click: Navigate in same page (like ETL service behavior)
-            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
-          }
-        }
-      } else {
-        console.error('ETL navigation failed:', response.statusText)
-      }
-    } catch (error) {
-      console.error('Failed to navigate to ETL service:', error)
+    if (openInNewTab) {
+      // Open in new tab
+      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
+    } else {
+      // Navigate in same page
+      window.location.href = `${ETL_SERVICE_URL}/home`
     }
   }
 
@@ -283,10 +236,10 @@ export default function CollapsedSidebar() {
       {/* Collapsed Sidebar */}
       <aside
         ref={sidebarRef}
-        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 bg-secondary border-r border-default shadow-lg z-40 overflow-visible flex flex-col"
+        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 sidebar-container z-40 overflow-visible flex flex-col"
       >
         {/* Main Navigation */}
-        <div className="flex-1 flex flex-col space-y-2 py-4 px-2">
+        <div className="flex-1 flex flex-col justify-center space-y-3 px-2">
           {navigationItems
             .filter(item => !item.adminOnly || isAdmin) // Filter admin-only items
             .map((item) => (
@@ -299,42 +252,42 @@ export default function CollapsedSidebar() {
                   }}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                    ? 'text-white shadow-lg'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                    ? 'nav-item-active text-white'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary'
                     }`}
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                   } : {}}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <item.icon className="w-5 h-5" />
                 </motion.button>
               </div>
             ))}
         </div>
 
-        {/* Settings at Bottom - Admin Only */}
+
+
+        {/* System Overview & Admin Settings - Admin Only */}
         {isAdmin && (
           <div className="border-t border-default px-2 py-4">
-            {secondaryItems.map((item) => (
+            {adminItems.map((item) => (
               <div key={item.id} className="relative">
                 <motion.button
                   onClick={() => handleNavClick(item.path, item)}
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center rounded-lg mx-auto transition-all duration-200 ${isActive(item)
-                    ? 'text-white shadow-lg'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary hover:scale-105'
+                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                    ? 'nav-item-active text-white'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary'
                     }`}
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                   } : {}}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <item.icon className="w-5 h-5" />
                 </motion.button>
               </div>
             ))}
@@ -349,7 +302,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...secondaryItems].find(i => i.id === hoveredItem)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === hoveredItem)
             if (!item || (item as any).subItems) return null
 
             return (
@@ -372,7 +325,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...secondaryItems].find(i => i.id === openSubmenu)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === openSubmenu)
             if (!item || !(item as any).subItems) return null
 
             return (
@@ -414,7 +367,7 @@ export default function CollapsedSidebar() {
                     style={location.pathname === subItem.path ? {
                       background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                     } : {}}
-                    whileHover={{ x: 4 }}
+
                   >
                     {subItem.label}
                   </motion.div>

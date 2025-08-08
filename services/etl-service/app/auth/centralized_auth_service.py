@@ -5,7 +5,7 @@ Validates authentication through the Backend Service with caching for performanc
 
 import httpx
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from app.core.logging_config import get_logger
 from app.core.config import get_settings
@@ -38,9 +38,11 @@ class TokenCache:
     async def set(self, token_hash: str, user_data: Dict[str, Any]):
         """Cache token data with TTL."""
         async with self._lock:
+            # CRITICAL: Use timezone-naive UTC for consistency
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
             self.cache[token_hash] = {
                 "data": user_data,
-                "expires_at": datetime.utcnow() + timedelta(seconds=self.ttl_seconds)
+                "expires_at": now_utc + timedelta(seconds=self.ttl_seconds)
             }
             logger.debug(f"Token cached for user: {user_data.get('email', 'unknown')}")
 
@@ -92,6 +94,14 @@ class CentralizedAuthService:
         """Create a hash of the token for cache key."""
         import hashlib
         return hashlib.sha256(token.encode()).hexdigest()
+
+    async def clear_all_cached_tokens(self):
+        """Clear all cached tokens - useful for resolving permission issues."""
+        try:
+            await self.cache.clear()
+            logger.info("All cached tokens cleared successfully")
+        except Exception as e:
+            logger.error(f"Failed to clear cached tokens: {e}")
     
     async def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
@@ -109,10 +119,17 @@ class CentralizedAuthService:
             token_hash = self._hash_token(token)
             cached_data = await self.cache.get(token_hash)
             if cached_data:
-                return cached_data
+                # Verify cached user still has admin permissions
+                if cached_data.get("is_admin", False) or cached_data.get("role") == "admin":
+                    return cached_data
+                else:
+                    # User lost admin permissions, remove from cache
+                    logger.info(f"Cached user {cached_data.get('email')} no longer has admin permissions, removing from cache")
+                    await self.cache.invalidate(token_hash)
 
             # Cache miss - call backend service
-            logger.debug(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+            logger.info(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+            logger.info(f"Token being validated: {token[:30]}... (length: {len(token)})")
 
             # Create client with explicit configuration for local connections
             client_config = {
@@ -129,12 +146,15 @@ class CentralizedAuthService:
 
                 if response.status_code == 200:
                     data = response.json()
-                    logger.debug(f"Backend service response: {data}")
+                    logger.info(f"Backend service response: {data}")
                     if data.get("valid") and data.get("user"):
                         user_data = data["user"]
-                        # Cache the successful validation
-                        await self.cache.set(token_hash, user_data)
-                        logger.debug(f"Token validation successful for user: {user_data['email']}")
+                        # Only cache tokens for admin users since ETL service is admin-only
+                        if user_data.get("is_admin", False) or user_data.get("role") == "admin":
+                            await self.cache.set(token_hash, user_data)
+                            logger.info(f"Token validation successful for admin user: {user_data['email']}")
+                        else:
+                            logger.info(f"Token validation successful but user is not admin: {user_data['email']} - not caching")
                         return user_data
                     else:
                         logger.warning(f"Invalid response format from backend service. Response: {data}")

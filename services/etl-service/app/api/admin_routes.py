@@ -242,13 +242,21 @@ async def get_system_stats(
             except Exception as e:
                 logger.warning(f"Could not get database size: {e}")
 
+            # Format database stats for frontend compatibility
+            formatted_database_stats = {
+                "size": f"{database_size_mb} MB" if database_size_mb > 0 else "N/A",
+                "table_count": len([count for count in database_stats.values() if count > 0]),
+                "total_records": total_records,
+                "tables": database_stats  # Include individual table counts
+            }
+
             return SystemStatsResponse(
                 total_users=total_users,
                 active_users=active_users,
                 logged_users=logged_users,
                 admin_users=admin_users,
                 roles_distribution=roles_distribution,
-                database_stats=database_stats,
+                database_stats=formatted_database_stats,
                 database_size_mb=database_size_mb,
                 total_records=total_records
             )

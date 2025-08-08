@@ -36,7 +36,7 @@
     <!-- Two Internal Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
@@ -51,7 +51,7 @@
         </div>
 
         <!-- Countdown Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-sm" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
@@ -427,8 +427,6 @@
 
     // Clear all authentication data
     function clearAllAuthenticationData() {
-        console.log('🧹 Clearing all authentication data...');
-
         // Clear localStorage completely
         localStorage.clear();
 
@@ -446,15 +444,12 @@
             // Clear for all subdomains
             document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`;
         });
-
-        console.log('🧹 All authentication data cleared');
     }
 
     // Cross-service navigation helper
     function navigateToFrontend(openInNewTab = false) {
         const token = getAuthToken();
         if (!token) {
-            console.error('No authentication token found for cross-service navigation');
             return;
         }
 
@@ -471,8 +466,6 @@
                 credentials: 'include'
             }).then(response => {
                 if (response.ok) {
-                    console.log('✅ Cross-service authentication established with frontend');
-
                     // Navigate to frontend
                     if (openInNewTab) {
                         window.open(frontendUrl, '_blank');
@@ -480,7 +473,7 @@
                         window.location.href = frontendUrl;
                     }
                 } else {
-                    console.warn('Cross-service authentication failed, navigating anyway');
+                    // Navigate anyway even if cross-service auth failed
                     if (openInNewTab) {
                         window.open(frontendUrl, '_blank');
                     } else {
@@ -925,7 +918,7 @@
 
     function createJobCard(jobName, jobData, allJobsData) {
         const card = document.createElement('div');
-        card.className = 'relative p-6 rounded-lg transition-all duration-200 hover:shadow-sm';
+        card.className = 'relative p-6 rounded-lg transition-all duration-200 hover:shadow-lg';
         card.style.backgroundColor = 'var(--bg-secondary)';
         card.style.border = '1px solid var(--border-color)';
         card.setAttribute('data-job', jobName);
@@ -957,7 +950,6 @@
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
             ${createWebSocketProgress(jobName)}
-            ${createExceptionLog(jobName)}
 
             <!-- Action Buttons - Right Aligned with Better Grouping -->
             <div class="mt-6 flex justify-end">
@@ -965,6 +957,10 @@
                     ${createActionButtons(jobName, jobData, allJobsData)}
                 </div>
             </div>
+
+            <!-- Messages Section - Below Buttons for Consistent Layout -->
+            ${createMessagesSection(jobName, jobData)}
+            ${createExceptionLog(jobName)}
         `;
 
         return card;
@@ -988,20 +984,7 @@
             </div>
         `;
 
-        // Only show recovery details for GitHub jobs - be very strict
-        if (jobName === 'github_sync' && jobData.status === 'PENDING' && jobData.checkpoint_data &&
-            jobData.checkpoint_data.repo_processing_queue) {
-            details += createRecoveryDetails(jobData.checkpoint_data);
-        }
-
-        if (jobData.error_message) {
-            details += `
-                <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(var(--status-error-rgb), 0.1); border-color: rgba(var(--status-error-rgb), 0.3);">
-                    <div class="text-xs font-medium mb-1" style="color: var(--status-error);">Error Message:</div>
-                    <div class="text-xs" style="color: var(--text-primary);">${jobData.error_message}</div>
-                </div>
-            `;
-        }
+        // Recovery details and error messages moved to createMessagesSection() below buttons
 
         return details;
     }
@@ -1048,6 +1031,28 @@
 
         recoveryHtml += '</div>';
         return recoveryHtml;
+    }
+
+    function createMessagesSection(jobName, jobData) {
+        let messagesHtml = '';
+
+        // Recovery details for GitHub jobs (moved from createJobDetails)
+        if (jobName === 'github_sync' && jobData.status === 'PENDING' && jobData.checkpoint_data &&
+            jobData.checkpoint_data.repo_processing_queue) {
+            messagesHtml += createRecoveryDetails(jobData.checkpoint_data);
+        }
+
+        // Error messages for all jobs (moved from createJobDetails)
+        if (jobData.error_message) {
+            messagesHtml += `
+                <div class="mt-3 p-3 rounded-lg border" style="background-color: rgba(var(--status-error-rgb), 0.1); border-color: rgba(var(--status-error-rgb), 0.3);">
+                    <div class="text-xs font-medium mb-1" style="color: var(--status-error);">Error Message:</div>
+                    <div class="text-xs" style="color: var(--text-primary);">${jobData.error_message}</div>
+                </div>
+            `;
+        }
+
+        return messagesHtml;
     }
 
     function createActionButtons(jobName, jobData, allJobsData) {
@@ -1846,7 +1851,6 @@
             const token = getAuthToken();
 
             if (token) {
-                console.log('Calling Backend Service to invalidate session...');
                 // Call Backend Service directly to invalidate session
                 const response = await fetch('http://localhost:3001/api/v1/admin/auth/invalidate-session', {
                     method: 'POST',
@@ -1855,17 +1859,9 @@
                         'Content-Type': 'application/json'
                     }
                 });
-
-                if (response.ok) {
-                    console.log('✅ Session invalidated successfully');
-                } else {
-                    console.warn('❌ Session invalidation failed:', response.status);
-                }
-            } else {
-                console.log('No token found for session invalidation');
             }
         } catch (error) {
-            console.warn('Session invalidation error:', error);
+            // Silently handle session invalidation errors
         }
 
         // Clear localStorage

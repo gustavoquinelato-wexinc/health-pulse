@@ -369,7 +369,8 @@ class DateTimeHelper:
         """
         Get current datetime as timezone-naive UTC.
 
-        Provides a consistent way to get current time across the application.
+        CRITICAL: This is the ONLY method that should be used for database timestamps
+        to ensure consistency with PostgreSQL's UTC timezone setting.
 
         Returns:
             Current datetime in timezone-naive UTC format
@@ -380,6 +381,9 @@ class DateTimeHelper:
     def now_central() -> datetime:
         """
         Get current datetime in Central Time (America/Chicago) as timezone-naive.
+
+        WARNING: This should ONLY be used for display purposes, NOT for database storage.
+        All database operations should use now_utc() for consistency.
 
         Returns:
             datetime: Current Central Time without timezone info
@@ -394,6 +398,29 @@ class DateTimeHelper:
             # Fallback: approximate Central Time as UTC-6 (ignoring DST)
             logger.warning("pytz not available, using UTC-6 approximation for Central Time")
             return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=6)
+
+    @staticmethod
+    def utc_to_central(utc_dt: datetime) -> datetime:
+        """
+        Convert UTC datetime to Central Time for display purposes.
+
+        Args:
+            utc_dt: UTC datetime (timezone-naive)
+
+        Returns:
+            Central Time datetime (timezone-naive)
+        """
+        try:
+            import pytz
+            central_tz = pytz.timezone('America/Chicago')
+            # Add UTC timezone info, then convert to Central
+            utc_aware = utc_dt.replace(tzinfo=timezone.utc)
+            central_aware = utc_aware.astimezone(central_tz)
+            return central_aware.replace(tzinfo=None)
+        except ImportError:
+            # Fallback: approximate Central Time as UTC-6 (ignoring DST)
+            logger.warning("pytz not available, using UTC-6 approximation for Central Time")
+            return utc_dt - timedelta(hours=6)
 
 
 

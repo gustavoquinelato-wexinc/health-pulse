@@ -39,19 +39,22 @@ Pulse Platform transforms raw development data into actionable business intellig
 **🎨 Executive Experience**
 - Clean, professional UI designed for senior leadership
 - Customizable color schemes and branding per client
-- Light/dark mode support with enterprise aesthetics
+- User-specific light/dark mode preferences with enterprise aesthetics
 - Mobile-responsive design for on-the-go access
 
 ## 🏗️ Architecture Highlights
 
-**Three-Tier Architecture:**
+**Four-Tier Architecture:**
 - **Frontend App** (React/TypeScript): Executive dashboards and user interface
-- **Backend Service** (FastAPI/Python): Authentication, user management, and API gateway
+- **Auth Service** (FastAPI/Python): API-only authentication validation backend
+- **Backend Service** (FastAPI/Python): User management, RBAC, and API gateway
 - **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
 
 **Enterprise Features:**
 - PostgreSQL primary-replica setup for high availability
 - Redis caching for optimal performance
+- **Secure API-only authentication service**
+- **Cross-service authentication and OKTA integration ready**
 - JWT-based authentication with session management
 - Client-specific data isolation and security
 - Real-time job monitoring and recovery capabilities
@@ -74,6 +77,7 @@ This platform includes comprehensive documentation to help you understand, deplo
 
 The platform provides comprehensive API documentation through OpenAPI/Swagger:
 
+- **Auth Service**: `http://localhost:4000/health` (API-only authentication backend)
 - **Backend Service API**: `http://localhost:3001/docs`
 - **ETL Service API**: `http://localhost:8000/docs`
 

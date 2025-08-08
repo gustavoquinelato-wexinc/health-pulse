@@ -10,17 +10,14 @@ interface Client {
   id: number
   name: string
   website?: string
+  assets_folder?: string
   logo_filename?: string
   active: boolean
   created_at: string
   last_updated_at: string
 }
 
-interface CreateClientRequest {
-  name: string
-  website?: string
-  active: boolean
-}
+
 
 interface UpdateClientRequest {
   name?: string
@@ -35,20 +32,10 @@ export default function ClientManagementPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Modal states
-  const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingClient, setEditingClient] = useState<Client | null>(null)
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [deletingClient, setDeletingClient] = useState<Client | null>(null)
-  const [showLogoModal, setShowLogoModal] = useState(false)
-  const [logoClient, setLogoClient] = useState<Client | null>(null)
 
   // Form states
-  const [createForm, setCreateForm] = useState<CreateClientRequest>({
-    name: '',
-    website: '',
-    active: true
-  })
   const [updateForm, setUpdateForm] = useState<UpdateClientRequest>({})
 
   // Logo upload states
@@ -78,46 +65,75 @@ export default function ClientManagementPage() {
     }
   }
 
-  const handleCreateClient = async () => {
-    try {
-      await axios.post('/api/v1/admin/clients', createForm)
-      setShowCreateModal(false)
-      setCreateForm({ name: '', website: '', active: true })
-      await loadClients()
-    } catch (error: any) {
-      setError(error.response?.data?.detail || 'Failed to create client')
-    }
-  }
+
 
   const handleUpdateClient = async () => {
     if (!editingClient) return
 
     try {
-      await axios.put(`/api/v1/admin/clients/${editingClient.id}`, updateForm)
+      let hasChanges = false
+
+      // Handle logo upload first if there's a selected file
+      if (selectedFile) {
+        await handleLogoUpload()
+        hasChanges = true
+      }
+
+      // Clean the update form to only send non-empty values
+      const cleanedForm: any = {}
+
+      // Only include name if it's different from current and not empty
+      if (updateForm.name !== undefined && updateForm.name.trim() !== editingClient.name) {
+        cleanedForm.name = updateForm.name.trim()
+      }
+
+      // Only include website if it's different from current
+      if (updateForm.website !== undefined && updateForm.website !== editingClient.website) {
+        cleanedForm.website = updateForm.website || null
+      }
+
+      // Only include active if it's different from current
+      if (updateForm.active !== undefined && updateForm.active !== editingClient.active) {
+        cleanedForm.active = updateForm.active
+      }
+
+
+
+      // Update profile fields if there are changes
+      if (Object.keys(cleanedForm).length > 0) {
+        await axios.put(`/api/v1/admin/clients/${editingClient.id}`, cleanedForm)
+        hasChanges = true
+      }
+
+      // If no changes were made at all, just close the modal
+      if (!hasChanges) {
+        setShowEditModal(false)
+        setEditingClient(null)
+        setUpdateForm({})
+        return
+      }
+
+      // Success - close modal and refresh
       setShowEditModal(false)
       setEditingClient(null)
       setUpdateForm({})
       await loadClients()
     } catch (error: any) {
-      setError(error.response?.data?.detail || 'Failed to update client')
+      console.error('Update client error:', error.response?.data)
+      if (error.response?.status === 403) {
+        setError('You do not have permission to update clients. Admin privileges required.')
+      } else if (error.response?.status === 400) {
+        setError(error.response?.data?.detail || 'Invalid data provided')
+      } else {
+        setError(error.response?.data?.detail || 'Failed to update client')
+      }
     }
   }
 
-  const handleDeleteClient = async () => {
-    if (!deletingClient) return
 
-    try {
-      await axios.delete(`/api/v1/admin/clients/${deletingClient.id}`)
-      setShowDeleteModal(false)
-      setDeletingClient(null)
-      await loadClients()
-    } catch (error: any) {
-      setError(error.response?.data?.detail || 'Failed to delete client')
-    }
-  }
 
   const handleLogoUpload = async () => {
-    if (!selectedFile || !logoClient) return
+    if (!selectedFile || !editingClient) return
 
     try {
       setUploading(true)
@@ -127,7 +143,7 @@ export default function ClientManagementPage() {
       formData.append('logo', selectedFile)
 
       const response = await axios.post(
-        `/api/v1/admin/clients/${logoClient.id}/logo`,
+        `/api/v1/admin/clients/${editingClient.id}/logo`,
         formData,
         {
           headers: {
@@ -141,14 +157,44 @@ export default function ClientManagementPage() {
           }
         }
       )
+      // Update the editing client with new logo info - use both assets_folder and logo_filename
+      const updatedClient = {
+        ...editingClient,
+        assets_folder: response.data.assets_folder,
+        logo_filename: response.data.logo_filename
+      }
+      setEditingClient(updatedClient)
 
-      setShowLogoModal(false)
-      setLogoClient(null)
+      // Also update the client in the main clients list for immediate UI update
+      setClients(prevClients =>
+        prevClients.map(client =>
+          client.id === editingClient.id
+            ? { ...client, assets_folder: response.data.assets_folder, logo_filename: response.data.logo_filename }
+            : client
+        )
+      )
+
+      // Dispatch custom event to notify other components (like Header) of logo update
+      const logoUpdateEvent = new CustomEvent('logoUpdated', {
+        detail: {
+          clientId: editingClient.id,
+          assets_folder: response.data.assets_folder,
+          logo_filename: response.data.logo_filename
+        }
+      })
+      window.dispatchEvent(logoUpdateEvent)
+
       setSelectedFile(null)
       setUploadProgress(0)
-      await loadClients()
+      // Note: Don't close modal or reload clients here - let the calling function handle that
     } catch (error: any) {
+      console.error('Logo upload error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      })
       setError(error.response?.data?.detail || 'Failed to upload logo')
+      throw error // Re-throw so the calling function knows it failed
     } finally {
       setUploading(false)
     }
@@ -161,50 +207,54 @@ export default function ClientManagementPage() {
       website: client.website || '',
       active: client.active
     })
+    // Reset logo upload state and clear any errors
+    setSelectedFile(null)
+    setUploadProgress(0)
+    setError(null)
     setShowEditModal(true)
   }
 
-  const openDeleteModal = (client: Client) => {
-    setDeletingClient(client)
-    setShowDeleteModal(true)
-  }
 
-  const openLogoModal = (client: Client) => {
-    setLogoClient(client)
-    setSelectedFile(null)
-    setUploadProgress(0)
-    setShowLogoModal(true)
-  }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString()
-  }
+
+
+
 
   const getLogoUrl = (client: Client) => {
-    if (client.logo_filename) {
-      // Use the public static folder path
-      return `/static/logos/${client.logo_filename}`
+    if (client.assets_folder && client.logo_filename) {
+      // Use the client-specific assets folder path with cache busting
+      const timestamp = Date.now()
+      return `/assets/${client.assets_folder}/${client.logo_filename}?t=${timestamp}`
     }
     return null
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
+
+    // Clear any previous errors
+    setError(null)
+
     if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError('Please select an image file')
+      // Validate file type - only PNG files allowed
+      if (file.type !== 'image/png') {
+        setError('Please select a PNG file only')
+        setSelectedFile(null)
+        // Clear the input
+        event.target.value = ''
         return
       }
 
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setError('File size must be less than 5MB')
+        setSelectedFile(null)
+        // Clear the input
+        event.target.value = ''
         return
       }
 
       setSelectedFile(file)
-      setError(null)
     }
   }
 
@@ -234,37 +284,126 @@ export default function ClientManagementPage() {
                   </button>
                 </div>
                 <h1 className="text-3xl font-bold text-primary">
-                  Client Management
+                  Client Profile
                 </h1>
                 <p className="text-secondary">
-                  Manage client configurations, logos, and branding settings
+                  Manage your organization's profile, branding, and settings
                 </p>
               </div>
-              <div className="flex space-x-3">
-                <button
-                  onClick={loadClients}
-                  disabled={loading}
-                  className="btn-secondary flex items-center space-x-2"
-                >
-                  <span className={`${loading ? 'animate-spin' : ''}`}>🔄</span>
-                  <span>Refresh</span>
-                </button>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="btn-primary flex items-center space-x-2"
-                >
-                  <span>➕</span>
-                  <span>Create Client</span>
-                </button>
-              </div>
+
             </div>
 
+            {/* Client Profile */}
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <span className="ml-3 text-secondary">Loading client information...</span>
+              </div>
+            ) : clients.length > 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-6"
+              >
+                {/* Client Profile Card */}
+                <div className="card p-8">
+                  <div className="flex items-start justify-between mb-6">
+                    <div className="flex items-center space-x-6">
+                      {/* Logo */}
+                      <div className="flex-shrink-0">
+                        {getLogoUrl(clients[0]) ? (
+                          <img
+                            src={getLogoUrl(clients[0])!}
+                            alt={`${clients[0].name} logo`}
+                            className="h-20 w-20 rounded-lg object-contain border border-tertiary"
+                          />
+                        ) : (
+                          <div className="h-20 w-20 rounded-lg bg-tertiary flex items-center justify-center">
+                            <span className="text-secondary text-2xl font-bold">
+                              {clients[0].name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Client Info */}
+                      <div className="flex-1">
+                        <h2 className="text-2xl font-bold text-primary mb-2">{clients[0].name}</h2>
+                        <div className="space-y-2">
+                          {clients[0].website && (
+                            <div className="flex items-center space-x-2">
+                              <span className="text-sm text-secondary">Website:</span>
+                              <a
+                                href={clients[0].website}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 hover:underline text-sm"
+                              >
+                                {clients[0].website}
+                              </a>
+                            </div>
+                          )}
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-secondary">Status:</span>
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${clients[0].active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                              {clients[0].active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Edit Button */}
+                    <button
+                      onClick={() => openEditModal(clients[0])}
+                      className="btn-crud-edit flex items-center space-x-2"
+                    >
+                      <span>✎</span>
+                      <span>Edit Profile</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-secondary">No client information available.</p>
+              </div>
+            )}
+          </motion.div>
+        </main>
+      </div>
+
+
+
+      {/* Edit Client Modal */}
+      {showEditModal && editingClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-primary rounded-lg p-6 w-full max-w-md mx-4"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-primary">Edit Profile</h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-secondary hover:text-primary transition-colors"
+                title="Close"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Error Display in Modal */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <span className="text-red-500">⚠️</span>
-                    <span className="text-red-700">{error}</span>
+                    <span className="text-red-700 text-sm">{error}</span>
                   </div>
                   <button
                     onClick={() => setError(null)}
@@ -275,187 +414,6 @@ export default function ClientManagementPage() {
                 </div>
               </div>
             )}
-
-            {/* Clients Table */}
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                <span className="ml-3 text-secondary">Loading clients...</span>
-              </div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="card overflow-hidden"
-              >
-                <div className="p-6 border-b border-tertiary">
-                  <h3 className="text-lg font-semibold text-primary">Clients ({clients.length})</h3>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-tertiary">
-                    <thead className="bg-tertiary">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Client
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Logo
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
-                          Created
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-primary divide-y divide-tertiary">
-                      {clients.map((client) => (
-                        <tr key={client.id} className="hover:bg-tertiary">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-primary">{client.name}</div>
-                              {client.website && (
-                                <div className="text-sm text-secondary">{client.website}</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            {getLogoUrl(client) ? (
-                              <img
-                                src={getLogoUrl(client)!}
-                                alt={`${client.name} logo`}
-                                className="h-8 w-8 rounded object-contain"
-                              />
-                            ) : (
-                              <div className="h-8 w-8 bg-gray-200 rounded flex items-center justify-center">
-                                <span className="text-xs text-gray-500">No Logo</span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${client.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                              }`}>
-                              {client.active ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
-                            {formatDate(client.created_at)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex justify-end space-x-2">
-                              <button
-                                onClick={() => openLogoModal(client)}
-                                className="text-blue-600 hover:text-blue-900"
-                                title="Upload Logo"
-                              >
-                                🖼️
-                              </button>
-                              <button
-                                onClick={() => openEditModal(client)}
-                                className="text-blue-600 hover:text-blue-900"
-                                title="Edit Client"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                onClick={() => openDeleteModal(client)}
-                                className="text-red-600 hover:text-red-900"
-                                title="Delete Client"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-            )}
-          </motion.div>
-        </main>
-      </div>
-
-      {/* Create Client Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-primary rounded-lg p-6 w-full max-w-md mx-4"
-          >
-            <h3 className="text-lg font-semibold text-primary mb-4">Create New Client</h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-secondary mb-1">Client Name *</label>
-                <input
-                  type="text"
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter client name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-secondary mb-1">Website</label>
-                <input
-                  type="url"
-                  value={createForm.website}
-                  onChange={(e) => setCreateForm({ ...createForm, website: e.target.value })}
-                  className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://example.com"
-                />
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={createForm.active}
-                    onChange={(e) => setCreateForm({ ...createForm, active: e.target.checked })}
-                    className="rounded border-tertiary focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-secondary">Active Client</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateClient}
-                className="btn-primary"
-                disabled={!createForm.name.trim()}
-              >
-                Create Client
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Edit Client Modal */}
-      {showEditModal && editingClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-primary rounded-lg p-6 w-full max-w-md mx-4"
-          >
-            <h3 className="text-lg font-semibold text-primary mb-4">Edit Client</h3>
 
             <div className="space-y-4">
               <div>
@@ -479,108 +437,18 @@ export default function ClientManagementPage() {
                 />
               </div>
 
-              <div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={updateForm.active || false}
-                    onChange={(e) => setUpdateForm({ ...updateForm, active: e.target.checked })}
-                    className="rounded border-tertiary focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-secondary">Active Client</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setShowEditModal(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdateClient}
-                className="btn-primary"
-                disabled={!updateForm.name?.trim()}
-              >
-                Update Client
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Delete Client Modal */}
-      {showDeleteModal && deletingClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-primary rounded-lg p-6 w-full max-w-md mx-4"
-          >
-            <h3 className="text-lg font-semibold text-red-600 mb-4">Delete Client</h3>
-
-            <div className="mb-6">
-              <p className="text-secondary mb-2">
-                Are you sure you want to delete this client? This action cannot be undone and will affect all associated data.
-              </p>
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800">
-                  <strong>Client:</strong> {deletingClient.name}
-                </p>
-                {deletingClient.website && (
-                  <p className="text-sm text-red-800">
-                    <strong>Website:</strong> {deletingClient.website}
-                  </p>
-                )}
-                <p className="text-sm text-red-800">
-                  <strong>Status:</strong> {deletingClient.active ? 'Active' : 'Inactive'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteClient}
-                className="btn-danger"
-              >
-                Delete Client
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Logo Upload Modal */}
-      {showLogoModal && logoClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-primary rounded-lg p-6 w-full max-w-md mx-4"
-          >
-            <h3 className="text-lg font-semibold text-primary mb-4">Upload Logo for {logoClient.name}</h3>
-
-            <div className="space-y-4">
               {/* Current Logo */}
-              {getLogoUrl(logoClient) && (
+              {getLogoUrl(editingClient) && (
                 <div>
                   <label className="block text-sm font-medium text-secondary mb-2">Current Logo</label>
                   <div className="flex items-center space-x-3">
                     <img
-                      src={getLogoUrl(logoClient)!}
-                      alt={`${logoClient.name} current logo`}
+                      src={getLogoUrl(editingClient)!}
+                      alt={`${editingClient.name} current logo`}
                       className="h-16 w-16 rounded object-contain border border-tertiary"
                     />
                     <div className="text-sm text-secondary">
-                      <p>Filename: {logoClient.logo_filename}</p>
+                      <p>Filename: {editingClient.logo_filename}</p>
                     </div>
                   </div>
                 </div>
@@ -589,16 +457,16 @@ export default function ClientManagementPage() {
               {/* File Upload */}
               <div>
                 <label className="block text-sm font-medium text-secondary mb-2">
-                  {getLogoUrl(logoClient) ? 'Replace Logo' : 'Upload Logo'}
+                  {getLogoUrl(editingClient) ? 'Replace Logo' : 'Upload Logo'}
                 </label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png"
                   onChange={handleFileSelect}
                   className="w-full px-3 py-2 border border-tertiary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-secondary mt-1">
-                  Supported formats: PNG, JPG, GIF. Max size: 5MB
+                  Supported format: PNG only. Max size: 5MB
                 </p>
               </div>
 
@@ -635,22 +503,35 @@ export default function ClientManagementPage() {
                   </div>
                 </div>
               )}
+
+              {/* Active Status */}
+              <div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={updateForm.active || false}
+                    onChange={(e) => setUpdateForm({ ...updateForm, active: e.target.checked })}
+                    className="rounded border-tertiary focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-secondary">Active Client</span>
+                </label>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-3 mt-6">
               <button
-                onClick={() => setShowLogoModal(false)}
-                className="btn-secondary"
+                onClick={() => setShowEditModal(false)}
+                className="btn-crud-cancel"
                 disabled={uploading}
               >
                 Cancel
               </button>
               <button
-                onClick={handleLogoUpload}
-                className="btn-primary"
-                disabled={!selectedFile || uploading}
+                onClick={handleUpdateClient}
+                className="btn-crud-edit"
+                disabled={!updateForm.name?.trim() || uploading}
               >
-                {uploading ? 'Uploading...' : 'Upload Logo'}
+                {uploading ? 'Saving...' : selectedFile ? 'Save Profile & Logo' : 'Save Changes'}
               </button>
             </div>
           </motion.div>

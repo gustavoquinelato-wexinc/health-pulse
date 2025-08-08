@@ -21,6 +21,7 @@ interface User {
   id: string
   email: string
   role: string
+  is_admin: boolean
   name?: string
   client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
   colorSchemaData?: ColorSchemaData
@@ -39,7 +40,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Configure axios defaults - Use direct backend URL since CORS is properly configured
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-axios.defaults.withCredentials = true  // Include cookies in all requests
+// Note: withCredentials is set per-request basis to avoid CORS issues
 
 // Global axios response interceptor for handling authentication errors
 let isInterceptorSetup = false
@@ -51,21 +52,14 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [colorSchemaLoaded, setColorSchemaLoaded] = useState(false)
-  const [sessionCheckInterval, setSessionCheckInterval] = useState<NodeJS.Timeout | null>(null)
+  const [sessionCheckInterval, setSessionCheckInterval] = useState<number | null>(null)
 
-  // Load color schema from API (with caching)
+  // Load color schema from API (client-specific, no global caching)
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
-    if (colorSchemaLoaded) {
-      console.log('AuthContext: Color schema already loaded, skipping...')
-      return null
-    }
-
     try {
       const response = await axios.get('/api/v1/admin/color-schema')
 
       if (response.data.success) {
-        setColorSchemaLoaded(true)
         return {
           mode: response.data.mode,
           colors: response.data.colors
@@ -103,7 +97,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             } else {
               console.log('AuthContext: Session validation successful')
             }
-          } catch (error) {
+          } catch (error: any) {
             console.warn('AuthContext: Session validation failed during periodic check:', error)
             // Don't logout on network errors - only on 401
             if (error.response?.status === 401) {
@@ -145,7 +139,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (sessionCheckInterval) {
       clearInterval(sessionCheckInterval)
       setSessionCheckInterval(null)
-      console.log('AuthContext: Stopped periodic session validation')
     }
   }
 
@@ -272,11 +265,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
           role: user.role,
+          is_admin: user.is_admin,
           client_id: user.client_id,
           colorSchemaData: undefined
         }
 
         setUser(formattedUser)
+
+        // Update client logger context with new user info
+        clientLogger.updateClientContext()
 
         // Load color schema
         loadColorSchema().then(colorSchemaData => {
@@ -297,7 +294,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
-          console.warn('Failed to load color schema during session check:', error)
           // Set fallback colors even on error
           const fallbackColorSchema: ColorSchemaData = {
             mode: 'default',
@@ -336,11 +332,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
           role: user.role,
+          is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
           colorSchemaData: undefined  // Will be loaded separately
         }
 
         setUser(formattedUser)
+
+        // Update client logger context with new user info
+        clientLogger.updateClientContext()
 
         // Setup axios interceptor and start periodic session validation
         setupAxiosInterceptor()
@@ -365,7 +365,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
-          console.warn('Failed to load color schema during validation:', error)
           // Set fallback colors even on error
           const fallbackColorSchema: ColorSchemaData = {
             mode: 'default',
@@ -386,7 +385,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch (error) {
       // Token is invalid or expired, clear all authentication data
-      console.warn('Token validation failed, clearing all authentication state:', error)
       clearAllAuthenticationData()
     } finally {
       setIsLoading(false)
@@ -420,12 +418,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
           role: user.role,
+          is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
           colorSchemaData: undefined  // Will be loaded separately after login
         }
 
         // Set user data first
         setUser(formattedUser)
+
+        // Update client logger context with new user info
+        clientLogger.updateClientContext()
 
         // Setup axios interceptor and start periodic session validation
         setupAxiosInterceptor()
@@ -453,7 +455,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
         }).catch(error => {
-          console.warn('Failed to load color schema after login:', error)
           // Set fallback colors even on error
           const fallbackColorSchema: ColorSchemaData = {
             mode: 'default',
@@ -468,9 +469,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
         })
 
+        // Set up cross-service cookie for ETL service
+        setupCrossServiceCookie(token)
+
         return true
       } else {
-        console.error('Login failed: Invalid response format')
         return false
       }
     } catch (error) {
@@ -487,102 +490,126 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  const setupCrossServiceCookie = (token: string) => {
+    try {
+      // Set cookie for cross-service authentication with ETL service
+      // For localhost development, we need to set cookies for each specific port
+      // since .localhost domain doesn't work reliably in all browsers
+
+      // Set cookie for current domain (no domain specified = current host only)
+      document.cookie = `pulse_token=${token}; path=/; max-age=86400; SameSite=lax`
+
+      // Also try to set with .localhost domain for browsers that support it
+      try {
+        document.cookie = `pulse_token=${token}; path=/; domain=.localhost; max-age=86400; SameSite=lax`
+      } catch (domainError) {
+        // Ignore domain-specific errors - some browsers don't support .localhost
+      }
+
+      // Log removed - cross-service cookie setup is routine operation
+    } catch (error) {
+      clientLogger.error('Failed to set cross-service cookie', {
+        type: 'cross_service_cookie_error',
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
   const clearAllAuthenticationData = () => {
-    // Clear localStorage completely
-    localStorage.clear()
+    try {
+      // Clear localStorage completely
+      localStorage.clear()
 
-    // Clear sessionStorage
-    sessionStorage.clear()
+      // Clear sessionStorage
+      sessionStorage.clear()
 
-    // Clear all cookies
-    document.cookie.split(";").forEach(cookie => {
-      const eqPos = cookie.indexOf("=")
-      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
-      // Clear for current domain
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
-      // Clear for parent domain
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`
-      // Clear for all subdomains
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`
-    })
+      // Clear all cookies (with error handling)
+      try {
+        document.cookie.split(";").forEach(cookie => {
+          const eqPos = cookie.indexOf("=")
+          const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim()
+          if (name) {
+            // Clear for current domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+            // Clear for parent domain
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=localhost`
+            // Clear for all subdomains
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.localhost`
+          }
+        })
+      } catch (error) {
+        // Silently handle cookie clearing errors
+      }
 
-    // Clear axios headers
-    delete axios.defaults.headers.common['Authorization']
+      // Clear axios headers
+      if (axios.defaults.headers.common) {
+        delete axios.defaults.headers.common['Authorization']
+      }
 
-    // Clear user state
-    setUser(null)
-    setColorSchemaLoaded(false)
-
-    console.log('🧹 All authentication data cleared')
+      // Authentication data cleared successfully
+    } catch (error) {
+      // Silently handle any authentication data clearing errors
+    }
   }
 
   const logout = async () => {
+    // Immediately stop session validation to prevent any interference
+    stopSessionValidation()
+
+    // Clear state first to prevent any React updates during cleanup
+    setUser(null)
+
+    // Update client logger context to reflect logout
+    clientLogger.updateClientContext()
+
     try {
-      // Try to invalidate session on the backend
+      // Try to invalidate session on the backend (non-blocking)
       const token = localStorage.getItem('pulse_token')
       if (token) {
-        try {
-          await axios.post('/api/v1/auth/logout')
-          console.log('Session invalidated on backend')
-        } catch (error) {
-          console.warn('Failed to invalidate session on backend:', error)
-          // Continue with local logout even if backend call fails
-        }
+        // Backend logout (don't await to avoid delays)
+        axios.post('/api/v1/auth/logout').catch(() => { })
 
-        // Also try to clear ETL service session by calling its API logout endpoint
-        try {
-          const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-          await fetch(`${etlServiceUrl}/api/logout`, {
-            method: 'POST',
-            credentials: 'include', // Include cookies
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          })
-          console.log('ETL service logout successful')
-        } catch (error) {
-          console.warn('Failed to logout from ETL service:', error)
-          // Continue with local logout even if ETL logout fails
-        }
+        // ETL service logout (don't await to avoid delays)
+        const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+        fetch(`${etlServiceUrl}/api/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(() => { })
       }
     } catch (error) {
-      console.warn('Error during logout:', error)
-    } finally {
-      // Stop periodic session validation
-      stopSessionValidation()
-
-      // Use comprehensive authentication data clearing
-      clearAllAuthenticationData()
-
-      // Clear browser cache for auth-related requests
-      if ('caches' in window) {
-        caches.keys().then(names => {
-          names.forEach(name => {
-            if (name.includes('auth') || name.includes('api')) {
-              caches.delete(name)
-            }
-          })
-        })
-      }
-
-      // Unregister service workers to clear any cached authentication state
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-          registrations.forEach(registration => {
-            registration.unregister()
-          })
-        })
-      }
-
-      // Reset state
-      setUser(null)
-      setColorSchemaLoaded(false) // Reset color schema cache
-
-      // Force a hard refresh to clear any remaining cached state
-      setTimeout(() => {
-        window.location.href = '/login?message=logged_out'
-      }, 100)
+      // Silently handle any logout API errors
     }
+
+    // Clear authentication data immediately
+    try {
+      clearAllAuthenticationData()
+    } catch (error) {
+      // Silently handle any auth data clearing errors
+    }
+
+    // Clear browser cache asynchronously (don't block redirect)
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        names.forEach(name => {
+          if (name.includes('auth') || name.includes('api')) {
+            caches.delete(name).catch(() => { })
+          }
+        })
+      }).catch(() => { })
+    }
+
+    // Unregister service workers asynchronously (don't block redirect)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => {
+          registration.unregister().catch(() => { })
+        })
+      }).catch(() => { })
+    }
+
+    // Redirect immediately to prevent any React state update issues
+    window.location.replace('/login')
   }
 
   const value: AuthContextType = {
@@ -591,7 +618,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: !!user && user.role === 'admin'
+    isAdmin: !!user && user.is_admin
   }
 
 
@@ -606,8 +633,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (event.data.type === 'AUTH_SUCCESS' && event.data.token) {
-        console.log('✅ Received cross-service authentication from ETL service');
-
         // Store the token
         localStorage.setItem('pulse_token', event.data.token);
         axios.defaults.headers.common['Authorization'] = `Bearer ${event.data.token}`;

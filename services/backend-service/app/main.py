@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 import asyncio
@@ -27,6 +27,7 @@ from app.api.health import router as health_router
 from app.api.debug import router as debug_router
 from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
+from app.api.user_routes import router as user_router
 from app.api.frontend_logs import router as frontend_logs_router
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
@@ -267,22 +268,24 @@ app.add_middleware(AuthenticationMiddleware)
 if not settings.DEBUG:
     app.add_middleware(RateLimitingMiddleware, max_requests=100, window_seconds=60)
 
-# Other middleware
+# Manual CORS handler removed - using CORSMiddleware instead to avoid conflicts
+
+# CORS configuration (FIRST - must handle preflight requests before any other middleware)
+logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,  # Use configured origins from settings
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Other middleware (after CORS)
 app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
-
-# CORS configuration (added LAST - runs FIRST - must handle preflight requests)
-logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,  # Use configured origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Include Backend Service API routes
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
@@ -290,7 +293,12 @@ app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
 app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"])
+app.include_router(user_router, tags=["User Preferences"])
 app.include_router(admin_router, tags=["Administration"])
+
+# Include Centralized Auth Integration routes
+from app.api.centralized_auth_routes import router as centralized_auth_router
+app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", tags=["Centralized Auth"])
 
 # Backend Service - API only, no static files or web routes
 

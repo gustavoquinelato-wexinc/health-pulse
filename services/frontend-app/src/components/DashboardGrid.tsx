@@ -52,14 +52,13 @@ export default function DashboardGrid() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.1 }}
           className="card p-6 space-y-4"
-          whileHover={{ scale: 1.02 }}
         >
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-muted">{metric.title}</h3>
             <div className={`w-3 h-3 rounded-full ${metric.color === 'emerald' ? 'bg-emerald-400' :
-                metric.color === 'blue' ? 'bg-blue-400' :
-                  metric.color === 'violet' ? 'bg-violet-400' :
-                    'bg-amber-400'
+              metric.color === 'blue' ? 'bg-blue-400' :
+                metric.color === 'violet' ? 'bg-violet-400' :
+                  'bg-amber-400'
               }`}></div>
           </div>
 
@@ -137,8 +136,8 @@ export default function DashboardGrid() {
               className="flex items-center space-x-3 p-3 rounded-lg bg-tertiary"
             >
               <div className={`w-2 h-2 rounded-full ${activity.status === 'success' ? 'bg-emerald-400' :
-                  activity.status === 'info' ? 'bg-blue-400' :
-                    'bg-amber-400'
+                activity.status === 'info' ? 'bg-blue-400' :
+                  'bg-amber-400'
                 }`}></div>
               <div className="flex-1">
                 <p className="text-sm text-primary">{activity.action}</p>

@@ -21,6 +21,7 @@ from sqlalchemy import func
 import httpx
 
 from app.core.logging_config import get_logger
+from app.core.utils import DateTimeHelper
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
 from app.core.database import get_database, get_db_session
 from app.models.unified_models import JobSchedule
@@ -29,9 +30,52 @@ from app.auth.centralized_auth_middleware import (
     require_web_authentication, get_current_user_optional
 )
 from app.auth.centralized_auth_service import get_centralized_auth_service
+from app.auth.centralized_auth import get_centralized_auth, require_centralized_auth, create_auth_redirect
 from app.core.config import settings
 
 logger = get_logger(__name__)
+
+# Helper function to get current user's client information
+async def get_user_client_info(token: str) -> dict:
+    """Get current user's client information for template rendering"""
+    try:
+        if not token:
+            return {"client_logo": None, "client_name": "Client"}
+
+        # Validate token and get user data
+        auth_service = get_centralized_auth_service()
+        user_data = await auth_service.verify_token(token)
+
+        if not user_data:
+            return {"client_logo": None, "client_name": "Client"}
+
+        # Get client information from database
+        from app.core.database import get_database
+        from app.models.unified_models import Client
+
+        database = get_database()
+        with database.get_session() as session:
+            client = session.query(Client).filter(
+                Client.id == user_data.get('client_id'),
+                Client.active == True
+            ).first()
+
+            if client:
+                # Combine assets_folder and logo_filename for the full path
+                logo_path = None
+                if client.assets_folder and client.logo_filename:
+                    logo_path = f"{client.assets_folder}/{client.logo_filename}"
+
+                return {
+                    "client_logo": logo_path,
+                    "client_name": client.name
+                }
+
+        return {"client_logo": None, "client_name": "Client"}
+
+    except Exception as e:
+        logger.warning(f"Failed to get client info: {e}")
+        return {"client_logo": None, "client_name": "Client"}
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -92,97 +136,98 @@ async def root(request: Request):
     logger.info("🔐 No valid authentication - redirecting to /login")
     return RedirectResponse(url="/login")
 
+# Auth callback endpoint removed - no longer needed with subdomain cookies
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page - redirect to home if already authenticated"""
     logger.info("🔐 Login page accessed - checking if user is already authenticated")
 
-    # Check if user is already authenticated
+    # Check if user is already authenticated via subdomain-shared cookie
     token = request.cookies.get("pulse_token")
+
+    # If we have a token, validate it
     if token:
         try:
             # Validate token via centralized auth service
+            from app.auth.centralized_auth_service import get_centralized_auth_service
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
+
             if user_data:
-                logger.info(f"✅ User already authenticated: {user_data.get('email')} - redirecting to /home")
-                return RedirectResponse(url="/home")
+                # Check if user has admin permissions before redirecting
+                if user_data.get("is_admin", False) or user_data.get("role") == "admin":
+                    logger.info(f"✅ Admin user already authenticated: {user_data.get('email')} - redirecting to /home")
+
+                    # Set subdomain-shared cookie and redirect
+                    from app.core.config import get_settings
+                    settings = get_settings()
+
+                    response = RedirectResponse(url="/home")
+                    response.set_cookie(
+                        key="pulse_token",
+                        value=token,
+                        max_age=24 * 60 * 60,  # 24 hours
+                        httponly=False,  # Allow JavaScript access for API calls
+                        secure=settings.COOKIE_SECURE,  # From environment variable
+                        samesite=settings.COOKIE_SAMESITE,  # From environment variable
+                        path="/",
+                        domain=settings.COOKIE_DOMAIN  # From environment variable
+                    )
+                else:
+                    # User is authenticated but not admin - show permission denied
+                    logger.info(f"❌ Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
+
+                    # Clear the token cookie since user doesn't have permission
+                    from app.core.config import get_settings
+                    settings = get_settings()
+
+                    response = templates.TemplateResponse("login.html", {
+                        "request": request,
+                        "error": "Access Denied: ETL Management requires administrator privileges. Please contact your system administrator for access.",
+                        "backend_service_url": settings.BACKEND_SERVICE_URL,
+                        "frontend_service_url": settings.FRONTEND_SERVICE_URL,
+                        "cookie_domain": settings.COOKIE_DOMAIN
+                    })
+
+                    # Clear the token cookie
+                    response.set_cookie(
+                        key="pulse_token",
+                        value="",
+                        max_age=0,  # Expire immediately
+                        httponly=False,
+                        secure=settings.COOKIE_SECURE,
+                        samesite=settings.COOKIE_SAMESITE,
+                        path="/",
+                        domain=settings.COOKIE_DOMAIN
+                    )
+                return response
         except Exception as e:
             logger.debug(f"Token validation failed on login page: {e}")
 
-    # User not authenticated, show login page
+    # User not authenticated, show login page (ETL service handles its own login)
     from app.core.config import get_settings
     settings = get_settings()
 
     backend_url = settings.BACKEND_SERVICE_URL
+    frontend_url = settings.FRONTEND_URL
+    cookie_domain = settings.COOKIE_DOMAIN
     logger.info(f"Login page: passing backend_service_url = {backend_url}")
 
     response = templates.TemplateResponse("login.html", {
         "request": request,
-        "backend_service_url": backend_url
+        "backend_service_url": backend_url,
+        "frontend_service_url": frontend_url,
+        "cookie_domain": cookie_domain
     })
-    # Only clear cookies if user is not authenticated
-    if not token:
-        response.delete_cookie("pulse_token", path="/")
+    # Clear any invalid cookies
+    response.delete_cookie("pulse_token", path="/")
     return response
 
-@router.post("/login")
-async def login_post_handler(request: Request):
-    """Handle POST requests to /login - process form data and authenticate"""
-    try:
-        # Parse form data
-        form_data = await request.form()
-        email = form_data.get("email")
-        password = form_data.get("password")
+# No auth callback needed - ETL service handles its own login
 
-        if not email or not password:
-            return templates.TemplateResponse("login.html", {
-                "request": request,
-                "error": "Email and password are required"
-            })
-
-        # Forward to backend service with JSON format
-        from app.core.config import get_settings
-        import httpx
-
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{backend_url}/auth/login",
-                json={"email": email, "password": password},
-                headers={"Content-Type": "application/json"}
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Set cookie and redirect to home
-                redirect_response = RedirectResponse(url="/home", status_code=302)
-                redirect_response.set_cookie(
-                    "pulse_token",
-                    data["token"],  # Fixed: Backend returns "token", not "access_token"
-                    max_age=86400,
-                    httponly=False,
-                    path="/"
-                )
-                return redirect_response
-            else:
-                # Authentication failed
-                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                error_message = error_data.get("detail", "Invalid credentials")
-
-                return templates.TemplateResponse("login.html", {
-                    "request": request,
-                    "error": error_message
-                })
-
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Login failed. Please try again."
-        })
+# POST login handler removed - using centralized auth service instead
 
 @router.get("/home", response_class=HTMLResponse)
 async def home_page(request: Request, token: Optional[str] = None):
@@ -245,9 +290,9 @@ async def home_page(request: Request, token: Optional[str] = None):
                 if response_color.status_code == 200:
                     data = response_color.json()
                     if data.get("success"):
-                        # Also get theme mode from backend
+                        # Also get user-specific theme mode from backend
                         theme_response = await client.get(
-                            f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                             headers={"Authorization": f"Bearer {auth_token}"}
                         )
 
@@ -270,12 +315,18 @@ async def home_page(request: Request, token: Optional[str] = None):
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
 
+    # Get client information for header
+    auth_token = request.cookies.get("pulse_token")
+    client_info = await get_user_client_info(auth_token)
+
     # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
     return templates.TemplateResponse("home.html", {
         "request": request,
         "color_schema": color_schema_data,
-        "embedded": embedded
+        "embedded": embedded,
+        "client_logo": client_info["client_logo"],
+        "client_name": client_info["client_name"]
     })
 
 
@@ -294,7 +345,15 @@ async def old_dashboard_page(request: Request, token: Optional[str] = None):
         # Get color schema (use default for old dashboard)
         color_schema_data = {"mode": "default"}
 
-        return templates.TemplateResponse("old_dashboard.html", {"request": request, "color_schema": color_schema_data})
+        # Get client information for header
+        client_info = await get_user_client_info(auth_token)
+
+        return templates.TemplateResponse("old_dashboard.html", {
+            "request": request,
+            "color_schema": color_schema_data,
+            "client_logo": client_info["client_logo"],
+            "client_name": client_info["client_name"]
+        })
 
     except Exception as e:
         logger.error(f"Old dashboard page error: {e}")
@@ -732,9 +791,9 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {auth_token}"}
                             )
 
@@ -810,9 +869,9 @@ async def issuetype_mappings_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -881,9 +940,9 @@ async def issuetype_hierarchies_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -954,9 +1013,9 @@ async def workflows_page(request: Request):
                     if response_color.status_code == 200:
                         data = response_color.json()
                         if data.get("success"):
-                            # Also get theme mode from backend
+                            # Also get user-specific theme mode from backend
                             theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/theme-mode",
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                                 headers={"Authorization": f"Bearer {token}"}
                             )
 
@@ -979,11 +1038,16 @@ async def workflows_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get client information for header
+        client_info = await get_user_client_info(token)
+
         return templates.TemplateResponse("workflows.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "client_logo": client_info["client_logo"],
+            "client_name": client_info["client_name"]
         })
 
     except Exception as e:
@@ -1043,17 +1107,15 @@ async def logout_page(request: Request):
             // Clear all localStorage
             try {
                 localStorage.clear();
-                console.log('✅ localStorage cleared');
             } catch (e) {
-                console.warn('Failed to clear localStorage:', e);
+                // Silently handle localStorage clearing errors
             }
 
             // Clear all sessionStorage
             try {
                 sessionStorage.clear();
-                console.log('✅ sessionStorage cleared');
             } catch (e) {
-                console.warn('Failed to clear sessionStorage:', e);
+                // Silently handle sessionStorage clearing errors
             }
 
             // Clear specific auth-related items
@@ -1063,7 +1125,7 @@ async def logout_page(request: Request):
                     localStorage.removeItem(key);
                     sessionStorage.removeItem(key);
                 } catch (e) {
-                    console.warn(`Failed to remove ${key}:`, e);
+                    // Silently handle key removal errors
                 }
             });
 
@@ -1075,9 +1137,8 @@ async def logout_page(request: Request):
                             caches.delete(name);
                         }
                     });
-                    console.log('✅ Browser cache cleared');
                 }).catch(e => {
-                    console.warn('Failed to clear cache:', e);
+                    // Silently handle cache clearing errors
                 });
             }
 
@@ -1090,7 +1151,6 @@ async def logout_page(request: Request):
                 document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
                 document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + window.location.hostname;
             });
-            console.log('✅ Cookies cleared via JavaScript');
 
             // Try to notify frontend service about logout (cross-service coordination)
             try {
@@ -1107,17 +1167,16 @@ async def logout_page(request: Request):
                         window.localStorage.clear();
                         window.sessionStorage.clear();
                     } catch (e) {
-                        console.warn('Could not clear frontend storage (different origin):', e);
+                        // Silently handle cross-origin storage clearing errors
                     }
                 }
-                console.log('✅ Cross-service logout coordination attempted');
             } catch (e) {
-                console.warn('Cross-service logout coordination failed:', e);
+                // Silently handle cross-service coordination errors
             }
 
             // Redirect after cleanup
             setTimeout(() => {
-                window.location.href = '/login?message=logged_out';
+                window.location.href = '/login';
             }, 1000);
         </script>
     </body>
@@ -1160,7 +1219,7 @@ async def logout_page(request: Request):
         response.delete_cookie(key=cookie_name)
 
     logger.info("=== LOGOUT PROCESS COMPLETED ===")
-    logger.info(f"Returning cleanup HTML with redirect to: /login?message=logged_out")
+    logger.info(f"Returning cleanup HTML with redirect to: /login")
 
     # Add aggressive cache control headers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
@@ -1281,15 +1340,19 @@ async def navigate_with_token(request: Request):
             # Form request - direct redirect
             response = RedirectResponse(url="/home", status_code=302)
 
-        # Set session cookie for ETL service (accessible by JavaScript for API calls)
+        # Set subdomain-shared session cookie for ETL service
+        from app.core.config import get_settings
+        settings = get_settings()
+
         response.set_cookie(
             key="pulse_token",
             value=token,
             max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
             httponly=False,  # Allow JavaScript access for API calls
-            secure=False,  # Set to True in production with HTTPS
-            samesite="lax",
-            path="/"
+            secure=settings.COOKIE_SECURE,  # From environment variable
+            samesite=settings.COOKIE_SAMESITE,  # From environment variable
+            path="/",
+            domain=settings.COOKIE_DOMAIN  # From environment variable
         )
 
         # Store return URL in cookie for later use
@@ -1629,7 +1692,8 @@ async def get_user_color_schema(request: Request, user: UserData = Depends(requi
         pass
 
     # Get color schema with smart caching (no auto-refresh, only event-driven updates)
-    return await color_manager.get_color_schema(auth_token)
+    user_id = str(user.id) if user and hasattr(user, 'id') else "default"
+    return await color_manager.get_color_schema(auth_token, user_id)
 
 
 @router.get("/api/v1/debug/color-schema-cache")
@@ -1638,7 +1702,8 @@ async def get_color_schema_cache_status(user: UserData = Depends(require_web_aut
     from app.core.color_schema_manager import get_color_schema_manager
 
     color_manager = get_color_schema_manager()
-    cache_info = color_manager.get_cache_info()
+    user_id = str(user.id) if user and hasattr(user, 'id') else "default"
+    cache_info = color_manager.get_cache_info(user_id)
 
     return {
         "success": True,
@@ -1720,6 +1785,38 @@ async def handle_color_schema_mode_change(request: Request):
 
     except Exception as e:
         logger.error(f"❌ Error processing color schema mode change: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/api/v1/internal/user-theme-changed")
+async def handle_user_theme_change(request: Request):
+    """Internal endpoint: Handle user theme change notification from backend"""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        theme_mode = data.get("theme_mode")
+
+        logger.info(f"🎨 User theme change notification received for user {user_id}: {theme_mode}")
+
+        # Invalidate user-specific color schema cache to force refresh on next page load
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_manager.invalidate_cache(str(user_id))
+
+        logger.info(f"✅ Color schema cache invalidated for user {user_id}")
+
+        return {
+            "success": True,
+            "message": "User theme change processed successfully",
+            "user_id": user_id,
+            "theme_mode": theme_mode
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error processing user theme change: {e}")
         return {
             "success": False,
             "error": str(e)

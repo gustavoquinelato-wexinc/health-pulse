@@ -67,27 +67,23 @@ const saveColorSchemaModeToAPI = async (mode: ColorSchemaMode): Promise<boolean>
   }
 }
 
-// API functions for theme mode persistence
+// API functions for theme mode persistence (user-specific)
 const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
   try {
-    const response = await axios.get('/api/v1/admin/theme-mode')
+    const response = await axios.get('/api/v1/user/theme-mode')
 
     if (response.data.success) {
       return response.data.mode as Theme
     }
   } catch (error) {
-    console.error('Failed to load theme mode from API:', error)
-    if (error && typeof error === 'object' && 'response' in error) {
-      const axiosError = error as any
-      console.error('API Error Response:', axiosError.response?.status, axiosError.response?.data)
-    }
+    // Silently handle theme loading errors - not critical for app functionality
   }
   return null
 }
 
 const saveThemeModeToAPI = async (mode: Theme): Promise<boolean> => {
   try {
-    const response = await axios.post('/api/v1/admin/theme-mode', { mode })
+    const response = await axios.post('/api/v1/user/theme-mode', { mode })
     return response.data.success
   } catch (error) {
     console.error('Failed to save theme mode to API:', error)
@@ -171,6 +167,8 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     loadThemeMode()
   }, [user, isLoading])
 
+
+
   // Apply theme to document
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -223,9 +221,6 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const saveThemeMode = async (): Promise<boolean> => {
     try {
       const success = await saveThemeModeToAPI(theme)
-      if (success) {
-        console.log('Theme mode saved successfully:', theme)
-      }
       return success
     } catch (error) {
       console.error('Failed to save theme mode:', error)

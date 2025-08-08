@@ -1980,10 +1980,8 @@ export default function ColorSchemaPanel() {
         ].map((card, index) => (
           <motion.div
             key={index}
-            className="relative p-6 rounded-xl backdrop-blur-sm border border-white border-opacity-20 hover:scale-105 transition-all duration-300 cursor-pointer overflow-hidden"
+            className="relative p-6 rounded-xl backdrop-blur-sm border border-white border-opacity-20 transition-all duration-300 cursor-pointer overflow-hidden hover:shadow-lg"
             style={{ background: card.gradient }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.2 + index * 0.1 }}

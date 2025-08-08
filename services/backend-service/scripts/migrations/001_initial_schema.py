@@ -12,7 +12,7 @@ This migration creates the complete initial database schema including:
 - Issue tracking and workflow tables
 - Development data tables (PRs, commits, etc.)
 - Job scheduling and system settings with theme/color customization
-- Initial seed data for two clients: WEX and TechCorp
+- Initial seed data for two clients: WEX and Google
 - Theme mode support (light/dark) and custom color schemas
 
 This comprehensive migration combines what were previously migrations 001, 002, and 003
@@ -65,6 +65,7 @@ def apply(connection):
                 id SERIAL,
                 name VARCHAR NOT NULL,
                 website VARCHAR,
+                assets_folder VARCHAR(100),
                 logo_filename VARCHAR(255) DEFAULT 'default-logo.png',
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -84,6 +85,8 @@ def apply(connection):
                 auth_provider VARCHAR(50) NOT NULL DEFAULT 'local',
                 okta_user_id VARCHAR(255),
                 password_hash VARCHAR(255),
+                theme_mode VARCHAR(10) DEFAULT 'light',
+                profile_image_filename VARCHAR(255),
                 last_login_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -800,8 +803,8 @@ def apply(connection):
 
         # Insert default client (WEX)
         cursor.execute("""
-            INSERT INTO clients (name, website, logo_filename, active, created_at, last_updated_at)
-            VALUES ('WEX', 'https://www.wexinc.com', 'wex-logo.png', TRUE, NOW(), NOW())
+            INSERT INTO clients (name, website, assets_folder, logo_filename, active, created_at, last_updated_at)
+            VALUES ('WEX', 'https://www.wexinc.com', 'wex', 'wex-logo.png', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 
@@ -1327,8 +1330,7 @@ def apply(connection):
             {"setting_key": "github_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable GitHub synchronization"},
             {"setting_key": "data_retention_days", "setting_value": "365", "setting_type": "integer", "description": "Number of days to retain data"},
             {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"},
-            # Theme and color settings (from migration 002)
-            {"setting_key": "theme_mode", "setting_value": "light", "setting_type": "string", "description": "User interface theme mode (light or dark)"},
+            # Color settings (theme_mode moved to users table)
             {"setting_key": "color_schema_mode", "setting_value": "default", "setting_type": "string", "description": "Color schema mode (default or custom)"},
             {"setting_key": "custom_color1", "setting_value": "#C8102E", "setting_type": "string", "description": "Custom color 1 - Red (Primary)"},
             {"setting_key": "custom_color2", "setting_value": "#253746", "setting_type": "string", "description": "Custom color 2 - Dark Blue (Secondary)"},
@@ -1513,28 +1515,28 @@ def apply(connection):
             print("💡 Configure integrations and re-run migration to enforce constraint")
 
         # Create second client and duplicate data (from migration 003)
-        print("📋 Creating second client (TechCorp) and duplicating data...")
+        print("📋 Creating second client (Google) and duplicating data...")
 
         # Insert second client (ACTIVE for multi-instance testing)
         cursor.execute("""
-            INSERT INTO clients (name, website, logo_filename, active, created_at, last_updated_at)
-            VALUES ('TechCorp', 'https://www.techcorp.com', 'techcorp-logo.png', TRUE, NOW(), NOW())
+            INSERT INTO clients (name, website, assets_folder, logo_filename, active, created_at, last_updated_at)
+            VALUES ('Google', 'https://www.google.com', 'google', 'google-logo.png', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING
             RETURNING id;
         """)
 
         result = cursor.fetchone()
         if result:
-            techcorp_client_id = result['id']
-            print(f"   ✅ Created TechCorp client with ID: {techcorp_client_id}")
+            google_client_id = result['id']
+            print(f"   ✅ Created Google client with ID: {google_client_id}")
         else:
             # Client already exists, get its ID
-            cursor.execute("SELECT id FROM clients WHERE name = 'TechCorp' LIMIT 1;")
-            techcorp_client_id = cursor.fetchone()['id']
-            print(f"   ✅ TechCorp client already exists with ID: {techcorp_client_id}")
+            cursor.execute("SELECT id FROM clients WHERE name = 'Google' LIMIT 1;")
+            google_client_id = cursor.fetchone()['id']
+            print(f"   ✅ Google client already exists with ID: {google_client_id}")
 
-        # Duplicate integrations for TechCorp
-        print("📋 Duplicating integrations for TechCorp...")
+        # Duplicate integrations for Google
+        print("📋 Duplicating integrations for Google...")
         cursor.execute("""
             SELECT name, url, username, password, base_search, last_sync_at, active
             FROM integrations
@@ -1555,25 +1557,25 @@ def apply(connection):
                 integration['password'],
                 integration['base_search'],
                 integration['last_sync_at'],
-                techcorp_client_id,
+                google_client_id,
                 integration['active']
             ))
-            print(f"   ✅ Duplicated {integration['name']} integration for TechCorp")
+            print(f"   ✅ Duplicated {integration['name']} integration for Google")
 
-        # Create TechCorp-specific users
-        print("📋 Creating TechCorp users...")
-        techcorp_users_data = [
+        # Create Google-specific users
+        print("📋 Creating Google users...")
+        google_users_data = [
             {
-                "email": "admin@techcorp.com",
+                "email": "admin@google.com",
                 "password_hash": hash_password("pulse"),
-                "first_name": "Tech",
+                "first_name": "Google",
                 "last_name": "Administrator",
                 "role": "admin",
                 "is_admin": True,
                 "auth_provider": "local"
             },
             {
-                "email": "manager@techcorp.com",
+                "email": "manager@google.com",
                 "password_hash": hash_password("pulse"),
                 "first_name": "Project",
                 "last_name": "Manager",
@@ -1582,7 +1584,7 @@ def apply(connection):
                 "auth_provider": "local"
             },
             {
-                "email": "developer@techcorp.com",
+                "email": "developer@google.com",
                 "password_hash": hash_password("pulse"),
                 "first_name": "Senior",
                 "last_name": "Developer",
@@ -1591,7 +1593,7 @@ def apply(connection):
                 "auth_provider": "local"
             },
             {
-                "email": "analyst@techcorp.com",
+                "email": "analyst@google.com",
                 "password_hash": hash_password("pulse"),
                 "first_name": "Data",
                 "last_name": "Analyst",
@@ -1601,7 +1603,7 @@ def apply(connection):
             }
         ]
 
-        for user_data in techcorp_users_data:
+        for user_data in google_users_data:
             cursor.execute("""
                 INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
@@ -1614,19 +1616,19 @@ def apply(connection):
                 user_data["role"],
                 user_data["is_admin"],
                 user_data["auth_provider"],
-                techcorp_client_id
+                google_client_id
             ))
             print(f"   ✅ Created user: {user_data['email']}")
 
-        # Duplicate system settings for TechCorp
-        print("📋 Duplicating system settings for TechCorp...")
+        # Duplicate system settings for Google
+        print("📋 Duplicating system settings for Google...")
         for setting in system_settings_data:
             try:
                 # Check if setting already exists for this client
                 cursor.execute("""
                     SELECT id FROM system_settings
                     WHERE setting_key = %s AND client_id = %s
-                """, (setting['setting_key'], techcorp_client_id))
+                """, (setting['setting_key'], google_client_id))
 
                 if not cursor.fetchone():
                     cursor.execute("""
@@ -1637,11 +1639,11 @@ def apply(connection):
                         setting['setting_value'],
                         setting['setting_type'],
                         setting['description'],
-                        techcorp_client_id
+                        google_client_id
                     ))
                     print(f"   ✅ Duplicated setting: {setting['setting_key']}")
                 else:
-                    print(f"   ⚠️  Setting {setting['setting_key']} already exists for TechCorp")
+                    print(f"   ⚠️  Setting {setting['setting_key']} already exists for Google")
             except Exception as e:
                 print(f"   ❌ Failed to duplicate setting {setting['setting_key']}: {e}")
                 # Continue with other settings

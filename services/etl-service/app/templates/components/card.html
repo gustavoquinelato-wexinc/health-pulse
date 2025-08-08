@@ -1,6 +1,6 @@
 <!-- Modern Card Component - Matches Frontend System -->
 {% macro card(title='', subtitle='', class='', hover=true) %}
-<div class="card {{ 'hover:shadow-md hover:transform hover:translate-y-[-2px]' if hover else '' }} {{ class }}">
+<div class="card {{ 'hover:shadow-lg hover:transform hover:translate-y-[-2px]' if hover else '' }} {{ class }}">
     {% if title or subtitle %}
     <div class="card-header">
         {% if title %}
