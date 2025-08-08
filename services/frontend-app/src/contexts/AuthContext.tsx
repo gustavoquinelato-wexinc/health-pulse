@@ -15,6 +15,10 @@ interface ColorSchema {
 interface ColorSchemaData {
   mode: 'default' | 'custom'
   colors: ColorSchema
+  default_colors?: ColorSchema
+  custom_colors?: ColorSchema
+  on_colors?: Record<string, string>
+  on_gradients?: Record<string, string>
 }
 
 interface User {
@@ -62,8 +66,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (response.data.success) {
         return {
           mode: response.data.mode,
-          colors: response.data.colors
-        }
+          colors: response.data.colors,
+          default_colors: response.data.default_colors,
+          custom_colors: response.data.custom_colors,
+          on_colors: response.data.on_colors,
+          on_gradients: response.data.on_gradients
+        } as any
       }
     } catch (error: any) {
       console.error('AuthContext: Failed to load color schema:', error)
@@ -410,7 +418,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set axios default header for future requests
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-        // Format user data to match frontend interface
+        // Load color schema before setting user to avoid flash
+        let colorSchemaData = await loadColorSchema()
+        if (!colorSchemaData) {
+          colorSchemaData = {
+            mode: 'default',
+            colors: {
+              color1: '#C8102E',
+              color2: '#253746',
+              color3: '#00C7B1',
+              color4: '#A2DDF8',
+              color5: '#FFBF3F'
+            }
+          }
+        }
+
+        // Format user data to match frontend interface (with color schema)
         const formattedUser = {
           id: user.id.toString(),
           email: user.email,
@@ -420,10 +443,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
-          colorSchemaData: undefined  // Will be loaded separately after login
+          colorSchemaData
         }
 
-        // Set user data first
+        // Set user data (already contains color schema)
         setUser(formattedUser)
 
         // Update client logger context with new user info
@@ -435,39 +458,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         // Cross-service cookie setup is now handled by Backend Service
         // No direct Frontend → ETL communication needed
-
-        // Load color schema after user is set (non-blocking)
-        loadColorSchema().then(colorSchemaData => {
-          if (colorSchemaData) {
-            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
-          } else {
-            // Fallback: Set default color schema if API fails
-            const fallbackColorSchema: ColorSchemaData = {
-              mode: 'default',
-              colors: {
-                color1: '#C8102E',
-                color2: '#253746',
-                color3: '#00C7B1',
-                color4: '#A2DDF8',
-                color5: '#FFBF3F'
-              }
-            }
-            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-          }
-        }).catch(error => {
-          // Set fallback colors even on error
-          const fallbackColorSchema: ColorSchemaData = {
-            mode: 'default',
-            colors: {
-              color1: '#C8102E',
-              color2: '#253746',
-              color3: '#00C7B1',
-              color4: '#A2DDF8',
-              color5: '#FFBF3F'
-            }
-          }
-          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-        })
 
         // Set up cross-service cookie for ETL service
         setupCrossServiceCookie(token)
@@ -563,13 +553,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     clientLogger.updateClientContext()
 
     try {
-      // Try to invalidate session on the backend (non-blocking)
-      const token = localStorage.getItem('pulse_token')
+      // Try to invalidate session on the backend (await to ensure DB is updated before redirect)
+      let token = localStorage.getItem('pulse_token')
+      if (!token) {
+        // Fallback to cookie if needed
+        token = document.cookie.split('; ').find(r => r.startsWith('pulse_token='))?.split('=')[1] || ''
+      }
       if (token) {
-        // Backend logout (don't await to avoid delays)
-        axios.post('/api/v1/auth/logout').catch(() => { })
+        try {
+          await axios.post('/api/v1/auth/logout', {}, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        } catch (e) {
+          // Ignore backend failures, continue cleanup
+        }
 
-        // ETL service logout (don't await to avoid delays)
+        // ETL service logout (best-effort, do not block)
         const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
         fetch(`${etlServiceUrl}/api/logout`, {
           method: 'POST',

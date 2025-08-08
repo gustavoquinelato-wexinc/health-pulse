@@ -154,8 +154,14 @@ body {
 }
 
 /* Gradient Utilities */
+:root {
+    --on-mix-80: color-mix(in oklab, var(--on-gradient-1-2) 80%, transparent);
+    --on-mix-60: color-mix(in oklab, var(--on-gradient-1-2) 60%, transparent);
+}
+
 .pulse-gradient {
     background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%);
+    color: var(--on-gradient-1-2);
 }
 
 .gradient-primary {
@@ -975,7 +981,7 @@ body {
 
 .btn-outline-secondary:hover:not(:disabled) {
     background-color: var(--color-2);
-    color: white;
+    color: var(--on-color-2);
 }
 
 /* Ghost Button Variant */
@@ -1363,17 +1369,17 @@ textarea:disabled {
 
 .submenu-item.active {
     background: linear-gradient(to bottom right, var(--color-1), var(--color-2));
-    color: white;
+    color: var(--on-gradient-1-2);
 }
 
 /* Highlighted submenu items (when using inline gradient background) */
 .submenu-item[style*="linear-gradient"] {
-    color: white !important;
+    color: var(--on-gradient-1-2) !important;
 }
 
-/* Ensure white text for highlighted submenu items in both light and dark mode */
+/* Ensure appropriate text color for highlighted submenu items */
 .submenu-item.text-white {
-    color: white !important;
+    color: var(--on-gradient-1-2) !important;
 }
 
 /* Modern Sidebar Component - Match Frontend Layout (Full Height) */
@@ -1464,6 +1470,7 @@ textarea:disabled {
 /* Gradient background for Pulse logo */
 .gradient-bg {
     background: linear-gradient(to bottom right, var(--color-1), var(--color-2)) !important;
+    color: var(--on-gradient-1-2) !important;
     border-radius: 0 !important;
     /* Flat corners to match frontend */
 }
@@ -1792,6 +1799,7 @@ body {
 .nav-item-active {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     background: linear-gradient(135deg, var(--color-1), var(--color-2));
+    color: var(--on-gradient-1-2);
 }
 
 /* Professional Sidebar Container */

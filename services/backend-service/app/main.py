@@ -132,10 +132,22 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             if not token:
                 return False
 
-            # Verify token
-            auth_service = get_auth_service()
-            user = await auth_service.verify_token(token)
-            return user is not None
+            # Verify token via centralized auth-service
+            import httpx
+            from app.core.config import get_settings
+            settings = get_settings()
+            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{auth_service_url}/api/v1/token/validate",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return bool(data.get("valid"))
+                return False
 
         except Exception as e:
             logger.error(f"Authentication check failed: {e}")
@@ -454,26 +466,10 @@ async def initialize_database():
 
 async def clear_all_user_sessions():
     """Clear all user sessions on startup for security."""
-    # Invalidate all existing tokens by updating the JWT secret
-    logger.info("Invalidating all existing JWT tokens on startup for security")
+    # Mark all existing DB sessions inactive on startup for security
+    logger.info("Marking all existing DB sessions inactive on startup for security")
 
-    # Method 1: Reset the auth service to pick up current configuration
-    from app.auth.auth_service import get_auth_service, reset_auth_service
-
-    # Reset the auth service instance to force reinitialization with current settings
-    reset_auth_service()
-    auth_service = get_auth_service()
-
-    # Generate new JWT secret and update it in the auth service
-    import secrets
-    new_secret = secrets.token_urlsafe(32)
-    auth_service.jwt_secret = new_secret
-
-    # Method 2: Also update environment variable for consistency
-    import os
-    os.environ['JWT_SECRET_KEY'] = new_secret
-
-    # Method 3: Clear all user sessions from database (only if database is available)
+    # Clear all user sessions from database (only if database is available)
     from app.core.database import get_database
     database = get_database()
 

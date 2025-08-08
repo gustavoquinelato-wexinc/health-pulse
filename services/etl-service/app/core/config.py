@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = Field(default=False, env="COOKIE_SECURE")
     COOKIE_SAMESITE: str = Field(default="lax", env="COOKIE_SAMESITE")
 
+    # Internal communication secret (for backend -> ETL internal APIs)
+    ETL_INTERNAL_SECRET: str = Field(default="dev-internal-secret-change", env="ETL_INTERNAL_SECRET")
+
     @property
     def cors_origins_list(self) -> list:
         """Convert CORS_ORIGINS string to list."""
@@ -188,51 +191,24 @@ _settings: Optional[Settings] = None
 
 
 def get_settings() -> Settings:
-    """Returns the settings instance with lazy initialization."""
+    """Returns the settings instance with lazy initialization.
+
+    New precedence (per project policy):
+    1) Service-local .env (services/etl-service/.env)
+    2) Environment variables
+    3) Root .env is reserved for docker-compose and not loaded by services
+    """
     global _settings
     if _settings is None:
-        # Try to load from .env file in current directory first
         from pathlib import Path
-
-        # Find .env file - prioritize root-level configuration
-        current_dir = Path.cwd()
-        env_file = None
-
-        # Strategy: Look for root-level .env first, then fallback to local
-        # This supports both workspace-root execution and service-specific execution
-
-        # 1. Check if we're in workspace root (has services/ directory)
-        if (current_dir / "services").exists() and (current_dir / ".env").exists():
-            env_file = str(current_dir / ".env")
-
-        # 2. Check if we're in a subdirectory of workspace (go up to find root)
-        elif not env_file:
-            check_dir = current_dir
-            for i in range(4):  # Check up to 4 levels up
-                if (check_dir / "services").exists() and (check_dir / ".env").exists():
-                    env_file = str(check_dir / ".env")
-                    break
-                check_dir = check_dir.parent
-                if check_dir == check_dir.parent:  # Reached filesystem root
-                    break
-
-        # 3. Fallback: Look for .env in current directory and parent directories
-        if not env_file:
-            check_dir = current_dir
-            for i in range(4):
-                check_path = check_dir / ".env"
-                if check_path.exists():
-                    env_file = str(check_path)
-                    break
-                check_dir = check_dir.parent
-                if check_dir == check_dir.parent:  # Reached filesystem root
-                    break
-
-        if env_file:
-            print(f"Loading configuration from: {env_file}")
-            _settings = Settings(_env_file=env_file)
+        # Prefer service-local .env relative to this file
+        service_dir = Path(__file__).resolve().parents[2]  # services/etl-service
+        service_env = service_dir / ".env"
+        if service_env.exists():
+            print(f"Loading configuration from service .env: {service_env}")
+            _settings = Settings(_env_file=str(service_env))
         else:
-            print("Warning: .env file not found, using environment variables only")
+            print("Service .env not found; using environment variables only")
             _settings = Settings()
 
     return _settings

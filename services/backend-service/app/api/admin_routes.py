@@ -7,7 +7,7 @@ and system configuration. Only accessible to admin users.
 CLEAN ARCHITECTURE - Backend Service Responsibilities:
 - User Management (CRUD operations)
 - Session Management (cross-service)
-- Permission Management (role-based access control)
+- Permission Management (delegated to Auth Service RBAC)
 - System Statistics (for frontend dashboard)
 - Theme/Color Settings (UI configuration)
 - Client Management (CRUD + logo upload)
@@ -33,7 +33,7 @@ from app.models.unified_models import (
 )
 from app.auth.auth_middleware import require_permission, require_authentication
 from app.auth.auth_service import get_auth_service
-from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
+# RBAC is centralized in Auth Service; local permissions are not used
 from app.core.logging_config import get_logger
 import httpx
 import asyncio
@@ -158,6 +158,8 @@ class ActiveSessionResponse(BaseModel):
     last_activity_at: str
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
+    token_hash: Optional[str] = None
+    is_current: bool = False
 
 class ColorSchemaRequest(BaseModel):
     colors: Dict[str, str]
@@ -198,7 +200,7 @@ class PermissionMatrixResponse(BaseModel):
 async def get_all_users(
     skip: int = 0,
     limit: int = 100,
-    user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
+    user: User = Depends(require_permission("admin_panel", "read"))
 ):
     """Get all users for current user's client with pagination"""
     try:
@@ -481,7 +483,7 @@ async def delete_user(
 
 @router.get("/system/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
-    admin_user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
+    admin_user: User = Depends(require_permission("admin_panel", "read"))
 ):
     """Get system statistics for the admin dashboard"""
     try:
@@ -511,7 +513,7 @@ async def get_system_stats(
             # Count admin users
             admin_users = session.query(User).filter(
                 User.client_id == client_id,
-                User.role == Role.ADMIN
+                User.role == 'admin'
             ).count()
 
             # Calculate time-based user activity metrics
@@ -913,10 +915,19 @@ async def get_current_session(request: Request):
         # Get session information
         database = get_database()
         with database.get_read_session_context() as session:
+            # Prefer matching by token hash for accuracy
+            token_hash = auth_service._hash_token(token)
             user_session = session.query(UserSession).filter(
-                UserSession.user_id == user_data["user_id"],
+                UserSession.token_hash == token_hash,
                 UserSession.active == True
             ).first()
+
+            if not user_session:
+                # Fallback: by user id
+                user_session = session.query(UserSession).filter(
+                    UserSession.user_id == user_data["user_id"],
+                    UserSession.active == True
+                ).first()
 
             if not user_session:
                 raise HTTPException(
@@ -927,8 +938,9 @@ async def get_current_session(request: Request):
             return {
                 "session_id": user_session.id,
                 "user_id": user_session.user_id,
+                "token_hash": user_session.token_hash,
                 "created_at": user_session.created_at.isoformat() if user_session.created_at else None,
-                "last_activity_at": user_session.last_activity_at.isoformat() if user_session.last_activity_at else None,
+                "last_activity_at": user_session.last_updated_at.isoformat() if user_session.last_updated_at else None,
                 "ip_address": user_session.ip_address,
                 "user_agent": user_session.user_agent
             }
@@ -959,6 +971,16 @@ async def get_active_sessions(
                 UserSession.active == True
             ).all()
 
+            # Determine current session's token hash from request cookie/header
+            from app.auth.auth_service import get_auth_service
+            auth_service = get_auth_service()
+            token_hash = None
+            try:
+                auth_header = user.request.headers.get("Authorization") if hasattr(user, 'request') else None
+            except Exception:
+                auth_header = None
+            # Fallback: cannot access request here; current-session endpoint exists for the UI. We'll mark current via token cookie on the UI.
+
             return [
                 ActiveSessionResponse(
                     id=user_session.id,
@@ -967,7 +989,9 @@ async def get_active_sessions(
                     created_at=user_session.created_at.isoformat() if user_session.created_at else "",
                     last_activity_at=user_session.last_updated_at.isoformat() if user_session.last_updated_at else "",
                     ip_address=user_session.ip_address,
-                    user_agent=user_session.user_agent
+                    user_agent=user_session.user_agent,
+                    token_hash=user_session.token_hash,
+                    is_current=False
                 )
                 for user_session, user_obj in active_sessions
             ]
@@ -1055,6 +1079,7 @@ async def terminate_user_session(
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
+            from app.core.redis_session_manager import get_redis_session_manager
 
             # Find the session and verify it belongs to the same client
             user_session = session.query(UserSession).join(
@@ -1071,10 +1096,40 @@ async def terminate_user_session(
                     detail="Session not found or already terminated"
                 )
 
-            # Terminate the session
+            # Terminate the session in DB
             user_session.active = False
             user_session.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
+
+            # Also invalidate Redis session for immediate logout
+            try:
+                auth_service = get_auth_service()
+                token_hash = user_session.token_hash
+                redis_mgr = get_redis_session_manager()
+                if redis_mgr.is_available():
+                    await redis_mgr.invalidate_session(token_hash)
+            except Exception as e:
+                logger.warning(f"Failed to invalidate Redis session for session {session_id}: {e}")
+
+            # Notify ETL to invalidate its token cache immediately (single-instance ETL)
+            try:
+                from app.core.config import get_settings
+                settings = get_settings()
+                import httpx
+                etl_url = settings.ETL_SERVICE_URL.rstrip('/') + '/api/v1/internal/auth/invalidate-token'
+                headers = {
+                    'X-Internal-Auth': settings.ETL_INTERNAL_SECRET,
+                    'Content-Type': 'application/json'
+                }
+                payload = { 'token_hash': token_hash, 'client_id': user.client_id }
+                async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
+                    resp = await client.post(etl_url, headers=headers, json=payload)
+                    if resp.status_code != 200:
+                        logger.warning(f"ETL invalidate-token returned {resp.status_code}: {resp.text}")
+                    else:
+                        logger.info("ETL token cache invalidated for terminated session")
+            except Exception as e:
+                logger.warning(f"Failed to call ETL invalidate-token endpoint: {e}")
 
             logger.info(f"Admin {user.email} terminated session {session_id}")
 
@@ -1098,31 +1153,20 @@ async def terminate_user_session(
 async def get_permission_matrix(
     admin_user: User = Depends(require_permission("admin_panel", "read"))
 ):
-    """Get the complete permission matrix for all roles and resources"""
+    """Proxy permission matrix from Auth Service (source of truth)."""
     try:
-        # Get all available roles, resources, and actions
-        roles = [role.value for role in Role]
-        resources = [resource.value for resource in Resource]
-        actions = [action.value for action in Action]
-
-        # Build the permission matrix from DEFAULT_ROLE_PERMISSIONS
-        matrix = {}
-        for role in Role:
-            matrix[role.value] = {}
-            for resource in Resource:
-                if resource in DEFAULT_ROLE_PERMISSIONS[role]:
-                    matrix[role.value][resource.value] = [
-                        action.value for action in DEFAULT_ROLE_PERMISSIONS[role][resource]
-                    ]
-                else:
-                    matrix[role.value][resource.value] = []
-
-        return PermissionMatrixResponse(
-            roles=roles,
-            resources=resources,
-            actions=actions,
-            matrix=matrix
-        )
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{auth_service_url}/api/v1/permissions/matrix", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return PermissionMatrixResponse(**data)
+            raise HTTPException(status_code=resp.status_code, detail="Failed to fetch permission matrix")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching permission matrix: {e}")
         raise HTTPException(
@@ -1139,7 +1183,7 @@ async def get_permission_matrix(
 async def get_color_schema(
     user: User = Depends(require_authentication)
 ):
-    """Get custom color schema settings"""
+    """Get color schema settings (default/custom) with contrast-aware on-color tokens"""
     try:
         database = get_database()
         with database.get_read_session_context() as session:
@@ -1151,35 +1195,70 @@ async def get_color_schema(
 
             color_mode = mode_setting.setting_value if mode_setting else "default"
 
-            # Get all custom color settings
-            color_settings = {}
+            # Load default palette from DB (centralized; no hardcoded fallbacks unless missing)
+            default_colors = {}
             for i in range(1, 6):
-                setting_key = f"custom_color{i}"  # Fixed: removed underscore
-                # ✅ SECURITY: Filter by client_id
-                color_setting = session.query(SystemSettings).filter(
+                setting_key = f"default_color{i}"
+                setting = session.query(SystemSettings).filter(
                     SystemSettings.setting_key == setting_key,
                     SystemSettings.client_id == user.client_id
                 ).first()
+                if setting:
+                    default_colors[f"color{i}"] = setting.setting_value
 
-                if color_setting:
-                    color_settings[f"color{i}"] = color_setting.setting_value
+            # Fallback only if defaults are missing (installation edge cases)
+            if len(default_colors) < 5:
+                default_colors = {
+                    "color1": "#2862EB",
+                    "color2": "#763DED",
+                    "color3": "#059669",
+                    "color4": "#0EA5E9",
+                    "color5": "#F59E0B"
+                }
 
-            # Default colors if none are set
-            default_colors = {
-                "color1": "#C8102E",  # Primary
-                "color2": "#253746",  # Secondary
-                "color3": "#00C7B1",  # Accent
-                "color4": "#A2DDF8",  # Neutral
-                "color5": "#FFBF3F"   # Warning
-            }
+            # Load custom palette (if any)
+            custom_colors = {}
+            for i in range(1, 6):
+                setting_key = f"custom_color{i}"
+                setting = session.query(SystemSettings).filter(
+                    SystemSettings.setting_key == setting_key,
+                    SystemSettings.client_id == user.client_id
+                ).first()
+                if setting:
+                    custom_colors[f"color{i}"] = setting.setting_value
 
-            # Merge with defaults
-            final_colors = {**default_colors, **color_settings}
+            # Active colors
+            active_colors = custom_colors if color_mode == 'custom' and custom_colors else default_colors
+
+            # Load precomputed on-color tokens for the active mode
+            on_colors = {}
+            on_gradients = {}
+            prefix = 'custom' if color_mode == 'custom' else 'default'
+            for i in range(1, 6):
+                key = f"{prefix}_on_color{i}"
+                setting = session.query(SystemSettings).filter(
+                    SystemSettings.setting_key == key,
+                    SystemSettings.client_id == user.client_id
+                ).first()
+                if setting:
+                    on_colors[f"color{i}"] = setting.setting_value
+            for pair in ["1-2", "2-3", "3-4", "4-5"]:
+                key = f"{prefix}_on_gradient_{pair}"
+                setting = session.query(SystemSettings).filter(
+                    SystemSettings.setting_key == key,
+                    SystemSettings.client_id == user.client_id
+                ).first()
+                if setting:
+                    on_gradients[pair] = setting.setting_value
 
             return {
                 "success": True,
                 "mode": color_mode,
-                "colors": final_colors
+                "colors": active_colors,
+                "default_colors": default_colors,
+                "custom_colors": custom_colors,
+                "on_colors": on_colors,
+                "on_gradients": on_gradients
             }
 
     except Exception as e:
@@ -1193,7 +1272,7 @@ async def get_color_schema(
 @router.post("/color-schema")
 async def update_color_schema(
     request: ColorSchemaRequest,
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
+    user: User = Depends(require_permission("settings", "admin"))
 ):
     """Update custom color schema settings"""
     try:
@@ -1245,6 +1324,54 @@ async def update_color_schema(
                 )
                 session.add(new_mode_setting)
 
+            # Recompute WCAG on-color tokens for CUSTOM palette before commit
+            try:
+                def _hex_to_rgb(h):
+                    h = h.lstrip('#')
+                    return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+                def _lin(c):
+                    return (c/12.92) if c <= 0.03928 else ((c+0.055)/1.055) ** 2.4
+                def _rel_luma(hex_color):
+                    r, g, b = _hex_to_rgb(hex_color)
+                    return 0.2126*_lin(r) + 0.7152*_lin(g) + 0.0722*_lin(b)
+                def _contrast(bg_hex, fg_hex):
+                    L1 = _rel_luma(bg_hex)
+                    L2 = _rel_luma(fg_hex)
+                    L_light, L_dark = (max(L1, L2), min(L1, L2))
+                    return (L_light + 0.05) / (L_dark + 0.05)
+                def _pick_on(bg_hex):
+                    black, white = '#000000', '#FFFFFF'
+                    return white if _contrast(bg_hex, white) >= _contrast(bg_hex, black) else black
+                def _pick_on_pair(a_hex, b_hex):
+                    black, white = '#000000', '#FFFFFF'
+                    min_black = min(_contrast(a_hex, black), _contrast(b_hex, black))
+                    min_white = min(_contrast(a_hex, white), _contrast(b_hex, white))
+                    return white if min_white >= min_black else black
+
+                c1 = colors.get('color1'); c2 = colors.get('color2'); c3 = colors.get('color3'); c4 = colors.get('color4'); c5 = colors.get('color5')
+                if all([c1, c2, c3, c4, c5]):
+                    custom_on = {'1': _pick_on(c1), '2': _pick_on(c2), '3': _pick_on(c3), '4': _pick_on(c4), '5': _pick_on(c5)}
+                    custom_on_grad = {'1-2': _pick_on_pair(c1, c2), '2-3': _pick_on_pair(c2, c3), '3-4': _pick_on_pair(c3, c4), '4-5': _pick_on_pair(c4, c5)}
+
+                    for i in ['1','2','3','4','5']:
+                        key = f"custom_on_color{i}"
+                        setting = session.query(SystemSettings).filter(SystemSettings.setting_key == key, SystemSettings.client_id == user.client_id).first()
+                        if setting:
+                            setting.setting_value = custom_on[i]
+                            setting.last_updated_at = func.now()
+                        else:
+                            session.add(SystemSettings(setting_key=key, setting_value=custom_on[i], setting_type='string', client_id=user.client_id, description=f"WCAG on-color for custom color {i}"))
+                    for pair_key, val in custom_on_grad.items():
+                        key = f"custom_on_gradient_{pair_key}"
+                        setting = session.query(SystemSettings).filter(SystemSettings.setting_key == key, SystemSettings.client_id == user.client_id).first()
+                        if setting:
+                            setting.setting_value = val
+                            setting.last_updated_at = func.now()
+                        else:
+                            session.add(SystemSettings(setting_key=key, setting_value=val, setting_type='string', client_id=user.client_id, description=f"WCAG on-color for custom gradient {pair_key}"))
+            except Exception as ce:
+                logger.warning(f"Failed to recompute custom on-color tokens: {ce}")
+
             session.commit()
 
             # Notify ETL service of color schema change
@@ -1265,7 +1392,7 @@ async def update_color_schema(
 @router.post("/color-schema/mode")
 async def update_color_schema_mode(
     request: ColorSchemaModeRequest,
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.ADMIN))
+    user: User = Depends(require_permission("settings", "admin"))
 ):
     """Update color schema mode (default or custom)"""
     try:

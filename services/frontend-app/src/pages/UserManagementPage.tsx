@@ -135,7 +135,31 @@ export default function UserManagementPage() {
 
   const loadActiveSessions = async () => {
     const response = await axios.get('/api/v1/admin/active-sessions')
-    setActiveSessions(response.data)
+
+    // Determine current session by hashing current token (localStorage → sessionStorage → cookie)
+    let token = localStorage.getItem('pulse_token') || sessionStorage.getItem('pulse_token') || null
+    if (!token) {
+      const cookieToken = document.cookie.split('; ').find(r => r.startsWith('pulse_token='))?.split('=')[1]
+      if (cookieToken) token = cookieToken
+    }
+
+    let tokenHash: string | null = null
+    if (token) {
+      const encoder = new TextEncoder()
+      const data = encoder.encode(token)
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      tokenHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+
+    const sessions = response.data as any[]
+
+    // Mark is_current by direct comparison with token_hash from the list
+    const withCurrent = sessions.map((s: any) => ({
+      ...s,
+      is_current: !!tokenHash && !!s.token_hash && s.token_hash === tokenHash
+    }))
+    setActiveSessions(withCurrent)
   }
 
   const handleCreateUser = async () => {
@@ -268,6 +292,19 @@ export default function UserManagementPage() {
           'Authorization': `Bearer ${token}`
         }
       })
+
+      // If we terminated our own session, log out immediately
+      try {
+        const currentResp = await axios.get('/api/v1/admin/current-session', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        const currentId = currentResp.data.session_id
+        if (currentId && currentId.toString() === sessionId) {
+          logout()
+          return
+        }
+      } catch { }
+
       await loadActiveSessions()
       setError(null) // Clear any previous errors
     } catch (error: any) {
@@ -596,7 +633,7 @@ export default function UserManagementPage() {
                               <th className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">
                                 User Agent
                               </th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider">
+                              <th className="px-6 py-3 text-center text-xs font-medium text-secondary uppercase tracking-wider">
                                 Actions
                               </th>
                             </tr>
@@ -606,8 +643,11 @@ export default function UserManagementPage() {
                               <tr key={session.id} className="hover:bg-tertiary">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div>
-                                    <div className="text-sm font-medium text-primary">
-                                      {users.find(u => u.id === session.user_id)?.first_name} {users.find(u => u.id === session.user_id)?.last_name || `User ${session.user_id}`}
+                                    <div className="text-sm font-medium text-primary flex items-center gap-2">
+                                      <span>
+                                        {users.find(u => u.id === session.user_id)?.first_name} {users.find(u => u.id === session.user_id)?.last_name || `User ${session.user_id}`}
+                                      </span>
+                                      {session.is_current ? <span title="This device" className="text-yellow-500 text-lg leading-none">★</span> : null}
                                     </div>
                                     <div className="text-sm text-secondary">{session.user_email}</div>
                                   </div>
@@ -638,7 +678,7 @@ export default function UserManagementPage() {
                                   <button
                                     type="button"
                                     onClick={() => handleTerminateSession(session.id.toString())}
-                                    className="btn-crud-delete text-xs flex items-center space-x-1"
+                                    className="btn-crud-delete text-xs flex items-center space-x-1 ml-auto"
                                   >
                                     <LogOut className="w-3 h-3" />
                                     <span>Terminate</span>

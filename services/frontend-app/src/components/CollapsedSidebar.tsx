@@ -6,7 +6,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 interface NavigationItem {
@@ -79,6 +79,7 @@ export default function CollapsedSidebar() {
   const [isHoveringSubmenu, setIsHoveringSubmenu] = useState(false)
   const hoverTimeoutRef = useRef<number | null>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
 
   const clearHoverTimeout = () => {
     if (hoverTimeoutRef.current) {
@@ -193,7 +194,10 @@ export default function CollapsedSidebar() {
   // Cleanup & Outside Click Handling - gustractor_pulse approach
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+      const t = event.target as Node
+      const insideSidebar = sidebarRef.current?.contains(t)
+      const insideSubmenu = submenuRef.current?.contains(t)
+      if (!insideSidebar && !insideSubmenu) {
         clearHoverTimeout()
         setOpenSubmenu(null)
         setHoveredItem(null)
@@ -210,7 +214,10 @@ export default function CollapsedSidebar() {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+      const t = event.target as Node
+      const insideSidebar = sidebarRef.current?.contains(t)
+      const insideSubmenu = submenuRef.current?.contains(t)
+      if (!insideSidebar && !insideSubmenu) {
         clearHoverTimeout()
         setOpenSubmenu(null)
         setHoveredItem(null)
@@ -244,25 +251,23 @@ export default function CollapsedSidebar() {
             .filter(item => !item.adminOnly || isAdmin) // Filter admin-only items
             .map((item) => (
               <div key={item.id} className="relative">
-                <motion.button
-                  onClick={() => handleNavClick(item.path, item, false)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    handleNavClick(item.path, item, true);
-                  }}
+                <motion.div
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                    ? 'nav-item-active text-white'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary'
-                    }`}
-                  style={isActive(item) ? {
-                    background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
-                  } : {}}
-
                 >
-                  <item.icon className="w-5 h-5" />
-                </motion.button>
+                  <Link
+                    to={item.path}
+                    className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                      ? 'nav-item-active text-white'
+                      : 'text-secondary hover:bg-tertiary hover:text-primary'
+                      }`}
+                    style={isActive(item) ? {
+                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                    } : {}}
+                  >
+                    <item.icon className="w-5 h-5" />
+                  </Link>
+                </motion.div>
               </div>
             ))}
         </div>
@@ -274,21 +279,23 @@ export default function CollapsedSidebar() {
           <div className="border-t border-default px-2 py-4">
             {adminItems.map((item) => (
               <div key={item.id} className="relative">
-                <motion.button
-                  onClick={() => handleNavClick(item.path, item)}
+                <motion.div
                   onMouseEnter={(e) => handleMouseEnter(e, item)}
                   onMouseLeave={handleMouseLeave}
-                  className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                    ? 'nav-item-active text-white'
-                    : 'text-secondary hover:bg-tertiary hover:text-primary'
-                    }`}
-                  style={isActive(item) ? {
-                    background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
-                  } : {}}
-
                 >
-                  <item.icon className="w-5 h-5" />
-                </motion.button>
+                  <Link
+                    to={item.path}
+                    className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                      ? 'nav-item-active text-white'
+                      : 'text-secondary hover:bg-tertiary hover:text-primary'
+                      }`}
+                    style={isActive(item) ? {
+                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                    } : {}}
+                  >
+                    <item.icon className="w-5 h-5" />
+                  </Link>
+                </motion.div>
               </div>
             ))}
           </div>
@@ -321,6 +328,7 @@ export default function CollapsedSidebar() {
       {/* Submenu Panels for items with subpages - gustractor_pulse approach */}
       {openSubmenu && (
         <div
+          ref={submenuRef}
           className="fixed z-[9999]"
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
@@ -340,36 +348,19 @@ export default function CollapsedSidebar() {
                   {item.label}
                 </div>
                 {(item as any).subItems.map((subItem: any) => (
-                  <motion.div
-                    key={subItem.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-
-                      // Keep submenu open during click (gustractor_pulse approach)
-                      clearHoverTimeout()
-                      setIsHoveringSubmenu(true)
-
-                      // Navigate
-                      navigate(subItem.path)
-
-                      // Close the submenu after a short delay (gustractor_pulse timing)
-                      setTimeout(() => {
-                        setHoveredItem(null)
-                        setOpenSubmenu(null)
-                        setIsHoveringSubmenu(false)
-                      }, 50)
-                    }}
-                    className={`flex items-center px-3 py-2 text-sm cursor-pointer transition-colors ${location.pathname === subItem.path
-                      ? 'text-white shadow-sm'
-                      : 'text-secondary hover:bg-tertiary hover:text-primary'
-                      }`}
-                    style={location.pathname === subItem.path ? {
-                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
-                    } : {}}
-
-                  >
-                    {subItem.label}
+                  <motion.div key={subItem.id}>
+                    <Link
+                      to={subItem.path}
+                      className={`flex items-center px-3 py-2 text-sm cursor-pointer transition-colors ${location.pathname === subItem.path
+                        ? 'text-white shadow-sm'
+                        : 'text-secondary hover:bg-tertiary hover:text-primary'
+                        }`}
+                      style={location.pathname === subItem.path ? {
+                        background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                      } : {}}
+                    >
+                      {subItem.label}
+                    </Link>
                   </motion.div>
                 ))}
               </motion.div>

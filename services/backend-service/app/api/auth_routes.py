@@ -33,10 +33,8 @@ async def login(login_request: LoginRequest, request: Request):
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "Unknown")
         
-        # Authenticate user via centralized auth service first, then local
+        # Always authenticate via centralized auth service
         auth_service = get_auth_service()
-
-        # Try centralized auth service first
         try:
             from app.core.config import get_settings
             import httpx
@@ -53,34 +51,32 @@ async def login(login_request: LoginRequest, request: Request):
                 if response.status_code == 200:
                     validation_data = response.json()
                     if validation_data.get("valid"):
-                        # Centralized auth successful, create local session
-                        user_data = validation_data["user"]
-
-                        # Create local session using auth service
-                        auth_result = await auth_service.create_session_from_user_data(
-                            user_data=user_data,
-                            ip_address=ip_address,
-                            user_agent=user_agent
+                        # Generate centralized token and return it
+                        gen_resp = await client.post(
+                            f"{auth_service_url}/api/v1/generate-token",
+                            json={"email": login_request.email, "password": login_request.password},
+                            timeout=10.0
                         )
+                        if gen_resp.status_code == 200:
+                            gen_data = gen_resp.json()
+                            auth_result = {
+                                "token": gen_data["access_token"],
+                                "user": gen_data["user"],
+                            }
+                            # Store session locally for admin panel (active sessions, logout, etc.)
+                            try:
+                                await auth_service.store_session_from_token(auth_result["token"], auth_result["user"], ip_address=ip_address, user_agent=user_agent)
+                            except Exception as e:
+                                logger.warning(f"Could not store session from centralized token: {e}")
+                        else:
+                            auth_result = None
                     else:
                         auth_result = None
                 else:
-                    # Fallback to local authentication
-                    auth_result = await auth_service.authenticate_local(
-                        email=login_request.email,
-                        password=login_request.password,
-                        ip_address=ip_address,
-                        user_agent=user_agent
-                    )
+                    auth_result = None
         except Exception as e:
-            logger.warning(f"Centralized auth service unavailable, using local auth: {e}")
-            # Fallback to local authentication
-            auth_result = await auth_service.authenticate_local(
-                email=login_request.email,
-                password=login_request.password,
-                ip_address=ip_address,
-                user_agent=user_agent
-            )
+            logger.warning(f"Centralized auth service unavailable: {e}")
+            auth_result = None
         
         if not auth_result:
             logger.warning(f"❌ Login failed for email: {login_request.email}")
@@ -269,28 +265,7 @@ async def validate_token(request: Request):
             logger.debug("No token found in Authorization header or cookies")
             return TokenValidationResponse(valid=False, user=None)
 
-        # Validate token - first try local, then centralized
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
-
-        if user:
-            logger.info(f"Backend token validation successful (local) for user: {user.email}")
-            return TokenValidationResponse(
-                valid=True,
-                user={
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": user.role,
-                    "is_admin": user.is_admin,
-                    "client_id": user.client_id
-                }
-            )
-
-        # If local validation fails, try centralized auth service
-        logger.debug("Local token validation failed, trying centralized auth service...")
-
+        # Validate token via centralized auth service only
         try:
             import httpx
             from app.core.config import get_settings
@@ -310,16 +285,32 @@ async def validate_token(request: Request):
                         user_data = token_data.get("user")
                         logger.info(f"Backend token validation successful (centralized) for user: {user_data['email']}")
 
-                        # Cache the token locally for future requests
-                        await auth_service.store_session_from_token(token, user_data)
+                        # Enforce revocation: require an ACTIVE DB session for this token
+                        from app.core.database import get_database
+                        from app.models.unified_models import UserSession
+                        from app.core.utils import DateTimeHelper
+                        auth_service = get_auth_service()
+                        token_hash = auth_service._hash_token(token)
 
-                        return TokenValidationResponse(
-                            valid=True,
-                            user=user_data
-                        )
+                        database = get_database()
+                        with database.get_read_session_context() as db:
+                            session_row = db.query(UserSession).filter(
+                                UserSession.token_hash == token_hash,
+                                UserSession.active == True
+                            ).first()
 
-                logger.debug("Centralized token validation also failed")
+                            if not session_row:
+                                logger.info("Token valid cryptographically but no active session found; denying")
+                                return TokenValidationResponse(valid=False, user=None)
 
+                        # Optional: touch last_updated_at in a short write
+                        with database.get_write_session_context() as dbw:
+                            row = dbw.query(UserSession).filter(UserSession.token_hash == token_hash, UserSession.active == True).first()
+                            if row:
+                                row.last_updated_at = DateTimeHelper.now_utc()
+                                dbw.commit()
+
+                        return TokenValidationResponse(valid=True, user=user_data)
         except Exception as e:
             logger.warning(f"Error contacting centralized auth service: {e}")
 
