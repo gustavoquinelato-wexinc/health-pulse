@@ -438,7 +438,7 @@ class AuthService:
             logger.error(f"Failed to create session from user data: {e}")
             return None
 
-    async def store_session_from_token(self, token: str, user_data: Dict[str, Any]) -> bool:
+    async def store_session_from_token(self, token: str, user_data: Dict[str, Any], ip_address: str = None, user_agent: str = None) -> bool:
         """
         Store session data from centralized auth service token.
 
@@ -470,10 +470,18 @@ class AuthService:
 
             # Store in database (write operation)
             with self.database.get_write_session_context() as session:
-                # Check if user exists
-                user = session.query(User).filter(User.id == user_data["id"]).first()
+                # Check if user exists (cast id defensively)
+                try:
+                    user_id = int(user_data["id"]) if user_data.get("id") is not None else None
+                except Exception:
+                    user_id = None
+                user = None
+                if user_id is not None:
+                    user = session.query(User).filter(User.id == user_id).first()
+                if not user and user_data.get("email"):
+                    user = session.query(User).filter(User.email == user_data["email"].lower().strip()).first()
                 if not user:
-                    logger.error(f"User {user_data['id']} not found in database")
+                    logger.error(f"User not found in database (id={user_data.get('id')}, email={user_data.get('email')})")
                     return False
 
                 # Create or update session
@@ -486,6 +494,8 @@ class AuthService:
                         user_id=user.id,
                         token_hash=token_hash,
                         expires_at=expires_at,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
                         client_id=user.client_id,
                         active=True,
                         created_at=DateTimeHelper.now_utc(),
@@ -496,6 +506,10 @@ class AuthService:
                     user_session.expires_at = expires_at
                     user_session.active = True
                     user_session.last_updated_at = DateTimeHelper.now_utc()
+                    if ip_address:
+                        user_session.ip_address = ip_address
+                    if user_agent:
+                        user_session.user_agent = user_agent
 
                 session.commit()
                 logger.info(f"✅ Session stored for user {user_data['email']}")

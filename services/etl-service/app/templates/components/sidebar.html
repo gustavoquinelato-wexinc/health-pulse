@@ -6,48 +6,51 @@
         <div class="flex flex-col space-y-3">
         <!-- Home with Hover Submenu -->
         <div class="relative" id="home-menu">
-            <button class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path == '/home' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/home"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'home')"
                     onmouseleave="hideSubmenu()"
-                    onclick="navigateTo('/home')"
                     {% if current_path == '/home' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
                 <i class="fas fa-home text-lg"></i>
-            </button>
+            </a>
         </div>
 
         <!-- Issue Types with Hover Submenu -->
         <div class="relative" id="issuetypes-menu">
-            <button class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/issuetype') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/issuetype-hierarchies"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'issuetypes')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path.startswith('/issuetype') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
                 <i class="fas fa-list-alt text-lg"></i>
-            </button>
+            </a>
         </div>
 
         <!-- Statuses with Hover Submenu -->
         <div class="relative" id="statuses-menu">
-            <button class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/status') or current_path.startswith('/workflow') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/status-mappings"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'statuses')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path.startswith('/status') or current_path.startswith('/workflow') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
                 <i class="fas fa-sync-alt text-lg"></i>
-            </button>
+            </a>
         </div>
 
         <!-- Admin (only for admin users) -->
         {% if user and user.role == 'admin' %}
         <div class="relative" id="admin-menu">
-            <button class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active text-white' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/admin"
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'admin')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path.startswith('/admin') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
                 <i class="fas fa-cog text-lg"></i>
-            </button>
+            </a>
         </div>
         {% endif %}
         </div>

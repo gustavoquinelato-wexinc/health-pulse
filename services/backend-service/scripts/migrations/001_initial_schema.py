@@ -1332,12 +1332,73 @@ def apply(connection):
             {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"},
             # Color settings (theme_mode moved to users table)
             {"setting_key": "color_schema_mode", "setting_value": "default", "setting_type": "string", "description": "Color schema mode (default or custom)"},
+            # Default palette stored server-side for rebranding flexibility
+            {"setting_key": "default_color1", "setting_value": "#2862EB", "setting_type": "string", "description": "Default color 1 - Primary (Purple)"},
+            {"setting_key": "default_color2", "setting_value": "#763DED", "setting_type": "string", "description": "Default color 2 - Secondary (Blue)"},
+            {"setting_key": "default_color3", "setting_value": "#059669", "setting_type": "string", "description": "Default color 3 - Success (Emerald)"},
+            {"setting_key": "default_color4", "setting_value": "#0EA5E9", "setting_type": "string", "description": "Default color 4 - Info (Sky Blue)"},
+            {"setting_key": "default_color5", "setting_value": "#F59E0B", "setting_type": "string", "description": "Default color 5 - Warning (Amber)"},
+            # Initial custom palette (distinct from defaults)
             {"setting_key": "custom_color1", "setting_value": "#C8102E", "setting_type": "string", "description": "Custom color 1 - Red (Primary)"},
             {"setting_key": "custom_color2", "setting_value": "#253746", "setting_type": "string", "description": "Custom color 2 - Dark Blue (Secondary)"},
             {"setting_key": "custom_color3", "setting_value": "#00C7B1", "setting_type": "string", "description": "Custom color 3 - Teal (Success)"},
             {"setting_key": "custom_color4", "setting_value": "#A2DDF8", "setting_type": "string", "description": "Custom color 4 - Light Blue (Info)"},
             {"setting_key": "custom_color5", "setting_value": "#FFBF3F", "setting_type": "string", "description": "Custom color 5 - Amber (Warning)"}
         ]
+
+        # --- Compute contrast-aware text (on-) colors for default and custom palettes ---
+        def _hex_to_rgb(h):
+            h = h.lstrip('#')
+            return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+        def _lin(c):
+            return (c/12.92) if c <= 0.03928 else ((c+0.055)/1.055) ** 2.4
+        def _rel_luma(hex_color):
+            r, g, b = _hex_to_rgb(hex_color)
+            return 0.2126*_lin(r) + 0.7152*_lin(g) + 0.0722*_lin(b)
+        def _contrast(hex_bg, hex_fg):
+            L1 = _rel_luma(hex_bg)
+            L2 = _rel_luma(hex_fg)
+            L_light, L_dark = (max(L1, L2), min(L1, L2))
+            return (L_light + 0.05) / (L_dark + 0.05)
+        def _pick_on(bg_hex):
+            black, white = '#000000', '#FFFFFF'
+            c_b = _contrast(bg_hex, black)
+            c_w = _contrast(bg_hex, white)
+            return white if c_w >= c_b else black
+        def _pick_on_pair(a_hex, b_hex):
+            # Choose on-color that maximizes the minimum contrast across the pair
+            black, white = '#000000', '#FFFFFF'
+            min_black = min(_contrast(a_hex, black), _contrast(b_hex, black))
+            min_white = min(_contrast(a_hex, white), _contrast(b_hex, white))
+            return white if min_white >= min_black else black
+
+        c1 = '#2862EB'; c2 = '#763DED'; c3 = '#059669'; c4 = '#0EA5E9'; c5 = '#F59E0B'
+        default_on = {
+            '1': _pick_on(c1), '2': _pick_on(c2), '3': _pick_on(c3), '4': _pick_on(c4), '5': _pick_on(c5)
+        }
+        default_on_grad = {
+            '1-2': _pick_on_pair(c1, c2), '2-3': _pick_on_pair(c2, c3), '3-4': _pick_on_pair(c3, c4), '4-5': _pick_on_pair(c4, c5)
+        }
+        # Compute on-color tokens for the initial custom palette
+        cc1 = '#C8102E'; cc2 = '#253746'; cc3 = '#00C7B1'; cc4 = '#A2DDF8'; cc5 = '#FFBF3F'
+        custom_on = {
+            '1': _pick_on(cc1), '2': _pick_on(cc2), '3': _pick_on(cc3), '4': _pick_on(cc4), '5': _pick_on(cc5)
+        }
+        custom_on_grad = {
+            '1-2': _pick_on_pair(cc1, cc2), '2-3': _pick_on_pair(cc2, cc3), '3-4': _pick_on_pair(cc3, cc4), '4-5': _pick_on_pair(cc4, cc5)
+        }
+
+        # Extend seed settings with on-color tokens (default and custom)
+        for i in ['1','2','3','4','5']:
+            system_settings_data.extend([
+                {"setting_key": f"default_on_color{i}", "setting_value": default_on[i], "setting_type": "string", "description": f"WCAG on-color for default color {i}"},
+                {"setting_key": f"custom_on_color{i}", "setting_value": custom_on[i], "setting_type": "string", "description": f"WCAG on-color for custom color {i}"},
+            ])
+        for key, val in default_on_grad.items():
+            system_settings_data.extend([
+                {"setting_key": f"default_on_gradient_{key}", "setting_value": val, "setting_type": "string", "description": f"WCAG on-color for default gradient {key}"},
+                {"setting_key": f"custom_on_gradient_{key}", "setting_value": custom_on_grad[key], "setting_type": "string", "description": f"WCAG on-color for custom gradient {key}"},
+            ])
 
         for setting in system_settings_data:
             cursor.execute("""
@@ -1647,6 +1708,130 @@ def apply(connection):
             except Exception as e:
                 print(f"   ❌ Failed to duplicate setting {setting['setting_key']}: {e}")
                 # Continue with other settings
+
+        # Create third client and duplicate data (Apple)
+        print("📋 Creating third client (Apple) and duplicating data...")
+
+        # Insert third client (ACTIVE for multi-instance testing)
+        cursor.execute("""
+            INSERT INTO clients (name, website, assets_folder, logo_filename, active, created_at, last_updated_at)
+            VALUES ('Apple', 'https://www.apple.com', 'apple', 'apple-logo.png', TRUE, NOW(), NOW())
+            ON CONFLICT DO NOTHING
+            RETURNING id;
+        """)
+
+        result = cursor.fetchone()
+        if result:
+            apple_client_id = result['id']
+            print(f"   ✅ Created Apple client with ID: {apple_client_id}")
+        else:
+            # Client already exists, get its ID
+            cursor.execute("SELECT id FROM clients WHERE name = 'Apple' LIMIT 1;")
+            apple_client_id = cursor.fetchone()['id']
+            print(f"   ✅ Apple client already exists with ID: {apple_client_id}")
+
+        # Duplicate integrations for Apple
+        print("📋 Duplicating integrations for Apple...")
+        for integration in wex_integrations:
+            cursor.execute("""
+                INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (name, client_id) DO NOTHING;
+            """, (
+                integration['name'],
+                integration['url'],
+                integration['username'],
+                integration['password'],
+                integration['base_search'],
+                integration['last_sync_at'],
+                apple_client_id,
+                integration['active']
+            ))
+            print(f"   ✅ Duplicated {integration['name']} integration for Apple")
+
+        # Create Apple-specific users
+        print("📋 Creating Apple users...")
+        apple_users_data = [
+            {
+                "email": "admin@apple.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Apple",
+                "last_name": "Administrator",
+                "role": "admin",
+                "is_admin": True,
+                "auth_provider": "local"
+            },
+            {
+                "email": "manager@apple.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Project",
+                "last_name": "Manager",
+                "role": "admin",
+                "is_admin": True,
+                "auth_provider": "local"
+            },
+            {
+                "email": "developer@apple.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Senior",
+                "last_name": "Developer",
+                "role": "user",
+                "is_admin": False,
+                "auth_provider": "local"
+            },
+            {
+                "email": "analyst@apple.com",
+                "password_hash": hash_password("pulse"),
+                "first_name": "Data",
+                "last_name": "Analyst",
+                "role": "view",
+                "is_admin": False,
+                "auth_provider": "local"
+            }
+        ]
+
+        for user_data in apple_users_data:
+            cursor.execute("""
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                ON CONFLICT (email) DO NOTHING;
+            """, (
+                user_data["email"],
+                user_data["password_hash"],
+                user_data["first_name"],
+                user_data["last_name"],
+                user_data["role"],
+                user_data["is_admin"],
+                user_data["auth_provider"],
+                apple_client_id
+            ))
+            print(f"   ✅ Created user: {user_data['email']}")
+
+        # Duplicate system settings for Apple
+        print("📋 Duplicating system settings for Apple...")
+        for setting in system_settings_data:
+            try:
+                cursor.execute("""
+                    SELECT id FROM system_settings
+                    WHERE setting_key = %s AND client_id = %s
+                """, (setting['setting_key'], apple_client_id))
+
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        INSERT INTO system_settings (setting_key, setting_value, setting_type, description, client_id, active, created_at, last_updated_at)
+                        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW());
+                    """, (
+                        setting['setting_key'],
+                        setting['setting_value'],
+                        setting['setting_type'],
+                        setting['description'],
+                        apple_client_id
+                    ))
+                    print(f"   ✅ Duplicated setting: {setting['setting_key']}")
+                else:
+                    print(f"   ⚠️  Setting {setting['setting_key']} already exists for Apple")
+            except Exception as e:
+                print(f"   ❌ Failed to duplicate setting {setting['setting_key']}: {e}")
 
         print("✅ All seed data inserted successfully!")
 

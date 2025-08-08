@@ -100,6 +100,12 @@
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 
+  /* Disable transitions during first paint when the class is present */
+  .no-transitions *,
+  .no-transitions body {
+    transition: none !important;
+  }
+
   html {
     scroll-behavior: smooth;
   }
@@ -284,6 +290,79 @@
     background-color: var(--color-2);
   }
 
+  /* Contrast-aware text utilities (solids) */
+  .text-on-color-1 {
+    color: var(--on-color-1);
+  }
+
+  .text-on-color-2 {
+    color: var(--on-color-2);
+  }
+
+  .text-on-color-3 {
+    color: var(--on-color-3);
+  }
+
+  .text-on-color-4 {
+    color: var(--on-color-4);
+  }
+
+  .text-on-color-5 {
+    color: var(--on-color-5);
+  }
+
+  .text-on-color-1-80 {
+    color: var(--on-color-1);
+    opacity: .8;
+  }
+
+  .text-on-color-1-60 {
+    color: var(--on-color-1);
+    opacity: .6;
+  }
+
+  /* Contrast-aware text utilities (gradients) */
+  .text-on-gradient-1-2 {
+    color: var(--on-gradient-1-2);
+  }
+
+  .text-on-gradient-2-3 {
+    color: var(--on-gradient-2-3);
+  }
+
+  .text-on-gradient-3-4 {
+    color: var(--on-gradient-3-4);
+  }
+
+  .text-on-gradient-4-5 {
+    color: var(--on-gradient-4-5);
+  }
+
+  .text-on-gradient-1-2-80 {
+    color: var(--on-gradient-1-2);
+    opacity: .8;
+  }
+
+  .text-on-gradient-1-2-60 {
+    color: var(--on-gradient-1-2);
+    opacity: .6;
+  }
+
+  .text-on-gradient-2-3-80 {
+    color: var(--on-gradient-2-3);
+    opacity: .8;
+  }
+
+  .text-on-gradient-3-4-80 {
+    color: var(--on-gradient-3-4);
+    opacity: .8;
+  }
+
+  .text-on-gradient-4-5-80 {
+    color: var(--on-gradient-4-5);
+    opacity: .8;
+  }
+
   .bg-color-3 {
     background-color: var(--color-3);
   }
@@ -389,6 +468,7 @@
   .nav-item-active {
     @apply shadow-lg;
     background: linear-gradient(135deg, var(--color-1), var(--color-2));
+    color: var(--on-gradient-1-2);
   }
 
   /* Professional Sidebar Container */

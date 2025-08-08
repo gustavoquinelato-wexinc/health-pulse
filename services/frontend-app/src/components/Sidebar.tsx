@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { Link } from 'react-router-dom'
 import clientLogger from '../utils/clientLogger'
 
 const navigationItems = [
@@ -63,30 +64,42 @@ export default function Sidebar() {
           </h2>
           <nav className="space-y-1">
             {navigationItems.map((item, index) => (
-              <motion.button
+              <motion.div
                 key={item.name}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${item.active
-                  ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-lg'
-                  : 'text-secondary hover:bg-tertiary hover:text-primary'
-                  }`}
-
               >
-                <div className="flex items-center space-x-3">
-                  <span className="text-lg">{item.icon}</span>
-                  <span>{item.name}</span>
-                </div>
-                {item.badge && (
-                  <span className={`px-2 py-1 text-xs rounded-full ${item.badge === 'New'
-                    ? 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-                    }`}>
-                    {item.badge}
-                  </span>
-                )}
-              </motion.button>
+                <Link
+                  to={
+                    item.name === 'Dashboard' ? '/home'
+                      : item.name === 'DORA Metrics' ? '/dora'
+                        : item.name === 'GitHub Analytics' ? '/engineering'
+                          : item.name === 'Portfolio View' ? '/engineering'
+                            : item.name === 'Executive KPIs' ? '/engineering'
+                              : item.name === 'ETL Jobs' ? '/admin'
+                                : item.name === 'Settings' ? '/admin'
+                                  : '/home'
+                  }
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${item.active
+                    ? 'bg-gradient-to-br from-color-1 to-color-2 shadow-lg text-[color:var(--on-gradient-1-2)]'
+                    : 'text-secondary hover:bg-tertiary hover:text-primary'
+                    }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <span className="text-lg">{item.icon}</span>
+                    <span>{item.name}</span>
+                  </div>
+                  {item.badge && (
+                    <span className={`px-2 py-1 text-xs rounded-full ${item.badge === 'New'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                      }`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              </motion.div>
             ))}
           </nav>
         </div>

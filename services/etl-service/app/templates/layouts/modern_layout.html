@@ -39,6 +39,37 @@
                         root.style.setProperty('--color-3', colors.color3);
                         root.style.setProperty('--color-4', colors.color4);
                         root.style.setProperty('--color-5', colors.color5);
+
+                        // Apply on-colors if provided; compute fallback if missing
+                        const on = serverColorSchema.on_colors || {};
+                        const onGrad = serverColorSchema.on_gradients || {};
+                        const pickOn = (hex) => {
+                            try {
+                                const h = hex.replace('#','');
+                                const r = parseInt(h.slice(0,2), 16) / 255;
+                                const g = parseInt(h.slice(2,4), 16) / 255;
+                                const b = parseInt(h.slice(4,6), 16) / 255;
+                                const lin = (c) => (c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4));
+                                const L = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+                                const contrast = (Lbg, Lfg) => (Math.max(Lbg, Lfg) + 0.05) / (Math.min(Lbg, Lfg) + 0.05);
+                                const cBlack = contrast(L, 0);
+                                const cWhite = contrast(L, 1);
+                                return cWhite >= cBlack ? '#FFFFFF' : '#000000';
+                            } catch { return '#000000'; }
+                        };
+                        const pairOn = (a, b) => {
+                            const onA = pickOn(a), onB = pickOn(b);
+                            return onA === onB ? onA : '#FFFFFF';
+                        };
+                        root.style.setProperty('--on-color-1', on.color1 || pickOn(colors.color1));
+                        root.style.setProperty('--on-color-2', on.color2 || pickOn(colors.color2));
+                        root.style.setProperty('--on-color-3', on.color3 || pickOn(colors.color3));
+                        root.style.setProperty('--on-color-4', on.color4 || pickOn(colors.color4));
+                        root.style.setProperty('--on-color-5', on.color5 || pickOn(colors.color5));
+                        root.style.setProperty('--on-gradient-1-2', onGrad['1-2'] || pairOn(colors.color1, colors.color2));
+                        root.style.setProperty('--on-gradient-2-3', onGrad['2-3'] || pairOn(colors.color2, colors.color3));
+                        root.style.setProperty('--on-gradient-3-4', onGrad['3-4'] || pairOn(colors.color3, colors.color4));
+                        root.style.setProperty('--on-gradient-4-5', onGrad['4-5'] || pairOn(colors.color4, colors.color5));
                     }
                 } else {
                     // Fallback to localStorage
@@ -397,17 +428,9 @@
 
         // Return to Dashboard function
         function returnToDashboard() {
-            // Get the token from cookies and pass it as URL parameter
-            const token = getCookie('pulse_token');
+            // Navigate without passing token in the URL. Authentication uses shared cookie.
             const FRONTEND_URL = 'http://localhost:3000';
-
-            if (token) {
-                // Pass token as URL parameter so frontend can use it
-                window.location.href = `${FRONTEND_URL}/home?token=${encodeURIComponent(token)}`;
-            } else {
-                // Fallback to direct navigation without token
-                window.location.href = `${FRONTEND_URL}/home`;
-            }
+            window.location.href = `${FRONTEND_URL}/home`;
         }
 
         // Handle token parameter and clean up URL

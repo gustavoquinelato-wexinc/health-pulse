@@ -22,10 +22,10 @@ ETL Service (8000) ──┘
 
 **Step-by-Step Process:**
 1. User visits any service → Redirected to Auth Service if not authenticated
-2. Auth Service validates credentials with Backend Service
-3. Auth Service generates authorization code → Redirects back to originating service
-4. Service exchanges code for JWT token via Backend Service
-5. Subsequent requests use JWT token validated by Backend Service
+2. Auth Service validates credentials (via provider abstraction: local DB through backend or OKTA)
+3. Auth Service issues the JWT and completes the flow
+4. Services store the JWT and send it on subsequent requests
+5. Services delegate JWT validation to the Auth Service (no local verification in backend)
 
 ### Benefits
 - ✅ **Cross-Domain Authentication** - Works across different domains
@@ -62,11 +62,10 @@ Pulse Platform uses JSON Web Tokens (JWT) for secure, stateless authentication:
 ```
 1. User submits credentials → Frontend
 2. Frontend → Backend Service (POST /api/v1/auth/login)
-3. Backend validates credentials against database
-4. Backend generates JWT token with user + client context
-5. Backend → Frontend (JWT token + user profile)
-6. Frontend stores token securely
-7. Subsequent requests include JWT in Authorization header
+3. Auth Service validates credentials and generates JWT with user + client context
+4. Auth Service → Frontend (JWT token + user profile) via Backend proxy if needed
+5. Frontend stores token securely
+6. Subsequent requests include JWT in Authorization header and are validated by Auth Service
 ```
 
 #### Session Management
@@ -85,8 +84,9 @@ CREATE TABLE user_sessions (
 ```
 
 #### Cross-Service Authentication
-- **Backend Service**: Primary authentication provider
-- **ETL Service**: Validates tokens via Backend Service API
+- **Auth Service**: Primary authentication and RBAC provider; owns token generation/validation
+- **Backend Service**: API gateway and business APIs; delegates token validation and RBAC to Auth Service
+- **ETL Service**: Delegates token validation to Auth Service through Backend where applicable
 - **Frontend**: Manages token lifecycle and renewal
 
 ## 👥 Role-Based Access Control (RBAC)

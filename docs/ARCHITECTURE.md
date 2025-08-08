@@ -63,16 +63,16 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Real-time Updates**: WebSocket integration for live data
 
 #### Auth Service (Port 4000)
-- **Centralized Authentication**: OAuth-like authorization flow
+- **Centralized Authentication & RBAC**: OAuth-like flow, RBAC source of truth
 - **Cross-Domain SSO**: Single sign-on across all services
 - **Provider Abstraction**: Local database and OKTA integration ready
-- **Token Generation**: JWT token creation and validation
+- **Token Authority**: JWT generation and validation
 - **Session Coordination**: Cross-service session management
 
 #### Backend Service (Port 3001)
-- **User Management**: Registration, RBAC, user CRUD operations
+- **User Management**: User CRUD (profile/preferences); no RBAC logic
 - **API Gateway**: Unified interface for frontend and ETL service
-- **Token Validation**: JWT token verification with auth service
+- **Auth Delegation**: Delegates JWT validation and permission checks to Auth Service
 - **Client Management**: Multi-tenant client isolation and configuration
 - **Analytics APIs**: DORA metrics, GitHub analytics, portfolio insights
 

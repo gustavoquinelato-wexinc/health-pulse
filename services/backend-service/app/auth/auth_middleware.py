@@ -30,15 +30,7 @@ async def get_current_user(
     if not credentials:
         return None
 
-    # First try local authentication
-    auth_service = get_auth_service()
-    user = await auth_service.verify_token(credentials.credentials)
-
-    if user:
-        logger.debug("User authenticated successfully (local)")
-        return user
-
-    # If local fails, try centralized authentication
+    # Delegate to centralized authentication service only
     try:
         import httpx
         from app.core.config import get_settings
@@ -58,10 +50,7 @@ async def get_current_user(
                     user_data = token_data.get("user")
                     logger.debug("User authenticated successfully (centralized)")
 
-                    # Cache the token locally for future requests
-                    await auth_service.store_session_from_token(credentials.credentials, user_data)
-
-                    # Create a User object from the centralized data
+                    # Create a User object from the centralized data (no local caching)
                     user = User()
                     user.id = user_data["id"]
                     user.email = user_data["email"]
@@ -76,7 +65,7 @@ async def get_current_user(
 
                     return user
 
-        logger.debug("Centralized authentication also failed")
+        logger.debug("Centralized authentication failed")
 
     except Exception as e:
         logger.warning(f"Error during centralized authentication: {e}")
@@ -99,18 +88,48 @@ async def require_authentication(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    auth_service = get_auth_service()
-    user = await auth_service.verify_token(credentials.credentials)
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
+    # Delegate to centralized authentication service
+    try:
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+        from app.core.http_client import get_async_client
+        client = get_async_client()
+        response = await client.post(
+            f"{auth_service_url}/api/v1/token/validate",
+            headers={"Authorization": f"Bearer {credentials.credentials}"}
         )
-    
-    logger.debug("User authenticated successfully")
-    return user
+
+        if response.status_code == 200:
+                token_data = response.json()
+                if token_data.get("valid"):
+                    user_data = token_data.get("user")
+
+                    # Map to User model
+                    user = User()
+                    user.id = user_data["id"]
+                    user.email = user_data["email"]
+                    user.first_name = user_data.get("first_name", "")
+                    user.last_name = user_data.get("last_name", "")
+                    user.role = user_data["role"]
+                    user.is_admin = user_data["is_admin"]
+                    user.client_id = user_data["client_id"]
+                    user.active = True
+                    user.auth_provider = "centralized"
+                    user.theme_mode = "light"
+
+                    logger.debug("User authenticated successfully (centralized)")
+                    return user
+    except Exception as e:
+        logger.warning(f"Centralized authentication error: {e}")
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 async def require_web_authentication(
@@ -140,15 +159,40 @@ async def require_web_authentication(
             logger.debug("No authentication token found, redirecting to login")
             return RedirectResponse(url="/login?error=authentication_required", status_code=302)
 
-        auth_service = get_auth_service()
-        user = await auth_service.verify_token(token)
+        # Delegate to centralized authentication service
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-        if not user:
-            logger.debug("Invalid token, redirecting to login")
-            return RedirectResponse(url="/login?error=invalid_token", status_code=302)
+        from app.core.http_client import get_async_client
+        client = get_async_client()
+        response = await client.post(
+            f"{auth_service_url}/api/v1/token/validate",
+            headers={"Authorization": f"Bearer {token}"}
+        )
 
-        logger.debug("Web user authenticated successfully")
-        return user
+        if response.status_code == 200:
+                token_data = response.json()
+                if token_data.get("valid"):
+                    user_data = token_data.get("user")
+                    user = User()
+                    user.id = user_data["id"]
+                    user.email = user_data["email"]
+                    user.first_name = user_data.get("first_name", "")
+                    user.last_name = user_data.get("last_name", "")
+                    user.role = user_data["role"]
+                    user.is_admin = user_data["is_admin"]
+                    user.client_id = user_data["client_id"]
+                    user.active = True
+                    user.auth_provider = "centralized"
+                    user.theme_mode = "light"
+
+                    logger.debug("Web user authenticated successfully")
+                    return user
+
+        logger.debug("Invalid token, redirecting to login")
+        return RedirectResponse(url="/login?error=invalid_token", status_code=302)
 
     except Exception as e:
         logger.error(f"Web authentication error: {e}")
@@ -197,31 +241,44 @@ def require_permission(resource: str, action: str):
     Dependency factory that requires a specific permission.
     Returns a dependency function that checks for the required permission.
     """
-    async def permission_checker(user: User = Depends(require_authentication)) -> User:
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
+    async def permission_checker(request: Request, user: User = Depends(require_authentication)) -> User:
+        """Delegate permission check to auth-service RBAC."""
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+        # Extract token from header or cookie
+        token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        if not token:
+            token = request.cookies.get("pulse_token")
 
         try:
-            resource_enum = Resource(resource)
-            action_enum = Action(action)
-
-            # Check permission with database session for custom permissions (use read replica)
-            database = get_database()
-            with database.get_read_session() as session:
-                if has_permission(user, resource_enum, action_enum, session):
-                    logger.debug(f"Permission granted for user, resource: {resource}, action: {action}")
-                    return user
-                else:
-                    logger.warning(f"Permission denied for user, resource: {resource}, action: {action}")
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"Permission required: {action} on {resource}"
-                    )
-        except ValueError:
-            logger.error(f"Invalid resource or action: {resource}, {action}")
+            from app.core.http_client import get_async_client
+            client = get_async_client()
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            response = await client.post(
+                f"{auth_service_url}/api/v1/permissions/check",
+                headers=headers,
+                json={"resource": resource, "action": action}
+            )
+            if response.status_code == 200 and response.json().get("allowed"):
+                logger.debug(f"Permission granted for user, resource: {resource}, action: {action}")
+                return user
+            else:
+                logger.warning(f"Permission denied for user, resource: {resource}, action: {action}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Permission required: {action} on {resource}"
+                )
+        except Exception:
+            logger.error(f"Error checking permission: {resource}, {action}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid resource or action"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Permission check failed"
             )
 
     return permission_checker
@@ -230,32 +287,43 @@ def require_permission(resource: str, action: str):
 def require_web_permission(resource: str, action: str):
     """
     Web-specific permission dependency that redirects to login/error page on failure.
-    Used for web pages instead of API endpoints.
+    Delegates permission checks to Auth Service.
     """
-    async def web_permission_checker(user: User = Depends(require_web_authentication)) -> User:
+    async def web_permission_checker(request: Request, user: User = Depends(require_web_authentication)) -> User:
         # If require_web_authentication returned a redirect, pass it through
         if isinstance(user, RedirectResponse):
             return user
 
-        from app.auth.permissions import Resource, Action, has_permission
-        from app.core.database import get_database
+        import httpx
+        from app.core.config import get_settings
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+        # Extract token from cookie or header
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
 
         try:
-            resource_enum = Resource(resource)
-            action_enum = Action(action)
-
-            # Check permission with database session for custom permissions (use read replica)
-            database = get_database()
-            with database.get_read_session() as session:
-                if has_permission(user, resource_enum, action_enum, session):
+            async with httpx.AsyncClient() as client:
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                response = await client.post(
+                    f"{auth_service_url}/api/v1/permissions/check",
+                    headers=headers,
+                    json={"resource": resource, "action": action},
+                    timeout=5.0
+                )
+                if response.status_code == 200 and response.json().get("allowed"):
                     logger.debug(f"Web permission granted for user, resource: {resource}, action: {action}")
                     return user
                 else:
                     logger.warning(f"Web permission denied for user, resource: {resource}, action: {action}")
                     return RedirectResponse(url=f"/dashboard?error=permission_denied&resource={resource}", status_code=302)
-        except ValueError:
-            logger.error(f"Invalid resource or action: {resource}, {action}")
-            return RedirectResponse(url="/dashboard?error=invalid_permission", status_code=302)
+        except Exception:
+            logger.error(f"Error checking web permission: {resource}, {action}")
+            return RedirectResponse(url="/dashboard?error=permission_check_failed", status_code=302)
 
     return web_permission_checker
 

@@ -87,9 +87,10 @@ def main():
         print("Usage: python scripts/install_requirements.py <service_name|all>")
         print()
         print("Available services:")
-        print("  • etl-service     - ETL Service dependencies")
-        print("  • backend-service - Backend Service dependencies")
-        print("  • all            - Install for all services")
+        print("  • etl-service      - ETL Service dependencies")
+        print("  • backend-service  - Backend Service dependencies")
+        print("  • auth-service     - Auth Service dependencies")
+        print("  • all              - Install for all services")
         print()
         print("Examples:")
         print("  python scripts/install_requirements.py etl-service")
@@ -103,7 +104,7 @@ def main():
 
     if target == "all":
         print("📦 Installing requirements for all services...")
-        services = ["etl-service", "backend-service"]
+        services = ["etl-service", "backend-service", "auth-service"]
         success_count = 0
 
         for service in services:
@@ -119,7 +120,7 @@ def main():
         else:
             print("⚠️  Some installations failed. Check the output above.")
 
-    elif target in ["etl-service", "backend-service"]:
+    elif target in ["etl-service", "backend-service", "auth-service"]:
         success = install_service_requirements(target)
         print("=" * 50)
         if success:

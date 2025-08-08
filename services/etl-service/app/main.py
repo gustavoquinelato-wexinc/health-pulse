@@ -108,8 +108,9 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     }
 
     # Routes that should redirect to login if not authenticated
+    # Do not protect /home at middleware level; the page JS validates token and redirects if needed
     PROTECTED_WEB_ROUTES = {
-        "/home", "/admin"
+        "/admin"
     }
 
     # Route prefixes that should be treated as protected web routes
@@ -285,6 +286,8 @@ async def lifespan(_: FastAPI):
         logger.error(f"Failed to start ETL Service: {e}")
         # Don't raise the exception to allow the service to start even if database is not available
         logger.warning("Service started with limited functionality - database connection failed")
+
+
         yield
     finally:
         # Cleanup - suppress all exceptions during shutdown
@@ -446,11 +449,19 @@ app.include_router(
     tags=["WebSocket"]
 )
 
+# Internal auth utilities (cache invalidation etc.)
+from app.api.internal_auth import router as internal_auth_router
+app.include_router(internal_auth_router, tags=["InternalAuth"])
+
 # Mount static files (if directory exists)
 import os
 from pathlib import Path
 # Use root-level static directory instead of app/static
 static_dir = Path(__file__).parent.parent / "static"
+# Include cookie-based validate route (no Authorization header)
+from app.api.auth_web_validate import router as auth_web_router
+app.include_router(auth_web_router)
+
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

@@ -138,39 +138,40 @@ class CentralizedAuthService:
                 "follow_redirects": True
             }
 
-            async with httpx.AsyncClient(**client_config) as client:
-                response = await client.post(
-                    f"{self.backend_service_url}/api/v1/auth/validate",
-                    headers={"Authorization": f"Bearer {token}"}
-                )
+            from app.core.http_client import get_async_client
+            client = get_async_client()
+            response = await client.post(
+                f"{self.backend_service_url}/api/v1/auth/validate",
+                headers={"Authorization": f"Bearer {token}"}
+            )
 
-                if response.status_code == 200:
-                    data = response.json()
-                    logger.info(f"Backend service response: {data}")
-                    if data.get("valid") and data.get("user"):
-                        user_data = data["user"]
-                        # Only cache tokens for admin users since ETL service is admin-only
-                        if user_data.get("is_admin", False) or user_data.get("role") == "admin":
-                            await self.cache.set(token_hash, user_data)
-                            logger.info(f"Token validation successful for admin user: {user_data['email']}")
-                        else:
-                            logger.info(f"Token validation successful but user is not admin: {user_data['email']} - not caching")
-                        return user_data
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Backend service response: {data}")
+                if data.get("valid") and data.get("user"):
+                    user_data = data["user"]
+                    # Only cache tokens for admin users since ETL service is admin-only
+                    if user_data.get("is_admin", False) or user_data.get("role") == "admin":
+                        await self.cache.set(token_hash, user_data)
+                        logger.info(f"Token validation successful for admin user: {user_data['email']}")
                     else:
-                        logger.warning(f"Invalid response format from backend service. Response: {data}")
-                        # Remove invalid token from cache
-                        await self.cache.invalidate(token_hash)
-                        return None
-                elif response.status_code == 401:
-                    logger.debug("Token validation failed: unauthorized")
-                    # Remove unauthorized token from cache
-                    await self.cache.invalidate(token_hash)
-                    return None
+                        logger.info(f"Token validation successful but user is not admin: {user_data['email']} - not caching")
+                    return user_data
                 else:
-                    logger.error(f"Backend service returned status {response.status_code}")
-                    # Remove failed token from cache
+                    logger.warning(f"Invalid response format from backend service. Response: {data}")
+                    # Remove invalid token from cache
                     await self.cache.invalidate(token_hash)
                     return None
+            elif response.status_code == 401:
+                logger.debug("Token validation failed: unauthorized")
+                # Remove unauthorized token from cache
+                await self.cache.invalidate(token_hash)
+                return None
+            else:
+                logger.error(f"Backend service returned status {response.status_code}")
+                # Remove failed token from cache
+                await self.cache.invalidate(token_hash)
+                return None
 
         except httpx.TimeoutException:
             logger.error(f"Timeout while validating token with backend service at {self.backend_service_url}")

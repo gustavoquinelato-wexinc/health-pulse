@@ -49,11 +49,11 @@ class ColorSchemaManager:
             "success": True,
             "mode": "default",
             "colors": {
-                "color1": "#C8102E",  # Red
-                "color2": "#253746",  # Dark Blue
-                "color3": "#00C7B1",  # Teal
-                "color4": "#A2DDF8",  # Light Blue
-                "color5": "#FFBF3F"   # Yellow
+                "color1": "#C8102E",
+                "color2": "#253746",
+                "color3": "#00C7B1",
+                "color4": "#A2DDF8",
+                "color5": "#FFBF3F"
             },
             "theme": "light"
         }

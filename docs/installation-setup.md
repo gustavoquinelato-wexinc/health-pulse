@@ -128,10 +128,8 @@ nano .env
 DATABASE_URL=postgresql://postgres:pulse@localhost:5432/pulse_db
 DATABASE_REPLICA_URL=postgresql://postgres:pulse@localhost:5433/pulse_db
 
-# JWT Security
-JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
-JWT_ALGORITHM=HS256
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+# Auth Service URL (backend delegates all token ops)
+AUTH_SERVICE_URL=http://localhost:4000
 
 # Service URLs
 ETL_SERVICE_URL=http://localhost:8000

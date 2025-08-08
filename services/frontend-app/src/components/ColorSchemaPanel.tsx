@@ -1,9 +1,11 @@
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 
 export default function ColorSchemaPanel() {
   const { theme, colorSchemaMode, setColorSchemaMode, saveColorSchemaMode, colorSchema, updateColorSchema, saveColorSchema } = useTheme()
+  const { user } = useAuth()
 
   // Fix: Force DOM update when theme changes (keep this fix)
   useEffect(() => {
@@ -20,7 +22,10 @@ export default function ColorSchemaPanel() {
   const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  // Store original database colors (immutable for custom colors card display)
+  // Store database palettes explicitly (from server)
+  const [databaseDefaultColors, setDatabaseDefaultColors] = useState<any>(colorSchema)
+  const [databaseCustomColors, setDatabaseCustomColors] = useState<any>(colorSchema)
+  // Back-compat: keep previous single databaseColors for preview logic when needed
   const [databaseColors, setDatabaseColors] = useState(colorSchema)
   // Store original database mode (immutable for comparison)
   const [databaseMode, setDatabaseMode] = useState(colorSchemaMode)
@@ -42,20 +47,20 @@ export default function ColorSchemaPanel() {
 
   // Default colors (read-only)
   const defaultColors = [
-    { label: 'Color 1', value: '#2862EB', description: 'Blue - Primary' },
-    { label: 'Color 2', value: '#763DED', description: 'Purple - Secondary' },
-    { label: 'Color 3', value: '#059669', description: 'Emerald - Success' },
-    { label: 'Color 4', value: '#0EA5E9', description: 'Sky Blue - Info' },
-    { label: 'Color 5', value: '#F59E0B', description: 'Amber - Warning' }
+    { label: 'Color 1', value: databaseDefaultColors.color1, description: 'Blue - Primary' },
+    { label: 'Color 2', value: databaseDefaultColors.color2, description: 'Purple - Secondary' },
+    { label: 'Color 3', value: databaseDefaultColors.color3, description: 'Emerald - Success' },
+    { label: 'Color 4', value: databaseDefaultColors.color4, description: 'Sky Blue - Info' },
+    { label: 'Color 5', value: databaseDefaultColors.color5, description: 'Amber - Warning' }
   ]
 
   // Custom colors (from database - always show original database values, never preview values)
   const customColors = [
-    { label: 'Color 1', value: databaseColors.color1, description: 'Custom Red - Primary' },
-    { label: 'Color 2', value: databaseColors.color2, description: 'Custom Blue - Secondary' },
-    { label: 'Color 3', value: databaseColors.color3, description: 'Custom Teal - Success' },
-    { label: 'Color 4', value: databaseColors.color4, description: 'Custom Light Blue - Info' },
-    { label: 'Color 5', value: databaseColors.color5, description: 'Custom Yellow - Warning' }
+    { label: 'Color 1', value: databaseCustomColors.color1, description: 'Custom Red - Primary' },
+    { label: 'Color 2', value: databaseCustomColors.color2, description: 'Custom Blue - Secondary' },
+    { label: 'Color 3', value: databaseCustomColors.color3, description: 'Custom Teal - Success' },
+    { label: 'Color 4', value: databaseCustomColors.color4, description: 'Custom Light Blue - Info' },
+    { label: 'Color 5', value: databaseCustomColors.color5, description: 'Custom Yellow - Warning' }
   ]
 
   // Editable color inputs (for custom mode)
@@ -74,6 +79,39 @@ export default function ColorSchemaPanel() {
     setTempColorSchema(colorSchema)
     setTempColorSchemaMode(colorSchemaMode)
   }, []) // Run only on mount
+
+  // Ingest palettes from user context (explicit default/custom) and fallback to API fetch if missing
+  useEffect(() => {
+    const data: any = user?.colorSchemaData
+    if (data) {
+      if (data.default_colors) setDatabaseDefaultColors(data.default_colors)
+      if (data.custom_colors) setDatabaseCustomColors(data.custom_colors)
+    }
+
+    // Fallback: fetch explicit sets if not present (supports sessions created before API change)
+    if (!data?.default_colors || !data?.custom_colors) {
+      (async () => {
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema`, {
+            credentials: 'include',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}` }
+          })
+          const json = await res.json()
+          if (json?.success) {
+            if (json.default_colors) setDatabaseDefaultColors(json.default_colors)
+            if (json.custom_colors) setDatabaseCustomColors(json.custom_colors)
+          }
+        } catch (e) {
+          console.warn('Failed to fetch explicit palettes for panel:', e)
+        }
+      })()
+    }
+  }, [user?.colorSchemaData])
+
+  // When ThemeContext colors update due to server fetch, keep databaseColors in sync
+  useEffect(() => {
+    setDatabaseColors(colorSchema)
+  }, [colorSchema])
 
   // Sync temp states with actual states when they change (only from external sources, not preview)
   useEffect(() => {
@@ -96,17 +134,23 @@ export default function ColorSchemaPanel() {
     }
   }, [colorSchemaMode]) // Only respond to actual mode changes from external sources
 
-  const handleColorChange = (colorKey: string, value: string) => {
-    // Only process if it's a valid hex color or if user is still typing
-    if (value.startsWith('#') && (value.length <= 7)) {
-      setTempColorSchema(prev => ({ ...prev, [colorKey]: value }))
-      setHasChanges(true)
-      setColorsChanged(true) // Mark that colors have been changed
+  const handleColorChange = (colorKey: string, raw: string) => {
+    // Normalize user input for a smoother UX: allow paste with or without '#', strip non-hex chars,
+    // and clamp to 7 chars (# + RRGGBB). Keep partial inputs in the textbox; only preview when valid.
+    let value = raw.trim()
+    // Auto-prepend '#'
+    if (!value.startsWith('#')) value = '#' + value
+    // Remove any non-hex characters after '#'
+    value = '#' + value.slice(1).replace(/[^0-9A-Fa-f]/g, '')
+    // Clamp to # + 6 hex digits
+    if (value.length > 7) value = value.slice(0, 7)
 
-      // Only apply preview if it's a complete valid hex color
-      if (isValidHexColor(value)) {
-        updateColorSchema({ [colorKey]: value })
-      }
+    setTempColorSchema(prev => ({ ...prev, [colorKey]: value }))
+    setHasChanges(true)
+    setColorsChanged(true)
+
+    if (isValidHexColor(value)) {
+      updateColorSchema({ [colorKey]: value })
     }
   }
 
@@ -156,6 +200,25 @@ export default function ColorSchemaPanel() {
           setDatabaseColors(tempColorSchema)
         }
         setDatabaseMode(tempColorSchemaMode)
+        // Force a refresh of the active colors from server so ThemeContext updates CSS vars
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema`, {
+            credentials: 'include',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
+            }
+          })
+          const data = await res.json()
+          if (data?.success) {
+            // update localStorage so ThemeContext picks it up immediately
+            localStorage.setItem('pulse_color_schema_mode', data.mode)
+            localStorage.setItem('pulse_colors', JSON.stringify(data.colors))
+            // also trigger a soft reload of the document CSS by updating a custom attr
+            document.documentElement.setAttribute('data-color-schema', data.mode)
+          }
+        } catch (e) {
+          console.warn('Post-save color schema refresh failed:', e)
+        }
       } else {
         alert('Failed to save color schema to database')
       }
@@ -195,10 +258,8 @@ export default function ColorSchemaPanel() {
               : 'border-default hover:border-color-1'
               }`}
           >
-            <h4 className={`font-medium mb-2 ${tempColorSchemaMode === 'default' ? 'text-white' : 'text-primary'
-              }`}>Default Colors</h4>
-            <p className={`text-sm mb-3 ${tempColorSchemaMode === 'default' ? 'text-white text-opacity-80' : 'text-secondary'
-              }`}>Use built-in theme colors</p>
+            <h4 className={`font-medium mb-2 ${tempColorSchemaMode === 'default' ? '' : 'text-primary'}`} style={tempColorSchemaMode === 'default' ? { color: 'var(--on-color-1)' } : undefined}>Default Colors</h4>
+            <p className={`text-sm mb-3 ${tempColorSchemaMode === 'default' ? '' : 'text-secondary'}`} style={tempColorSchemaMode === 'default' ? { color: 'color-mix(in oklab, var(--on-color-1) 80%, transparent)' } : undefined}>Use built-in theme colors</p>
             <div className="flex space-x-1">
               {defaultColors.map((color, index) => (
                 <div
@@ -218,8 +279,8 @@ export default function ColorSchemaPanel() {
               : 'border-default hover:border-color-1'
               }`}
             style={tempColorSchemaMode === 'custom' ? {
-              borderColor: databaseColors.color1,
-              backgroundColor: databaseColors.color1 // Full color, no opacity
+              borderColor: databaseCustomColors.color1,
+              backgroundColor: databaseCustomColors.color1 // Full color, no opacity
             } : {}}
           >
             <h4 className={`font-medium mb-2 ${tempColorSchemaMode === 'custom' ? 'text-white' : 'text-primary'
@@ -300,18 +361,22 @@ export default function ColorSchemaPanel() {
               <div
                 className="w-16 h-16 mx-auto rounded-xl shadow-md cursor-pointer transition-transform hover:scale-110"
                 style={{
-                  backgroundColor: tempColorSchemaMode === 'custom'
-                    ? tempColorSchema[`color${index + 1}` as keyof typeof tempColorSchema]
-                    : color.value
+                  backgroundColor: (tempColorSchemaMode === 'custom')
+                    ? (colorsChanged
+                      ? (tempColorSchema[`color${index + 1}` as keyof typeof tempColorSchema] as string)
+                      : (databaseCustomColors[`color${index + 1}` as keyof typeof databaseCustomColors] as string))
+                    : (color.value as string)
                 }}
               />
               <div>
                 <p className="text-sm font-medium text-primary">{color.label}</p>
                 <p className="text-xs text-muted">{color.description}</p>
                 <p className="text-xs font-mono text-secondary">
-                  {tempColorSchemaMode === 'custom'
-                    ? tempColorSchema[`color${index + 1}` as keyof typeof tempColorSchema]
-                    : color.value}
+                  {(tempColorSchemaMode === 'custom')
+                    ? (colorsChanged
+                      ? (tempColorSchema[`color${index + 1}` as keyof typeof tempColorSchema] as string)
+                      : (databaseCustomColors[`color${index + 1}` as keyof typeof databaseCustomColors] as string))
+                    : (color.value as string)}
                 </p>
               </div>
             </motion.div>
@@ -334,13 +399,13 @@ export default function ColorSchemaPanel() {
                   <div className="flex space-x-3">
                     <input
                       type="color"
-                      value={ensureValidHex(tempColorSchema[color.key as keyof typeof tempColorSchema])}
+                      value={ensureValidHex((colorsChanged ? tempColorSchema[color.key as keyof typeof tempColorSchema] : databaseCustomColors[color.key as keyof typeof databaseCustomColors]) as string)}
                       onChange={(e) => handleColorChange(color.key, e.target.value)}
                       className="w-12 h-10 rounded-lg border border-default cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={tempColorSchema[color.key as keyof typeof tempColorSchema]}
+                      value={(colorsChanged ? tempColorSchema[color.key as keyof typeof tempColorSchema] : databaseCustomColors[color.key as keyof typeof databaseCustomColors]) as string}
                       onChange={(e) => handleColorChange(color.key, e.target.value)}
                       className="input flex-1 text-sm"
                       placeholder="#000000"
@@ -1948,16 +2013,16 @@ export default function ColorSchemaPanel() {
 
             {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-2">
-              <button className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-1)' }}>
+              <button className="px-4 py-2 rounded-lg font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-1)', color: 'var(--on-color-1)' }}>
                 Primary
               </button>
-              <button className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-2)' }}>
+              <button className="px-4 py-2 rounded-lg font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-2)', color: 'var(--on-color-2)' }}>
                 Secondary
               </button>
-              <button className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-3)' }}>
+              <button className="px-4 py-2 rounded-lg font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-3)', color: 'var(--on-color-3)' }}>
                 Success
               </button>
-              <button className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-5)' }}>
+              <button className="px-4 py-2 rounded-lg font-medium transition-all hover:opacity-90" style={{ backgroundColor: 'var(--color-5)', color: 'var(--on-color-5)' }}>
                 Warning
               </button>
             </div>
@@ -1973,10 +2038,10 @@ export default function ColorSchemaPanel() {
         transition={{ delay: 1 }}
       >
         {[
-          { title: 'Glass Morphism', desc: 'Backdrop blur effects', icon: '✨', gradient: 'linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%)' },
-          { title: 'Micro Animations', desc: 'Smooth transitions', icon: '⚡', gradient: 'linear-gradient(135deg, var(--color-2) 0%, var(--color-3) 100%)' },
-          { title: 'Data Visualization', desc: 'Interactive charts', icon: '📊', gradient: 'linear-gradient(135deg, var(--color-3) 0%, var(--color-4) 100%)' },
-          { title: 'Modern UI', desc: 'Clean aesthetics', icon: '🎨', gradient: 'linear-gradient(135deg, var(--color-4) 0%, var(--color-5) 100%)' }
+          { title: 'Glass Morphism', desc: 'Backdrop blur effects', icon: '✨', gradient: 'linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%)', onVar: '--on-gradient-1-2' },
+          { title: 'Micro Animations', desc: 'Smooth transitions', icon: '⚡', gradient: 'linear-gradient(135deg, var(--color-2) 0%, var(--color-3) 100%)', onVar: '--on-gradient-2-3' },
+          { title: 'Data Visualization', desc: 'Interactive charts', icon: '📊', gradient: 'linear-gradient(135deg, var(--color-3) 0%, var(--color-4) 100%)', onVar: '--on-gradient-3-4' },
+          { title: 'Modern UI', desc: 'Clean aesthetics', icon: '🎨', gradient: 'linear-gradient(135deg, var(--color-4) 0%, var(--color-5) 100%)', onVar: '--on-gradient-4-5' }
         ].map((card, index) => (
           <motion.div
             key={index}
@@ -1986,7 +2051,7 @@ export default function ColorSchemaPanel() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.2 + index * 0.1 }}
           >
-            <div className="relative z-10 text-white">
+            <div className="relative z-10" style={{ color: `var(${(card as any).onVar || '--on-gradient-1-2'})` }}>
               <div className="text-2xl mb-3">{card.icon}</div>
               <h5 className="font-bold mb-2">{card.title}</h5>
               <p className="text-sm opacity-90">{card.desc}</p>

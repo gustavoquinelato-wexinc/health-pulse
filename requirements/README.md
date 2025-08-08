@@ -7,6 +7,7 @@ This directory contains centralized dependency management for the Pulse Platform
 - **`common.txt`** - Shared dependencies across all services (FastAPI, SQLAlchemy, etc.)
 - **`etl-service.txt`** - ETL Service specific dependencies (includes common.txt)
 - **`backend-service.txt`** - Backend Service specific dependencies (includes common.txt)
+- **`auth-service.txt`** - Auth Service specific dependencies (API-only; includes minimal web + JWT)
 
 ## 🚀 Installation
 
@@ -16,6 +17,7 @@ This directory contains centralized dependency management for the Pulse Platform
 # Install for specific service
 python scripts/install_requirements.py etl-service
 python scripts/install_requirements.py backend-service
+python scripts/install_requirements.py auth-service
 
 # Install for all services
 python scripts/install_requirements.py all

@@ -97,55 +97,39 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const { user, isLoading } = useAuth()
-  const [theme, setTheme] = useState<Theme>('light')
-  const [colorSchemaMode, setColorSchemaMode] = useState<ColorSchemaMode>('default')
-  const [colorSchema, setColorSchema] = useState<ColorSchema>(defaultColorSchema)
-
-  // Initialize theme and color schema from localStorage
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('pulse_theme') as Theme
-    const savedSchemaMode = localStorage.getItem('pulse_color_schema_mode') as ColorSchemaMode
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('pulse_theme') as Theme) || 'light')
+  const [colorSchemaMode, setColorSchemaMode] = useState<ColorSchemaMode>(() => (localStorage.getItem('pulse_color_schema_mode') as ColorSchemaMode) || 'default')
+  const [colorSchema, setColorSchema] = useState<ColorSchema>(() => {
     const savedColors = localStorage.getItem('pulse_colors')
-
-    if (savedTheme) {
-      setTheme(savedTheme)
-    } else {
-      setTheme('light')
-    }
-
-    if (savedSchemaMode) {
-      setColorSchemaMode(savedSchemaMode)
-    } else {
-      setColorSchemaMode('default')
-    }
-
-    // Load colors from localStorage as fallback
     if (savedColors) {
       try {
         const parsedColors = JSON.parse(savedColors)
-        setColorSchema({ ...defaultColorSchema, ...parsedColors })
+        return { ...defaultColorSchema, ...parsedColors }
       } catch (error) {
         console.error('Failed to parse saved colors:', error)
       }
     }
-  }, [])
+    return defaultColorSchema
+  })
 
-  // Load color schema from user profile when user changes (but not while loading)
+  // Load color schema from user profile when it's actually available to avoid flash
   useEffect(() => {
-    if (isLoading) {
-      return
-    }
+    if (isLoading) return
+    if (!user || !user.colorSchemaData) return
 
-    if (user && user.colorSchemaData) {
-      setColorSchemaMode(user.colorSchemaData.mode)
-      // Always store the custom colors from database, regardless of mode
-      setColorSchema(user.colorSchemaData.colors)
-    } else {
-      setColorSchemaMode('default')
-      // Keep default colors as fallback, but this should not happen in normal operation
-      setColorSchema(defaultColorSchema)
-    }
-  }, [user, isLoading])
+    // Apply mode
+    setColorSchemaMode(user.colorSchemaData.mode)
+
+    // Prefer explicit default/custom sets for UI components
+    const anyData: any = user.colorSchemaData as any
+    const chosen = (user.colorSchemaData.mode === 'custom' && anyData.custom_colors)
+      ? anyData.custom_colors
+      : (user.colorSchemaData.mode === 'default' && anyData.default_colors)
+        ? anyData.default_colors
+        : user.colorSchemaData.colors
+
+    setColorSchema(chosen)
+  }, [user?.colorSchemaData, isLoading])
 
   // Load theme mode from API when user is loaded
   useEffect(() => {
@@ -184,27 +168,60 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     // No need to override them here based on mode
   }, [colorSchemaMode])
 
-  // Apply color schema to CSS custom properties
+  // Apply color schema to CSS custom properties (colors and on-colors)
   useEffect(() => {
     const root = document.documentElement
 
-    if (colorSchemaMode === 'custom') {
-      // Apply custom colors via CSS custom properties
-      root.style.setProperty('--color-1', colorSchema.color1)
-      root.style.setProperty('--color-2', colorSchema.color2)
-      root.style.setProperty('--color-3', colorSchema.color3)
-      root.style.setProperty('--color-4', colorSchema.color4)
-      root.style.setProperty('--color-5', colorSchema.color5)
-      localStorage.setItem('pulse_colors', JSON.stringify(colorSchema))
-    } else {
-      // For default mode, remove custom properties to use CSS defaults
-      root.style.removeProperty('--color-1')
-      root.style.removeProperty('--color-2')
-      root.style.removeProperty('--color-3')
-      root.style.removeProperty('--color-4')
-      root.style.removeProperty('--color-5')
+    // Always set active colors explicitly to avoid relying on CSS file defaults
+    root.style.setProperty('--color-1', colorSchema.color1)
+    root.style.setProperty('--color-2', colorSchema.color2)
+    root.style.setProperty('--color-3', colorSchema.color3)
+    root.style.setProperty('--color-4', colorSchema.color4)
+    root.style.setProperty('--color-5', colorSchema.color5)
+
+    // If backend provides on-colors via user context, prefer them; otherwise compute quick fallback
+    const on = (user?.colorSchemaData as any)?.on_colors || {}
+    const onGrad = (user?.colorSchemaData as any)?.on_gradients || {}
+
+    const pickOn = (hex: string) => {
+      try {
+        const h = hex.replace('#', '')
+        const r = parseInt(h.slice(0, 2), 16) / 255
+        const g = parseInt(h.slice(2, 4), 16) / 255
+        const b = parseInt(h.slice(4, 6), 16) / 255
+        const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+        const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        const contrast = (Lbg: number, Lfg: number) => (Math.max(Lbg, Lfg) + 0.05) / (Math.min(Lbg, Lfg) + 0.05)
+        const cBlack = contrast(L, 0)
+        const cWhite = contrast(L, 1)
+        return cWhite >= cBlack ? '#FFFFFF' : '#000000'
+      } catch {
+        return '#000000'
+      }
     }
-  }, [colorSchema, colorSchemaMode])
+
+    // Solid on-colors
+    root.style.setProperty('--on-color-1', on.color1 || pickOn(colorSchema.color1))
+    root.style.setProperty('--on-color-2', on.color2 || pickOn(colorSchema.color2))
+    root.style.setProperty('--on-color-3', on.color3 || pickOn(colorSchema.color3))
+    root.style.setProperty('--on-color-4', on.color4 || pickOn(colorSchema.color4))
+    root.style.setProperty('--on-color-5', on.color5 || pickOn(colorSchema.color5))
+
+    // Gradient on-colors (pairs 1-2, 2-3, 3-4, 4-5)
+    const pairOn = (a: string, b: string) => {
+      const onA = pickOn(a), onB = pickOn(b)
+      // If both suggest the same color, use it; else prefer white
+      return onA === onB ? onA : '#FFFFFF'
+    }
+
+    root.style.setProperty('--on-gradient-1-2', onGrad['1-2'] || pairOn(colorSchema.color1, colorSchema.color2))
+    root.style.setProperty('--on-gradient-2-3', onGrad['2-3'] || pairOn(colorSchema.color2, colorSchema.color3))
+    root.style.setProperty('--on-gradient-3-4', onGrad['3-4'] || pairOn(colorSchema.color3, colorSchema.color4))
+    root.style.setProperty('--on-gradient-4-5', onGrad['4-5'] || pairOn(colorSchema.color4, colorSchema.color5))
+
+    // Persist last used colors for quick boot
+    localStorage.setItem('pulse_colors', JSON.stringify(colorSchema))
+  }, [colorSchema, colorSchemaMode, user?.colorSchemaData])
 
   const toggleTheme = async () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
@@ -237,6 +254,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (success) {
       setColorSchemaMode(mode)
       localStorage.setItem('pulse_color_schema_mode', mode)
+      // Refresh from server to apply correct colors for the selected mode
+      try {
+        const res = await axios.get('/api/v1/admin/color-schema')
+        if (res.data?.success) {
+          setColorSchemaMode(res.data.mode)
+          setColorSchema(res.data.colors)
+          localStorage.setItem('pulse_colors', JSON.stringify(res.data.colors))
+        }
+      } catch (e) {
+        console.warn('Failed to refresh color schema after mode change', e)
+      }
     }
     return success
   }
@@ -246,6 +274,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (success) {
       // Also save to localStorage as backup
       localStorage.setItem('pulse_colors', JSON.stringify(colorSchema))
+      // Refresh from server to apply recomputed on-colors and any server-side validation
+      try {
+        const res = await axios.get('/api/v1/admin/color-schema')
+        if (res.data?.success) {
+          setColorSchemaMode(res.data.mode)
+          setColorSchema(res.data.colors)
+          localStorage.setItem('pulse_colors', JSON.stringify(res.data.colors))
+        }
+      } catch (e) {
+        console.warn('Failed to refresh color schema after save', e)
+      }
     }
     return success
   }

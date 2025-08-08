@@ -547,12 +547,8 @@
         }
 
         try {
-            const response = await fetch('/api/v1/auth/validate', {
+            const response = await fetch('/api/v1/auth/validate-web', {
                 method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
             });
 
             if (response.status === 401) {

@@ -1,5 +1,5 @@
-# Centralized Authentication Service Dependencies
-# API-only service - no UI components
+# Centralized Authentication Service Requirements (moved from services/auth-service/requirements.txt)
+# Keep version pins aligned with backend-service where applicable.
 
 # FastAPI and ASGI server
 fastapi==0.104.1
@@ -19,3 +19,4 @@ python-dotenv==1.0.0
 # Development and testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
+

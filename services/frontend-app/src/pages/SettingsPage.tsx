@@ -279,7 +279,7 @@ export default function SettingsPage() {
               {/* Colorful Database Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6"
               >
-                <div className="bg-gradient-to-br from-color-1 to-color-3 rounded-xl p-4 text-white">
+                <div className="bg-gradient-to-br from-color-1 to-color-2 rounded-xl p-4" style={{ color: 'var(--on-gradient-1-2)' }}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
                       <Database className="w-4 h-4" />
@@ -296,7 +296,7 @@ export default function SettingsPage() {
                   <div className="text-sm opacity-90">Database Size</div>
                 </div>
 
-                <div className="bg-gradient-to-br from-color-2 to-color-4 rounded-xl p-4 text-white">
+                <div className="bg-gradient-to-br from-color-2 to-color-3 rounded-xl p-4" style={{ color: 'var(--on-gradient-2-3)' }}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
                       <span className="text-sm font-bold">#</span>
@@ -313,7 +313,7 @@ export default function SettingsPage() {
                   <div className="text-sm opacity-90">Tables</div>
                 </div>
 
-                <div className="bg-color-3 rounded-xl p-4 text-white">
+                <div className="bg-gradient-to-br from-color-3 to-color-4 rounded-xl p-4" style={{ color: 'var(--on-gradient-3-4)' }}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
                       <span className="text-sm font-bold">∑</span>
@@ -331,7 +331,7 @@ export default function SettingsPage() {
                   <div className="text-sm opacity-90">Data Records</div>
                 </div>
 
-                <div className="bg-color-5 rounded-xl p-4 text-white">
+                <div className="bg-gradient-to-br from-color-4 to-color-5 rounded-xl p-4" style={{ color: 'var(--on-gradient-4-5)' }}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
                       <Activity className="w-4 h-4" />

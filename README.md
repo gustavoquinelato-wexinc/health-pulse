@@ -46,6 +46,14 @@ Pulse Platform transforms raw development data into actionable business intellig
 
 **Four-Tier Architecture:**
 - **Frontend App** (React/TypeScript): Executive dashboards and user interface
+
+## 🧭 Navigation UX
+- All sidebar and submenu items support native browser interactions: right-click → Open link in new tab, middle-click, and Cmd/Ctrl+click. We achieve this by rendering real anchor links (React Router Links in the frontend; <a href> in ETL).
+
+## 🎨 Design System & Colors
+- See docs/design-system.md for color tokens and rules (on-color, on-gradient) and first-paint fallback strategy.
+- Backend exposes both default_colors and custom_colors; the frontend and ETL set CSS vars accordingly.
+
 - **Auth Service** (FastAPI/Python): API-only authentication validation backend
 - **Backend Service** (FastAPI/Python): User management, RBAC, and API gateway
 - **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
