@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
+import clientLogger from '../utils/clientLogger'
 
 const navigationItems = [
   {
@@ -153,7 +154,7 @@ export default function StaticSidebarWithHighlights() {
                           ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-sm'
                           : 'text-muted hover:bg-tertiary hover:text-secondary'
                           }`}
-                        whileHover={{ x: 4 }}
+
                       >
                         {subItem.name}
                       </motion.button>
@@ -210,6 +211,7 @@ export default function StaticSidebarWithHighlights() {
               className="btn btn-primary w-full text-sm py-2"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => clientLogger.logUserAction('run_etl_job', 'static_sidebar_quick_action')}
             >
               🚀 Run ETL Job
             </motion.button>
@@ -217,6 +219,7 @@ export default function StaticSidebarWithHighlights() {
               className="btn btn-secondary w-full text-sm py-2"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => clientLogger.logUserAction('generate_report', 'static_sidebar_quick_action')}
             >
               📊 Generate Report
             </motion.button>

@@ -7,7 +7,7 @@ import os
 import jwt
 import bcrypt
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -48,7 +48,7 @@ class AuthService:
     async def authenticate_local(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
         """Local authentication (for development/admin)"""
         try:
-            with self.database.get_session_context() as session:
+            with self.database.get_write_session_context() as session:
                 user = session.query(User).filter(
                     and_(
                         User.email == email.lower().strip(),
@@ -120,8 +120,8 @@ class AuthService:
                 else:
                     logger.debug(f"Session not found in Redis, checking database...")
 
-            # 2. Fallback to database session lookup
-            with self.database.get_session_context() as session:
+            # 2. Fallback to database session lookup (use write session for activity updates)
+            with self.database.get_write_session_context() as session:
                 user_session = session.query(UserSession).filter(
                     and_(
                         UserSession.user_id == user_id,
@@ -200,7 +200,7 @@ class AuthService:
         """Invalidate a user session"""
         try:
             logger.info(f"🔄 Invalidating session for token: {token[:50]}...")
-            with self.database.get_session_context() as session:
+            with self.database.get_write_session_context() as session:
                 token_hash = self._hash_token(token)
                 logger.info(f"🔍 Looking for session with token_hash: {token_hash[:50]}...")
 
@@ -355,8 +355,8 @@ class AuthService:
             if self.redis_session_manager.is_available():
                 await self.redis_session_manager.invalidate_session(token_hash)
 
-            # 2. Invalidate in database
-            with self.database.get_session_context() as session:
+            # 2. Invalidate in database (write operation)
+            with self.database.get_write_session_context() as session:
                 user_session = session.query(UserSession).filter(
                     UserSession.token_hash == token_hash
                 ).first()
@@ -390,8 +390,8 @@ class AuthService:
             if self.redis_session_manager.is_available():
                 await self.redis_session_manager.invalidate_all_user_sessions(user_id)
 
-            # 2. Invalidate all database sessions for user
-            with self.database.get_session_context() as session:
+            # 2. Invalidate all database sessions for user (write operation)
+            with self.database.get_write_session_context() as session:
                 updated_count = session.query(UserSession).filter(
                     and_(
                         UserSession.user_id == user_id,
@@ -410,6 +410,108 @@ class AuthService:
             logger.error(f"❌ Error during logout all sessions: {e}")
             return False
 
+    async def create_session_from_user_data(self, user_data: Dict[str, Any], ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Create a session from user data received from centralized auth service.
+
+        Args:
+            user_data: User data from centralized auth service
+            ip_address: Client IP address
+            user_agent: Client user agent
+
+        Returns:
+            Dict with token and user data, or None if failed
+        """
+        try:
+            # Find the user in the database and create session (write operation needed for session creation)
+            with self.database.get_write_session_context() as session:
+                user = session.query(User).filter(User.id == user_data["id"]).first()
+
+                if not user:
+                    logger.error(f"User {user_data['id']} not found in database")
+                    return None
+
+                # Create session using existing method
+                return await self._create_session(user, session, ip_address, user_agent)
+
+        except Exception as e:
+            logger.error(f"Failed to create session from user data: {e}")
+            return None
+
+    async def store_session_from_token(self, token: str, user_data: Dict[str, Any]) -> bool:
+        """
+        Store session data from centralized auth service token.
+
+        Args:
+            token: JWT token from centralized auth service
+            user_data: User data from token exchange
+
+        Returns:
+            bool: True if session stored successfully
+        """
+        try:
+            # Decode token to get expiration
+            import jwt
+            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
+            exp_timestamp = payload.get("exp")
+
+            if not exp_timestamp:
+                logger.error("Token missing expiration timestamp")
+                return False
+
+            expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc).replace(tzinfo=None)
+            token_hash = self._hash_token(token)
+
+            # Store in Redis if available
+            if self.redis_session_manager.is_available():
+                ttl_seconds = int((expires_at - DateTimeHelper.now_utc()).total_seconds())
+                if ttl_seconds > 0:
+                    await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
+
+            # Store in database (write operation)
+            with self.database.get_write_session_context() as session:
+                # Check if user exists
+                user = session.query(User).filter(User.id == user_data["id"]).first()
+                if not user:
+                    logger.error(f"User {user_data['id']} not found in database")
+                    return False
+
+                # Create or update session
+                user_session = session.query(UserSession).filter(
+                    UserSession.token_hash == token_hash
+                ).first()
+
+                if not user_session:
+                    user_session = UserSession(
+                        user_id=user.id,
+                        token_hash=token_hash,
+                        expires_at=expires_at,
+                        client_id=user.client_id,
+                        active=True,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                    )
+                    session.add(user_session)
+                else:
+                    user_session.expires_at = expires_at
+                    user_session.active = True
+                    user_session.last_updated_at = DateTimeHelper.now_utc()
+
+                session.commit()
+                logger.info(f"✅ Session stored for user {user_data['email']}")
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to store session from token: {e}")
+            return False
+
+    def require_authentication(self):
+        """
+        Dependency function for FastAPI routes that require authentication.
+        """
+        from app.auth.auth_middleware import require_authentication
+        return require_authentication
+
     def _hash_password(self, password: str) -> str:
         """Hash password using bcrypt"""
         salt = bcrypt.gensalt()
@@ -423,7 +525,7 @@ class AuthService:
                          role: str = 'user', is_admin: bool = False) -> Optional[User]:
         """Create a new local user"""
         try:
-            with self.database.get_session_context() as session:
+            with self.database.get_write_session_context() as session:
                 # Check if user already exists (check globally, not just for client)
                 # Note: Email uniqueness is enforced globally across all clients
                 existing_user = session.query(User).filter(User.email == email.lower().strip()).first()

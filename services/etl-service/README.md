@@ -548,11 +548,13 @@ python scripts/reset_database.py
 
 ## 📚 Additional Documentation
 
-- **[Development Guide](docs/DEVELOPMENT_GUIDE.md)** - Complete development, testing, and debugging guide
-- **[Log Management Guide](docs/LOG_MANAGEMENT.md)** - Comprehensive log management system documentation
-- **[System Architecture](../../docs/ARCHITECTURE.md)** - Overall system design
-- **[Migration Guide](../../docs/MIGRATION_GUIDE.md)** - Database migration system
-- **[Scripts Guide](../../docs/SCRIPTS_GUIDE.md)** - Cross-service scripts and utilities
+- **[Development Guide](docs/development-guide.md)** - Complete development, testing, and debugging guide
+- **[Log Management Guide](docs/log-management.md)** - Comprehensive log management system documentation
+- **[System Architecture](../../docs/architecture.md)** - Overall system design
+- **[Security & Authentication](../../docs/security-authentication.md)** - Security implementation
+- **[Jobs & Orchestration](../../docs/jobs-orchestration.md)** - Job management system
+- **[System Settings](../../docs/system-settings.md)** - Configuration reference
+- **[Installation & Setup](../../docs/installation-setup.md)** - Setup guide
 
 ## 🤝 Contributing
 

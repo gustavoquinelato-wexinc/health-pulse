@@ -98,9 +98,15 @@ class Settings(BaseSettings):
     ETL_SERVICE_URL: str = Field(default="http://localhost:8000", env="ETL_SERVICE_URL")
     AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
     FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
+    AUTH_SERVICE_URL: str = Field(default="http://localhost:4000", env="AUTH_SERVICE_URL")
 
     # CORS Configuration
     CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173", env="CORS_ORIGINS")
+
+    # Cookie Configuration
+    COOKIE_DOMAIN: str = Field(default=".localhost", env="COOKIE_DOMAIN")
+    COOKIE_SECURE: bool = Field(default=False, env="COOKIE_SECURE")
+    COOKIE_SAMESITE: str = Field(default="lax", env="COOKIE_SAMESITE")
 
     @property
     def cors_origins_list(self) -> list:

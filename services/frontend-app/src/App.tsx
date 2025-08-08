@@ -10,6 +10,7 @@ import DeploymentFrequencyPage from './pages/DeploymentFrequencyPage'
 import DoraOverviewPage from './pages/DoraOverviewPage'
 import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 
+import AuthCallbackPage from './pages/AuthCallbackPage'
 import ClientManagementPage from './pages/ClientManagementPage'
 import HomePage from './pages/HomePage'
 import HomePageBackup from './pages/HomePageBackup'
@@ -35,7 +36,9 @@ function App() {
           >
             <div className="min-h-screen bg-primary transition-colors duration-200">
               <Routes>
+                {/* Authentication Routes */}
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
                 {/* Main Routes */}
                 <Route
@@ -185,7 +188,7 @@ function App() {
           </Router>
         </ThemeProvider>
       </AuthProvider>
-    </ClientErrorBoundary>
+    </ClientErrorBoundary >
   )
 }
 

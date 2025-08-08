@@ -30,6 +30,7 @@ from app.auth.centralized_auth_middleware import (
     require_web_authentication, get_current_user_optional
 )
 from app.auth.centralized_auth_service import get_centralized_auth_service
+from app.auth.centralized_auth import get_centralized_auth, require_centralized_auth, create_auth_redirect
 from app.core.config import settings
 
 logger = get_logger(__name__)
@@ -135,97 +136,98 @@ async def root(request: Request):
     logger.info("🔐 No valid authentication - redirecting to /login")
     return RedirectResponse(url="/login")
 
+# Auth callback endpoint removed - no longer needed with subdomain cookies
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page - redirect to home if already authenticated"""
     logger.info("🔐 Login page accessed - checking if user is already authenticated")
 
-    # Check if user is already authenticated
+    # Check if user is already authenticated via subdomain-shared cookie
     token = request.cookies.get("pulse_token")
+
+    # If we have a token, validate it
     if token:
         try:
             # Validate token via centralized auth service
+            from app.auth.centralized_auth_service import get_centralized_auth_service
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
+
             if user_data:
-                logger.info(f"✅ User already authenticated: {user_data.get('email')} - redirecting to /home")
-                return RedirectResponse(url="/home")
+                # Check if user has admin permissions before redirecting
+                if user_data.get("is_admin", False) or user_data.get("role") == "admin":
+                    logger.info(f"✅ Admin user already authenticated: {user_data.get('email')} - redirecting to /home")
+
+                    # Set subdomain-shared cookie and redirect
+                    from app.core.config import get_settings
+                    settings = get_settings()
+
+                    response = RedirectResponse(url="/home")
+                    response.set_cookie(
+                        key="pulse_token",
+                        value=token,
+                        max_age=24 * 60 * 60,  # 24 hours
+                        httponly=False,  # Allow JavaScript access for API calls
+                        secure=settings.COOKIE_SECURE,  # From environment variable
+                        samesite=settings.COOKIE_SAMESITE,  # From environment variable
+                        path="/",
+                        domain=settings.COOKIE_DOMAIN  # From environment variable
+                    )
+                else:
+                    # User is authenticated but not admin - show permission denied
+                    logger.info(f"❌ Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
+
+                    # Clear the token cookie since user doesn't have permission
+                    from app.core.config import get_settings
+                    settings = get_settings()
+
+                    response = templates.TemplateResponse("login.html", {
+                        "request": request,
+                        "error": "Access Denied: ETL Management requires administrator privileges. Please contact your system administrator for access.",
+                        "backend_service_url": settings.BACKEND_SERVICE_URL,
+                        "frontend_service_url": settings.FRONTEND_SERVICE_URL,
+                        "cookie_domain": settings.COOKIE_DOMAIN
+                    })
+
+                    # Clear the token cookie
+                    response.set_cookie(
+                        key="pulse_token",
+                        value="",
+                        max_age=0,  # Expire immediately
+                        httponly=False,
+                        secure=settings.COOKIE_SECURE,
+                        samesite=settings.COOKIE_SAMESITE,
+                        path="/",
+                        domain=settings.COOKIE_DOMAIN
+                    )
+                return response
         except Exception as e:
             logger.debug(f"Token validation failed on login page: {e}")
 
-    # User not authenticated, show login page
+    # User not authenticated, show login page (ETL service handles its own login)
     from app.core.config import get_settings
     settings = get_settings()
 
     backend_url = settings.BACKEND_SERVICE_URL
+    frontend_url = settings.FRONTEND_URL
+    cookie_domain = settings.COOKIE_DOMAIN
     logger.info(f"Login page: passing backend_service_url = {backend_url}")
 
     response = templates.TemplateResponse("login.html", {
         "request": request,
-        "backend_service_url": backend_url
+        "backend_service_url": backend_url,
+        "frontend_service_url": frontend_url,
+        "cookie_domain": cookie_domain
     })
-    # Only clear cookies if user is not authenticated
-    if not token:
-        response.delete_cookie("pulse_token", path="/")
+    # Clear any invalid cookies
+    response.delete_cookie("pulse_token", path="/")
     return response
 
-@router.post("/login")
-async def login_post_handler(request: Request):
-    """Handle POST requests to /login - process form data and authenticate"""
-    try:
-        # Parse form data
-        form_data = await request.form()
-        email = form_data.get("email")
-        password = form_data.get("password")
+# No auth callback needed - ETL service handles its own login
 
-        if not email or not password:
-            return templates.TemplateResponse("login.html", {
-                "request": request,
-                "error": "Email and password are required"
-            })
-
-        # Forward to backend service with JSON format
-        from app.core.config import get_settings
-        import httpx
-
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{backend_url}/auth/login",
-                json={"email": email, "password": password},
-                headers={"Content-Type": "application/json"}
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Set cookie and redirect to home
-                redirect_response = RedirectResponse(url="/home", status_code=302)
-                redirect_response.set_cookie(
-                    "pulse_token",
-                    data["token"],  # Fixed: Backend returns "token", not "access_token"
-                    max_age=86400,
-                    httponly=False,
-                    path="/"
-                )
-                return redirect_response
-            else:
-                # Authentication failed
-                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                error_message = error_data.get("detail", "Invalid credentials")
-
-                return templates.TemplateResponse("login.html", {
-                    "request": request,
-                    "error": error_message
-                })
-
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Login failed. Please try again."
-        })
+# POST login handler removed - using centralized auth service instead
 
 @router.get("/home", response_class=HTMLResponse)
 async def home_page(request: Request, token: Optional[str] = None):
@@ -1105,17 +1107,15 @@ async def logout_page(request: Request):
             // Clear all localStorage
             try {
                 localStorage.clear();
-                console.log('✅ localStorage cleared');
             } catch (e) {
-                console.warn('Failed to clear localStorage:', e);
+                // Silently handle localStorage clearing errors
             }
 
             // Clear all sessionStorage
             try {
                 sessionStorage.clear();
-                console.log('✅ sessionStorage cleared');
             } catch (e) {
-                console.warn('Failed to clear sessionStorage:', e);
+                // Silently handle sessionStorage clearing errors
             }
 
             // Clear specific auth-related items
@@ -1125,7 +1125,7 @@ async def logout_page(request: Request):
                     localStorage.removeItem(key);
                     sessionStorage.removeItem(key);
                 } catch (e) {
-                    console.warn(`Failed to remove ${key}:`, e);
+                    // Silently handle key removal errors
                 }
             });
 
@@ -1137,9 +1137,8 @@ async def logout_page(request: Request):
                             caches.delete(name);
                         }
                     });
-                    console.log('✅ Browser cache cleared');
                 }).catch(e => {
-                    console.warn('Failed to clear cache:', e);
+                    // Silently handle cache clearing errors
                 });
             }
 
@@ -1152,7 +1151,6 @@ async def logout_page(request: Request):
                 document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
                 document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + window.location.hostname;
             });
-            console.log('✅ Cookies cleared via JavaScript');
 
             // Try to notify frontend service about logout (cross-service coordination)
             try {
@@ -1169,12 +1167,11 @@ async def logout_page(request: Request):
                         window.localStorage.clear();
                         window.sessionStorage.clear();
                     } catch (e) {
-                        console.warn('Could not clear frontend storage (different origin):', e);
+                        // Silently handle cross-origin storage clearing errors
                     }
                 }
-                console.log('✅ Cross-service logout coordination attempted');
             } catch (e) {
-                console.warn('Cross-service logout coordination failed:', e);
+                // Silently handle cross-service coordination errors
             }
 
             // Redirect after cleanup
@@ -1343,15 +1340,19 @@ async def navigate_with_token(request: Request):
             # Form request - direct redirect
             response = RedirectResponse(url="/home", status_code=302)
 
-        # Set session cookie for ETL service (accessible by JavaScript for API calls)
+        # Set subdomain-shared session cookie for ETL service
+        from app.core.config import get_settings
+        settings = get_settings()
+
         response.set_cookie(
             key="pulse_token",
             value=token,
             max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
             httponly=False,  # Allow JavaScript access for API calls
-            secure=False,  # Set to True in production with HTTPS
-            samesite="lax",
-            path="/"
+            secure=settings.COOKIE_SECURE,  # From environment variable
+            samesite=settings.COOKIE_SAMESITE,  # From environment variable
+            path="/",
+            domain=settings.COOKIE_DOMAIN  # From environment variable
         )
 
         # Store return URL in cookie for later use

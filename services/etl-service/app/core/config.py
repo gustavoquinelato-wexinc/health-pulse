@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # CORS Configuration
     CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173", env="CORS_ORIGINS")
 
+    # Cookie Configuration
+    COOKIE_DOMAIN: str = Field(default=".localhost", env="COOKIE_DOMAIN")
+    COOKIE_SECURE: bool = Field(default=False, env="COOKIE_SECURE")
+    COOKIE_SAMESITE: str = Field(default="lax", env="COOKIE_SAMESITE")
+
     @property
     def cors_origins_list(self) -> list:
         """Convert CORS_ORIGINS string to list."""

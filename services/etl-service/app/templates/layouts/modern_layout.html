@@ -487,8 +487,6 @@
         // Logout function
         async function logout() {
             try {
-                console.log('🔐 Logging out...');
-
                 // Get current token
                 const token = getAuthToken();
 
@@ -502,14 +500,8 @@
                                 'Content-Type': 'application/json'
                             }
                         });
-
-                        if (response.ok) {
-                            console.log('✅ Server logout successful');
-                        } else {
-                            console.warn('⚠️ Server logout failed, continuing with client cleanup');
-                        }
                     } catch (error) {
-                        console.warn('⚠️ Server logout error, continuing with client cleanup:', error);
+                        // Silently handle server logout errors
                     }
                 }
 
@@ -522,13 +514,10 @@
                     delete window.axios.defaults.headers.common['Authorization'];
                 }
 
-                console.log('✅ Authentication data cleared');
-
                 // Redirect to login page
                 window.location.href = '/login';
 
             } catch (error) {
-                console.error('❌ Logout error:', error);
                 // Still redirect to login even if there's an error
                 window.location.href = '/login';
             }

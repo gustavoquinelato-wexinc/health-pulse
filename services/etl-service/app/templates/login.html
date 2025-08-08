@@ -147,7 +147,7 @@
                 <div class="mb-8">
                     <div style="width: 300px; height: 120px; position: relative; margin: 0 auto;">
                         <img
-                            src="/static/wex-logo-image.png"
+                            src="/static/assets/wex/wex-logo.png"
                             alt="Client Logo"
                             style="width: 100%; height: 100%; object-fit: contain; display: block; filter: brightness(0) invert(1);"
                         />
@@ -184,7 +184,7 @@
                 <div class="lg:hidden text-center mb-8">
                     <div style="width: 200px; height: 80px; position: relative; margin: 0 auto;">
                         <img
-                            src="/static/wex-logo-image.png"
+                            src="/static/assets/wex/wex-logo.png"
                             alt="Client Logo"
                             style="width: 100%; height: 100%; object-fit: contain; display: block; filter: brightness(0) invert(1);"
                         />
@@ -319,7 +319,7 @@
             try {
                 // Authenticate with Backend Service API
                 // Get backend URL from server-side configuration
-                const backendUrl = 'http://localhost:3001';
+                const backendUrl = '{{ backend_service_url }}';
 
                 const response = await fetch(`${backendUrl}/auth/login`, {
                     method: 'POST',
@@ -342,11 +342,12 @@
                     // Set up cross-service authentication for Frontend
                     // Set up cross-service authentication for Frontend
                     try {
-                        // Set cookie for frontend domain (localhost)
-                        document.cookie = `pulse_token=${data.token}; path=/; domain=localhost; max-age=86400`;
+                        // Set cookie for frontend domain using environment variable
+                        const cookieDomain = '{{ cookie_domain }}';
+                        document.cookie = `pulse_token=${data.token}; path=/; domain=${cookieDomain}; max-age=86400`;
 
                         // Try to notify frontend service about the authentication
-                        const frontendUrl = 'http://localhost:3000';
+                        const frontendUrl = '{{ frontend_service_url }}';
 
                         // Use postMessage to communicate with any open frontend windows
                         if (window.opener) {
@@ -359,10 +360,8 @@
 
                         // Cross-service authentication is handled via cookies and postMessage
                         // No need for additional API calls that might cause errors
-
-                        console.log('✅ Cross-service authentication setup completed');
                     } catch (error) {
-                        console.warn('Cross-service authentication setup failed:', error);
+                        // Silently handle cross-service authentication setup errors
                     }
 
                     window.location.href = '/home';

@@ -296,6 +296,10 @@ app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"
 app.include_router(user_router, tags=["User Preferences"])
 app.include_router(admin_router, tags=["Administration"])
 
+# Include Centralized Auth Integration routes
+from app.api.centralized_auth_routes import router as centralized_auth_router
+app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", tags=["Centralized Auth"])
+
 # Backend Service - API only, no static files or web routes
 
 

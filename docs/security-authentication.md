@@ -4,7 +4,35 @@
 
 This document covers all security aspects of the Pulse Platform, including authentication mechanisms, role-based access control (RBAC), client isolation, and security best practices.
 
-## 🔐 Authentication Architecture
+> **📋 Consolidated Documentation**: This guide now includes content from the former root-level security documents (CENTRALIZED_AUTH_GUIDE.md, CROSS_DOMAIN_AUTH_SOLUTION.md, SECURITY_NOTICE.md) for centralized security documentation.
+
+## 🔐 Centralized Authentication Architecture
+
+### Overview
+
+Pulse Platform features a **centralized authentication service** that provides OAuth-like authentication flow across all services. This architecture solves cross-domain authentication challenges and provides enterprise-grade SSO capabilities.
+
+### Authentication Flow
+
+```
+Frontend (3000) ──┐
+                  ├──→ Auth Service (4000) ──→ Backend Service (3001) ──→ Database
+ETL Service (8000) ──┘
+```
+
+**Step-by-Step Process:**
+1. User visits any service → Redirected to Auth Service if not authenticated
+2. Auth Service validates credentials with Backend Service
+3. Auth Service generates authorization code → Redirects back to originating service
+4. Service exchanges code for JWT token via Backend Service
+5. Subsequent requests use JWT token validated by Backend Service
+
+### Benefits
+- ✅ **Cross-Domain Authentication** - Works across different domains
+- ✅ **Single Sign-On (SSO)** - Login once, access all services
+- ✅ **OKTA Integration Ready** - Provider abstraction layer implemented
+- ✅ **Centralized Session Management** - Logout affects all services
+- ✅ **Security** - OAuth-like flow with proper token validation
 
 ### JWT-Based Authentication
 
@@ -392,6 +420,176 @@ async def log_security_event(event_type: str, user_id: int, client_id: int, deta
 5. **Recovery**: Restore normal operations securely
 6. **Lessons Learned**: Update security measures and procedures
 
+## 🔐 Centralized Authentication System
+
+### Overview
+
+The Pulse Platform features a **centralized authentication service** that provides OAuth-like authentication flow across all services. This solves cross-domain authentication challenges and prepares the platform for OKTA integration.
+
+### Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   ETL Service   │
+│ (Port 3000)     │    │  (Port 8000)    │
+└─────────────────┘    └─────────────────┘
+         │                       │
+         │              ┌────────┴────────┐
+         │              │                 │
+         └──────────────┼─────────────────┼─────────────┐
+                        │                 │             │
+                        ▼                 ▼             ▼
+              ┌─────────────────────────────────┐      ┌─────────────────┐
+              │     Backend Service             │      │   Auth Service  │
+              │       (Port 3001)               │◄────►│   (Port 4000)   │
+              │                                 │      │                 │
+              │ • Session Management            │      │ • OAuth Flow    │
+              │ • Token Validation              │      │ • OKTA Ready    │
+              │ • User CRUD                     │      │ • Provider      │
+              │ • Cross-Service Auth            │      │   Abstraction   │
+              └─────────────────────────────────┘      └─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   PostgreSQL    │
+                    │   Database      │
+                    │                 │
+                    │ • User Data     │
+                    │ • Sessions      │
+                    │ • Permissions   │
+                    └─────────────────┘
+```
+
+### Authentication Flow
+
+#### 1. Initial Login
+```
+1. User visits Frontend → Redirected to Auth Service
+2. Auth Service → Login form (local DB or OKTA)
+3. Successful auth → Auth Service generates JWT
+4. Auth Service → Redirects to Frontend with auth code
+5. Frontend → Exchanges code for JWT token
+6. Frontend → Stores token for API calls
+```
+
+#### 2. Cross-Service Access
+```
+1. Frontend → Makes API call to Backend with JWT
+2. Backend → Validates JWT with Auth Service
+3. Backend → Processes request if valid
+4. ETL Service → Uses same JWT validation flow
+```
+
+### Implementation Benefits
+
+- **Single Sign-On**: Login once, access all services
+- **OKTA Ready**: Easy integration with enterprise identity providers
+- **Security**: Centralized token validation and revocation
+- **Scalability**: Independent authentication service
+- **Compliance**: Enterprise-grade security standards
+
+## 🌐 Cross-Domain Authentication Solution
+
+### Enterprise-Grade Subdomain Architecture
+
+#### Subdomain Cookie Sharing
+```
+Development:
+Frontend: http://localhost:3000
+ETL:      http://localhost:8000
+Backend:  http://localhost:3001
+Cookies:  domain=.localhost
+
+Production:
+Frontend: https://app.yourcompany.com
+ETL:      https://etl.yourcompany.com
+Backend:  https://api.yourcompany.com
+Cookies:  domain=.yourcompany.com
+```
+
+#### Enterprise Standard Pattern
+This follows industry-standard subdomain patterns used by major SaaS platforms:
+- **Salesforce**: app.salesforce.com, setup.salesforce.com
+- **Microsoft**: portal.azure.com, admin.microsoft.com
+- **Google**: console.cloud.google.com, admin.google.com
+
+### Implementation Details
+
+#### Cookie Configuration
+```javascript
+// Frontend cookie settings
+document.cookie = `auth_token=${token}; domain=.yourcompany.com; secure; httpOnly; sameSite=strict`;
+
+// Backend cookie validation
+app.use(cookieParser());
+app.use((req, res, next) => {
+  const token = req.cookies.auth_token;
+  // Validate token across all subdomains
+});
+```
+
+#### Security Considerations
+- **HTTPS Only**: All production subdomains use SSL/TLS
+- **Secure Cookies**: HttpOnly and Secure flags enabled
+- **SameSite**: Strict policy to prevent CSRF attacks
+- **Domain Validation**: Verify subdomain authenticity
+
+## 🚨 Security Incident Management
+
+### Historical Security Notice
+
+**Date**: 2024-01-XX
+**Severity**: CRITICAL (RESOLVED)
+**Status**: RESOLVED
+
+#### Issue Description
+A `.env` file containing sensitive credentials was accidentally committed to the repository. This file contained:
+- JWT secret keys
+- Database passwords
+- API tokens for Jira, GitHub, Aha!, and Azure DevOps
+- Encryption keys
+- Other sensitive configuration data
+
+#### Immediate Actions Taken
+1. **Repository Cleanup**: Removed sensitive file from git history
+2. **Credential Rotation**: All exposed credentials were immediately rotated
+3. **Access Review**: Comprehensive audit of all system access
+4. **Security Hardening**: Enhanced .gitignore and pre-commit hooks
+
+#### Preventive Measures Implemented
+- **Enhanced .gitignore**: Comprehensive exclusion of sensitive files
+- **Pre-commit Hooks**: Automated scanning for secrets before commits
+- **Environment Separation**: Clear separation of development and production secrets
+- **Access Controls**: Stricter repository access permissions
+- **Security Training**: Team education on secure development practices
+
+#### Current Security Status
+✅ **All credentials rotated**
+✅ **Repository cleaned**
+✅ **Monitoring enhanced**
+✅ **Preventive measures active**
+✅ **No ongoing security risks**
+
+### Security Incident Response Plan
+
+#### 1. Detection and Analysis
+- **Immediate Assessment**: Determine scope and impact
+- **Evidence Collection**: Preserve logs and system state
+- **Stakeholder Notification**: Alert relevant team members
+
+#### 2. Containment and Eradication
+- **Immediate Containment**: Stop ongoing threats
+- **System Isolation**: Isolate affected systems if necessary
+- **Threat Removal**: Remove malicious elements
+
+#### 3. Recovery and Lessons Learned
+- **System Restoration**: Restore normal operations
+- **Monitoring Enhancement**: Improve detection capabilities
+- **Process Updates**: Update security procedures
+- **Team Training**: Enhance security awareness
+
 ---
+
+This comprehensive security guide ensures the Pulse Platform maintains enterprise-grade security standards while providing seamless authentication across all services.
 
 This security architecture ensures enterprise-grade protection while maintaining usability and performance across the multi-tenant Pulse Platform.

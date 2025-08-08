@@ -134,71 +134,16 @@ export default function Header() {
     return '/wex-logo-image.png'
   }
 
-  // POST-based ETL navigation function
-  const handleETLDirectNavigation = async (openInNewTab = false) => {
-    const token = localStorage.getItem('pulse_token')
-    if (!token) {
-      console.error('No authentication token found')
-      return
-    }
+  // Simple ETL navigation function (subdomain cookies handle authentication)
+  const handleETLDirectNavigation = (openInNewTab = false) => {
+    const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    try {
-      const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-
-      // Step 1: Setup ETL access via Backend Service
-      console.log('Setting up ETL access...')
-      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include'
-      })
-
-      if (!setupResponse.ok) {
-        console.error('Failed to setup ETL access:', setupResponse.statusText)
-        return
-      }
-
-      const setupData = await setupResponse.json()
-      const etlToken = setupData.token
-
-      // Step 2: Navigate to ETL service with the token
-      const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: etlToken,
-          return_url: window.location.href
-        }),
-        credentials: 'include' // Important for cookies
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.redirect_url) {
-          if (openInNewTab) {
-            // Right click: Open in new tab without switching focus
-            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
-
-            // Immediately refocus current window to prevent tab switch
-            setTimeout(() => {
-              window.focus()
-            }, 10)
-          } else {
-            // Normal click: Navigate in same page (like ETL service behavior)
-            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
-          }
-        }
-      } else {
-        console.error('ETL navigation failed:', response.statusText)
-      }
-    } catch (error) {
-      console.error('Failed to navigate to ETL service:', error)
+    if (openInNewTab) {
+      // Open in new tab
+      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
+    } else {
+      // Navigate in same page
+      window.location.href = `${ETL_SERVICE_URL}/home`
     }
   }
 
@@ -416,15 +361,23 @@ export default function Header() {
             href={`${import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'}/home`}
             onClick={(e) => {
               e.preventDefault();
-              // Normal left click: navigate in same page with authentication
-              handleETLDirectNavigation(false);
+              // Detect if Ctrl+Click or Cmd+Click (open in new tab)
+              const openInNewTab = e.ctrlKey || e.metaKey;
+              handleETLDirectNavigation(openInNewTab);
               return false;
             }}
+            onAuxClick={(e) => {
+              // Handle middle mouse button click (also opens in new tab)
+              if (e.button === 1) {
+                e.preventDefault();
+                handleETLDirectNavigation(true);
+                return false;
+              }
+            }}
             className="p-2 rounded-lg nav-item bg-tertiary hover:bg-primary transition-colors inline-block"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+
             aria-label="ETL Management"
-            title="ETL Management"
+            title="ETL Management (Ctrl+Click for new tab)"
           >
             <Database className="w-5 h-5" />
           </motion.a>
@@ -434,8 +387,7 @@ export default function Header() {
         <motion.button
           onClick={toggleTheme}
           className="p-2 rounded-lg nav-item bg-tertiary hover:bg-primary transition-colors"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+
           aria-label="Toggle theme"
           title="Toggle Theme"
         >

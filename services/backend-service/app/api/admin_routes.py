@@ -31,7 +31,7 @@ from app.models.unified_models import (
     StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
     ProjectsIssuetypes, ProjectsStatuses
 )
-from app.auth.auth_middleware import require_permission
+from app.auth.auth_middleware import require_permission, require_authentication
 from app.auth.auth_service import get_auth_service
 from app.auth.permissions import Role, Resource, Action, get_user_permissions, DEFAULT_ROLE_PERMISSIONS
 from app.core.logging_config import get_logger
@@ -123,17 +123,32 @@ class DatabaseStats(BaseModel):
     database_size: str
     table_count: int
     total_records: int
+    monthly_growth_percentage: Optional[float] = None
 
 class UserStats(BaseModel):
     total_users: int
     active_users: int
     logged_users: int
     admin_users: int
+    today_active: int
+    week_active: int
+    month_active: int
+    inactive_30_days: int
+
+class PerformanceStats(BaseModel):
+    connection_pool_utilization: float
+    active_connections: int
+    total_connections: int
+    avg_response_time_ms: Optional[float] = None
+    database_health: str
 
 class SystemStatsResponse(BaseModel):
     database: DatabaseStats
     users: UserStats
+    performance: PerformanceStats
     tables: Dict[str, int]
+    table_categories: Optional[Dict[str, Dict[str, int]]] = None
+    database_size_mb: Optional[float] = None
 
 class ActiveSessionResponse(BaseModel):
     id: int
@@ -183,7 +198,7 @@ class PermissionMatrixResponse(BaseModel):
 async def get_all_users(
     skip: int = 0,
     limit: int = 100,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
 ):
     """Get all users for current user's client with pagination"""
     try:
@@ -258,6 +273,7 @@ async def create_user(
                 last_name=user_data.last_name,
                 password_hash=hashed_password,
                 role=user_data.role,
+                is_admin=(user_data.role == 'admin'),  # ✅ Set is_admin based on role
                 client_id=admin_user.client_id,
                 active=True,
                 created_at=DateTimeHelper.now_utc(),
@@ -465,7 +481,7 @@ async def delete_user(
 
 @router.get("/system/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
-    admin_user: User = Depends(require_permission("admin_panel", "read"))
+    admin_user: User = Depends(require_permission(Resource.ADMIN_PANEL, Action.READ))
 ):
     """Get system statistics for the admin dashboard"""
     try:
@@ -498,55 +514,322 @@ async def get_system_stats(
                 User.role == Role.ADMIN
             ).count()
 
-            # Get table counts for this client
+            # Calculate time-based user activity metrics
+            from datetime import timedelta
+            from app.core.utils import DateTimeHelper
+            now_utc = DateTimeHelper.now_utc()
+
+            # Initialize time-based metrics with safe defaults
+            today_active = 0
+            week_active = 0
+            month_active = 0
+            inactive_30_days = 0
+
+            # Only calculate time-based metrics if UserSession table has data
+            try:
+                # Check if UserSession table exists and has records
+                session_count = session.query(UserSession).count()
+
+                if session_count > 0:
+                    # Today active users (users with sessions created today)
+                    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= today_start
+                    ).distinct().count()
+
+                    # Week active users (users with sessions created in last 7 days)
+                    week_start = now_utc - timedelta(days=7)
+                    week_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= week_start
+                    ).distinct().count()
+
+                    # Month active users (users with sessions created in last 30 days)
+                    month_start = now_utc - timedelta(days=30)
+                    month_active = session.query(User).join(
+                        UserSession, User.id == UserSession.user_id
+                    ).filter(
+                        User.client_id == client_id,
+                        User.active == True,
+                        UserSession.created_at >= month_start
+                    ).distinct().count()
+
+                    # Inactive users (active users with no sessions in last 30 days)
+                    # Get list of user IDs who have sessions in the last 30 days
+                    active_user_ids = [
+                        row[0] for row in session.query(UserSession.user_id).filter(
+                            UserSession.created_at >= month_start
+                        ).distinct().all()
+                    ]
+
+                    # Count active users not in the active_user_ids list
+                    if active_user_ids:
+                        inactive_30_days = session.query(User).filter(
+                            User.client_id == client_id,
+                            User.active == True,
+                            ~User.id.in_(active_user_ids)
+                        ).count()
+                    else:
+                        # If no sessions exist, all active users are inactive
+                        inactive_30_days = active_users
+
+                else:
+                    logger.info("No user sessions found - using default values for time-based metrics")
+                    # If no sessions exist, all active users are considered inactive
+                    inactive_30_days = active_users
+
+            except Exception as e:
+                logger.warning(f"Error calculating time-based user metrics: {e}")
+                # Use safe defaults
+                today_active = 0
+                week_active = 0
+                month_active = 0
+                inactive_30_days = active_users  # All active users are inactive if we can't calculate
+
+            # Get comprehensive table counts for this client (matching ETL service)
             table_counts = {}
+            total_records = 0
 
-            # Count integrations
-            table_counts['integrations'] = session.query(Integration).filter(
-                Integration.client_id == client_id
-            ).count()
+            # Define all table models with client_id filtering
+            table_models = {
+                "user_sessions": UserSession,
+                "user_permissions": UserPermission,
+                "clients": Client,
+                "integrations": Integration,
+                "projects": Project,
+                "issues": Issue,
+                "issue_changelogs": IssueChangelog,
+                "repositories": Repository,
+                "pull_requests": PullRequest,
+                "pull_request_commits": PullRequestCommit,
+                "pull_request_reviews": PullRequestReview,
+                "pull_request_comments": PullRequestComment,
+                "jira_pull_request_links": JiraPullRequestLinks,
+                "issuetypes": Issuetype,
+                "statuses": Status,
+                "status_mappings": StatusMapping,
+                "workflows": Workflow,
+                "issuetype_mappings": IssuetypeMapping,
+                "issuetype_hierarchies": IssuetypeHierarchy,
+                "projects_issuetypes": ProjectsIssuetypes,
+                "projects_statuses": ProjectsStatuses,
+                "job_schedules": JobSchedule,
+                "system_settings": SystemSettings,
+                "migration_history": MigrationHistory
+            }
 
-            # Count projects
-            table_counts['projects'] = session.query(Project).filter(
-                Project.client_id == client_id
-            ).count()
+            # ✅ SECURITY: Count records filtered by client_id
+            for table_name, model in table_models.items():
+                try:
+                    # Handle different table types
+                    if table_name in ['migration_history']:
+                        # Global tables - count all records
+                        count = session.query(func.count(model.id)).scalar() or 0
+                    elif table_name == 'clients':
+                        # Clients table - count all clients (no client_id filtering)
+                        count = session.query(func.count(model.id)).scalar() or 0
+                    elif table_name in ['user_sessions', 'user_permissions']:
+                        # User-related tables - filter by user's client_id through user relationship
+                        if table_name == 'user_sessions':
+                            count = session.query(func.count(model.id)).join(
+                                User, model.user_id == User.id
+                            ).filter(User.client_id == client_id).scalar() or 0
+                        else:  # user_permissions
+                            count = session.query(func.count(model.id)).join(
+                                User, model.user_id == User.id
+                            ).filter(User.client_id == client_id).scalar() or 0
+                    else:
+                        # Standard client-specific tables
+                        if hasattr(model, 'client_id'):
+                            if table_name in ['projects_issuetypes', 'projects_statuses']:
+                                count = session.query(model).filter(model.client_id == client_id).count() or 0
+                            else:
+                                count = session.query(func.count(model.id)).filter(model.client_id == client_id).scalar() or 0
+                        else:
+                            # Fallback for tables without client_id
+                            count = session.query(func.count(model.id)).scalar() or 0
 
-            # Count issues
-            table_counts['issues'] = session.query(Issue).filter(
-                Issue.client_id == client_id
-            ).count()
+                    table_counts[table_name] = count
+                    total_records += count
 
-            # Count repositories
-            table_counts['repositories'] = session.query(Repository).filter(
-                Repository.client_id == client_id
-            ).count()
+                except Exception as e:
+                    logger.warning(f"Could not count records for table {table_name}: {e}")
+                    table_counts[table_name] = 0
 
-            # Count pull requests
-            table_counts['pull_requests'] = session.query(PullRequest).filter(
-                PullRequest.client_id == client_id
-            ).count()
+            # Add users to total records
+            total_records += total_users
 
-            # Calculate total records
-            total_records = sum(table_counts.values()) + total_users
+            # Get database size in MB
+            database_size_mb = 0.0
+            database_size_formatted = "N/A"
+            try:
+                # Query PostgreSQL for database size
+                from sqlalchemy import text
+                size_result = session.execute(
+                    text("SELECT pg_size_pretty(pg_database_size(current_database())) as size, "
+                         "pg_database_size(current_database()) as size_bytes")
+                ).fetchone()
 
-            # Database stats (simplified for now)
+                if size_result:
+                    # Convert bytes to MB
+                    database_size_mb = round(size_result.size_bytes / (1024 * 1024), 2)
+                    database_size_formatted = size_result.size
+
+            except Exception as e:
+                logger.warning(f"Could not get database size: {e}")
+
+            # Include users table in table counts
+            table_counts['users'] = total_users
+
+            # Count ALL tables (not just active ones)
+            total_tables = len(table_counts)
+
+            # Calculate monthly growth percentage
+            monthly_growth = 0.0
+            try:
+                from datetime import datetime, timedelta
+                from sqlalchemy import and_
+                from app.core.utils import DateTimeHelper
+
+                # Get current month and last month date ranges in UTC (database timezone)
+                now = DateTimeHelper.now_utc()
+                current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                last_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
+
+                # Count records created this month vs last month for main data tables
+                current_month_records = 0
+                last_month_records = 0
+
+                # Focus on main data tables that have created_at fields
+                growth_tables = {
+                    'issues': Issue,
+                    'pull_requests': PullRequest,
+                    'repositories': Repository,
+                    'issue_changelogs': IssueChangelog,
+                    'pull_request_comments': PullRequestComment,
+                    'pull_request_commits': PullRequestCommit,
+                    'pull_request_reviews': PullRequestReview,
+                    'jira_pull_request_links': JiraPullRequestLinks
+                }
+
+                for table_name, model in growth_tables.items():
+                    if hasattr(model, 'created_at') and hasattr(model, 'client_id'):
+                        # Current month
+                        current_count = session.query(func.count(model.id)).filter(
+                            and_(
+                                model.client_id == client_id,
+                                model.created_at >= current_month_start
+                            )
+                        ).scalar() or 0
+                        current_month_records += current_count
+
+                        # Last month
+                        last_count = session.query(func.count(model.id)).filter(
+                            and_(
+                                model.client_id == client_id,
+                                model.created_at >= last_month_start,
+                                model.created_at < current_month_start
+                            )
+                        ).scalar() or 0
+                        last_month_records += last_count
+
+                # Calculate growth percentage
+                if last_month_records > 0:
+                    monthly_growth = ((current_month_records - last_month_records) / last_month_records) * 100
+                elif current_month_records > 0:
+                    monthly_growth = 100.0  # 100% growth if we had 0 last month but have records this month
+
+            except Exception as e:
+                logger.warning(f"Could not calculate monthly growth: {e}")
+                monthly_growth = None
+
+            # Database stats with detailed information
             database_stats = DatabaseStats(
-                database_size="N/A",  # Would need database-specific queries
-                table_count=len(table_counts) + 1,  # +1 for users table
-                total_records=total_records
+                database_size=database_size_formatted,
+                table_count=total_tables,
+                total_records=total_records,
+                monthly_growth_percentage=monthly_growth
             )
 
             user_stats = UserStats(
                 total_users=total_users,
                 active_users=active_users,
                 logged_users=logged_users,
-                admin_users=admin_users
+                admin_users=admin_users,
+                today_active=today_active,
+                week_active=week_active,
+                month_active=month_active,
+                inactive_30_days=inactive_30_days
+            )
+
+            # Categorize tables for better presentation (matching ETL service grouping)
+            table_categories = {
+                "Core Data": {
+                    "users": total_users,
+                    "user_sessions": table_counts.get('user_sessions', 0),
+                    "user_permissions": table_counts.get('user_permissions', 0),
+                    "clients": table_counts.get('clients', 0),
+                    "integrations": table_counts.get('integrations', 0),
+                    "projects": table_counts.get('projects', 0)
+                },
+                "Issues & Workflow": {
+                    "issues": table_counts.get('issues', 0),
+                    "issue_changelogs": table_counts.get('issue_changelogs', 0),
+                    "issuetypes": table_counts.get('issuetypes', 0),
+                    "statuses": table_counts.get('statuses', 0),
+                    "status_mappings": table_counts.get('status_mappings', 0),
+                    "workflows": table_counts.get('workflows', 0),
+                    "issuetype_mappings": table_counts.get('issuetype_mappings', 0),
+                    "issuetype_hierarchies": table_counts.get('issuetype_hierarchies', 0),
+                    "projects_issuetypes": table_counts.get('projects_issuetypes', 0),
+                    "projects_statuses": table_counts.get('projects_statuses', 0)
+                },
+                "Development Data": {
+                    "repositories": table_counts.get('repositories', 0),
+                    "pull_requests": table_counts.get('pull_requests', 0),
+                    "pull_request_commits": table_counts.get('pull_request_commits', 0),
+                    "pull_request_reviews": table_counts.get('pull_request_reviews', 0),
+                    "pull_request_comments": table_counts.get('pull_request_comments', 0)
+                },
+                "Linking & Mapping": {
+                    "jira_pull_request_links": table_counts.get('jira_pull_request_links', 0)
+                },
+                "System": {
+                    "job_schedules": table_counts.get('job_schedules', 0),
+                    "system_settings": table_counts.get('system_settings', 0),
+                    "migration_history": table_counts.get('migration_history', 0)
+                }
+            }
+
+            # Get real performance metrics
+            from app.core.database_router import get_database_router
+            db_router = get_database_router()
+            pool_stats = db_router.get_connection_pool_stats()
+
+            # Calculate performance metrics
+            primary_pool = pool_stats['primary']
+            performance_stats = PerformanceStats(
+                connection_pool_utilization=round(primary_pool['utilization'] * 100, 1),
+                active_connections=primary_pool['checked_out'],
+                total_connections=primary_pool['size'] + primary_pool['overflow'],
+                avg_response_time_ms=None,  # Would need query timing implementation
+                database_health="Healthy" if primary_pool['utilization'] < 0.8 else "High Load"
             )
 
             return SystemStatsResponse(
                 database=database_stats,
                 users=user_stats,
-                tables=table_counts
+                performance=performance_stats,
+                tables=table_counts,
+                table_categories=table_categories,
+                database_size_mb=database_size_mb
             )
 
     except Exception as e:
@@ -706,21 +989,48 @@ async def terminate_all_sessions(
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
+            from app.core.redis_session_manager import get_redis_session_manager
 
-            # ✅ SECURITY: Only terminate sessions for users in the same client
-            terminated_count = session.query(UserSession).join(
+            # ✅ SECURITY: Get session IDs for current client only (using join for filtering)
+            session_ids_to_terminate = session.query(UserSession.id).join(
                 User, UserSession.user_id == User.id
             ).filter(
                 User.client_id == user.client_id,
                 UserSession.active == True
-            ).update({
-                UserSession.active: False,
-                UserSession.terminated_at: DateTimeHelper.utcnow()
-            }, synchronize_session=False)
+            ).all()
+
+            # Extract the IDs from the result tuples
+            session_ids = [session_id[0] for session_id in session_ids_to_terminate]
+            terminated_count = len(session_ids)
+
+            # Get all user IDs for the current client for Redis cleanup
+            client_user_ids = session.query(User.id).filter(
+                User.client_id == user.client_id
+            ).all()
+            user_ids_list = [user_id[0] for user_id in client_user_ids]
+
+            # ✅ FIX: Update sessions without join to avoid SQLAlchemy error
+            if session_ids:
+                session.query(UserSession).filter(
+                    UserSession.id.in_(session_ids)
+                ).update({
+                    UserSession.active: False,
+                    UserSession.last_updated_at: DateTimeHelper.now_utc()
+                }, synchronize_session=False)
 
             session.commit()
 
-            logger.info(f"Admin {user.email} terminated {terminated_count} active sessions")
+            # Also clear Redis sessions for all users in the client
+            redis_manager = get_redis_session_manager()
+            if redis_manager.is_available():
+                for user_id in user_ids_list:
+                    try:
+                        await redis_manager.invalidate_all_user_sessions(user_id)
+                        logger.debug(f"Cleared Redis sessions for user {user_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clear Redis sessions for user {user_id}: {e}")
+
+            logger.info(f"Admin {user.email} terminated {terminated_count} active sessions (including Redis cleanup)")
 
             return {
                 "message": f"Terminated {terminated_count} active sessions",
@@ -763,7 +1073,7 @@ async def terminate_user_session(
 
             # Terminate the session
             user_session.active = False
-            user_session.terminated_at = DateTimeHelper.utcnow()
+            user_session.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
 
             logger.info(f"Admin {user.email} terminated session {session_id}")
@@ -827,7 +1137,7 @@ async def get_permission_matrix(
 
 @router.get("/color-schema")
 async def get_color_schema(
-    user: User = Depends(require_permission(Resource.SETTINGS, Action.READ))
+    user: User = Depends(require_authentication)
 ):
     """Get custom color schema settings"""
     try:
@@ -1025,7 +1335,7 @@ async def update_color_schema_mode(
 async def get_all_clients(
     skip: int = 0,
     limit: int = 100,
-    user: User = Depends(require_permission("admin_panel", "read"))
+    user: User = Depends(require_authentication)
 ):
     """Get current user's client information"""
     try:

@@ -24,16 +24,21 @@ class ClientLogger {
             const token = this.getAuthToken();
             if (token) {
                 const payload = JSON.parse(atob(token.split('.')[1]));
-                this.clientName = payload.client_name || 'unknown';
+                // Use client_id as client name since client_name is not in JWT
+                this.clientName = payload.client_id ? `client_${payload.client_id}` : 'unknown';
                 this.clientId = payload.client_id || null;
                 this.userId = payload.user_id || null;
                 this.initialized = true;
             } else {
                 this.clientName = 'anonymous';
+                this.clientId = null;
+                this.userId = null;
                 this.initialized = false;
             }
         } catch (error) {
             this.clientName = 'error';
+            this.clientId = null;
+            this.userId = null;
             this.initialized = false;
             console.error('Failed to initialize client logger:', error);
         }
@@ -110,6 +115,14 @@ class ClientLogger {
     }
 
     /**
+     * Get backend URL for API calls
+     */
+    getBackendUrl() {
+        // Use environment variable or default to localhost:3001
+        return import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+    }
+
+    /**
      * Send log entry to backend service
      */
     async sendToBackend(logEntry) {
@@ -117,7 +130,7 @@ class ClientLogger {
             const token = this.getAuthToken();
             if (!token) return; // Can't send without authentication
 
-            await fetch('/api/v1/logs/frontend', {
+            await fetch(`${this.getBackendUrl()}/api/v1/logs/frontend`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -141,7 +154,7 @@ class ClientLogger {
             const token = this.getAuthToken();
             if (!token) return;
 
-            await fetch('/api/v1/logs/frontend/batch', {
+            await fetch(`${this.getBackendUrl()}/api/v1/logs/frontend/batch`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -124,8 +124,7 @@ body {
 }
 
 .card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
 }
 
 .card-header {
@@ -1087,8 +1086,7 @@ body {
 }
 
 .job-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-lg);
 }
 
 .job-card::before {
@@ -1762,7 +1760,6 @@ body {
 
 .card-elevated:hover {
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    transform: translateY(-3px);
 }
 
 /* Enhanced Navigation & Sidebar Styles */
@@ -1775,7 +1772,6 @@ body {
 
 .nav-item:hover {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    transform: scale(1.05);
 }
 
 .nav-item::before {

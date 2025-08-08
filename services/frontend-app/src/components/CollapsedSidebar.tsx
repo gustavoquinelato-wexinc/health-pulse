@@ -51,14 +51,13 @@ const navigationItems: NavigationItem[] = [
 
 ]
 
-// Personal settings - accessible to all users (removed profile from sidebar)
-const personalItems: NavigationItem[] = []
+
 
 // Admin settings - only for admins
 const adminItems: NavigationItem[] = [
   {
     id: 'admin',
-    label: 'Admin',
+    label: 'System Overview',
     icon: Settings,
     path: '/admin',
     subItems: [
@@ -169,71 +168,16 @@ export default function CollapsedSidebar() {
     navigate(path)
   }
 
-  // POST-based ETL navigation function
-  const handleETLDirectNavigation = async (openInNewTab = false) => {
-    const token = localStorage.getItem('pulse_token')
-    if (!token) {
-      console.error('No authentication token found')
-      return
-    }
+  // Simple ETL navigation function (subdomain cookies handle authentication)
+  const handleETLDirectNavigation = (openInNewTab = false) => {
+    const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    try {
-      const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-      const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001')
-
-      // Step 1: Setup ETL access via Backend Service
-      console.log('Setting up ETL access...')
-      const setupResponse = await fetch(`${API_BASE_URL}/auth/setup-etl-access`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include'
-      })
-
-      if (!setupResponse.ok) {
-        console.error('Failed to setup ETL access:', setupResponse.statusText)
-        return
-      }
-
-      const setupData = await setupResponse.json()
-      const etlToken = setupData.token
-
-      // Step 2: Navigate to ETL service with the token
-      const response = await fetch(`${ETL_SERVICE_URL}/auth/navigate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: etlToken,
-          return_url: window.location.href
-        }),
-        credentials: 'include' // Important for cookies
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.redirect_url) {
-          if (openInNewTab) {
-            // Right click: Open in new tab without switching focus
-            window.open(`${ETL_SERVICE_URL}${data.redirect_url}`, '_blank')
-
-            // Immediately refocus current window to prevent tab switch
-            setTimeout(() => {
-              window.focus()
-            }, 10)
-          } else {
-            // Normal click: Navigate in same page (like ETL service behavior)
-            window.location.href = `${ETL_SERVICE_URL}${data.redirect_url}`
-          }
-        }
-      } else {
-        console.error('ETL navigation failed:', response.statusText)
-      }
-    } catch (error) {
-      console.error('Failed to navigate to ETL service:', error)
+    if (openInNewTab) {
+      // Open in new tab
+      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
+    } else {
+      // Navigate in same page
+      window.location.href = `${ETL_SERVICE_URL}/home`
     }
   }
 
@@ -315,8 +259,7 @@ export default function CollapsedSidebar() {
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                   } : {}}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+
                 >
                   <item.icon className="w-5 h-5" />
                 </motion.button>
@@ -324,31 +267,9 @@ export default function CollapsedSidebar() {
             ))}
         </div>
 
-        {/* Personal Settings - All Users */}
-        <div className="border-t border-default px-2 py-4">
-          {personalItems.map((item) => (
-            <div key={item.id} className="relative">
-              <motion.button
-                onClick={() => handleNavClick(item.path, item)}
-                onMouseEnter={(e) => handleMouseEnter(e, item)}
-                onMouseLeave={handleMouseLeave}
-                className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                  ? 'nav-item-active text-white'
-                  : 'text-secondary hover:bg-tertiary hover:text-primary'
-                  }`}
-                style={isActive(item) ? {
-                  background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
-                } : {}}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <item.icon className="w-6 h-6" />
-              </motion.button>
-            </div>
-          ))}
-        </div>
 
-        {/* Admin Settings - Admin Only */}
+
+        {/* System Overview & Admin Settings - Admin Only */}
         {isAdmin && (
           <div className="border-t border-default px-2 py-4">
             {adminItems.map((item) => (
@@ -364,8 +285,7 @@ export default function CollapsedSidebar() {
                   style={isActive(item) ? {
                     background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                   } : {}}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+
                 >
                   <item.icon className="w-5 h-5" />
                 </motion.button>
@@ -382,7 +302,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...personalItems, ...adminItems].find(i => i.id === hoveredItem)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === hoveredItem)
             if (!item || (item as any).subItems) return null
 
             return (
@@ -405,7 +325,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = [...navigationItems, ...personalItems, ...adminItems].find(i => i.id === openSubmenu)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === openSubmenu)
             if (!item || !(item as any).subItems) return null
 
             return (
@@ -447,7 +367,7 @@ export default function CollapsedSidebar() {
                     style={location.pathname === subItem.path ? {
                       background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
                     } : {}}
-                    whileHover={{ x: 4 }}
+
                   >
                     {subItem.label}
                   </motion.div>

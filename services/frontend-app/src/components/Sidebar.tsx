@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import clientLogger from '../utils/clientLogger'
 
 const navigationItems = [
   {
@@ -71,8 +72,7 @@ export default function Sidebar() {
                   ? 'bg-gradient-to-br from-blue-600 to-violet-600 text-white shadow-lg'
                   : 'text-secondary hover:bg-tertiary hover:text-primary'
                   }`}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+
               >
                 <div className="flex items-center space-x-3">
                   <span className="text-lg">{item.icon}</span>
@@ -126,6 +126,7 @@ export default function Sidebar() {
               className="btn btn-primary w-full text-sm py-2"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => clientLogger.logUserAction('run_etl_job', 'sidebar_quick_action')}
             >
               🚀 Run ETL Job
             </motion.button>
@@ -133,6 +134,7 @@ export default function Sidebar() {
               className="btn btn-secondary w-full text-sm py-2"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => clientLogger.logUserAction('generate_report', 'sidebar_quick_action')}
             >
               📊 Generate Report
             </motion.button>

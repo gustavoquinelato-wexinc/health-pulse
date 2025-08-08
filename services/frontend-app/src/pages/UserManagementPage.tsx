@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
+import { useAuth } from '../contexts/AuthContext'
 import useDocumentTitle from '../hooks/useDocumentTitle'
 
 interface User {
@@ -47,6 +48,7 @@ interface UpdateUserRequest {
 
 export default function UserManagementPage() {
   const navigate = useNavigate()
+  const { logout } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -255,7 +257,7 @@ export default function UserManagementPage() {
 
   const handleTerminateSession = async (sessionId: string) => {
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+      const token = localStorage.getItem('pulse_token') || sessionStorage.getItem('pulse_token')
       if (!token) {
         setError('Authentication token not found. Please log in again.')
         return
@@ -274,12 +276,12 @@ export default function UserManagementPage() {
   }
 
   const handleTerminateAllSessions = async () => {
-    if (!confirm('Are you sure you want to terminate all active sessions? This will log out all users.')) {
+    if (!confirm('Are you sure you want to terminate all active sessions? This will log out all users including yourself.')) {
       return
     }
 
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+      const token = localStorage.getItem('pulse_token') || sessionStorage.getItem('pulse_token')
       if (!token) {
         setError('Authentication token not found. Please log in again.')
         return
@@ -290,8 +292,12 @@ export default function UserManagementPage() {
           'Authorization': `Bearer ${token}`
         }
       })
-      await loadActiveSessions()
-      setError(null) // Clear any previous errors
+
+      // After terminating all sessions, automatically log out the current user
+      // since their session was also terminated
+      console.log('All sessions terminated - logging out current user')
+      logout() // This will redirect to login page
+
     } catch (error: any) {
       setError(error.response?.data?.detail || 'Failed to terminate all sessions')
     }
