@@ -46,8 +46,10 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 const saveColorSchemaToAPI = async (colors: ColorSchema): Promise<boolean> => {
   try {
-    const response = await axios.post('/api/v1/admin/color-schema', colors)
-    return response.data.success
+    // Backend expects { colors: { color1..5 } } as body
+    const response = await axios.post('/api/v1/admin/color-schema', { colors })
+    // Newer backend returns { message: ... } without a success flag; treat any 2xx as success
+    return response.status >= 200 && response.status < 300
   } catch (error) {
     clientLogger.error('Failed to save color schema to API', {
       type: 'api_error',
@@ -179,10 +181,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     root.style.setProperty('--color-4', colorSchema.color4)
     root.style.setProperty('--color-5', colorSchema.color5)
 
-    // If backend provides on-colors via user context, prefer them; otherwise compute quick fallback
-    const on = (user?.colorSchemaData as any)?.on_colors || {}
-    const onGrad = (user?.colorSchemaData as any)?.on_gradients || {}
-
+    // Compute on-colors from the active palette so UI updates immediately after changes
     const pickOn = (hex: string) => {
       try {
         const h = hex.replace('#', '')
@@ -200,12 +199,18 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       }
     }
 
-    // Solid on-colors
-    root.style.setProperty('--on-color-1', on.color1 || pickOn(colorSchema.color1))
-    root.style.setProperty('--on-color-2', on.color2 || pickOn(colorSchema.color2))
-    root.style.setProperty('--on-color-3', on.color3 || pickOn(colorSchema.color3))
-    root.style.setProperty('--on-color-4', on.color4 || pickOn(colorSchema.color4))
-    root.style.setProperty('--on-color-5', on.color5 || pickOn(colorSchema.color5))
+    const on1 = pickOn(colorSchema.color1)
+    const on2 = pickOn(colorSchema.color2)
+    const on3 = pickOn(colorSchema.color3)
+    const on4 = pickOn(colorSchema.color4)
+    const on5 = pickOn(colorSchema.color5)
+
+    // Solid on-colors (always resolved from current colors)
+    root.style.setProperty('--on-color-1', on1)
+    root.style.setProperty('--on-color-2', on2)
+    root.style.setProperty('--on-color-3', on3)
+    root.style.setProperty('--on-color-4', on4)
+    root.style.setProperty('--on-color-5', on5)
 
     // Gradient on-colors (pairs 1-2, 2-3, 3-4, 4-5)
     const pairOn = (a: string, b: string) => {
@@ -214,10 +219,10 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       return onA === onB ? onA : '#FFFFFF'
     }
 
-    root.style.setProperty('--on-gradient-1-2', onGrad['1-2'] || pairOn(colorSchema.color1, colorSchema.color2))
-    root.style.setProperty('--on-gradient-2-3', onGrad['2-3'] || pairOn(colorSchema.color2, colorSchema.color3))
-    root.style.setProperty('--on-gradient-3-4', onGrad['3-4'] || pairOn(colorSchema.color3, colorSchema.color4))
-    root.style.setProperty('--on-gradient-4-5', onGrad['4-5'] || pairOn(colorSchema.color4, colorSchema.color5))
+    root.style.setProperty('--on-gradient-1-2', pairOn(colorSchema.color1, colorSchema.color2))
+    root.style.setProperty('--on-gradient-2-3', pairOn(colorSchema.color2, colorSchema.color3))
+    root.style.setProperty('--on-gradient-3-4', pairOn(colorSchema.color3, colorSchema.color4))
+    root.style.setProperty('--on-gradient-4-5', pairOn(colorSchema.color4, colorSchema.color5))
 
     // Persist last used colors for quick boot
     localStorage.setItem('pulse_colors', JSON.stringify(colorSchema))

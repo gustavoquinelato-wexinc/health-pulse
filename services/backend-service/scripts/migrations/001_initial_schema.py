@@ -565,32 +565,72 @@ def apply(connection):
             );
         """)
 
+        # 26. DORA market benchmarks table (global)
+        # Stores quantitative benchmark values for each performance tier by year
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dora_market_benchmarks (
+                id SERIAL,
+                report_year INTEGER NOT NULL,
+                report_source VARCHAR(100) DEFAULT 'Google DORA Report',
+                performance_tier VARCHAR(20) NOT NULL,
+                metric_name VARCHAR(50) NOT NULL,
+                metric_value VARCHAR(50) NOT NULL,
+                metric_unit VARCHAR(20),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """)
+
+        # 27. DORA metric insights table (global)
+        # Stores qualitative insights text by metric and year
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dora_metric_insights (
+                id SERIAL,
+                report_year INTEGER NOT NULL,
+                metric_name VARCHAR(50) NOT NULL,
+                insight_text TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """)
+
         print("✅ Development and system tables created")
         print("📋 Creating primary key constraints...")
 
-        # Add explicit primary key constraints with proper names
-        cursor.execute("ALTER TABLE clients ADD CONSTRAINT pk_clients PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE users ADD CONSTRAINT pk_users PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE user_sessions ADD CONSTRAINT pk_user_sessions PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE user_permissions ADD CONSTRAINT pk_user_permissions PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE integrations ADD CONSTRAINT pk_integrations PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE projects ADD CONSTRAINT pk_projects PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE workflows ADD CONSTRAINT pk_workflows PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT pk_status_mappings PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE issuetype_hierarchies ADD CONSTRAINT pk_issuetype_hierarchies PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT pk_issuetype_mappings PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE issuetypes ADD CONSTRAINT pk_issuetypes PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE statuses ADD CONSTRAINT pk_statuses PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE issues ADD CONSTRAINT pk_issues PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE issue_changelogs ADD CONSTRAINT pk_issue_changelogs PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE repositories ADD CONSTRAINT pk_repositories PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE pull_requests ADD CONSTRAINT pk_pull_requests PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE pull_request_reviews ADD CONSTRAINT pk_pull_request_reviews PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE pull_request_commits ADD CONSTRAINT pk_pull_request_commits PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE pull_request_comments ADD CONSTRAINT pk_pull_request_comments PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE system_settings ADD CONSTRAINT pk_system_settings PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE job_schedules ADD CONSTRAINT pk_job_schedules PRIMARY KEY (id);")
-        cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT pk_jira_pull_request_links PRIMARY KEY (id);")
+        # Add explicit primary key constraints with proper names (idempotent)
+        def ensure_primary_key(table_name: str, pk_name: str, column: str = 'id'):
+            cursor.execute(f"""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = '{table_name}'
+                AND constraint_type = 'PRIMARY KEY';
+            """)
+            if not cursor.fetchone():
+                cursor.execute(f"ALTER TABLE {table_name} ADD CONSTRAINT {pk_name} PRIMARY KEY ({column});")
+
+        ensure_primary_key('clients', 'pk_clients')
+        ensure_primary_key('users', 'pk_users')
+        ensure_primary_key('user_sessions', 'pk_user_sessions')
+        ensure_primary_key('user_permissions', 'pk_user_permissions')
+        ensure_primary_key('integrations', 'pk_integrations')
+        ensure_primary_key('projects', 'pk_projects')
+        ensure_primary_key('workflows', 'pk_workflows')
+        ensure_primary_key('status_mappings', 'pk_status_mappings')
+        ensure_primary_key('issuetype_hierarchies', 'pk_issuetype_hierarchies')
+        ensure_primary_key('issuetype_mappings', 'pk_issuetype_mappings')
+        ensure_primary_key('issuetypes', 'pk_issuetypes')
+        ensure_primary_key('statuses', 'pk_statuses')
+        ensure_primary_key('issues', 'pk_issues')
+        ensure_primary_key('issue_changelogs', 'pk_issue_changelogs')
+        ensure_primary_key('repositories', 'pk_repositories')
+        ensure_primary_key('pull_requests', 'pk_pull_requests')
+        ensure_primary_key('pull_request_reviews', 'pk_pull_request_reviews')
+        ensure_primary_key('pull_request_commits', 'pk_pull_request_commits')
+        ensure_primary_key('pull_request_comments', 'pk_pull_request_comments')
+        ensure_primary_key('system_settings', 'pk_system_settings')
+        ensure_primary_key('job_schedules', 'pk_job_schedules')
+        ensure_primary_key('jira_pull_request_links', 'pk_jira_pull_request_links')
+        ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
+        ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
+
         # Check if migration_history table already has a primary key (from migration runner)
         cursor.execute("""
             SELECT constraint_name
@@ -691,27 +731,47 @@ def apply(connection):
         cursor.execute("ALTER TABLE projects_statuses ADD CONSTRAINT fk_projects_statuses_status_id FOREIGN KEY (status_id) REFERENCES statuses(id);")
 
         print("✅ Relationship table constraints created")
-        print("📋 Creating unique constraints...")
 
-        # Add unique constraints
-        cursor.execute("ALTER TABLE users ADD CONSTRAINT uk_users_email UNIQUE (email);")
-        cursor.execute("ALTER TABLE users ADD CONSTRAINT uk_users_okta_user_id UNIQUE (okta_user_id);")
-        cursor.execute("ALTER TABLE system_settings ADD CONSTRAINT uk_system_settings_setting_key_client_id UNIQUE (setting_key, client_id);")
-        cursor.execute("ALTER TABLE job_schedules ADD CONSTRAINT uk_job_schedules_job_name UNIQUE (job_name);")
-        cursor.execute("ALTER TABLE integrations ADD CONSTRAINT uk_integrations_name_client_id UNIQUE (name, client_id);")
-        cursor.execute("ALTER TABLE status_mappings ADD CONSTRAINT uk_status_mappings_from_client UNIQUE (status_from, client_id);")
-        cursor.execute("ALTER TABLE issuetype_mappings ADD CONSTRAINT uk_issuetype_mappings_from_client UNIQUE (issuetype_from, client_id);")
-        # Check if migration_history table already has unique constraint on migration_number
+        # Clean up any incorrect unique constraints from previous migration attempts
+        print("📋 Cleaning up incorrect constraints...")
         cursor.execute("""
             SELECT constraint_name
             FROM information_schema.table_constraints
-            WHERE table_name = 'migration_history'
+            WHERE table_name = 'system_settings'
             AND constraint_type = 'UNIQUE'
-            AND constraint_name LIKE '%migration_number%';
+            AND constraint_name LIKE '%setting_key_key%';
         """)
+        incorrect_constraint = cursor.fetchone()
+        if incorrect_constraint:
+            cursor.execute(f"ALTER TABLE system_settings DROP CONSTRAINT {incorrect_constraint['constraint_name']};")
+            print(f"   ✅ Dropped incorrect constraint: {incorrect_constraint['constraint_name']}")
 
-        if not cursor.fetchone():
-            cursor.execute("ALTER TABLE migration_history ADD CONSTRAINT uk_migration_history_migration_number UNIQUE (migration_number);")
+        print("📋 Creating unique constraints...")
+
+        # Add unique constraints (idempotent)
+        def ensure_unique_constraint(table_name: str, constraint_name: str, columns: str):
+            cursor.execute(f"""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = '{table_name}'
+                AND constraint_type = 'UNIQUE'
+                AND constraint_name = '{constraint_name}';
+            """)
+            if not cursor.fetchone():
+                cursor.execute(f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} UNIQUE ({columns});")
+
+        ensure_unique_constraint('users', 'uk_users_email', 'email')
+        ensure_unique_constraint('users', 'uk_users_okta_user_id', 'okta_user_id')
+        ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_client_id', 'setting_key, client_id')
+        ensure_unique_constraint('job_schedules', 'uk_job_schedules_job_name', 'job_name')
+        ensure_unique_constraint('integrations', 'uk_integrations_name_client_id', 'name, client_id')
+        ensure_unique_constraint('status_mappings', 'uk_status_mappings_from_client', 'status_from, client_id')
+        ensure_unique_constraint('issuetype_mappings', 'uk_issuetype_mappings_from_client', 'issuetype_from, client_id')
+        ensure_unique_constraint('migration_history', 'uk_migration_history_migration_number', 'migration_number')
+
+        # Unique constraints for global DORA tables
+        ensure_unique_constraint('dora_market_benchmarks', 'uk_dora_benchmark', 'report_year, performance_tier, metric_name')
+        ensure_unique_constraint('dora_metric_insights', 'uk_dora_insight', 'report_year, metric_name')
 
         print("✅ Unique constraints created")
         print("📋 Creating performance indexes...")
@@ -801,6 +861,40 @@ def apply(connection):
         print("✅ All indexes and constraints created successfully!")
         print("📋 Inserting seed data...")
 
+        # Seed global DORA market benchmarks (2024) and insights
+        cursor.execute("""
+            INSERT INTO dora_market_benchmarks (report_year, performance_tier, metric_name, metric_value, metric_unit) VALUES
+                (2024, 'Elite', 'Deployment Frequency', 'On-demand (multiple deploys per day)', NULL),
+                (2024, 'High', 'Deployment Frequency', 'Between once per day and once per week', NULL),
+                (2024, 'Medium', 'Deployment Frequency', 'Between once per week and once per month', NULL),
+                (2024, 'Low', 'Deployment Frequency', 'Less than once per month', NULL),
+
+                (2024, 'Elite', 'Lead Time for Changes', 'Less than one day', 'days'),
+                (2024, 'High', 'Lead Time for Changes', 'Between one day and one week', 'days'),
+                (2024, 'Medium', 'Lead Time for Changes', 'Between one week and one month', 'months'),
+                (2024, 'Low', 'Lead Time for Changes', 'More than one month', 'months'),
+
+                (2024, 'Elite', 'Change Failure Rate', '0-5', 'percent'),
+                (2024, 'High', 'Change Failure Rate', '10', 'percent'),
+                (2024, 'Medium', 'Change Failure Rate', '15', 'percent'),
+                (2024, 'Low', 'Change Failure Rate', '64', 'percent'),
+
+                (2024, 'Elite', 'Time to Restore Service', 'Less than one hour', 'hours'),
+                (2024, 'High', 'Time to Restore Service', 'Less than one day', 'days'),
+                (2024, 'Medium', 'Time to Restore Service', 'Between one day and one week', 'days'),
+                (2024, 'Low', 'Time to Restore Service', 'More than one week', 'weeks')
+            ON CONFLICT (report_year, performance_tier, metric_name) DO NOTHING;
+        """)
+
+        cursor.execute("""
+            INSERT INTO dora_metric_insights (report_year, metric_name, insight_text) VALUES
+                (2024, 'Deployment Frequency', 'Elite performers have fully automated and reliable deployment pipelines, allowing them to release changes to production as soon as they are ready. This continuous flow of small, frequent deployments reduces the risk associated with each release and allows for rapid feedback loops.'),
+                (2024, 'Lead Time for Changes', 'A short lead time for changes is a strong indicator of an efficient and automated software delivery process. Elite teams have streamlined their code review, testing, and deployment processes to minimize delays and ensure a smooth path from commit to production.'),
+                (2024, 'Change Failure Rate', 'A low change failure rate is a testament to the quality of a team''s testing and validation processes. Elite performers invest heavily in automated testing and comprehensive pre-deployment checks to catch issues before they impact users. The significant jump in failure rate for low performers highlights the challenges of manual and error-prone deployment processes.'),
+                (2024, 'Time to Restore Service', 'Elite performers have robust monitoring and observability in place, coupled with well-defined incident response and rollback procedures. This enables them to recover from failures swiftly, minimizing downtime and user impact. The ability to restore service quickly is a hallmark of a resilient and mature operational capability.')
+            ON CONFLICT (report_year, metric_name) DO NOTHING;
+        """)
+
         # Insert default client (WEX)
         cursor.execute("""
             INSERT INTO clients (name, website, assets_folder, logo_filename, active, created_at, last_updated_at)
@@ -815,8 +909,30 @@ def apply(connection):
             raise Exception("Failed to create or find WEX client")
         client_id = client_result['id']
 
+        # Create default JIRA integration first (needed for workflows)
+        print("📋 Creating default JIRA integration...")
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING
+            RETURNING id;
+        """, ("JIRA", "https://your-jira-instance.atlassian.net", None, None, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id))
+
+        jira_result = cursor.fetchone()
+        if jira_result:
+            jira_integration_id = jira_result['id']
+        else:
+            # Get existing ID if conflict occurred
+            cursor.execute("SELECT id FROM integrations WHERE name = 'JIRA' AND client_id = %s;", (client_id,))
+            jira_result = cursor.fetchone()
+            if jira_result:
+                jira_integration_id = jira_result['id']
+            else:
+                raise Exception("Failed to create or find JIRA integration")
+
+        print(f"   ✅ JIRA integration created (ID: {jira_integration_id})")
+
         # Insert workflows (extracted from workflow configuration)
-        # Note: integration_id will be set later after integrations are created
         workflows_data = [
             ("Backlog", 1, "To Do"),
             ("Refinement", 2, "To Do"),
@@ -838,11 +954,11 @@ def apply(connection):
             is_commitment_point = (step_name == "To Do")
 
             cursor.execute("""
-                INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, integration_id, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT DO NOTHING
                 RETURNING id;
-            """, (step_name, step_number, category, is_commitment_point, client_id))
+            """, (step_name, step_number, category, is_commitment_point, jira_integration_id, client_id))
 
             result = cursor.fetchone()
             if result:
@@ -997,14 +1113,15 @@ def apply(connection):
         for mapping in status_mappings_data:
             workflow_id = workflow_ids.get(mapping["workflow"])
             cursor.execute("""
-                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, integration_id, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (status_from, client_id) DO UPDATE SET
                     status_to = EXCLUDED.status_to,
                     status_category = EXCLUDED.status_category,
                     workflow_id = EXCLUDED.workflow_id,
+                    integration_id = EXCLUDED.integration_id,
                     last_updated_at = NOW();
-            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, client_id))
+            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, jira_integration_id, client_id))
 
         print("✅ Status mappings inserted")
 
@@ -1020,10 +1137,10 @@ def apply(connection):
 
         for hierarchy in issuetype_hierarchies_data:
             cursor.execute("""
-                INSERT INTO issuetype_hierarchies (level_name, level_number, description, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO issuetype_hierarchies (level_name, level_number, description, integration_id, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT DO NOTHING;
-            """, (hierarchy["level_name"], hierarchy["level_number"], hierarchy["description"], client_id))
+            """, (hierarchy["level_name"], hierarchy["level_number"], hierarchy["description"], jira_integration_id, client_id))
 
         print("✅ Issuetype hierarchies inserted")
 
@@ -1091,39 +1208,22 @@ def apply(connection):
 
             if hierarchy_id:
                 cursor.execute("""
-                    INSERT INTO issuetype_mappings (issuetype_from, issuetype_to, issuetype_hierarchy_id, client_id, active, created_at, last_updated_at)
-                    VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
+                    INSERT INTO issuetype_mappings (issuetype_from, issuetype_to, issuetype_hierarchy_id, integration_id, client_id, active, created_at, last_updated_at)
+                    VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT (issuetype_from, client_id) DO UPDATE SET
                         issuetype_to = EXCLUDED.issuetype_to,
                         issuetype_hierarchy_id = EXCLUDED.issuetype_hierarchy_id,
+                        integration_id = EXCLUDED.integration_id,
                         last_updated_at = NOW();
-                """, (mapping["issuetype_from"], mapping["issuetype_to"], hierarchy_id, client_id))
+                """, (mapping["issuetype_from"], mapping["issuetype_to"], hierarchy_id, jira_integration_id, client_id))
 
         print("✅ Issuetype mappings inserted")
 
-        # Insert default integrations (create basic records, configure credentials later)
-        print("📋 Creating default integrations...")
+        # Insert remaining integrations (JIRA and GITHUB already created above)
+        print("📋 Creating remaining integrations...")
 
         # Create basic integration records first (without credentials)
-        integrations_created = 0
-
-        # Create Jira integration (basic record)
-        cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
-            ON CONFLICT (name, client_id) DO NOTHING;
-        """, ("JIRA", "https://your-jira-instance.atlassian.net", None, None, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id))
-        integrations_created += 1
-        print("   ✅ Jira integration created (inactive - configure credentials to activate)")
-
-        # Create GitHub integration (basic record)
-        cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
-            ON CONFLICT (name, client_id) DO NOTHING;
-        """, ("GITHUB", "https://api.github.com", None, None, "health-", "2000-01-01 00:00:00", client_id))
-        integrations_created += 1
-        print("   ✅ GitHub integration created (inactive - configure credentials to activate)")
+        integrations_created = 2  # JIRA and GITHUB already created
 
         # Create Aha! integration (basic record)
         cursor.execute("""
@@ -1461,10 +1561,10 @@ def apply(connection):
 
         for user in default_users_data:
             cursor.execute("""
-                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, theme_mode, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (email) DO NOTHING;
-            """, (user["email"], user["password_hash"], user["first_name"], user["last_name"], user["role"], user["is_admin"], user["auth_provider"], client_id))
+            """, (user["email"], user["password_hash"], user["first_name"], user["last_name"], user["role"], user["is_admin"], user["auth_provider"], 'light', client_id))
 
         print("✅ Default users created")
 
@@ -1512,26 +1612,51 @@ def apply(connection):
 
         print("✅ Default user permissions created")
 
+        # Create GitHub integration (needed for job schedules)
+        print("📋 Creating GitHub integration...")
+        cursor.execute("""
+            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+            ON CONFLICT (name, client_id) DO NOTHING
+            RETURNING id;
+        """, ("GITHUB", "https://api.github.com", None, None, "health-", "2000-01-01 00:00:00", client_id))
+
+        github_result = cursor.fetchone()
+        if github_result:
+            github_integration_id = github_result['id']
+        else:
+            # Get existing ID if conflict occurred
+            cursor.execute("SELECT id FROM integrations WHERE name = 'GITHUB' AND client_id = %s;", (client_id,))
+            github_result = cursor.fetchone()
+            if github_result:
+                github_integration_id = github_result['id']
+            else:
+                raise Exception("Failed to create or find GITHUB integration")
+
+        print(f"   ✅ GitHub integration created (ID: {github_integration_id})")
+
         # Insert default job schedules
         print("📋 Creating default job schedules...")
 
         job_schedules_data = [
             {
                 "job_name": "jira_sync",
-                "status": "PENDING"
+                "status": "PENDING",
+                "integration_id": jira_integration_id
             },
             {
                 "job_name": "github_sync",
-                "status": "NOT_STARTED"
+                "status": "NOT_STARTED",
+                "integration_id": github_integration_id
             }
         ]
 
         for job in job_schedules_data:
             cursor.execute("""
-                INSERT INTO job_schedules (job_name, status, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO job_schedules (job_name, status, integration_id, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (job_name) DO NOTHING;
-            """, (job["job_name"], job["status"], client_id))
+            """, (job["job_name"], job["status"], job["integration_id"], client_id))
 
         print("✅ Default job schedules created")
 
@@ -1666,8 +1791,8 @@ def apply(connection):
 
         for user_data in google_users_data:
             cursor.execute("""
-                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, theme_mode, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (email) DO NOTHING;
             """, (
                 user_data["email"],
@@ -1677,6 +1802,7 @@ def apply(connection):
                 user_data["role"],
                 user_data["is_admin"],
                 user_data["auth_provider"],
+                'light',
                 google_client_id
             ))
             print(f"   ✅ Created user: {user_data['email']}")
@@ -1792,8 +1918,8 @@ def apply(connection):
 
         for user_data in apple_users_data:
             cursor.execute("""
-                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, theme_mode, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (email) DO NOTHING;
             """, (
                 user_data["email"],
@@ -1803,6 +1929,7 @@ def apply(connection):
                 user_data["role"],
                 user_data["is_admin"],
                 user_data["auth_provider"],
+                'light',
                 apple_client_id
             ))
             print(f"   ✅ Created user: {user_data['email']}")
@@ -1866,6 +1993,8 @@ def rollback(connection):
         
         tables_to_drop = [
             'migration_history',
+            'dora_metric_insights',
+            'dora_market_benchmarks',
             'jira_pull_request_links',
             'pull_request_comments',
             'pull_request_commits',
@@ -1891,7 +2020,7 @@ def rollback(connection):
             'users',
             'clients'
         ]
-        
+
         for table in tables_to_drop:
             cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
             print(f"   Dropped {table}")

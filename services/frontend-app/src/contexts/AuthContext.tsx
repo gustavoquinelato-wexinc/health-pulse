@@ -27,6 +27,8 @@ interface User {
   role: string
   is_admin: boolean
   name?: string
+  first_name?: string
+  last_name?: string
   client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
   colorSchemaData?: ColorSchemaData
 }
@@ -272,6 +274,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,
@@ -339,6 +343,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
@@ -440,6 +446,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation

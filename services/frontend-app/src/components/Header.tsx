@@ -180,21 +180,41 @@ export default function Header() {
   const getUserInitials = (user: any) => {
     if (!user) return 'U'
 
-    // Try to extract first and last name from the full name
-    const fullName = user.name || user.email
-    const nameParts = fullName.split(' ')
+    const first = (user.first_name || '').trim()
+    const last = (user.last_name || '').trim()
+    const fi = first ? first[0] : ''
+    const li = last ? last[0] : ''
 
-    if (nameParts.length >= 2) {
-      // Use first letter of first name + first letter of last name
-      return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
-    } else if (fullName && fullName !== user.email) {
-      // Use first letter of name
-      return fullName[0].toUpperCase()
-    } else {
-      // Fallback to email
-      return user.email?.[0]?.toUpperCase() || 'U'
+    // If both provided
+    if (fi && li) return (fi + li).toUpperCase()
+
+    // Derive from email username
+    const uname = (user.email || '').split('@')[0]
+    const parts = uname.split(/[.\-_]+/).filter(Boolean)
+
+    if (fi && !li) {
+      const second = (parts[1]?.[0]) || (parts[0]?.[1]) || ''
+      const res = (fi + (second || '')).toUpperCase()
+      return res || 'U'
     }
+    if (!fi && li) {
+      const firstFromEmail = (parts[0]?.[0]) || ''
+      const res = ((firstFromEmail || '') + li).toUpperCase()
+      return res || 'U'
+    }
+
+    // No names: use email parts
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+    if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase()
+    return 'U'
   }
+
+  const toTitle = (s?: string) => s ? (s[0].toUpperCase() + s.slice(1).toLowerCase()) : ''
+  const displayName = (user?.first_name && user?.last_name)
+    ? `${toTitle(user.first_name)} ${toTitle(user.last_name)}`
+    : (user?.first_name || user?.last_name)
+      ? toTitle(user.first_name || user.last_name)
+      : (() => { const u = (user?.email || '').split('@')[0]; const parts = u.split(/[.\-_]+/).filter(Boolean); return parts.length >= 2 ? `${toTitle(parts[0])} ${toTitle(parts[1])}` : toTitle(u) })()
 
   // Function to load user profile image
   const loadUserProfileImage = async () => {
@@ -277,9 +297,7 @@ export default function Header() {
         <div className="relative" ref={quickActionsRef}>
           <motion.button
             onClick={() => setShowQuickActions(!showQuickActions)}
-            className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            className="p-2 rounded-lg bg-tertiary hover:shadow-sm transition-shadow"
             aria-label="Quick Actions"
             title="Quick Actions"
           >
@@ -319,9 +337,7 @@ export default function Header() {
         <div className="relative" ref={recentItemsRef}>
           <motion.button
             onClick={() => setShowRecentItems(!showRecentItems)}
-            className="p-2 rounded-lg bg-tertiary hover:bg-primary transition-colors relative"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            className="p-2 rounded-lg bg-tertiary hover:shadow-sm transition-shadow relative"
             aria-label="Recent Items"
             title="Recent Items"
           >
@@ -374,7 +390,7 @@ export default function Header() {
                 return false;
               }
             }}
-            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-primary transition-colors inline-block"
+            className="p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow inline-block"
 
             aria-label="ETL Management"
             title="ETL Management (Ctrl+Click for new tab)"
@@ -386,7 +402,7 @@ export default function Header() {
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
-          className="p-2 rounded-lg nav-item bg-tertiary hover:bg-primary transition-colors"
+          className="p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow"
 
           aria-label="Toggle theme"
           title="Toggle Theme"
@@ -398,9 +414,7 @@ export default function Header() {
         <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:bg-primary transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow"
           >
             {userProfileImage ? (
               <img
@@ -410,13 +424,13 @@ export default function Header() {
               />
             ) : (
               <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-3), var(--color-4))' }}>
-                <span className="text-sm font-medium text-white">
+                <span className="text-sm font-medium" style={{ color: 'var(--on-gradient-3-4)' }}>
                   {getUserInitials(user)}
                 </span>
               </div>
             )}
             <span className="text-sm font-medium text-primary hidden md:block">
-              {user?.name || user?.email}
+              {displayName}
             </span>
             <ChevronDown className="w-4 h-4 text-secondary" />
           </motion.button>
@@ -429,7 +443,7 @@ export default function Header() {
               className="absolute right-0 mt-2 w-64 card p-2 space-y-1"
             >
               <div className="px-3 py-2 border-b border-default">
-                <p className="text-sm font-medium text-primary">{user?.name || user?.email}</p>
+                <p className="text-sm font-medium text-primary">{displayName}</p>
                 <p className="text-xs text-muted">{user?.email}</p>
                 <p className="text-xs text-muted">{user?.role}</p>
               </div>

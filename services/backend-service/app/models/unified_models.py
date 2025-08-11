@@ -874,3 +874,30 @@ class MigrationHistory(Base):
     applied_at = Column(DateTime, quote=False, name="applied_at", default=func.now())
     rollback_at = Column(DateTime, nullable=True, quote=False, name="rollback_at")
     status = Column(String(20), nullable=False, default='applied', quote=False, name="status")  # 'applied', 'rolled_back'
+
+
+class DoraMarketBenchmark(Base):
+    """Global quantitative benchmarks for DORA metrics by tier and year."""
+    __tablename__ = 'dora_market_benchmarks'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    report_year = Column(Integer, nullable=False, quote=False, name="report_year")
+    report_source = Column(String(100), nullable=True, default='Google DORA Report', quote=False, name="report_source")
+    performance_tier = Column(String(20), nullable=False, quote=False, name="performance_tier")
+    metric_name = Column(String(50), nullable=False, quote=False, name="metric_name")
+    metric_value = Column(String(50), nullable=False, quote=False, name="metric_value")
+    metric_unit = Column(String(20), nullable=True, quote=False, name="metric_unit")
+    created_at = Column(DateTime, quote=False, name="created_at", server_default=func.now())
+
+
+class DoraMetricInsight(Base):
+    """Global qualitative insights for DORA metrics by year."""
+    __tablename__ = 'dora_metric_insights'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    report_year = Column(Integer, nullable=False, quote=False, name="report_year")
+    metric_name = Column(String(50), nullable=False, quote=False, name="metric_name")
+    insight_text = Column(Text, nullable=False, quote=False, name="insight_text")
+    created_at = Column(DateTime, quote=False, name="created_at", server_default=func.now())

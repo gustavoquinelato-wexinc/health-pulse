@@ -30,8 +30,8 @@
                     document.documentElement.setAttribute('data-theme', theme);
                     document.documentElement.setAttribute('data-color-schema', colorSchemaMode);
 
-                    // Apply custom colors if available
-                    if (colorSchemaMode === 'custom' && serverColorSchema.colors) {
+                    // Apply active colors (default or custom) from server; compute on-colors if missing
+                    if (serverColorSchema.colors) {
                         const colors = serverColorSchema.colors;
                         const root = document.documentElement;
                         root.style.setProperty('--color-1', colors.color1);
@@ -132,40 +132,48 @@
         // Global user data
         let currentUser = null;
 
-        // Authentication helper
+        // Authentication helper (prefer cookie token; keep localStorage in sync)
         function getAuthToken() {
-            let token = localStorage.getItem('pulse_token');
-            if (!token) {
-                const cookies = document.cookie.split(';');
-                for (let cookie of cookies) {
-                    const [name, value] = cookie.trim().split('=');
-                    if (name === 'pulse_token') {
-                        token = value;
-                        break;
-                    }
-                }
+            const cookieToken = getCookie('pulse_token');
+            let lsToken = localStorage.getItem('pulse_token');
+            if (cookieToken && cookieToken !== lsToken) {
+                localStorage.setItem('pulse_token', cookieToken);
+                lsToken = cookieToken;
             }
-            return token;
+            return lsToken || cookieToken || null;
         }
 
-        // Helper function to get user initials from first and last name
+        // Helper function to get user initials (prefer first/last; fill missing from email username parts)
         function getUserInitials(user) {
             if (!user) return 'U';
 
-            // Try to extract first and last name from the full name
-            const fullName = user.name || user.email;
-            const nameParts = fullName.split(' ');
+            const first = (user.first_name || '').trim();
+            const last = (user.last_name || '').trim();
+            const fi = first ? first[0] : '';
+            const li = last ? last[0] : '';
 
-            if (nameParts.length >= 2) {
-                // Use first letter of first name + first letter of last name
-                return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
-            } else if (fullName && fullName !== user.email) {
-                // Use first letter of name
-                return fullName[0].toUpperCase();
-            } else {
-                // Fallback to email
-                return user.email?.[0]?.toUpperCase() || 'U';
+            // If both provided
+            if (fi && li) return (fi + li).toUpperCase();
+
+            // Derive from email username
+            const uname = (user.email || '').split('@')[0];
+            const parts = uname.split(/[.\-_]+/).filter(Boolean);
+
+            if (fi && !li) {
+                const second = (parts[1]?.[0]) || (parts[0]?.[1]) || '';
+                const res = (fi + (second || '')).toUpperCase();
+                return res || 'U';
             }
+            if (!fi && li) {
+                const firstFromEmail = (parts[0]?.[0]) || '';
+                const res = ((firstFromEmail || '') + li).toUpperCase();
+                return res || 'U';
+            }
+
+            // No names: use email parts
+            if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+            if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase();
+            return 'U';
         }
 
         // Load user information
@@ -203,29 +211,48 @@
             if (!currentUser) return;
 
             // Format user name
-            const userName = currentUser.first_name && currentUser.last_name
+            const userName = (currentUser.first_name && currentUser.last_name)
                 ? `${currentUser.first_name} ${currentUser.last_name}`
-                : currentUser.first_name || currentUser.last_name || currentUser.email.split('@')[0];
+                : (currentUser.first_name || currentUser.last_name)
+                    ? (currentUser.first_name || currentUser.last_name)
+                    : (currentUser.email ? currentUser.email.split('@')[0] : 'User');
 
             // Update user initials
             const userInitialsElement = document.getElementById('user-initials');
             if (userInitialsElement) {
-                userInitialsElement.textContent = getUserInitials({
-                    name: userName,
-                    email: currentUser.email
-                });
+                userInitialsElement.textContent = getUserInitials(currentUser);
             }
 
-            // Update user name in button
+            // Update user name in button (always prefer First + Last when available)
             const userNameElement = document.getElementById('user-name');
             if (userNameElement) {
-                userNameElement.textContent = userName;
+                const uname = (currentUser.email || '').split('@')[0];
+                const parts = uname.split(/[.\-_]+/).filter(Boolean);
+                const toTitle = s => s ? (s[0].toUpperCase() + s.slice(1).toLowerCase()) : '';
+                const preferredName = (currentUser.first_name && currentUser.last_name)
+                    ? `${toTitle(currentUser.first_name)} ${toTitle(currentUser.last_name)}`
+                    : (currentUser.first_name || currentUser.last_name)
+                        ? toTitle(currentUser.first_name || currentUser.last_name)
+                        : parts.length >= 2
+                            ? `${toTitle(parts[0])} ${toTitle(parts[1])}`
+                            : toTitle(uname);
+                userNameElement.textContent = preferredName;
             }
 
             // Update dropdown display
             const userNameDisplay = document.getElementById('user-name-display');
             if (userNameDisplay) {
-                userNameDisplay.textContent = userName;
+                const uname = (currentUser.email || '').split('@')[0];
+                const parts = uname.split(/[.\-_]+/).filter(Boolean);
+                const toTitle = s => s ? (s[0].toUpperCase() + s.slice(1).toLowerCase()) : '';
+                const preferredName = (currentUser.first_name && currentUser.last_name)
+                    ? `${toTitle(currentUser.first_name)} ${toTitle(currentUser.last_name)}`
+                    : (currentUser.first_name || currentUser.last_name)
+                        ? toTitle(currentUser.first_name || currentUser.last_name)
+                        : parts.length >= 2
+                            ? `${toTitle(parts[0])} ${toTitle(parts[1])}`
+                            : toTitle(uname);
+                userNameDisplay.textContent = preferredName;
             }
 
             const userEmailDisplay = document.getElementById('user-email-display');

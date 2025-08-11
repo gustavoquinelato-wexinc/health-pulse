@@ -73,19 +73,7 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 }
 
-/* Custom Color Schema Override */
-[data-color-schema="custom"] {
-  --color-1: #C8102E;
-  /* WEX Red */
-  --color-2: #253746;
-  /* Dark Blue */
-  --color-3: #00C7B1;
-  /* Teal */
-  --color-4: #A2DDF8;
-  /* Light Blue */
-  --color-5: #FFBF3F;
-  /* Yellow */
-}
+/* Custom Color Schema Override removed. Colors are applied dynamically via ThemeContext. */
 
 /* Base Styles */
 @layer base {

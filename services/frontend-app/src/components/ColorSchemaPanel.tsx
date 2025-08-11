@@ -145,19 +145,39 @@ export default function ColorSchemaPanel() {
     // Clamp to # + 6 hex digits
     if (value.length > 7) value = value.slice(0, 7)
 
-    setTempColorSchema(prev => ({ ...prev, [colorKey]: value }))
+    // If no real change (case-insensitive), bail to avoid redundant state updates and flashes
+    const current = (colorsChanged ? (tempColorSchema[colorKey as keyof typeof tempColorSchema] as string) : (databaseCustomColors[colorKey as keyof typeof databaseCustomColors] as string)) || ''
+    if (value.toLowerCase() === (current || '').toLowerCase()) {
+      return
+    }
+
+    // On first edit, prime the temp schema from databaseCustomColors to avoid resetting others to defaults
+    setTempColorSchema(prev => {
+      const base = (!colorsChanged && tempColorSchemaMode === 'custom') ? databaseCustomColors : prev
+      return { ...base, [colorKey]: value }
+    })
     setHasChanges(true)
     setColorsChanged(true)
 
-    if (isValidHexColor(value)) {
-      updateColorSchema({ [colorKey]: value })
-    }
+    // Do not update global ThemeContext colors during editing to avoid app-wide flashing.
+    // Global CSS vars will be updated on Apply.
   }
 
   const handleModeChange = (mode: 'default' | 'custom') => {
+    // No-op if clicking the already active mode to prevent unnecessary re-applies and flashing
+    if (mode === colorSchemaMode) return
+
     setTempColorSchemaMode(mode)
     // Apply visual preview immediately for UI feedback
     setColorSchemaMode(mode)
+
+    // When switching modes, also set the active color schema to the matching database palette
+    // so that subsequent edits merge into the correct base instead of mixing with defaults
+    if (mode === 'custom') {
+      updateColorSchema(databaseCustomColors)
+    } else {
+      updateColorSchema(databaseDefaultColors)
+    }
 
     // Update hasChanges based on whether mode changed from database
     const modeChanged = mode !== databaseMode
@@ -165,7 +185,6 @@ export default function ColorSchemaPanel() {
 
     // Reset colorsChanged when switching modes (fresh start for color editing)
     setColorsChanged(false)
-
 
     // Note: Don't update databaseMode here - that only changes when Apply is clicked
   }
@@ -193,14 +212,15 @@ export default function ColorSchemaPanel() {
       }
 
       if (colorSuccess) {
+        // Immediately reflect saved palette in panel preview without needing a full refresh
+        const saved = tempColorSchema
+        setDatabaseColors(saved)
+        setDatabaseCustomColors(saved)
+        setTempColorSchema(saved)
         setHasChanges(false)
         setColorsChanged(false)
-        // Update database colors and mode to reflect the new saved values
-        if (tempColorSchemaMode === 'custom' && colorsChanged) {
-          setDatabaseColors(tempColorSchema)
-        }
         setDatabaseMode(tempColorSchemaMode)
-        // Force a refresh of the active colors from server so ThemeContext updates CSS vars
+        // Force a refresh from server so ThemeContext updates CSS vars and on-colors
         try {
           const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema`, {
             credentials: 'include',
@@ -210,11 +230,13 @@ export default function ColorSchemaPanel() {
           })
           const data = await res.json()
           if (data?.success) {
-            // update localStorage so ThemeContext picks it up immediately
+            // Update storage so ThemeContext picks it up immediately
             localStorage.setItem('pulse_color_schema_mode', data.mode)
             localStorage.setItem('pulse_colors', JSON.stringify(data.colors))
-            // also trigger a soft reload of the document CSS by updating a custom attr
             document.documentElement.setAttribute('data-color-schema', data.mode)
+            // Sync explicit sets used by this panel's preview
+            if (data.custom_colors) setDatabaseCustomColors(data.custom_colors)
+            if (data.default_colors) setDatabaseDefaultColors(data.default_colors)
           }
         } catch (e) {
           console.warn('Post-save color schema refresh failed:', e)
@@ -275,18 +297,19 @@ export default function ColorSchemaPanel() {
             onClick={() => handleModeChange('custom')}
             disabled={isSaving}
             className={`p-4 rounded-lg border-2 transition-all disabled:opacity-50 ${tempColorSchemaMode === 'custom'
-              ? 'text-white'
+              ? ''
               : 'border-default hover:border-color-1'
               }`}
             style={tempColorSchemaMode === 'custom' ? {
               borderColor: databaseCustomColors.color1,
-              backgroundColor: databaseCustomColors.color1 // Full color, no opacity
+              backgroundColor: databaseCustomColors.color1,
+              color: 'var(--on-color-1)'
             } : {}}
           >
-            <h4 className={`font-medium mb-2 ${tempColorSchemaMode === 'custom' ? 'text-white' : 'text-primary'
-              }`}>Custom Colors</h4>
-            <p className={`text-sm mb-3 ${tempColorSchemaMode === 'custom' ? 'text-white text-opacity-80' : 'text-secondary'
-              }`}>Use custom database colors</p>
+            <h4 className={`font-medium mb-2 ${tempColorSchemaMode === 'custom' ? '' : 'text-primary'}`}
+              style={tempColorSchemaMode === 'custom' ? { color: 'var(--on-color-1)' } : undefined}>Custom Colors</h4>
+            <p className={`text-sm mb-3 ${tempColorSchemaMode === 'custom' ? '' : 'text-secondary'}`}
+              style={tempColorSchemaMode === 'custom' ? { color: 'color-mix(in oklab, var(--on-color-1) 80%, transparent)' } : undefined}>Use custom database colors</p>
             <div className="flex space-x-1">
               {customColors.map((color, index) => (
                 <div
@@ -351,11 +374,8 @@ export default function ColorSchemaPanel() {
         {/* Color Preview */}
         <div className="grid grid-cols-5 gap-4">
           {(tempColorSchemaMode === 'default' ? defaultColors : customColors).map((color, index) => (
-            <motion.div
+            <div
               key={index}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.1 }}
               className="text-center space-y-2"
             >
               <div
@@ -379,7 +399,7 @@ export default function ColorSchemaPanel() {
                     : (color.value as string)}
                 </p>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
 
@@ -402,11 +422,13 @@ export default function ColorSchemaPanel() {
                       value={ensureValidHex((colorsChanged ? tempColorSchema[color.key as keyof typeof tempColorSchema] : databaseCustomColors[color.key as keyof typeof databaseCustomColors]) as string)}
                       onChange={(e) => handleColorChange(color.key, e.target.value)}
                       className="w-12 h-10 rounded-lg border border-default cursor-pointer"
+                      disabled={tempColorSchemaMode !== 'custom'}
                     />
                     <input
                       type="text"
                       value={(colorsChanged ? tempColorSchema[color.key as keyof typeof tempColorSchema] : databaseCustomColors[color.key as keyof typeof databaseCustomColors]) as string}
                       onChange={(e) => handleColorChange(color.key, e.target.value)}
+                      disabled={tempColorSchemaMode !== 'custom'}
                       className="input flex-1 text-sm"
                       placeholder="#000000"
                     />

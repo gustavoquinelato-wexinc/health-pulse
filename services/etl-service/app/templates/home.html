@@ -23,7 +23,7 @@
 </div>
 
 <!-- Combined Orchestrator + Job Monitor Section -->
-<div class="mb-8 p-6 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+<div class="mb-8 p-6 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
     <div class="flex items-center justify-between mb-6">
         <h2 class="text-2xl font-semibold" style="color: var(--text-primary);">
             <i class="fas fa-robot mr-3" style="color: var(--color-1);"></i>ETL Orchestrator
@@ -36,7 +36,7 @@
     <!-- Two Internal Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
@@ -51,7 +51,7 @@
         </div>
 
         <!-- Countdown Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
@@ -520,21 +520,15 @@
     window.closeAllWebSockets = closeAllWebSockets;
 
     // Authentication helper
+    // Prefer cookie token; keep localStorage in sync so other scripts can read it
     function getAuthToken() {
-        let token = localStorage.getItem('pulse_token');
-        if (!token) {
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'pulse_token') {
-                    token = value;
-                    // Save to localStorage for future use
-                    localStorage.setItem('pulse_token', token);
-                    break;
-                }
-            }
+        const cookieToken = getCookie('pulse_token');
+        let lsToken = localStorage.getItem('pulse_token');
+        if (cookieToken && cookieToken !== lsToken) {
+            localStorage.setItem('pulse_token', cookieToken);
+            lsToken = cookieToken;
         }
-        return token;
+        return lsToken || cookieToken || null;
     }
 
     // Check if token is valid by making a test API call
