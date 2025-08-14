@@ -86,6 +86,7 @@ def apply(connection):
                 okta_user_id VARCHAR(255),
                 password_hash VARCHAR(255),
                 theme_mode VARCHAR(10) DEFAULT 'light',
+                use_accessible_colors BOOLEAN DEFAULT FALSE,
                 profile_image_filename VARCHAR(255),
                 last_login_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
@@ -592,6 +593,111 @@ def apply(connection):
             );
         """)
 
+        # 28. Client color settings table (main colors)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS client_color_settings (
+                id SERIAL,
+
+                -- === MODE IDENTIFIER ===
+                color_schema_mode VARCHAR(10) NOT NULL, -- 'default' or 'custom'
+
+                -- === SETTINGS (only in main table) ===
+                font_contrast_threshold DECIMAL(3,2) DEFAULT 0.5,
+                colors_defined_in_mode VARCHAR(5) DEFAULT 'light', -- 'light' or 'dark'
+
+                -- === BASE COLORS (simplified - no prefixes) ===
+                color1 VARCHAR(7),
+                color2 VARCHAR(7),
+                color3 VARCHAR(7),
+                color4 VARCHAR(7),
+                color5 VARCHAR(7),
+
+                -- === AUTO-CALCULATED VARIANTS (simplified - no prefixes) ===
+                -- On colors (5 columns)
+                on_color1 VARCHAR(7),
+                on_color2 VARCHAR(7),
+                on_color3 VARCHAR(7),
+                on_color4 VARCHAR(7),
+                on_color5 VARCHAR(7),
+
+                -- On gradient colors (5 columns)
+                on_gradient_1_2 VARCHAR(7),
+                on_gradient_2_3 VARCHAR(7),
+                on_gradient_3_4 VARCHAR(7),
+                on_gradient_4_5 VARCHAR(7),
+                on_gradient_5_1 VARCHAR(7),
+
+                -- Adaptive colors (5 columns) - for opposite theme
+                adaptive_color1 VARCHAR(7),
+                adaptive_color2 VARCHAR(7),
+                adaptive_color3 VARCHAR(7),
+                adaptive_color4 VARCHAR(7),
+                adaptive_color5 VARCHAR(7),
+
+                -- === BASE ENTITY FIELDS (at the end) ===
+                client_id INTEGER NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+
+        # 29. Client accessibility colors table (accessibility variants)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS client_accessibility_colors (
+                id SERIAL,
+
+                -- === FOREIGN KEY TO COLOR SETTINGS ===
+                color_settings_id INTEGER,
+
+                -- === MODE AND LEVEL IDENTIFIERS ===
+                color_schema_mode VARCHAR(10) NOT NULL, -- 'default' or 'custom'
+                accessibility_level VARCHAR(3) NOT NULL, -- 'AA', 'AAA'
+
+                -- === ACCESSIBILITY SETTINGS (only in this table) ===
+                contrast_ratio_normal DECIMAL(3,1) DEFAULT 4.5,
+                contrast_ratio_large DECIMAL(3,1) DEFAULT 3.0,
+                high_contrast_mode BOOLEAN DEFAULT FALSE,
+                reduce_motion BOOLEAN DEFAULT FALSE,
+                colorblind_safe_palette BOOLEAN DEFAULT FALSE,
+
+                -- === BASE COLORS (simplified - no prefixes, same as main table) ===
+                color1 VARCHAR(7),
+                color2 VARCHAR(7),
+                color3 VARCHAR(7),
+                color4 VARCHAR(7),
+                color5 VARCHAR(7),
+
+                -- === AUTO-CALCULATED VARIANTS (simplified - no prefixes, same as main table) ===
+                -- On colors (5 columns)
+                on_color1 VARCHAR(7),
+                on_color2 VARCHAR(7),
+                on_color3 VARCHAR(7),
+                on_color4 VARCHAR(7),
+                on_color5 VARCHAR(7),
+
+                -- On gradient colors (5 columns)
+                on_gradient_1_2 VARCHAR(7),
+                on_gradient_2_3 VARCHAR(7),
+                on_gradient_3_4 VARCHAR(7),
+                on_gradient_4_5 VARCHAR(7),
+                on_gradient_5_1 VARCHAR(7),
+
+                -- Adaptive colors (5 columns) - for opposite theme
+                adaptive_color1 VARCHAR(7),
+                adaptive_color2 VARCHAR(7),
+                adaptive_color3 VARCHAR(7),
+                adaptive_color4 VARCHAR(7),
+                adaptive_color5 VARCHAR(7),
+
+                -- === BASE ENTITY FIELDS (at the end) ===
+                client_id INTEGER NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+
         print("✅ Development and system tables created")
         print("📋 Creating primary key constraints...")
 
@@ -630,6 +736,8 @@ def apply(connection):
         ensure_primary_key('jira_pull_request_links', 'pk_jira_pull_request_links')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
         ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
+        ensure_primary_key('client_color_settings', 'pk_client_color_settings')
+        ensure_primary_key('client_accessibility_colors', 'pk_client_accessibility_colors')
 
         # Check if migration_history table already has a primary key (from migration runner)
         cursor.execute("""
@@ -721,6 +829,8 @@ def apply(connection):
         cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_client_id FOREIGN KEY (client_id) REFERENCES clients(id);")
         cursor.execute("ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_integration_id FOREIGN KEY (integration_id) REFERENCES integrations(id);")
 
+        # Color tables foreign keys will be added after data population
+
         print("✅ Data table foreign key constraints created")
         print("📋 Creating relationship table constraints...")
 
@@ -772,6 +882,10 @@ def apply(connection):
         # Unique constraints for global DORA tables
         ensure_unique_constraint('dora_market_benchmarks', 'uk_dora_benchmark', 'report_year, performance_tier, metric_name')
         ensure_unique_constraint('dora_metric_insights', 'uk_dora_insight', 'report_year, metric_name')
+
+        # Unique constraints for color tables
+        ensure_unique_constraint('client_color_settings', 'uk_client_color_settings_client_mode', 'client_id, color_schema_mode')
+        ensure_unique_constraint('client_accessibility_colors', 'uk_client_accessibility_colors_client_mode_level', 'client_id, color_schema_mode, accessibility_level')
 
         print("✅ Unique constraints created")
         print("📋 Creating performance indexes...")
@@ -858,6 +972,12 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_last_run_started_at ON job_schedules(last_run_started_at);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_integration_id ON job_schedules(integration_id);")
 
+        # Color table indexes for fast lookups
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_client_id ON client_color_settings(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_mode ON client_color_settings(client_id, color_schema_mode);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_accessibility_colors_client_id ON client_accessibility_colors(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_accessibility_colors_mode_level ON client_accessibility_colors(client_id, color_schema_mode, accessibility_level);")
+
         print("✅ All indexes and constraints created successfully!")
         print("📋 Inserting seed data...")
 
@@ -908,6 +1028,8 @@ def apply(connection):
         if not client_result:
             raise Exception("Failed to create or find WEX client")
         client_id = client_result['id']
+
+        # Color population will happen after all clients are created
 
         # Create default JIRA integration first (needed for workflows)
         print("📋 Creating default JIRA integration...")
@@ -1247,7 +1369,6 @@ def apply(connection):
         try:
             from app.core.config import Settings
             from app.core.config import AppConfig
-            from app.core.utils import DateTimeHelper
 
             settings = Settings()
 
@@ -1255,7 +1376,7 @@ def apply(connection):
             if settings.JIRA_URL and settings.JIRA_USERNAME and settings.JIRA_TOKEN:
                 key = AppConfig.load_key()
                 encrypted_token = AppConfig.encrypt_token(settings.JIRA_TOKEN, key)
-                today_noon = DateTimeHelper.now_central().replace(hour=12, minute=0, second=0, microsecond=0)
+                today_noon = datetime(2000, 1, 1, 0, 0, 0, 0)
 
                 cursor.execute("""
                     UPDATE integrations
@@ -1265,6 +1386,14 @@ def apply(connection):
                 print("   ✅ Jira integration configured with encrypted credentials and activated")
             else:
                 print("   💡 Jira integration created but not configured - add JIRA_URL, JIRA_USERNAME, JIRA_TOKEN to activate")
+
+            # Create GitHub integration first
+            cursor.execute("""
+                INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
+                ON CONFLICT (name, client_id) DO NOTHING;
+            """, ("GITHUB", "https://api.github.com", None, None, "health-", "2000-01-01 00:00:00", client_id))
+            print("   ✅ GitHub integration created (inactive - configure credentials to activate)")
 
             # Configure GitHub integration with credentials if available
             if settings.GITHUB_TOKEN:
@@ -1418,6 +1547,98 @@ def apply(connection):
                 print(f"   ⚠️  Skipped {table}.integration_id NOT NULL constraint - {null_count} records have NULL values")
                 print(f"      💡 Configure integrations and re-run migration to enforce constraint")
 
+        # === COLOR CALCULATION FUNCTIONS ===
+        print("📋 Setting up color calculation functions...")
+
+        def _luminance(hex_color):
+            """Calculate WCAG relative luminance"""
+            hex_color = hex_color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+            def _linearize(c):
+                return (c/12.92) if c <= 0.03928 else ((c+0.055)/1.055) ** 2.4
+
+            return 0.2126*_linearize(r) + 0.7152*_linearize(g) + 0.0722*_linearize(b)
+
+        def _pick_on_color_new_threshold(hex_color):
+            """Use new 0.5 threshold for font color selection"""
+            luminance = _luminance(hex_color)
+            return '#FFFFFF' if luminance < 0.5 else '#000000'
+
+        def _pick_on_gradient(color_a, color_b):
+            """Choose best font color for gradient pair"""
+            on_a = _pick_on_color_new_threshold(color_a)
+            on_b = _pick_on_color_new_threshold(color_b)
+            return on_a if on_a == on_b else '#FFFFFF'  # Default to white if different
+
+        def _lighten_color(hex_color, factor=0.2):
+            """Lighten a color by a factor (0.0 to 1.0)"""
+            hex_color = hex_color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+            r = min(255, int(r + (255 - r) * factor))
+            g = min(255, int(g + (255 - g) * factor))
+            b = min(255, int(b + (255 - b) * factor))
+
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        def _darken_color(hex_color, factor=0.2):
+            """Darken a color by a factor (0.0 to 1.0)"""
+            hex_color = hex_color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+            r = max(0, int(r * (1 - factor)))
+            g = max(0, int(g * (1 - factor)))
+            b = max(0, int(b * (1 - factor)))
+
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        def _get_adaptive_color(hex_color, defined_in_mode='light'):
+            """Create theme-adaptive color for opposite mode"""
+            if defined_in_mode == 'light':
+                # Lighten dark colors for dark mode visibility
+                return _lighten_color(hex_color, 0.3)
+            else:
+                # Darken light colors for light mode visibility
+                return _darken_color(hex_color, 0.3)
+
+        def _get_accessible_color(hex_color, accessibility_level='AA'):
+            """Create accessibility-enhanced color"""
+            # For now, just slightly adjust the color for better contrast
+            # In a full implementation, this would ensure WCAG compliance
+            if accessibility_level == 'AAA':
+                return _darken_color(hex_color, 0.1)  # Slightly darker for AAA
+            else:
+                return hex_color  # AA level uses original color
+
+        def calculate_all_variants(base_colors, defined_in_mode='light'):
+            """Calculate all color variants from base colors"""
+            variants = {}
+
+            # On colors
+            for i in range(1, 6):
+                variants[f'on_color{i}'] = _pick_on_color_new_threshold(base_colors[f'color{i}'])
+
+            # On gradient colors (all 5 combinations including 5→1)
+            gradient_pairs = [
+                ('color1', 'color2', 'on_gradient_1_2'),
+                ('color2', 'color3', 'on_gradient_2_3'),
+                ('color3', 'color4', 'on_gradient_3_4'),
+                ('color4', 'color5', 'on_gradient_4_5'),
+                ('color5', 'color1', 'on_gradient_5_1')  # Wraps back to color1
+            ]
+
+            for color_a_key, color_b_key, gradient_key in gradient_pairs:
+                variants[gradient_key] = _pick_on_gradient(base_colors[color_a_key], base_colors[color_b_key])
+
+            # Adaptive colors
+            for i in range(1, 6):
+                variants[f'adaptive_color{i}'] = _get_adaptive_color(base_colors[f'color{i}'], defined_in_mode)
+
+            return variants
+
+        # Color population will happen after clients are created and foreign keys are established
+
         # Insert system settings
         print("📋 Creating system settings...")
 
@@ -1429,76 +1650,9 @@ def apply(connection):
             {"setting_key": "jira_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable Jira synchronization"},
             {"setting_key": "github_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable GitHub synchronization"},
             {"setting_key": "data_retention_days", "setting_value": "365", "setting_type": "integer", "description": "Number of days to retain data"},
-            {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"},
-            # Color settings (theme_mode moved to users table)
-            {"setting_key": "color_schema_mode", "setting_value": "default", "setting_type": "string", "description": "Color schema mode (default or custom)"},
-            # Default palette stored server-side for rebranding flexibility
-            {"setting_key": "default_color1", "setting_value": "#2862EB", "setting_type": "string", "description": "Default color 1 - Primary (Purple)"},
-            {"setting_key": "default_color2", "setting_value": "#763DED", "setting_type": "string", "description": "Default color 2 - Secondary (Blue)"},
-            {"setting_key": "default_color3", "setting_value": "#059669", "setting_type": "string", "description": "Default color 3 - Success (Emerald)"},
-            {"setting_key": "default_color4", "setting_value": "#0EA5E9", "setting_type": "string", "description": "Default color 4 - Info (Sky Blue)"},
-            {"setting_key": "default_color5", "setting_value": "#F59E0B", "setting_type": "string", "description": "Default color 5 - Warning (Amber)"},
-            # Initial custom palette (distinct from defaults)
-            {"setting_key": "custom_color1", "setting_value": "#C8102E", "setting_type": "string", "description": "Custom color 1 - Red (Primary)"},
-            {"setting_key": "custom_color2", "setting_value": "#253746", "setting_type": "string", "description": "Custom color 2 - Dark Blue (Secondary)"},
-            {"setting_key": "custom_color3", "setting_value": "#00C7B1", "setting_type": "string", "description": "Custom color 3 - Teal (Success)"},
-            {"setting_key": "custom_color4", "setting_value": "#A2DDF8", "setting_type": "string", "description": "Custom color 4 - Light Blue (Info)"},
-            {"setting_key": "custom_color5", "setting_value": "#FFBF3F", "setting_type": "string", "description": "Custom color 5 - Amber (Warning)"}
+            {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"}
+            # Note: Color settings moved to client_color_settings and client_accessibility_colors tables
         ]
-
-        # --- Compute contrast-aware text (on-) colors for default and custom palettes ---
-        def _hex_to_rgb(h):
-            h = h.lstrip('#')
-            return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
-        def _lin(c):
-            return (c/12.92) if c <= 0.03928 else ((c+0.055)/1.055) ** 2.4
-        def _rel_luma(hex_color):
-            r, g, b = _hex_to_rgb(hex_color)
-            return 0.2126*_lin(r) + 0.7152*_lin(g) + 0.0722*_lin(b)
-        def _contrast(hex_bg, hex_fg):
-            L1 = _rel_luma(hex_bg)
-            L2 = _rel_luma(hex_fg)
-            L_light, L_dark = (max(L1, L2), min(L1, L2))
-            return (L_light + 0.05) / (L_dark + 0.05)
-        def _pick_on(bg_hex):
-            black, white = '#000000', '#FFFFFF'
-            c_b = _contrast(bg_hex, black)
-            c_w = _contrast(bg_hex, white)
-            return white if c_w >= c_b else black
-        def _pick_on_pair(a_hex, b_hex):
-            # Choose on-color that maximizes the minimum contrast across the pair
-            black, white = '#000000', '#FFFFFF'
-            min_black = min(_contrast(a_hex, black), _contrast(b_hex, black))
-            min_white = min(_contrast(a_hex, white), _contrast(b_hex, white))
-            return white if min_white >= min_black else black
-
-        c1 = '#2862EB'; c2 = '#763DED'; c3 = '#059669'; c4 = '#0EA5E9'; c5 = '#F59E0B'
-        default_on = {
-            '1': _pick_on(c1), '2': _pick_on(c2), '3': _pick_on(c3), '4': _pick_on(c4), '5': _pick_on(c5)
-        }
-        default_on_grad = {
-            '1-2': _pick_on_pair(c1, c2), '2-3': _pick_on_pair(c2, c3), '3-4': _pick_on_pair(c3, c4), '4-5': _pick_on_pair(c4, c5)
-        }
-        # Compute on-color tokens for the initial custom palette
-        cc1 = '#C8102E'; cc2 = '#253746'; cc3 = '#00C7B1'; cc4 = '#A2DDF8'; cc5 = '#FFBF3F'
-        custom_on = {
-            '1': _pick_on(cc1), '2': _pick_on(cc2), '3': _pick_on(cc3), '4': _pick_on(cc4), '5': _pick_on(cc5)
-        }
-        custom_on_grad = {
-            '1-2': _pick_on_pair(cc1, cc2), '2-3': _pick_on_pair(cc2, cc3), '3-4': _pick_on_pair(cc3, cc4), '4-5': _pick_on_pair(cc4, cc5)
-        }
-
-        # Extend seed settings with on-color tokens (default and custom)
-        for i in ['1','2','3','4','5']:
-            system_settings_data.extend([
-                {"setting_key": f"default_on_color{i}", "setting_value": default_on[i], "setting_type": "string", "description": f"WCAG on-color for default color {i}"},
-                {"setting_key": f"custom_on_color{i}", "setting_value": custom_on[i], "setting_type": "string", "description": f"WCAG on-color for custom color {i}"},
-            ])
-        for key, val in default_on_grad.items():
-            system_settings_data.extend([
-                {"setting_key": f"default_on_gradient_{key}", "setting_value": val, "setting_type": "string", "description": f"WCAG on-color for default gradient {key}"},
-                {"setting_key": f"custom_on_gradient_{key}", "setting_value": custom_on_grad[key], "setting_type": "string", "description": f"WCAG on-color for custom gradient {key}"},
-            ])
 
         for setting in system_settings_data:
             cursor.execute("""
@@ -1612,26 +1766,15 @@ def apply(connection):
 
         print("✅ Default user permissions created")
 
-        # Create GitHub integration (needed for job schedules)
-        print("📋 Creating GitHub integration...")
-        cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, NOW(), NOW())
-            ON CONFLICT (name, client_id) DO NOTHING
-            RETURNING id;
-        """, ("GITHUB", "https://api.github.com", None, None, "health-", "2000-01-01 00:00:00", client_id))
-
+        # Get GitHub integration ID (already created earlier)
+        print("📋 Getting GitHub integration ID...")
+        cursor.execute("SELECT id FROM integrations WHERE name = 'GITHUB' AND client_id = %s;", (client_id,))
         github_result = cursor.fetchone()
         if github_result:
             github_integration_id = github_result['id']
+            print(f"   ✅ Found GitHub integration (ID: {github_integration_id})")
         else:
-            # Get existing ID if conflict occurred
-            cursor.execute("SELECT id FROM integrations WHERE name = 'GITHUB' AND client_id = %s;", (client_id,))
-            github_result = cursor.fetchone()
-            if github_result:
-                github_integration_id = github_result['id']
-            else:
-                raise Exception("Failed to create or find GITHUB integration")
+            raise Exception("GitHub integration not found - should have been created earlier")
 
         print(f"   ✅ GitHub integration created (ID: {github_integration_id})")
 
@@ -1959,6 +2102,207 @@ def apply(connection):
                     print(f"   ⚠️  Setting {setting['setting_key']} already exists for Apple")
             except Exception as e:
                 print(f"   ❌ Failed to duplicate setting {setting['setting_key']}: {e}")
+
+        # Populate color tables for all clients
+        print("📋 Populating color tables for all clients...")
+
+        # Clean up any existing color data first (in case tables already exist)
+        print("   🗑️ Cleaning up any existing color data...")
+        cursor.execute("DELETE FROM client_accessibility_colors;")
+        cursor.execute("DELETE FROM client_color_settings;")
+        print("   ✅ Existing color data cleaned")
+
+        # Get all client IDs
+        cursor.execute("SELECT id, name FROM clients WHERE active = TRUE ORDER BY name;")
+        all_clients = cursor.fetchall()
+
+        # Default color template (same for all clients)
+        DEFAULT_COLORS = {
+            'color1': '#2862EB', 'color2': '#763DED', 'color3': '#059669',
+            'color4': '#0EA5E9', 'color5': '#F59E0B'
+        }
+
+        # Custom colors per client
+        CLIENT_CUSTOM_COLORS = {
+            'WEX': {'color1': '#C8102E', 'color2': '#253746', 'color3': '#00C7B1', 'color4': '#A2DDF8', 'color5': '#FFBF3F'},
+            'Google': {'color1': '#4285F4', 'color2': '#34A853', 'color3': '#FBBC05', 'color4': '#EA4335', 'color5': '#9AA0A6'},
+            'Apple': {'color1': '#007AFF', 'color2': '#34C759', 'color3': '#FF9500', 'color4': '#FF3B30', 'color5': '#8E8E93'}
+        }
+
+        for client in all_clients:
+            client_id = client['id']
+            client_name = client['name']
+
+            print(f"   📋 Processing colors for client: {client_name}")
+
+            # 1. Insert default mode row with calculated variants
+            default_calculated = calculate_all_variants(DEFAULT_COLORS)
+
+            cursor.execute("""
+                INSERT INTO client_color_settings (
+                    color_schema_mode, font_contrast_threshold, colors_defined_in_mode,
+                    color1, color2, color3, color4, color5,
+                    on_color1, on_color2, on_color3, on_color4, on_color5,
+                    on_gradient_1_2, on_gradient_2_3, on_gradient_3_4, on_gradient_4_5, on_gradient_5_1,
+                    adaptive_color1, adaptive_color2, adaptive_color3, adaptive_color4, adaptive_color5,
+                    client_id, active, created_at, last_updated_at
+                ) VALUES (
+                    'default', 0.5, 'light',
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, TRUE, NOW(), NOW()
+                ) ON CONFLICT (client_id, color_schema_mode) DO NOTHING RETURNING id;
+            """, (
+                DEFAULT_COLORS['color1'], DEFAULT_COLORS['color2'], DEFAULT_COLORS['color3'], DEFAULT_COLORS['color4'], DEFAULT_COLORS['color5'],
+                default_calculated['on_color1'], default_calculated['on_color2'], default_calculated['on_color3'], default_calculated['on_color4'], default_calculated['on_color5'],
+                default_calculated['on_gradient_1_2'], default_calculated['on_gradient_2_3'], default_calculated['on_gradient_3_4'], default_calculated['on_gradient_4_5'], default_calculated['on_gradient_5_1'],
+                default_calculated['adaptive_color1'], default_calculated['adaptive_color2'], default_calculated['adaptive_color3'], default_calculated['adaptive_color4'], default_calculated['adaptive_color5'],
+                client_id
+            ))
+
+            # Get the ID of the inserted default color settings
+            default_color_settings_result = cursor.fetchone()
+            default_color_settings_id = default_color_settings_result['id'] if default_color_settings_result else None
+
+            # If no ID returned (due to conflict), get it from the database
+            if not default_color_settings_id:
+                cursor.execute("""
+                    SELECT id FROM client_color_settings
+                    WHERE client_id = %s AND color_schema_mode = 'default'
+                """, (client_id,))
+                result = cursor.fetchone()
+                default_color_settings_id = result['id'] if result else None
+
+            # 2. Insert custom mode row with calculated variants
+            custom_colors = CLIENT_CUSTOM_COLORS.get(client_name, DEFAULT_COLORS)
+            custom_calculated = calculate_all_variants(custom_colors)
+
+            cursor.execute("""
+                INSERT INTO client_color_settings (
+                    color_schema_mode, font_contrast_threshold, colors_defined_in_mode,
+                    color1, color2, color3, color4, color5,
+                    on_color1, on_color2, on_color3, on_color4, on_color5,
+                    on_gradient_1_2, on_gradient_2_3, on_gradient_3_4, on_gradient_4_5, on_gradient_5_1,
+                    adaptive_color1, adaptive_color2, adaptive_color3, adaptive_color4, adaptive_color5,
+                    client_id, active, created_at, last_updated_at
+                ) VALUES (
+                    'custom', 0.5, 'light',
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, TRUE, NOW(), NOW()
+                ) ON CONFLICT (client_id, color_schema_mode) DO NOTHING RETURNING id;
+            """, (
+                custom_colors['color1'], custom_colors['color2'], custom_colors['color3'], custom_colors['color4'], custom_colors['color5'],
+                custom_calculated['on_color1'], custom_calculated['on_color2'], custom_calculated['on_color3'], custom_calculated['on_color4'], custom_calculated['on_color5'],
+                custom_calculated['on_gradient_1_2'], custom_calculated['on_gradient_2_3'], custom_calculated['on_gradient_3_4'], custom_calculated['on_gradient_4_5'], custom_calculated['on_gradient_5_1'],
+                custom_calculated['adaptive_color1'], custom_calculated['adaptive_color2'], custom_calculated['adaptive_color3'], custom_calculated['adaptive_color4'], custom_calculated['adaptive_color5'],
+                client_id
+            ))
+
+            # Get the ID of the inserted custom color settings
+            custom_color_settings_result = cursor.fetchone()
+            custom_color_settings_id = custom_color_settings_result['id'] if custom_color_settings_result else None
+
+            # If no ID returned (due to conflict), get it from the database
+            if not custom_color_settings_id:
+                cursor.execute("""
+                    SELECT id FROM client_color_settings
+                    WHERE client_id = %s AND color_schema_mode = 'custom'
+                """, (client_id,))
+                result = cursor.fetchone()
+                custom_color_settings_id = result['id'] if result else None
+
+            # 3. Insert accessibility variants (4 rows per client: 2 modes × 2 levels)
+            for mode in ['default', 'custom']:
+                # Get the appropriate color settings ID
+                color_settings_id = default_color_settings_id if mode == 'default' else custom_color_settings_id
+
+                for level in ['AA', 'AAA']:
+                    base_colors = DEFAULT_COLORS if mode == 'default' else custom_colors
+
+                    # Calculate accessibility-enhanced versions
+                    accessible_colors = {}
+                    for i in range(1, 6):
+                        accessible_colors[f'color{i}'] = _get_accessible_color(base_colors[f'color{i}'], level)
+
+                    # Calculate all variants for accessibility-enhanced colors
+                    accessible_calculated = calculate_all_variants(accessible_colors)
+
+                    cursor.execute("""
+                        INSERT INTO client_accessibility_colors (
+                            color_settings_id, color_schema_mode, accessibility_level,
+                            contrast_ratio_normal, contrast_ratio_large, high_contrast_mode, reduce_motion, colorblind_safe_palette,
+                            color1, color2, color3, color4, color5,
+                            on_color1, on_color2, on_color3, on_color4, on_color5,
+                            on_gradient_1_2, on_gradient_2_3, on_gradient_3_4, on_gradient_4_5, on_gradient_5_1,
+                            adaptive_color1, adaptive_color2, adaptive_color3, adaptive_color4, adaptive_color5,
+                            client_id, active, created_at, last_updated_at
+                        ) VALUES (
+                            %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, TRUE, NOW(), NOW()
+                        ) ON CONFLICT (client_id, color_schema_mode, accessibility_level) DO NOTHING;
+                    """, (
+                        color_settings_id, mode, level,
+                        4.5 if level == 'AA' else 7.0, 3.0 if level == 'AA' else 4.5, False, False, False,
+                        accessible_colors['color1'], accessible_colors['color2'], accessible_colors['color3'], accessible_colors['color4'], accessible_colors['color5'],
+                        accessible_calculated['on_color1'], accessible_calculated['on_color2'], accessible_calculated['on_color3'], accessible_calculated['on_color4'], accessible_calculated['on_color5'],
+                        accessible_calculated['on_gradient_1_2'], accessible_calculated['on_gradient_2_3'], accessible_calculated['on_gradient_3_4'], accessible_calculated['on_gradient_4_5'], accessible_calculated['on_gradient_5_1'],
+                        accessible_calculated['adaptive_color1'], accessible_calculated['adaptive_color2'], accessible_calculated['adaptive_color3'], accessible_calculated['adaptive_color4'], accessible_calculated['adaptive_color5'],
+                        client_id
+                    ))
+
+        print("✅ Color tables populated for all clients!")
+
+        # Add color table foreign key constraints after data population
+        print("📋 Adding color table foreign key constraints...")
+
+        # Check and add constraints individually with proper transaction handling
+        constraints_to_add = [
+            ("client_color_settings", "fk_client_color_settings_client_id", "ALTER TABLE client_color_settings ADD CONSTRAINT fk_client_color_settings_client_id FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;"),
+            ("client_accessibility_colors", "fk_client_accessibility_colors_client_id", "ALTER TABLE client_accessibility_colors ADD CONSTRAINT fk_client_accessibility_colors_client_id FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE;"),
+            ("client_accessibility_colors", "fk_accessibility_colors_settings", "ALTER TABLE client_accessibility_colors ADD CONSTRAINT fk_accessibility_colors_settings FOREIGN KEY (color_settings_id) REFERENCES client_color_settings(id) ON DELETE CASCADE;")
+        ]
+
+        for table_name, constraint_name, sql_command in constraints_to_add:
+            # Check if constraint already exists
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.table_constraints
+                WHERE table_name = %s AND constraint_name = %s
+            """, (table_name, constraint_name))
+
+            result = cursor.fetchone()
+            constraint_exists = result['count'] > 0 if result else False
+
+            if constraint_exists:
+                print(f"   ⚠️ {constraint_name} constraint already exists")
+            else:
+                cursor.execute(sql_command)
+                print(f"   ✅ Added {constraint_name} constraint")
+
+        # Set NOT NULL constraint on color_settings_id
+        cursor.execute("""
+            SELECT is_nullable FROM information_schema.columns
+            WHERE table_name = 'client_accessibility_colors' AND column_name = 'color_settings_id'
+        """)
+        result = cursor.fetchone()
+        is_nullable = result['is_nullable'] if result else 'YES'
+
+        if is_nullable == 'YES':
+            cursor.execute("ALTER TABLE client_accessibility_colors ALTER COLUMN color_settings_id SET NOT NULL;")
+            print("   ✅ Set color_settings_id column to NOT NULL")
+        else:
+            print("   ⚠️ color_settings_id column is already NOT NULL")
+
+        print("✅ Color table foreign key constraints added!")
 
         print("✅ All seed data inserted successfully!")
 

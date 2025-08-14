@@ -761,6 +761,25 @@
         }
     }
 
+    function handleColorSchemaUpdate(data) {
+        console.log('🎨 Received color schema update:', data);
+
+        try {
+            // Show notification to user
+            showNotification('🎨 Color scheme updated! Refreshing page...', 'info');
+
+            // Simple approach: reload the page to apply new colors
+            // This ensures all colors are properly updated from the server
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500); // Give user time to see the notification
+
+        } catch (error) {
+            console.error('❌ Error handling color schema update:', error);
+            showNotification('❌ Failed to apply color update', 'error');
+        }
+    }
+
     function updateJobProgress(jobName, percentage, step) {
         jobProgress[jobName].percentage = percentage;
         jobProgress[jobName].step = step;
@@ -788,6 +807,22 @@
         if (jobCard) {
             updateJobCardExceptions(jobCard, jobProgress[jobName].exceptions);
         }
+    }
+
+    function clearJobExceptions(jobName) {
+        // Clear exceptions for the specific job
+        if (jobProgress[jobName] && jobProgress[jobName].exceptions) {
+            jobProgress[jobName].exceptions = [];
+        }
+
+        // Update the UI to hide the exceptions section
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            updateJobCardExceptions(jobCard, []);
+        }
+
+        // Also trigger a data refresh to clear any error messages from the database
+        setTimeout(refreshData, 500);
     }
 
     function updateJobStatus(jobName, status) {
@@ -1094,6 +1129,9 @@
     // Job control functions
     async function setJobActive(jobName) {
         try {
+            // Clear any existing error messages when starting a new job run
+            clearJobExceptions(jobName);
+
             const token = getAuthToken();
             if (!token) {
                 throw new Error('No authentication token found');
@@ -1631,6 +1669,10 @@
             console.warn('Cannot start orchestrator while jobs are running');
             return;
         }
+
+        // Clear error messages for all jobs when starting orchestrator
+        clearJobExceptions('jira_sync');
+        clearJobExceptions('github_sync');
 
         const originalText = button.innerHTML;
 

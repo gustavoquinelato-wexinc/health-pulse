@@ -297,7 +297,7 @@ export default function Header() {
         <div className="relative" ref={quickActionsRef}>
           <motion.button
             onClick={() => setShowQuickActions(!showQuickActions)}
-            className="p-2 rounded-lg bg-tertiary hover:shadow-sm transition-shadow"
+            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
             aria-label="Quick Actions"
             title="Quick Actions"
           >
@@ -337,7 +337,7 @@ export default function Header() {
         <div className="relative" ref={recentItemsRef}>
           <motion.button
             onClick={() => setShowRecentItems(!showRecentItems)}
-            className="p-2 rounded-lg bg-tertiary hover:shadow-sm transition-shadow relative"
+            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all relative"
             aria-label="Recent Items"
             title="Recent Items"
           >
@@ -390,7 +390,7 @@ export default function Header() {
                 return false;
               }
             }}
-            className="p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow inline-block"
+            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all inline-block"
 
             aria-label="ETL Management"
             title="ETL Management (Ctrl+Click for new tab)"
@@ -402,7 +402,7 @@ export default function Header() {
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
-          className="p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow"
+          className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
 
           aria-label="Toggle theme"
           title="Toggle Theme"
@@ -414,7 +414,7 @@ export default function Header() {
         <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:shadow-sm transition-shadow"
+            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
           >
             {userProfileImage ? (
               <img

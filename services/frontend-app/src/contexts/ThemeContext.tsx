@@ -44,10 +44,14 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 
 
-const saveColorSchemaToAPI = async (colors: ColorSchema): Promise<boolean> => {
+const saveColorSchemaToAPI = async (colors: ColorSchema, colorsDefinedInMode?: string): Promise<boolean> => {
   try {
-    // Backend expects { colors: { color1..5 } } as body
-    const response = await axios.post('/api/v1/admin/color-schema', { colors })
+    // Backend expects { colors: { color1..5 }, colors_defined_in_mode?: string } as body
+    const payload: any = { colors }
+    if (colorsDefinedInMode) {
+      payload.colors_defined_in_mode = colorsDefinedInMode
+    }
+    const response = await axios.post('/api/v1/admin/color-schema', payload)
     // Newer backend returns { message: ... } without a success flag; treat any 2xx as success
     return response.status >= 200 && response.status < 300
   } catch (error) {

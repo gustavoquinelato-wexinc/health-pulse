@@ -298,6 +298,8 @@ app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
+from app.api.dora_routes import router as dora_router
+
 
 # Include Backend Service API routes
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
@@ -305,8 +307,10 @@ app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
 app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"])
+app.include_router(dora_router)
+
 app.include_router(user_router, tags=["User Preferences"])
-app.include_router(admin_router, tags=["Administration"])
+app.include_router(admin_router, tags=["Administration"])  # admin_router already has /api/v1/admin prefix
 
 # Include Centralized Auth Integration routes
 from app.api.centralized_auth_routes import router as centralized_auth_router

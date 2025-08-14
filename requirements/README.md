@@ -1,6 +1,8 @@
 # Requirements Structure
 
-This directory contains centralized dependency management for the Pulse Platform services.
+This directory contains centralized dependency management for the Pulse Platform **Python services**.
+
+> **Note**: The frontend service (Node.js/React) uses `package.json` for dependency management.
 
 ## 📁 Files
 

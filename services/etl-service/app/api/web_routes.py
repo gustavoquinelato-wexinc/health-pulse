@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any, List
 import os
 from pathlib import Path
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, case, text
 import httpx
 
 from app.core.logging_config import get_logger
@@ -1530,11 +1530,14 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
         database = get_database()
 
         with database.get_read_session_context() as session:
-            # Get GitHub integration
-            github_integration = session.query(Integration).filter(func.upper(Integration.name) == 'GITHUB').first()
+            # Get GitHub integration for the authenticated user's client
+            github_integration = session.query(Integration).filter(
+                func.upper(Integration.name) == 'GITHUB',
+                Integration.client_id == user.client_id
+            ).first()
 
             if not github_integration:
-                raise HTTPException(status_code=404, detail="GitHub integration not found")
+                raise HTTPException(status_code=404, detail=f"GitHub integration not found for client {user.client_id}")
 
             # Decrypt GitHub token
             key = AppConfig.load_key()
@@ -1580,6 +1583,10 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
     except Exception as e:
         logger.error(f"Error getting GitHub rate limits: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get GitHub rate limits: {str(e)}")
+
+
+
+
 
 @router.get("/api/v1/jobs/status")
 async def get_jobs_status(user: UserData = Depends(verify_token)):

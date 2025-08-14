@@ -1,5 +1,7 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import notificationService from '../services/notificationService'
+import websocketService from '../services/websocketService'
 import clientLogger from '../utils/clientLogger'
 
 // Axios configuration is handled below - no duplicate configuration needed
@@ -19,6 +21,16 @@ interface ColorSchemaData {
   custom_colors?: ColorSchema
   on_colors?: Record<string, string>
   on_gradients?: Record<string, string>
+  // Enhanced data from new color system
+  enhanced_data?: {
+    font_contrast_threshold?: number
+    colors_defined_in_mode?: string
+    adaptive_colors?: Record<string, string>
+    cache_info?: {
+      cached: boolean
+      source: string
+    }
+  }
 }
 
 interface User {
@@ -30,6 +42,7 @@ interface User {
   first_name?: string
   last_name?: string
   client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
+  use_accessible_colors?: boolean  // User accessibility preference
   colorSchemaData?: ColorSchemaData
 }
 
@@ -40,6 +53,8 @@ interface AuthContextType {
   isLoading: boolean
   isAuthenticated: boolean
   isAdmin: boolean
+  updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
+  refreshUserColors: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -72,11 +87,67 @@ export function AuthProvider({ children }: AuthProviderProps) {
           default_colors: response.data.default_colors,
           custom_colors: response.data.custom_colors,
           on_colors: response.data.on_colors,
-          on_gradients: response.data.on_gradients
-        } as any
+          on_gradients: response.data.on_gradients,
+          enhanced_data: response.data.enhanced_data
+        } as ColorSchemaData
       }
     } catch (error: any) {
       console.error('AuthContext: Failed to load color schema:', error)
+    }
+    return null
+  }
+
+  // Load user-specific colors based on accessibility preference
+  const loadUserColors = async (): Promise<ColorSchemaData | null> => {
+    try {
+      const response = await axios.get('/api/v1/user/colors')
+
+      if (response.data.success) {
+        const userColors = response.data.colors
+
+        // Transform user colors to ColorSchemaData format
+        return {
+          mode: userColors.resolved_mode || userColors.color_schema_mode || 'custom',
+          colors: {
+            color1: userColors.color1,
+            color2: userColors.color2,
+            color3: userColors.color3,
+            color4: userColors.color4,
+            color5: userColors.color5
+          },
+          on_colors: {
+            color1: userColors.on_color1,
+            color2: userColors.on_color2,
+            color3: userColors.on_color3,
+            color4: userColors.on_color4,
+            color5: userColors.on_color5
+          },
+          on_gradients: {
+            '1-2': userColors.on_gradient_1_2,
+            '2-3': userColors.on_gradient_2_3,
+            '3-4': userColors.on_gradient_3_4,
+            '4-5': userColors.on_gradient_4_5,
+            '5-1': userColors.on_gradient_5_1
+          },
+          enhanced_data: {
+            font_contrast_threshold: userColors.font_contrast_threshold,
+            colors_defined_in_mode: userColors.colors_defined_in_mode,
+            adaptive_colors: {
+              color1: userColors.adaptive_color1,
+              color2: userColors.adaptive_color2,
+              color3: userColors.adaptive_color3,
+              color4: userColors.adaptive_color4,
+              color5: userColors.adaptive_color5
+            },
+            cache_info: {
+              cached: true,
+              source: 'user_specific_resolution'
+            }
+          }
+        } as ColorSchemaData
+      }
+    } catch (error: any) {
+      console.error('AuthContext: Failed to load user colors:', error)
     }
     return null
   }
@@ -287,12 +358,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Update client logger context with new user info
         clientLogger.updateClientContext()
 
-        // Load color schema
-        loadColorSchema().then(colorSchemaData => {
-          if (colorSchemaData) {
-            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
-          } else {
-            // Fallback: Set default color schema if API fails
+        // Load color schema - prefer user-specific colors if available
+        const loadColors = async () => {
+          try {
+            // Try user-specific colors first (includes accessibility preferences)
+            let colorSchemaData = await loadUserColors()
+
+            // Fallback to admin color schema if user colors not available
+            if (!colorSchemaData) {
+              colorSchemaData = await loadColorSchema()
+            }
+
+            if (colorSchemaData) {
+              setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+              console.log('✅ Colors loaded:', colorSchemaData.enhanced_data?.cache_info?.source || 'legacy')
+            } else {
+              // Final fallback: Set default color schema if all APIs fail
+              const fallbackColorSchema: ColorSchemaData = {
+                mode: 'default',
+                colors: {
+                  color1: '#C8102E',
+                  color2: '#253746',
+                  color3: '#00C7B1',
+                  color4: '#A2DDF8',
+                  color5: '#FFBF3F'
+                }
+              }
+              setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+              console.warn('⚠️ Using fallback colors - API unavailable')
+            }
+          } catch (error) {
+            console.error('❌ Error loading colors:', error)
+            // Set fallback colors even on error
             const fallbackColorSchema: ColorSchemaData = {
               mode: 'default',
               colors: {
@@ -305,20 +402,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             }
             setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
           }
-        }).catch(error => {
-          // Set fallback colors even on error
-          const fallbackColorSchema: ColorSchemaData = {
-            mode: 'default',
-            colors: {
-              color1: '#C8102E',
-              color2: '#253746',
-              color3: '#00C7B1',
-              color4: '#A2DDF8',
-              color5: '#FFBF3F'
-            }
-          }
-          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-        })
+        }
+
+        loadColors()
       }
     } catch (error) {
       // No existing session found, this is normal
@@ -425,7 +511,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
         // Load color schema before setting user to avoid flash
-        let colorSchemaData = await loadColorSchema()
+        // Try user-specific colors first, then fallback to admin colors
+        let colorSchemaData = await loadUserColors()
+        if (!colorSchemaData) {
+          colorSchemaData = await loadColorSchema()
+        }
         if (!colorSchemaData) {
           colorSchemaData = {
             mode: 'default',
@@ -619,13 +709,58 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.location.replace('/login')
   }
 
+  // Update user accessibility preference
+  const updateAccessibilityPreference = async (useAccessibleColors: boolean): Promise<boolean> => {
+    try {
+      const response = await axios.post('/api/v1/user/accessibility-preference', {
+        use_accessible_colors: useAccessibleColors
+      })
+
+      if (response.data.success) {
+        // Update user state
+        setUser(prev => prev ? { ...prev, use_accessible_colors: useAccessibleColors } : prev)
+
+        // Refresh colors to apply new accessibility preference
+        await refreshUserColors()
+
+        console.log('✅ Accessibility preference updated:', useAccessibleColors)
+        return true
+      }
+    } catch (error) {
+      console.error('❌ Failed to update accessibility preference:', error)
+    }
+    return false
+  }
+
+  // Refresh user colors (useful after preference changes)
+  const refreshUserColors = async (): Promise<void> => {
+    try {
+      // Try user-specific colors first
+      let colorSchemaData = await loadUserColors()
+
+      // Fallback to admin colors if needed
+      if (!colorSchemaData) {
+        colorSchemaData = await loadColorSchema()
+      }
+
+      if (colorSchemaData) {
+        setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+        console.log('✅ User colors refreshed:', colorSchemaData.enhanced_data?.cache_info?.source || 'legacy')
+      }
+    } catch (error) {
+      console.error('❌ Failed to refresh user colors:', error)
+    }
+  }
+
   const value: AuthContextType = {
     user,
     login,
     logout,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: !!user && user.is_admin
+    isAdmin: !!user && user.is_admin,
+    updateAccessibilityPreference,
+    refreshUserColors
   }
 
 
@@ -660,6 +795,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.removeEventListener('message', handleCrossServiceAuth);
     };
   }, []);
+
+  // Set up WebSocket for real-time color updates
+  useEffect(() => {
+    if (!user) return
+
+    console.log('🎨 Setting up WebSocket color update listener for user:', user.email)
+
+    const unsubscribe = websocketService.onColorUpdate(async (colors) => {
+      console.log('🎨 Received real-time color update:', colors)
+
+      try {
+        // Refresh user colors to get the latest data
+        await refreshUserColors()
+        console.log('✅ Colors refreshed from WebSocket update')
+
+        // Show notification to user
+        notificationService.colorUpdate('Your color scheme has been updated by an administrator')
+      } catch (error) {
+        console.error('❌ Failed to refresh colors from WebSocket update:', error)
+        notificationService.error('Color Update Failed', 'Failed to apply real-time color changes')
+      }
+    })
+
+    return unsubscribe
+  }, [user])
 
   // Expose clear function globally for debugging
   useEffect(() => {

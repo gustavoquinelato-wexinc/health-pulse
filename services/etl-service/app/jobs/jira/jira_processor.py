@@ -57,11 +57,11 @@ class JiraDataProcessor:
 
                 # Custom fields (01-20) - can be mapped to specific Jira custom fields later
                 # Example mapping: 'custom_field_01': fields.get('customfield_12345', None),
-                'custom_field_01': fields.get('customfield_10110', None),  # Available for future mapping
-                'custom_field_02': fields.get('customfield_10150', None),  # Available for future mapping
-                'custom_field_03': fields.get('customfield_10359', None),  # Available for future mapping
-                'custom_field_04': fields.get('customfield_10414') if fields.get('customfield_10414') else None,  # None for empty lists
-                'custom_field_05': None,  # Available for future mapping
+                'custom_field_01': fields.get('customfield_10110', None),  # aha_epic_url
+                'custom_field_02': fields.get('customfield_10150', None),  # aha_initiative
+                'custom_field_03': fields.get('customfield_10359', None),  # aha_project_code
+                'custom_field_04': fields.get('customfield_10414') if fields.get('customfield_10414') else None,  # project_code
+                'custom_field_05': fields.get('customfield_12103', None),  # aha_milestone
                 'custom_field_06': None,  # Available for future mapping
                 'custom_field_07': None,  # Available for future mapping
                 'custom_field_08': None,  # Available for future mapping

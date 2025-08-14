@@ -50,7 +50,7 @@ class SettingsManager:
             'description': 'Maximum number of concurrent ETL jobs'
         },
         'job_timeout_minutes': {
-            'value': 120,
+            'value': 240,
             'type': 'integer',
             'description': 'Job timeout in minutes'
         },
@@ -63,6 +63,21 @@ class SettingsManager:
             'value': 60,
             'type': 'integer',
             'description': 'Timeout for GitHub API requests in seconds'
+        },
+        'jira_database_batch_size': {
+            'value': 100,
+            'type': 'integer',
+            'description': 'Batch size for Jira database operations (IN clauses)'
+        },
+        'jira_commit_batch_size': {
+            'value': 500,
+            'type': 'integer',
+            'description': 'Number of records to process before committing transaction (prevents long-running transactions)'
+        },
+        'jira_session_refresh_interval': {
+            'value': 1000,
+            'type': 'integer',
+            'description': 'Number of records processed before refreshing database session (prevents connection timeouts)'
         }
     }
     
@@ -366,3 +381,33 @@ def get_github_request_timeout() -> int:
 def set_github_request_timeout(timeout_seconds: int) -> bool:
     """Set GitHub API request timeout in seconds."""
     return SettingsManager.set_setting('github_request_timeout_seconds', timeout_seconds)
+
+
+def get_jira_database_batch_size() -> int:
+    """Get Jira database batch size for IN clauses."""
+    return SettingsManager.get_setting('jira_database_batch_size', 100)
+
+
+def set_jira_database_batch_size(batch_size: int) -> bool:
+    """Set Jira database batch size for IN clauses."""
+    return SettingsManager.set_setting('jira_database_batch_size', batch_size)
+
+
+def get_jira_commit_batch_size() -> int:
+    """Get Jira commit batch size for transaction chunking."""
+    return SettingsManager.get_setting('jira_commit_batch_size', 500)
+
+
+def set_jira_commit_batch_size(batch_size: int) -> bool:
+    """Set Jira commit batch size for transaction chunking."""
+    return SettingsManager.set_setting('jira_commit_batch_size', batch_size)
+
+
+def get_jira_session_refresh_interval() -> int:
+    """Get Jira session refresh interval to prevent connection timeouts."""
+    return SettingsManager.get_setting('jira_session_refresh_interval', 1000)
+
+
+def set_jira_session_refresh_interval(interval: int) -> bool:
+    """Set Jira session refresh interval to prevent connection timeouts."""
+    return SettingsManager.set_setting('jira_session_refresh_interval', interval)

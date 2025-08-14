@@ -14,10 +14,14 @@ from app.models.unified_models import User
 from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.core.config import get_settings
+from app.services.color_resolution_service import ColorResolutionService
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/user")
+
+# Initialize color resolution service
+color_resolution_service = ColorResolutionService()
 
 
 # ============================================================================
@@ -32,6 +36,14 @@ class ThemeModeResponse(BaseModel):
     mode: str
     message: Optional[str] = None
 
+class AccessibilityPreferenceRequest(BaseModel):
+    use_accessible_colors: bool
+
+class AccessibilityPreferenceResponse(BaseModel):
+    success: bool
+    use_accessible_colors: bool
+    message: Optional[str] = None
+
 class ProfileResponse(BaseModel):
     id: int
     email: str
@@ -40,12 +52,14 @@ class ProfileResponse(BaseModel):
     role: str
     auth_provider: str
     theme_mode: str
+    use_accessible_colors: bool = False
     profile_image_filename: Optional[str] = None
     last_login_at: Optional[str] = None
 
 class ProfileUpdateRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    use_accessible_colors: Optional[bool] = None
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
@@ -182,6 +196,7 @@ async def get_user_profile(
                 role=db_user.role,
                 auth_provider=db_user.auth_provider,
                 theme_mode=db_user.theme_mode or "light",
+                use_accessible_colors=db_user.use_accessible_colors or False,
                 profile_image_filename=db_user.profile_image_filename,
                 last_login_at=db_user.last_login_at.isoformat() if db_user.last_login_at else None
             )
@@ -223,6 +238,15 @@ async def update_user_profile(
             if request.last_name is not None:
                 db_user.last_name = request.last_name
 
+            if request.use_accessible_colors is not None:
+                old_accessibility = db_user.use_accessible_colors
+                db_user.use_accessible_colors = request.use_accessible_colors
+
+                # Invalidate user color cache if accessibility preference changed
+                if old_accessibility != request.use_accessible_colors:
+                    color_resolution_service.invalidate_caches(user_id=user.id)
+                    logger.info(f"User {user.email} accessibility preference changed: {old_accessibility} -> {request.use_accessible_colors}")
+
             db_user.last_updated_at = func.now()
             session.commit()
 
@@ -240,6 +264,89 @@ async def update_user_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update profile"
+        )
+
+
+@router.post("/accessibility-preference", response_model=AccessibilityPreferenceResponse)
+async def update_accessibility_preference(
+    request: AccessibilityPreferenceRequest,
+    user: User = Depends(get_current_user)
+):
+    """Update user's accessibility color preference"""
+    try:
+        logger.info(f"Updating accessibility preference for user: {user.email}")
+
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the user record
+            db_user = session.query(User).filter(User.id == user.id).first()
+
+            if not db_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+
+            old_preference = db_user.use_accessible_colors
+            db_user.use_accessible_colors = request.use_accessible_colors
+            db_user.last_updated_at = func.now()
+
+            session.commit()
+
+            # Invalidate user color cache to force refresh with new preference
+            color_resolution_service.invalidate_caches(user_id=user.id)
+
+            logger.info(f"✅ User {user.email} accessibility preference updated: {old_preference} -> {request.use_accessible_colors}")
+
+            return AccessibilityPreferenceResponse(
+                success=True,
+                use_accessible_colors=request.use_accessible_colors,
+                message=f"Accessibility preference updated to {'enabled' if request.use_accessible_colors else 'disabled'}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating accessibility preference: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update accessibility preference"
+        )
+
+
+@router.get("/colors")
+async def get_user_colors(
+    user: User = Depends(get_current_user)
+):
+    """Get user-specific colors based on their accessibility preference"""
+    try:
+        logger.info(f"Getting colors for user: {user.email}")
+
+        # Resolve colors based on user preferences
+        user_colors = color_resolution_service.resolve_user_colors(user.id, user.client_id)
+
+        if not user_colors:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Color configuration not found for user"
+            )
+
+        return {
+            "success": True,
+            "colors": user_colors,
+            "user_preferences": {
+                "use_accessible_colors": user.use_accessible_colors,
+                "theme_mode": user.theme_mode
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user colors: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user colors"
         )
 
 

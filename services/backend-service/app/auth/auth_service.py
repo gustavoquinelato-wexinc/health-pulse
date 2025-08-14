@@ -40,8 +40,9 @@ class AuthService:
         # Initialize Redis session manager for cross-service sessions
         self.redis_session_manager = get_redis_session_manager()
 
-        # Debug: Log the JWT secret key being used
-        logger.info(f"🔑 Backend Service JWT_SECRET_KEY: {self.jwt_secret}")
+        # Log JWT configuration (without exposing secret key)
+        secret_preview = f"{self.jwt_secret[:8]}...{self.jwt_secret[-8:]}" if len(self.jwt_secret) > 16 else "***"
+        logger.info(f"🔑 Backend Service JWT configured: {secret_preview}")
         logger.info(f"JWT token expiry configured: {expire_minutes} minutes ({self.token_expiry})")
         logger.info(f"Redis session manager available: {self.redis_session_manager.is_available()}")
     

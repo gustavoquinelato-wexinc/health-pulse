@@ -114,21 +114,78 @@ class ColorSchemaManager:
             logger.warning(f"⚠️ Color schema fetch failed ({self.failure_count}/{self.max_failures})")
     
     async def fetch_from_backend(self, auth_token: str) -> Optional[Dict[str, Any]]:
-        """Fetch color schema from backend service"""
+        """Fetch color schema from backend service with enhanced color support"""
         settings = get_settings()
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
+                # Try user-specific colors first (includes accessibility preferences)
+                user_response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/user/colors",
+                    headers={"Authorization": f"Bearer {auth_token}"}
+                )
+
+                if user_response.status_code == 200:
+                    user_data = user_response.json()
+                    if user_data.get("success"):
+                        colors = user_data.get("colors", {})
+                        user_prefs = user_data.get("user_preferences", {})
+
+                        # Get theme mode
+                        theme_response = await client.get(
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
+                            headers={"Authorization": f"Bearer {auth_token}"}
+                        )
+
+                        theme_mode = 'light'  # default
+                        if theme_response.status_code == 200:
+                            theme_data = theme_response.json()
+                            if theme_data.get('success'):
+                                theme_mode = theme_data.get('mode', 'light')
+
+                        # Transform user colors to expected format
+                        return {
+                            "success": True,
+                            "mode": colors.get("resolved_mode", "custom"),
+                            "colors": {
+                                "color1": colors.get("color1"),
+                                "color2": colors.get("color2"),
+                                "color3": colors.get("color3"),
+                                "color4": colors.get("color4"),
+                                "color5": colors.get("color5")
+                            },
+                            "on_colors": {
+                                "color1": colors.get("on_color1"),
+                                "color2": colors.get("on_color2"),
+                                "color3": colors.get("on_color3"),
+                                "color4": colors.get("on_color4"),
+                                "color5": colors.get("on_color5")
+                            },
+                            "on_gradients": {
+                                "1-2": colors.get("on_gradient_1_2"),
+                                "2-3": colors.get("on_gradient_2_3"),
+                                "3-4": colors.get("on_gradient_3_4"),
+                                "4-5": colors.get("on_gradient_4_5"),
+                                "5-1": colors.get("on_gradient_5_1")
+                            },
+                            "theme": theme_mode,
+                            "enhanced": True,
+                            "user_preferences": user_prefs,
+                            "source": "user_specific_colors"
+                        }
+
+                # Fallback to admin color schema
+                logger.debug("User colors not available, falling back to admin color schema")
                 response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
                     headers={"Authorization": f"Bearer {auth_token}"}
                 )
-                
+
                 if response.status_code == 200:
                     data = response.json()
 
                     if data.get("success"):
-                        # Also get user-specific theme mode
+                        # Get theme mode
                         theme_response = await client.get(
                             f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                             headers={"Authorization": f"Bearer {auth_token}"}
@@ -145,12 +202,16 @@ class ColorSchemaManager:
                             "success": True,
                             "mode": data.get("mode", "default"),
                             "colors": data.get("colors", {}),
-                            "theme": theme_mode
+                            "on_colors": data.get("on_colors", {}),
+                            "on_gradients": data.get("on_gradients", {}),
+                            "theme": theme_mode,
+                            "enhanced": data.get("enhanced_data") is not None,
+                            "source": "admin_color_schema"
                         }
-                
+
                 logger.warning(f"Backend returned non-success response: {response.status_code}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Failed to fetch color schema from backend: {e}")
             return None

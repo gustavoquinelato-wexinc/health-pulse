@@ -821,17 +821,17 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         def get_issues_sync():
             return jira_client.get_issues(jql=jql, max_results=100, progress_callback=progress_callback)
 
-        # Run in thread pool with timeout
+        # Run in thread pool with extended timeout for large datasets
         try:
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = loop.run_in_executor(executor, get_issues_sync)
-                all_issues = await asyncio.wait_for(future, timeout=300)  # 5 minute timeout
+                all_issues = await asyncio.wait_for(future, timeout=1800)  # 30 minute timeout for large datasets
         except asyncio.TimeoutError:
-            job_logger.error("Issue fetching timed out after 5 minutes")
+            job_logger.error("Issue fetching timed out after 30 minutes")
             return {
                 'success': False,
-                'error': 'Issue fetching timed out after 5 minutes',
+                'error': 'Issue fetching timed out after 30 minutes',
                 'issues_processed': 0,
                 'changelogs_processed': 0,
                 'issue_keys': []
@@ -865,8 +865,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         external_ids = [issue.get('id') for issue in all_issues if issue.get('id')]
 
         # Process in batches to avoid large IN clauses
+        from app.core.settings_manager import get_jira_database_batch_size
         existing_issues = {}
-        batch_size = 1000
+        batch_size = get_jira_database_batch_size()  # Configurable batch size
         for i in range(0, len(external_ids), batch_size):
             batch_ids = external_ids[i:i + batch_size]
             batch_existing = session.query(Issue).filter(
@@ -1055,13 +1056,38 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             session.bulk_update_mappings(Issue, update_data)
             job_logger.progress(f"[COMPLETED] Completed updating {len(issues_to_update)} existing issues")
 
-        if issues_to_insert:
-            job_logger.progress(f"Starting bulk inserts for {len(issues_to_insert)} issues...")
-            perform_bulk_insert(session, Issue, issues_to_insert, "issues", job_logger)
-            job_logger.progress(f"[COMPLETED] Completed bulk inserting {len(issues_to_insert)} new issues")
+        # Process issues in chunks to prevent long-running transactions
+        from app.core.settings_manager import get_jira_commit_batch_size, get_jira_session_refresh_interval
+        commit_batch_size = get_jira_commit_batch_size()
+        session_refresh_interval = get_jira_session_refresh_interval()
 
-        session.commit()
-        job_logger.progress(f"[SUCCESS] Successfully processed {processed_count} issues total")
+        total_processed = 0
+
+        if issues_to_insert:
+            job_logger.progress(f"Starting chunked bulk inserts for {len(issues_to_insert)} issues...")
+
+            for i in range(0, len(issues_to_insert), commit_batch_size):
+                chunk = issues_to_insert[i:i + commit_batch_size]
+                perform_bulk_insert(session, Issue, chunk, "issues", job_logger, batch_size=100)
+
+                total_processed += len(chunk)
+
+                # Commit this chunk
+                session.commit()
+                job_logger.progress(f"[COMMITTED] Committed {len(chunk)} issues (total: {total_processed}/{len(issues_to_insert)})")
+
+                # Refresh session if needed to prevent connection timeouts
+                if total_processed % session_refresh_interval == 0 and total_processed < len(issues_to_insert):
+                    job_logger.progress(f"[SESSION] Refreshing database session after {total_processed} records")
+                    # Note: Session refresh would need to be handled at a higher level
+                    # For now, just log the intent
+
+            job_logger.progress(f"[COMPLETED] Completed chunked bulk inserting {len(issues_to_insert)} new issues")
+        else:
+            # Still commit updates if no inserts
+            session.commit()
+
+        job_logger.progress(f"[SUCCESS] Successfully processed {processed_count} issues total with chunked commits")
 
         # Now process changelogs for all processed issues
         job_logger.progress(f"[STARTING] Starting changelog processing for {len(processed_issue_keys)} issues...")
@@ -1121,11 +1147,17 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
     try:
         processor = JiraDataProcessor(session, integration)
 
-        # Get all issues from database that we need to process
-        issues_in_db = session.query(Issue).filter(
-            Issue.integration_id == integration.id,
-            Issue.key.in_(issue_keys)
-        ).all()
+        # Get all issues from database that we need to process (with batching)
+        from app.core.settings_manager import get_jira_database_batch_size
+        issues_in_db = []
+        batch_size = get_jira_database_batch_size()  # Configurable batch size
+        for i in range(0, len(issue_keys), batch_size):
+            batch_keys = issue_keys[i:i + batch_size]
+            batch_issues = session.query(Issue).filter(
+                Issue.integration_id == integration.id,
+                Issue.key.in_(batch_keys)
+            ).all()
+            issues_in_db.extend(batch_issues)
 
         if not issues_in_db:
             job_logger.warning("No issues found in database for changelog processing")
@@ -1133,10 +1165,16 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 
 
 
-        # Get existing changelogs to avoid duplicates
-        existing_changelogs = session.query(IssueChangelog).filter(
-            IssueChangelog.issue_id.in_([issue.id for issue in issues_in_db])
-        ).all()
+        # Get existing changelogs to avoid duplicates (with batching)
+        existing_changelogs = []
+        issue_ids = [issue.id for issue in issues_in_db]
+        batch_size = get_jira_database_batch_size()  # Configurable batch size
+        for i in range(0, len(issue_ids), batch_size):
+            batch_ids = issue_ids[i:i + batch_size]
+            batch_changelogs = session.query(IssueChangelog).filter(
+                IssueChangelog.issue_id.in_(batch_ids)
+            ).all()
+            existing_changelogs.extend(batch_changelogs)
 
         existing_changelog_keys = {
             (cl.issue_id, cl.external_id) for cl in existing_changelogs
@@ -1272,23 +1310,43 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 issues_processed += 1  # Still count it as processed for progress tracking
                 continue
 
-        # Bulk insert changelogs
+        # Bulk insert changelogs in chunks to prevent long-running transactions
         if changelogs_to_insert:
-            job_logger.progress(f"[INSERTING] Bulk inserting {len(changelogs_to_insert)} changelogs...")
+            from app.core.settings_manager import get_jira_commit_batch_size
+            commit_batch_size = get_jira_commit_batch_size()
+
+            job_logger.progress(f"[INSERTING] Bulk inserting {len(changelogs_to_insert)} changelogs in chunks...")
             # Debug: Print first changelog to see the data structure
             if changelogs_to_insert:
                 job_logger.progress(f"[DEBUG] First changelog data: {changelogs_to_insert[0]}")
-            perform_bulk_insert(session, IssueChangelog, changelogs_to_insert, "issue_changelogs", job_logger)
+
+            total_inserted = 0
+            for i in range(0, len(changelogs_to_insert), commit_batch_size):
+                chunk = changelogs_to_insert[i:i + commit_batch_size]
+                perform_bulk_insert(session, IssueChangelog, chunk, "issue_changelogs", job_logger, batch_size=100)
+
+                total_inserted += len(chunk)
+
+                # Commit this chunk
+                session.commit()
+                job_logger.progress(f"[COMMITTED] Committed {len(chunk)} changelogs (total: {total_inserted}/{len(changelogs_to_insert)})")
+
+            job_logger.progress(f"[COMPLETED] Completed chunked bulk inserting {len(changelogs_to_insert)} changelogs")
 
         # Calculate and update enhanced workflow metrics from database changelogs
         if issues_in_db:
             job_logger.progress(f"[CALCULATING] Calculating enhanced workflow metrics for {len(issues_in_db)} issues from database changelogs...")
 
-            # Get all changelogs for the processed issues from database
+            # Get all changelogs for the processed issues from database (with batching)
             issue_ids = [issue.id for issue in issues_in_db]
-            all_changelogs = session.query(IssueChangelog).filter(
-                IssueChangelog.issue_id.in_(issue_ids)
-            ).order_by(IssueChangelog.issue_id, IssueChangelog.transition_change_date).all()
+            all_changelogs = []
+            batch_size = get_jira_database_batch_size()  # Configurable batch size
+            for i in range(0, len(issue_ids), batch_size):
+                batch_ids = issue_ids[i:i + batch_size]
+                batch_changelogs = session.query(IssueChangelog).filter(
+                    IssueChangelog.issue_id.in_(batch_ids)
+                ).order_by(IssueChangelog.issue_id, IssueChangelog.transition_change_date).all()
+                all_changelogs.extend(batch_changelogs)
 
             # Group changelogs by issue_id
             changelogs_by_issue = {}

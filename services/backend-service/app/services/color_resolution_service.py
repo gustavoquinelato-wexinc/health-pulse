@@ -1,0 +1,384 @@
+"""
+Color Resolution Service
+Main service for resolving colors based on client, user preferences, and accessibility needs
+"""
+import logging
+from typing import Dict, Any, Optional, Tuple
+from sqlalchemy.orm import Session
+from sqlalchemy import and_
+
+from app.models.unified_models import (
+    ClientColorSettings, ClientAccessibilityColors, User, Client
+)
+from app.core.database import get_database
+from .color_calculation_service import ColorCalculationService
+from .color_cache_service import ColorCacheService
+
+logger = logging.getLogger(__name__)
+
+class ColorResolutionService:
+    """
+    Main service for resolving colors based on client settings, user preferences, and accessibility needs.
+    Integrates with caching and calculation services for optimal performance.
+    """
+    
+    def __init__(self):
+        self.calculation_service = ColorCalculationService()
+        self.cache_service = ColorCacheService()
+        self.logger = logging.getLogger(__name__)
+    
+    def get_client_colors(self, client_id: int, mode: str = 'custom', 
+                         db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get client color settings with caching.
+        
+        Args:
+            client_id: Client ID
+            mode: Color schema mode ('default' or 'custom')
+            db: Database session (optional)
+            
+        Returns:
+            Dictionary with color settings or None if not found
+        """
+        try:
+            # Try cache first
+            cached_colors = self.cache_service.get_client_colors(client_id, mode)
+            if cached_colors:
+                return cached_colors
+            
+            # Get from database
+            if not db:
+                database = get_database()
+                db = database.get_read_session()
+            
+            color_settings = db.query(ClientColorSettings).filter(
+                and_(
+                    ClientColorSettings.client_id == client_id,
+                    ClientColorSettings.color_schema_mode == mode,
+                    ClientColorSettings.active == True
+                )
+            ).first()
+            
+            if not color_settings:
+                self.logger.warning(f"No color settings found for client {client_id}, mode {mode}")
+                return None
+            
+            # Convert to dictionary
+            color_data = {
+                'id': color_settings.id,
+                'color_schema_mode': color_settings.color_schema_mode,
+                'font_contrast_threshold': color_settings.font_contrast_threshold,
+                'colors_defined_in_mode': color_settings.colors_defined_in_mode,
+                
+                # Base colors
+                'color1': color_settings.color1,
+                'color2': color_settings.color2,
+                'color3': color_settings.color3,
+                'color4': color_settings.color4,
+                'color5': color_settings.color5,
+                
+                # On colors
+                'on_color1': color_settings.on_color1,
+                'on_color2': color_settings.on_color2,
+                'on_color3': color_settings.on_color3,
+                'on_color4': color_settings.on_color4,
+                'on_color5': color_settings.on_color5,
+                
+                # Gradient colors
+                'on_gradient_1_2': color_settings.on_gradient_1_2,
+                'on_gradient_2_3': color_settings.on_gradient_2_3,
+                'on_gradient_3_4': color_settings.on_gradient_3_4,
+                'on_gradient_4_5': color_settings.on_gradient_4_5,
+                'on_gradient_5_1': color_settings.on_gradient_5_1,
+                
+                # Adaptive colors
+                'adaptive_color1': color_settings.adaptive_color1,
+                'adaptive_color2': color_settings.adaptive_color2,
+                'adaptive_color3': color_settings.adaptive_color3,
+                'adaptive_color4': color_settings.adaptive_color4,
+                'adaptive_color5': color_settings.adaptive_color5,
+                
+                # Metadata
+                'client_id': color_settings.client_id,
+                'created_at': color_settings.created_at.isoformat() if color_settings.created_at else None,
+                'last_updated_at': color_settings.last_updated_at.isoformat() if color_settings.last_updated_at else None
+            }
+            
+            # Cache the result
+            self.cache_service.set_client_colors(client_id, mode, color_data)
+            
+            return color_data
+            
+        except Exception as e:
+            self.logger.error(f"Error getting client colors: {e}")
+            return None
+    
+    def get_accessibility_colors(self, client_id: int, mode: str = 'custom', 
+                               level: str = 'AA', db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get accessibility color variants with caching.
+        
+        Args:
+            client_id: Client ID
+            mode: Color schema mode
+            level: Accessibility level ('AA' or 'AAA')
+            db: Database session (optional)
+            
+        Returns:
+            Dictionary with accessibility color settings or None if not found
+        """
+        try:
+            # Try cache first
+            cached_colors = self.cache_service.get_accessibility_colors(client_id, mode, level)
+            if cached_colors:
+                return cached_colors
+            
+            # Get from database
+            if not db:
+                database = get_database()
+                db = database.get_read_session()
+            
+            accessibility_colors = db.query(ClientAccessibilityColors).filter(
+                and_(
+                    ClientAccessibilityColors.client_id == client_id,
+                    ClientAccessibilityColors.color_schema_mode == mode,
+                    ClientAccessibilityColors.accessibility_level == level,
+                    ClientAccessibilityColors.active == True
+                )
+            ).first()
+            
+            if not accessibility_colors:
+                self.logger.warning(f"No accessibility colors found for client {client_id}, mode {mode}, level {level}")
+                return None
+            
+            # Convert to dictionary
+            color_data = {
+                'id': accessibility_colors.id,
+                'color_schema_mode': accessibility_colors.color_schema_mode,
+                'accessibility_level': accessibility_colors.accessibility_level,
+                'contrast_ratio_normal': accessibility_colors.contrast_ratio_normal,
+                'contrast_ratio_large': accessibility_colors.contrast_ratio_large,
+                'high_contrast_mode': accessibility_colors.high_contrast_mode,
+                'reduce_motion': accessibility_colors.reduce_motion,
+                'colorblind_safe_palette': accessibility_colors.colorblind_safe_palette,
+                
+                # Base colors (accessibility-enhanced)
+                'color1': accessibility_colors.color1,
+                'color2': accessibility_colors.color2,
+                'color3': accessibility_colors.color3,
+                'color4': accessibility_colors.color4,
+                'color5': accessibility_colors.color5,
+                
+                # On colors
+                'on_color1': accessibility_colors.on_color1,
+                'on_color2': accessibility_colors.on_color2,
+                'on_color3': accessibility_colors.on_color3,
+                'on_color4': accessibility_colors.on_color4,
+                'on_color5': accessibility_colors.on_color5,
+                
+                # Gradient colors
+                'on_gradient_1_2': accessibility_colors.on_gradient_1_2,
+                'on_gradient_2_3': accessibility_colors.on_gradient_2_3,
+                'on_gradient_3_4': accessibility_colors.on_gradient_3_4,
+                'on_gradient_4_5': accessibility_colors.on_gradient_4_5,
+                'on_gradient_5_1': accessibility_colors.on_gradient_5_1,
+                
+                # Adaptive colors
+                'adaptive_color1': accessibility_colors.adaptive_color1,
+                'adaptive_color2': accessibility_colors.adaptive_color2,
+                'adaptive_color3': accessibility_colors.adaptive_color3,
+                'adaptive_color4': accessibility_colors.adaptive_color4,
+                'adaptive_color5': accessibility_colors.adaptive_color5,
+                
+                # Metadata
+                'client_id': accessibility_colors.client_id,
+                'created_at': accessibility_colors.created_at.isoformat() if accessibility_colors.created_at else None,
+                'last_updated_at': accessibility_colors.last_updated_at.isoformat() if accessibility_colors.last_updated_at else None
+            }
+            
+            # Cache the result
+            self.cache_service.set_accessibility_colors(client_id, mode, level, color_data)
+            
+            return color_data
+            
+        except Exception as e:
+            self.logger.error(f"Error getting accessibility colors: {e}")
+            return None
+    
+    def resolve_user_colors(self, user_id: int, client_id: int, 
+                           db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
+        """
+        Resolve colors for a specific user considering their preferences.
+        
+        Args:
+            user_id: User ID
+            client_id: Client ID
+            db: Database session (optional)
+            
+        Returns:
+            Dictionary with resolved color settings for the user
+        """
+        try:
+            # Try cache first
+            cached_colors = self.cache_service.get_user_colors(user_id, client_id)
+            if cached_colors:
+                return cached_colors
+            
+            # Get user preferences
+            if not db:
+                database = get_database()
+                db = database.get_read_session()
+            
+            user = db.query(User).filter(
+                and_(User.id == user_id, User.active == True)
+            ).first()
+            
+            if not user:
+                self.logger.warning(f"User {user_id} not found")
+                return None
+            
+            # Determine color mode and accessibility level
+            mode = 'custom'  # Default to custom mode
+            accessibility_level = 'AAA' if user.use_accessible_colors else 'AA'
+            
+            # Get appropriate colors based on user preference
+            if user.use_accessible_colors:
+                color_data = self.get_accessibility_colors(client_id, mode, accessibility_level, db)
+            else:
+                color_data = self.get_client_colors(client_id, mode, db)
+            
+            if not color_data:
+                # Fallback to default mode if custom not found
+                if user.use_accessible_colors:
+                    color_data = self.get_accessibility_colors(client_id, 'default', accessibility_level, db)
+                else:
+                    color_data = self.get_client_colors(client_id, 'default', db)
+            
+            if color_data:
+                # Add user-specific metadata
+                color_data['resolved_for_user'] = user_id
+                color_data['user_accessibility_enabled'] = user.use_accessible_colors
+                color_data['resolved_accessibility_level'] = accessibility_level
+                color_data['resolved_mode'] = color_data.get('color_schema_mode', mode)
+                
+                # Cache the result
+                self.cache_service.set_user_colors(user_id, client_id, color_data)
+            
+            return color_data
+            
+        except Exception as e:
+            self.logger.error(f"Error resolving user colors: {e}")
+            return None
+    
+    def update_client_colors(self, client_id: int, mode: str, color_updates: Dict[str, Any],
+                           db: Optional[Session] = None, colors_defined_in_mode: str = 'light') -> bool:
+        """
+        Update client color settings and recalculate variants.
+
+        Args:
+            client_id: Client ID
+            mode: Color schema mode
+            color_updates: Dictionary with color updates
+            db: Database session (optional)
+            colors_defined_in_mode: Mode colors are defined for ('light' or 'dark')
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        try:
+            if not db:
+                database = get_database()
+                db = database.get_write_session()
+            
+            # Get existing color settings
+            color_settings = db.query(ClientColorSettings).filter(
+                and_(
+                    ClientColorSettings.client_id == client_id,
+                    ClientColorSettings.color_schema_mode == mode,
+                    ClientColorSettings.active == True
+                )
+            ).first()
+            
+            if not color_settings:
+                self.logger.error(f"Color settings not found for client {client_id}, mode {mode}")
+                return False
+            
+            # Update base colors if provided
+            base_colors = {}
+            for i in range(1, 6):
+                color_key = f'color{i}'
+                if color_key in color_updates:
+                    setattr(color_settings, color_key, color_updates[color_key])
+                    base_colors[color_key] = color_updates[color_key]
+                else:
+                    base_colors[color_key] = getattr(color_settings, color_key)
+            
+            # Update settings if provided
+            if 'font_contrast_threshold' in color_updates:
+                color_settings.font_contrast_threshold = color_updates['font_contrast_threshold']
+
+            # Update colors_defined_in_mode from parameter or color_updates
+            if 'colors_defined_in_mode' in color_updates:
+                color_settings.colors_defined_in_mode = color_updates['colors_defined_in_mode']
+            else:
+                color_settings.colors_defined_in_mode = colors_defined_in_mode
+            
+            # Recalculate variants
+            variants = self.calculation_service.calculate_all_variants(
+                base_colors,
+                color_settings.colors_defined_in_mode,
+                color_settings.font_contrast_threshold
+            )
+            
+            # Update calculated variants
+            for key, value in variants.on_colors.items():
+                setattr(color_settings, key, value)
+            for key, value in variants.gradient_colors.items():
+                setattr(color_settings, key, value)
+            for key, value in variants.adaptive_colors.items():
+                setattr(color_settings, key, value)
+            
+            # Update timestamp
+            from datetime import datetime
+            color_settings.last_updated_at = datetime.now()
+            
+            # Commit changes
+            db.commit()
+            
+            # Invalidate cache
+            self.cache_service.invalidate_client_colors(client_id)
+            
+            self.logger.info(f"Updated color settings for client {client_id}, mode {mode}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error updating client colors: {e}")
+            if db:
+                db.rollback()
+            return False
+    
+    def invalidate_caches(self, client_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+        """
+        Invalidate color caches.
+        
+        Args:
+            client_id: Client ID to invalidate (optional)
+            user_id: User ID to invalidate (optional)
+            
+        Returns:
+            True if invalidated successfully, False otherwise
+        """
+        try:
+            success = True
+            
+            if client_id:
+                success &= self.cache_service.invalidate_client_colors(client_id)
+            
+            if user_id:
+                success &= self.cache_service.invalidate_user_colors(user_id)
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error invalidating caches: {e}")
+            return False

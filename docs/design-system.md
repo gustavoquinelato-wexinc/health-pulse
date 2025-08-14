@@ -1,72 +1,312 @@
-# Pulse Platform Design System: Color Strategy
+# Pulse Platform Design System
 
-This document defines the platform-wide color strategy, tokens, and behaviors across Frontend and ETL services.
+This document defines the comprehensive design system for the Pulse Platform, focusing on color management, accessibility, and user experience consistency across all services.
 
-## Goals
-- Centralize brand colors in the database for per-client flexibility (default_color1..5, custom_color1..5)
-- Provide contrast-aware “on” colors for text/icons: on-color-*, on-gradient-*
-- Avoid hardcoded colors in UI code; use CSS variables
-- Guarantee WCAG-compliant contrast without visual flash
+## Overview
+
+The Pulse Platform Design System provides a unified approach to visual design, color management, and accessibility across Frontend, Backend, and ETL services. It ensures consistent branding, optimal user experience, and WCAG compliance for all clients.
+
+### Key Features
+
+- **🎨 Multi-tenant Color Management**: Client-specific color schemes with default and custom modes
+- **♿ Accessibility Compliance**: WCAG AA/AAA support with user-specific preferences
+- **⚡ Real-time Updates**: Instant color synchronization across all services
+- **🚀 Performance Optimized**: Redis caching and smart color calculations
+- **🔧 Developer-Friendly**: CSS variables, TypeScript interfaces, and comprehensive APIs
+
+## Color System Architecture
+
+### Database Schema
+
+The color system uses a modern database architecture with proper relationships:
+
+```sql
+-- Main color settings table
+client_color_settings (
+    id, client_id, color_schema_mode,
+    color1..color5,                    -- Base colors
+    on_color1..on_color5,             -- Text colors for base colors
+    on_gradient_1_2..on_gradient_5_1, -- Text colors for gradients
+    adaptive_color1..adaptive_color5   -- Theme-adaptive variants
+)
+
+-- Accessibility variants table
+client_accessibility_colors (
+    id, client_id, color_settings_id,
+    accessibility_level,               -- 'AA' or 'AAA'
+    contrast_ratio_normal,            -- 4.5 (AA) or 7.0 (AAA)
+    [same color columns as main table]
+)
+
+-- User preferences table
+user_color_preferences (
+    user_id, use_accessible_colors,
+    theme_mode, accessibility_level
+)
+```
+
+### Color Modes
+
+**Default Mode**: Professional color palette maintained by the platform team
+- Optimized for business use and accessibility
+- Automatically updated with platform releases
+- Consistent across all clients
+
+**Custom Mode**: Client-specific brand colors
+- Fully customizable 5-color palette
+- Reflects organization's brand identity
+- Persists across platform updates
+- Includes automatic accessibility calculations
+
+### Color Palette Structure
+
+The 5-color palette serves specific purposes:
+
+1. **Color 1**: Primary brand color (headers, buttons, primary actions)
+2. **Color 2**: Secondary color (navigation, sidebars, secondary elements)
+3. **Color 3**: Success/positive actions (confirmations, success states)
+4. **Color 4**: Information/neutral actions (info messages, secondary buttons)
+5. **Color 5**: Warning/attention (alerts, important notices, highlights)
 
 ## Token Model
-- Base colors (per mode):
-  - default_color1..5 (DB)
-  - custom_color1..5 (DB)
-- Derived tokens (computed):
-  - default_on_color1..5 (DB)
-  - default_on_gradient_1-2..4-5 (DB)
-  - custom_on_color1..5 (DB)
-  - custom_on_gradient_1-2..4-5 (DB)
 
-Frontend/ETL map the active mode to CSS variables:
-- --color-1..--color-5
-- --on-color-1..--on-color-5
-- --on-gradient-1-2, --on-gradient-2-3, --on-gradient-3-4, --on-gradient-4-5
+### Base Colors (Database Stored)
+- `color1..color5` - Core brand colors
+- `on_color1..on_color5` - Text colors for solid backgrounds
+- `on_gradient_1_2..on_gradient_5_1` - Text colors for gradient backgrounds
+- `adaptive_color1..adaptive_color5` - Theme-adaptive color variants
 
-## Server-side computation (backend)
-- On palette save (custom mode): recompute custom_on_color* and custom_on_gradient_*-* using WCAG relative luminance.
-- On seed/install: compute default_on_color* and default_on_gradient_*-* based on default palette.
-- GET /api/v1/admin/color-schema returns: { mode, colors (active), default_colors, custom_colors, on_colors, on_gradients } filtered by client_id.
+### CSS Variables (Runtime Generated)
+```css
+:root {
+  /* Base colors */
+  --color-1: #2862EB;
+  --color-2: #763DED;
+  --color-3: #059669;
+  --color-4: #0EA5E9;
+  --color-5: #F59E0B;
+  
+  /* Text colors for solid backgrounds */
+  --on-color-1: #FFFFFF;
+  --on-color-2: #FFFFFF;
+  --on-color-3: #FFFFFF;
+  --on-color-4: #000000;
+  --on-color-5: #000000;
+  
+  /* Text colors for gradients */
+  --on-gradient-1-2: #FFFFFF;
+  --on-gradient-2-3: #FFFFFF;
+  --on-gradient-3-4: #000000;
+  --on-gradient-4-5: #000000;
+  --on-gradient-5-1: #000000;
+}
+```
 
-## Frontend behavior
-- ThemeContext sets CSS vars at runtime:
-  - --color-1..--color-5 from API colors
-  - --on-color-* and --on-gradient-* from API; fallback to luminance if missing
-- Minimal hardcoded colors exist only as first-paint fallback; overwritten once API data loads
-- Utility classes:
-  - .text-on-color-N, .text-on-gradient-X-Y
-  - Opacity variants: -80/-60 (or use CSS color-mix variables)
+## Accessibility System
 
-## ETL behavior
-- modern_layout injects script pre-paint to set --color-* and on-color variables using server-provided schema; falls back to luminance if missing
-- CSS uses tokens for gradient/colored surfaces
-- Error/legacy templates updated to avoid hardcoded white text on gradients
+### WCAG Compliance Levels
 
-## First-paint fallback strategy
-- Keep minimal static defaults in CSS to avoid unstyled content at T0
-- Frontend: index.html reads last palette from localStorage and applies quickly; ThemeContext then applies API values
-- ETL: server renders schema and sets CSS vars before paint
+**AA Compliance (Standard)**
+- Contrast ratio: 4.5:1 for normal text
+- Contrast ratio: 3:1 for large text
+- Default for all users
+- Meets most accessibility requirements
 
-## WCAG computation details
-- Relative luminance via sRGB linearization
-- Contrast ratio (L1+0.05)/(L2+0.05) vs black/white; choose the higher ratio for solids
-- For gradients, choose the text color maximizing the minimum contrast across both stops
+**AAA Compliance (Enhanced)**
+- Contrast ratio: 7:1 for normal text
+- Contrast ratio: 4.5:1 for large text
+- Available as user preference
+- Highest accessibility standard
 
-## Usage guidelines
-- Text over solid brand color N: color: var(--on-color-N)
-- Text over gradient a→b: color: var(--on-gradient-a-b)
-- Prefer tokens over hardcoded #fff/#000
-- For softer text on gradients, use provided mix vars or -80/-60 utilities
+### User Accessibility Preferences
 
-## Do’s and Don’ts
-- Do store and read all palettes from DB (system_settings)
-- Do compute and persist on-colors server-side
-- Do set CSS vars before paint to avoid flashes
-- Don’t hardcode text-white on brand backgrounds
-- Don’t duplicate color-mix inline; prefer shared vars/utilities
+Users can enable enhanced accessibility features:
+- **Enhanced Color Contrast**: Switches to AAA-compliant color variants
+- **Theme Preference**: Light, dark, or system-based themes
+- **Personal Settings**: Individual preferences that don't affect other users
 
-## Future enhancements
-- Add admin UI to edit default_color* with recompute of default_on_* tokens
-- Visual contrast preview in admin with WCAG ratios
-- Expand gradient pairs beyond 1-2..4-5 if needed by design
+### Automatic Color Calculations
 
+The system automatically calculates:
+- **Optimal text colors** using WCAG relative luminance
+- **Contrast ratios** meeting specified compliance levels
+- **Gradient text colors** optimized for multi-color backgrounds
+- **Theme-adaptive colors** for light/dark mode switching
+
+## API Integration
+
+### Admin Color Management
+
+```typescript
+// Get current color schema
+GET /api/v1/admin/color-schema
+Response: {
+  mode: 'custom' | 'default',
+  colors: { color1: '#FF5733', ... },
+  on_colors: { color1: '#FFFFFF', ... },
+  accessibility_variants: { ... }
+}
+
+// Update color schema
+POST /api/v1/admin/color-schema
+Body: { colors: { color1: '#FF5733', ... } }
+```
+
+### User Color Preferences
+
+```typescript
+// Get user-specific colors
+GET /api/v1/user/colors
+Response: {
+  colors: { ... },
+  user_preferences: {
+    use_accessible_colors: false,
+    theme_mode: 'light'
+  }
+}
+
+// Update accessibility preference
+POST /api/v1/user/accessibility-preference
+Body: { use_accessible_colors: true }
+```
+
+### Real-time Updates
+
+WebSocket events for instant color synchronization:
+
+```typescript
+// Color schema updated event
+{
+  type: 'color_schema_updated',
+  colors: { color1: '#FF5733', ... },
+  event_type: 'admin_update',
+  client_id: 1
+}
+```
+
+## Implementation Guidelines
+
+### Frontend Implementation
+
+**React Components**
+```tsx
+// Use CSS variables for colors
+const Button = ({ variant = 'primary' }) => (
+  <button 
+    className={`btn btn-${variant}`}
+    style={{
+      backgroundColor: `var(--color-${variant === 'primary' ? '1' : '2'})`,
+      color: `var(--on-color-${variant === 'primary' ? '1' : '2'})`
+    }}
+  >
+    Click me
+  </button>
+);
+```
+
+**CSS Classes**
+```css
+.btn-primary {
+  background-color: var(--color-1);
+  color: var(--on-color-1);
+}
+
+.gradient-header {
+  background: linear-gradient(135deg, var(--color-1), var(--color-2));
+  color: var(--on-gradient-1-2);
+}
+```
+
+### ETL Service Implementation
+
+**Template Integration**
+```html
+<!-- Color variables injected server-side -->
+<style>
+:root {
+  --color-1: {{ color_schema.color1 }};
+  --on-color-1: {{ color_schema.on_color1 }};
+  /* ... */
+}
+</style>
+```
+
+### Backend Service Implementation
+
+**Color Calculation Service**
+```python
+class ColorCalculationService:
+    def calculate_on_color(self, background_color: str) -> str:
+        """Calculate optimal text color for background"""
+        luminance = self.get_relative_luminance(background_color)
+        return '#FFFFFF' if luminance < 0.5 else '#000000'
+    
+    def calculate_contrast_ratio(self, color1: str, color2: str) -> float:
+        """Calculate WCAG contrast ratio between two colors"""
+        # Implementation details...
+```
+
+## Performance Optimization
+
+### Caching Strategy
+
+- **Client Colors**: 24-hour TTL (rarely change)
+- **User Colors**: 15-minute TTL (may change with preferences)
+- **Redis Keys**: Structured with client/user context
+- **Cache Invalidation**: Automatic on color updates
+
+### Loading Strategy
+
+1. **First Paint**: Static CSS fallbacks prevent flash
+2. **API Load**: Dynamic colors applied via CSS variables
+3. **WebSocket**: Real-time updates for color changes
+4. **Local Storage**: Cache last-used colors for faster loading
+
+## Best Practices
+
+### Do's
+- ✅ Use CSS variables for all color references
+- ✅ Store colors in database, not hardcoded
+- ✅ Test color combinations for accessibility
+- ✅ Provide user accessibility options
+- ✅ Use semantic color names (primary, secondary, etc.)
+- ✅ Implement proper caching strategies
+
+### Don'ts
+- ❌ Hardcode color values in components
+- ❌ Use colors that fail WCAG compliance
+- ❌ Ignore user accessibility preferences
+- ❌ Skip color contrast testing
+- ❌ Duplicate color logic across services
+- ❌ Forget to handle theme switching
+
+## Testing and Validation
+
+### Accessibility Testing
+- Automated contrast ratio validation
+- Screen reader compatibility testing
+- Color blindness simulation
+- WCAG compliance verification
+
+### Cross-browser Testing
+- CSS variable support validation
+- Color rendering consistency
+- Performance impact assessment
+- WebSocket functionality testing
+
+## Future Enhancements
+
+### Planned Features
+- **Advanced Color Picker**: Visual admin interface with live preview
+- **Color Analytics**: Usage tracking and optimization suggestions
+- **Extended Palette**: Support for additional color slots
+- **Brand Guidelines**: Automated brand compliance checking
+- **Color Themes**: Predefined color combinations for different industries
+
+### Accessibility Improvements
+- **High Contrast Mode**: System-level high contrast support
+- **Color Blind Support**: Enhanced color differentiation
+- **Motion Preferences**: Respect user motion sensitivity
+- **Font Size Integration**: Dynamic color adjustments based on font size
+
+This design system ensures consistent, accessible, and performant color management across the entire Pulse Platform while providing flexibility for client branding and user preferences.

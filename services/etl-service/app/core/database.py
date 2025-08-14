@@ -158,13 +158,14 @@ class PostgreSQLDatabase:
     def get_job_session_context(self) -> Generator[Session, None, None]:
         """
         Context manager for long-running job sessions with optimized settings.
-        Uses shorter timeouts and autocommit for better concurrency.
+        Uses extended timeouts for large data processing jobs.
         """
         session = self.get_write_session()
         try:
-            # Configure session for job execution
-            session.execute(text("SET statement_timeout = '30s'"))  # Prevent long-running queries
-            session.execute(text("SET idle_in_transaction_session_timeout = '60s'"))  # Prevent idle locks
+            # Configure session for long-running job execution
+            session.execute(text("SET statement_timeout = '30min'"))  # Extended timeout for large datasets
+            session.execute(text("SET idle_in_transaction_session_timeout = '10min'"))  # Extended idle timeout
+            session.execute(text("SET lock_timeout = '5min'"))  # Extended lock timeout
             yield session
             session.commit()
         except Exception as e:
