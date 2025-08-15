@@ -11,6 +11,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface TrendDataPoint {
   week?: string
@@ -191,6 +192,7 @@ export default function DoraTrendChart({
   forecastLoading: _forecastLoading,
   onForecastLoadingChange: _onForecastLoadingChange
 }: DoraTrendChartProps) {
+  const { theme } = useTheme()
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('6M')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -414,6 +416,12 @@ export default function DoraTrendChart({
       setForecastData([])
     }
   }, [forecastConfig?.enabled, forecastConfig?.model, forecastConfig?.duration])
+
+  // Force chart re-render when theme changes to update colors immediately
+  useEffect(() => {
+    // This effect ensures the chart updates its colors when theme changes
+    // The key prop on ComposedChart will force a complete re-render
+  }, [theme])
 
   // Determine which data to use - avoid mock data flash
   const allData = (() => {
@@ -1087,6 +1095,7 @@ export default function DoraTrendChart({
         <div className="w-full h-96 focus:outline-none relative" style={{ outline: 'none' }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
+              key={`chart-${selectedMetric}-${theme}`} // Force re-render on theme change
               data={formattedData}
               margin={{
                 top: 10,
@@ -1099,13 +1108,13 @@ export default function DoraTrendChart({
               {/* Gradient definitions */}
               <defs>
                 {/* Historical data gradient - theme-aware */}
-                <linearGradient id={`areaGradient-${selectedMetric}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={`areaGradient-${selectedMetric}-${theme}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={getChartSafeColor(config.color1.replace('var(', '').replace(')', ''), '#C8102E')} stopOpacity={0.8} />
                   <stop offset="30%" stopColor={getChartSafeColor(config.color1.replace('var(', '').replace(')', ''), '#C8102E')} stopOpacity={0.4} />
                   <stop offset="100%" stopColor={getChartSafeColor(config.color2.replace('var(', '').replace(')', ''), '#253746')} stopOpacity={0.1} />
                 </linearGradient>
                 {/* Forecast data gradient (different colors, more transparent) */}
-                <linearGradient id={`forecastGradient-${selectedMetric}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={`forecastGradient-${selectedMetric}-${theme}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={getComputedColor('--color-5', '#8B5CF6')} stopOpacity={0.6} />
                   <stop offset="95%" stopColor={getComputedColor('--color-5', '#8B5CF6')} stopOpacity={0.1} />
                 </linearGradient>
@@ -1205,7 +1214,7 @@ export default function DoraTrendChart({
                 type="monotone"
                 dataKey="historical_mean"
                 stroke="none"
-                fill={`url(#areaGradient-${selectedMetric})`}
+                fill={`url(#areaGradient-${selectedMetric}-${theme})`}
                 isAnimationActive={false}
                 activeDot={false}
                 connectNulls={false}
@@ -1216,7 +1225,7 @@ export default function DoraTrendChart({
                 type="monotone"
                 dataKey="forecast_mean"
                 stroke="none"
-                fill={`url(#forecastGradient-${selectedMetric})`}
+                fill={`url(#forecastGradient-${selectedMetric}-${theme})`}
                 isAnimationActive={false}
                 activeDot={false}
                 connectNulls={false}

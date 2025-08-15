@@ -1287,17 +1287,25 @@ async def get_unified_color_schema(
                 ).first()
                 color_mode = client.color_schema_mode if client else "default"
 
-            # Get all color data for this client and mode
+            # Get ALL color data for this client (all modes, themes, accessibility levels)
+            # This provides complete color data for client-side filtering and prevents flashing
             color_rows = session.query(ClientColorSettings).filter(
                 ClientColorSettings.client_id == user.client_id,
-                ClientColorSettings.color_schema_mode == color_mode,
                 ClientColorSettings.active == True
+            ).order_by(
+                ClientColorSettings.color_schema_mode,
+                ClientColorSettings.theme_mode,
+                ClientColorSettings.accessibility_level
             ).all()
+
+            if not color_rows:
+                logger.error(f"CRITICAL: No color rows found for client {user.client_id} - database integrity issue!")
 
             # Convert to array format expected by frontend
             color_data = []
             for row in color_rows:
                 color_data.append({
+                    'color_schema_mode': row.color_schema_mode,  # CRITICAL FIX: Include mode in each object
                     'theme_mode': row.theme_mode,
                     'accessibility_level': row.accessibility_level,
                     'color1': row.color1,

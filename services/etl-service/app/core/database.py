@@ -158,7 +158,7 @@ class PostgreSQLDatabase:
     def get_job_session_context(self) -> Generator[Session, None, None]:
         """
         Context manager for long-running job sessions with optimized settings.
-        Uses extended timeouts for large data processing jobs.
+        Uses extended timeouts for large data processing jobs with connection health monitoring.
         """
         session = self.get_write_session()
         try:
@@ -166,6 +166,12 @@ class PostgreSQLDatabase:
             session.execute(text("SET statement_timeout = '30min'"))  # Extended timeout for large datasets
             session.execute(text("SET idle_in_transaction_session_timeout = '10min'"))  # Extended idle timeout
             session.execute(text("SET lock_timeout = '5min'"))  # Extended lock timeout
+
+            # Enable TCP keepalive for this session to prevent connection drops
+            session.execute(text("SET tcp_keepalives_idle = '300'"))  # 5 minutes
+            session.execute(text("SET tcp_keepalives_interval = '30'"))  # 30 seconds
+            session.execute(text("SET tcp_keepalives_count = '3'"))  # 3 attempts
+
             yield session
             session.commit()
         except Exception as e:
@@ -174,6 +180,23 @@ class PostgreSQLDatabase:
             raise
         finally:
             session.close()
+
+    def test_connection_health(self, session: Session) -> bool:
+        """
+        Test if a database connection is healthy and responsive.
+
+        Args:
+            session: Database session to test
+
+        Returns:
+            True if connection is healthy, False otherwise
+        """
+        try:
+            session.execute(text("SELECT 1"))
+            return True
+        except Exception as e:
+            logger.warning(f"Connection health check failed: {e}")
+            return False
 
     @contextmanager
     def get_admin_session_context(self) -> Generator[Session, None, None]:

@@ -95,28 +95,34 @@ class ColorCalculationService:
             self.logger.error(f"Error picking on-color for {background_color}: {e}")
             return '#FFFFFF'  # Default to white for safety
     
-    def pick_gradient_on_color(self, color_a: str, color_b: str) -> str:
+    def pick_gradient_on_color(self, color_a: str, color_b: str, threshold: float = 0.5) -> str:
         """
-        Choose optimal text color for a gradient background.
-        
+        Choose optimal text color for a gradient background using average luminance method.
+
         Args:
             color_a: First gradient color
             color_b: Second gradient color
-            
+            threshold: Luminance threshold for color selection
+
         Returns:
             Optimal text color for the gradient
         """
         try:
-            on_a = self.pick_on_color(color_a)
-            on_b = self.pick_on_color(color_b)
-            
+            on_a = self.pick_on_color(color_a, threshold)
+            on_b = self.pick_on_color(color_b, threshold)
+
             # If both colors need the same text color, use it
             if on_a == on_b:
                 return on_a
-            
-            # If different, choose white as it's generally safer for gradients
-            return '#FFFFFF'
-            
+
+            # Use average luminance method for better gradient text color
+            luminance_a = self.calculate_luminance(color_a)
+            luminance_b = self.calculate_luminance(color_b)
+            average_luminance = (luminance_a + luminance_b) / 2
+
+            # Apply threshold to average luminance
+            return '#FFFFFF' if average_luminance < threshold else '#000000'
+
         except Exception as e:
             self.logger.error(f"Error picking gradient on-color: {e}")
             return '#FFFFFF'

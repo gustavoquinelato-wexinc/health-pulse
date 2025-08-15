@@ -121,6 +121,73 @@
             display: none !important;
         }
     </style>
+
+    <!-- Load colors from localStorage to prevent flashing -->
+    <script>
+        // Load colors from localStorage immediately to prevent flash
+        (function() {
+            try {
+                // Get theme and mode from localStorage
+                const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+                const savedColorSchemaMode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+
+                // Set theme attributes
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+
+                // Apply colors from complete color data if available
+                const completeColorData = localStorage.getItem('pulse_complete_color_data');
+                if (completeColorData) {
+                    try {
+                        const allColors = JSON.parse(completeColorData);
+                        const targetColors = allColors.find(function(c) {
+                            return c.color_schema_mode === savedColorSchemaMode &&
+                                   c.theme_mode === savedTheme &&
+                                   c.accessibility_level === 'regular';
+                        });
+
+                        if (targetColors) {
+                            const root = document.documentElement;
+                            root.style.setProperty('--color-1', targetColors.color1);
+                            root.style.setProperty('--color-2', targetColors.color2);
+                            root.style.setProperty('--color-3', targetColors.color3);
+                            root.style.setProperty('--color-4', targetColors.color4);
+                            root.style.setProperty('--color-5', targetColors.color5);
+
+                            // Set gradient variables
+                            root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${targetColors.color1} 0%, ${targetColors.color2} 100%)`);
+                            root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${targetColors.color2} 0%, ${targetColors.color3} 100%)`);
+                            root.style.setProperty('--gradient-3-4', `linear-gradient(135deg, ${targetColors.color3} 0%, ${targetColors.color4} 100%)`);
+                            root.style.setProperty('--gradient-4-5', `linear-gradient(135deg, ${targetColors.color4} 0%, ${targetColors.color5} 100%)`);
+                            root.style.setProperty('--gradient-5-1', `linear-gradient(135deg, ${targetColors.color5} 0%, ${targetColors.color1} 100%)`);
+
+                            // Apply on-colors if available
+                            if (targetColors.on_color1) {
+                                root.style.setProperty('--on-color-1', targetColors.on_color1);
+                                root.style.setProperty('--on-color-2', targetColors.on_color2);
+                                root.style.setProperty('--on-color-3', targetColors.on_color3);
+                                root.style.setProperty('--on-color-4', targetColors.on_color4);
+                                root.style.setProperty('--on-color-5', targetColors.on_color5);
+                            }
+
+                            // Apply gradient on-colors if available
+                            if (targetColors.on_gradient_1_2) {
+                                root.style.setProperty('--on-gradient-1-2', targetColors.on_gradient_1_2);
+                                root.style.setProperty('--on-gradient-2-3', targetColors.on_gradient_2_3);
+                                root.style.setProperty('--on-gradient-3-4', targetColors.on_gradient_3_4);
+                                root.style.setProperty('--on-gradient-4-5', targetColors.on_gradient_4_5);
+                                root.style.setProperty('--on-gradient-5-1', targetColors.on_gradient_5_1);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse complete color data from localStorage');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading color schema on login page:', error);
+            }
+        })();
+    </script>
 </head>
 
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">

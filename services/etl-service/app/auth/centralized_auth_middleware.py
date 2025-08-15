@@ -103,27 +103,64 @@ async def require_admin_authentication(
 async def require_web_authentication(request: Request) -> UserData:
     """
     Dependency for web pages that requires authentication.
-    Redirects to login if not authenticated.
+    Raises HTTPException if not authenticated (for API endpoints).
     """
     # Try to get token from cookie first, then Authorization header
     token = request.cookies.get("pulse_token")
-    
+
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
-    
+
+    if not token:
+        logger.debug("No authentication token found for API request")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    auth_service = get_centralized_auth_service()
+    user_data = await auth_service.verify_token(token)
+
+    if not user_data:
+        logger.debug("Invalid token for API request")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    logger.debug("Web user authenticated successfully via centralized auth")
+    return UserData(user_data)
+
+
+async def check_web_authentication(request: Request):
+    """
+    Check authentication for web pages and return appropriate response.
+    Returns UserData if authenticated, RedirectResponse if not.
+    Use this for web page routes that need to redirect to login.
+    """
+    # Try to get token from cookie first, then Authorization header
+    token = request.cookies.get("pulse_token")
+
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
     if not token:
         logger.debug("No authentication token found, redirecting to login")
         return RedirectResponse(url="/login?error=authentication_required", status_code=302)
-    
+
     auth_service = get_centralized_auth_service()
     user_data = await auth_service.verify_token(token)
-    
+
     if not user_data:
         logger.debug("Invalid token, redirecting to login")
         return RedirectResponse(url="/login?error=invalid_token", status_code=302)
-    
+
     logger.debug("Web user authenticated successfully via centralized auth")
     return UserData(user_data)
 

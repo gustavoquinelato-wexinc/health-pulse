@@ -22,8 +22,30 @@ from app.models.unified_models import (
 from .jira_client import JiraAPIClient
 from .jira_processor import JiraDataProcessor
 from .jira_bulk_operations import perform_bulk_insert
+from sqlalchemy import text
 
 logger = get_logger(__name__)
+
+
+def ensure_connection_health(session: Session, job_logger, operation_name: str = "database operation") -> bool:
+    """
+    Ensure database connection is healthy before performing operations.
+
+    Args:
+        session: Database session to check
+        job_logger: Logger for progress tracking
+        operation_name: Name of the operation for logging
+
+    Returns:
+        True if connection is healthy, False if there are issues
+    """
+    try:
+        # Test connection with a simple query
+        session.execute(text("SELECT 1"))
+        return True
+    except Exception as e:
+        job_logger.warning(f"[CONNECTION] Connection health check failed before {operation_name}: {e}")
+        return False
 
 
 def has_useful_dev_status_data(dev_details: Dict) -> bool:
@@ -836,6 +858,27 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                 'changelogs_processed': 0,
                 'issue_keys': []
             }
+
+        # CRITICAL FIX: Refresh database connection after long API operation
+        # The database connection may have become idle during the long Jira API fetch
+        job_logger.progress("[CONNECTION] Refreshing database connection after API fetch...")
+        try:
+            # Test the connection with a simple query
+            session.execute(text("SELECT 1"))
+            session.commit()
+            job_logger.progress("[CONNECTION] Database connection is active")
+        except Exception as conn_error:
+            job_logger.warning(f"[CONNECTION] Database connection issue detected: {conn_error}")
+            job_logger.progress("[CONNECTION] Attempting to refresh database session...")
+            # The session will be handled by the calling context manager
+            # We'll log the issue and let the retry mechanism handle it
+            return {
+                'success': False,
+                'error': f'Database connection lost after API fetch: {str(conn_error)}',
+                'issues_processed': 0,
+                'changelogs_processed': 0,
+                'issue_keys': []
+            }
         except Exception as e:
             job_logger.error(f"Error during async issue fetching: {e}")
             return {
@@ -868,15 +911,35 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         from app.core.settings_manager import get_jira_database_batch_size
         existing_issues = {}
         batch_size = get_jira_database_batch_size()  # Configurable batch size
+
+        job_logger.progress(f"[DATABASE] Querying existing issues in {len(external_ids)} records using batch size {batch_size}")
+
         for i in range(0, len(external_ids), batch_size):
             batch_ids = external_ids[i:i + batch_size]
-            batch_existing = session.query(Issue).filter(
-                Issue.integration_id == integration.id,
-                Issue.external_id.in_(batch_ids)
-            ).all()
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(external_ids) + batch_size - 1) // batch_size
 
-            for issue in batch_existing:
-                existing_issues[issue.external_id] = issue
+            # Add connection health check for every batch to prevent timeouts
+            try:
+                # Test connection health before each batch query
+                session.execute(text("SELECT 1"))
+
+                batch_existing = session.query(Issue).filter(
+                    Issue.integration_id == integration.id,
+                    Issue.external_id.in_(batch_ids)
+                ).all()
+
+                for issue in batch_existing:
+                    existing_issues[issue.external_id] = issue
+
+                # Log progress every 10 batches to reduce verbosity
+                if batch_num % 10 == 0 or batch_num == total_batches:
+                    job_logger.progress(f"[DATABASE] Processed batch {batch_num}/{total_batches} for existing issues lookup")
+
+            except Exception as batch_error:
+                job_logger.error(f"[DATABASE] Error in batch {batch_num}: {batch_error}")
+                # Re-raise to trigger retry mechanism
+                raise
 
         # Process issues
         issues_to_insert = []
@@ -1165,16 +1228,31 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 
 
 
-        # Get existing changelogs to avoid duplicates (with batching)
+        # Get existing changelogs to avoid duplicates (with batching and connection health checks)
         existing_changelogs = []
         issue_ids = [issue.id for issue in issues_in_db]
         batch_size = get_jira_database_batch_size()  # Configurable batch size
+
+        job_logger.progress(f"[DATABASE] Querying existing changelogs for {len(issue_ids)} issues using batch size {batch_size}")
+
         for i in range(0, len(issue_ids), batch_size):
             batch_ids = issue_ids[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(issue_ids) + batch_size - 1) // batch_size
+
+            # Ensure connection health before each batch
+            if not ensure_connection_health(session, job_logger, f"changelog batch {batch_num}"):
+                job_logger.error(f"[CONNECTION] Connection health check failed for changelog batch {batch_num}")
+                raise Exception(f"Database connection lost during changelog processing at batch {batch_num}")
+
             batch_changelogs = session.query(IssueChangelog).filter(
                 IssueChangelog.issue_id.in_(batch_ids)
             ).all()
             existing_changelogs.extend(batch_changelogs)
+
+            # Log progress every 10 batches
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                job_logger.progress(f"[DATABASE] Processed changelog batch {batch_num}/{total_batches}")
 
         existing_changelog_keys = {
             (cl.issue_id, cl.external_id) for cl in existing_changelogs
@@ -1337,16 +1415,31 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
         if issues_in_db:
             job_logger.progress(f"[CALCULATING] Calculating enhanced workflow metrics for {len(issues_in_db)} issues from database changelogs...")
 
-            # Get all changelogs for the processed issues from database (with batching)
+            # Get all changelogs for the processed issues from database (with batching and connection health)
             issue_ids = [issue.id for issue in issues_in_db]
             all_changelogs = []
             batch_size = get_jira_database_batch_size()  # Configurable batch size
+
+            job_logger.progress(f"[DATABASE] Fetching all changelogs for workflow metrics calculation using batch size {batch_size}")
+
             for i in range(0, len(issue_ids), batch_size):
                 batch_ids = issue_ids[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(issue_ids) + batch_size - 1) // batch_size
+
+                # Ensure connection health before each batch
+                if not ensure_connection_health(session, job_logger, f"workflow metrics batch {batch_num}"):
+                    job_logger.error(f"[CONNECTION] Connection health check failed for workflow metrics batch {batch_num}")
+                    raise Exception(f"Database connection lost during workflow metrics calculation at batch {batch_num}")
+
                 batch_changelogs = session.query(IssueChangelog).filter(
                     IssueChangelog.issue_id.in_(batch_ids)
                 ).order_by(IssueChangelog.issue_id, IssueChangelog.transition_change_date).all()
                 all_changelogs.extend(batch_changelogs)
+
+                # Log progress every 10 batches
+                if batch_num % 10 == 0 or batch_num == total_batches:
+                    job_logger.progress(f"[DATABASE] Processed workflow metrics batch {batch_num}/{total_batches}")
 
             # Group changelogs by issue_id
             changelogs_by_issue = {}

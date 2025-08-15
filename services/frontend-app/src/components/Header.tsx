@@ -134,16 +134,43 @@ export default function Header() {
     return '/wex-logo-image.png'
   }
 
-  // Simple ETL navigation function (subdomain cookies handle authentication)
+  // ETL navigation function with color data transfer
   const handleETLDirectNavigation = (openInNewTab = false) => {
     const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    if (openInNewTab) {
-      // Open in new tab
-      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
-    } else {
-      // Navigate in same page
-      window.location.href = `${ETL_SERVICE_URL}/home`
+    // Transfer color data to ETL service via URL parameters
+    try {
+      const completeColorData = localStorage.getItem('pulse_complete_color_data')
+      const theme = localStorage.getItem('pulse_theme') || 'light'
+      const mode = localStorage.getItem('pulse_color_schema_mode') || 'default'
+
+      let targetUrl = `${ETL_SERVICE_URL}/home`
+
+      // Add color data as URL parameters if available
+      if (completeColorData) {
+        const params = new URLSearchParams()
+        params.set('color_data', encodeURIComponent(completeColorData))
+        params.set('theme', theme)
+        params.set('mode', mode)
+        targetUrl += `?${params.toString()}`
+      }
+
+      if (openInNewTab) {
+        // Open in new tab
+        window.open(targetUrl, '_blank')
+      } else {
+        // Navigate in same page
+        window.location.href = targetUrl
+      }
+    } catch (error) {
+      console.warn('Failed to transfer color data to ETL, using basic navigation:', error)
+      // Fallback to basic navigation
+      const basicUrl = `${ETL_SERVICE_URL}/home`
+      if (openInNewTab) {
+        window.open(basicUrl, '_blank')
+      } else {
+        window.location.href = basicUrl
+      }
     }
   }
 
@@ -460,7 +487,16 @@ export default function Header() {
               <hr className="border-default" />
               <button
                 onClick={logout}
-                className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors flex items-center space-x-2 nav-item"
+                className="w-full text-left px-3 py-2 text-sm rounded-md transition-colors flex items-center space-x-2 nav-item"
+                style={{
+                  color: 'var(--status-error)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                }}
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign Out</span>

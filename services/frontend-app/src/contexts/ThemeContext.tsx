@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import { colorDataService } from '../services/colorDataService'
 import clientLogger from '../utils/clientLogger'
+import { getCachedColorSchemaMode, saveColorSchemaMode as saveColorSchemaModeAPI } from '../utils/colorSchemaService'
 import { useAuth } from './AuthContext'
 
 type Theme = 'light' | 'dark'
@@ -70,6 +72,15 @@ const getCurrentActiveColors = (
   theme: Theme
 ): ColorSchema => {
   return theme === 'light' ? unifiedData.light : unifiedData.dark
+}
+
+// Helper function to get colors from the new color data service
+const getColorsFromService = (
+  mode: ColorSchemaMode,
+  theme: Theme,
+  accessibility: AccessibilityLevel = 'regular'
+): ColorSchema | null => {
+  return colorDataService.getColors(mode, theme, accessibility)
 }
 
 // API functions for color schema persistence
@@ -156,9 +167,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
 
     return savedTheme
   })
-  const [colorSchemaMode, setColorSchemaMode] = useState<ColorSchemaMode>(() => (localStorage.getItem('pulse_color_schema_mode') as ColorSchemaMode) || 'default')
+  const [colorSchemaMode, setColorSchemaMode] = useState<ColorSchemaMode>(() => {
+    // Use centralized service for cached mode, with single fallback
+    return getCachedColorSchemaMode() || 'default'
+  })
   const [accessibilityLevel, setAccessibilityLevel] = useState<AccessibilityLevel>(() => (localStorage.getItem('pulse_accessibility_level') as AccessibilityLevel) || 'regular')
   const [unifiedColorData, setUnifiedColorData] = useState<UnifiedColorData | null>(null)
+
+
 
   // Function to apply colors to CSS variables with force override
   const applyCSSVariables = (colors: ColorSchema, forceOverride = false) => {
@@ -167,11 +183,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     // Use !important for force override to ensure it overrides index.html styles
     const priority = forceOverride ? 'important' : ''
 
+
+
     root.style.setProperty('--color-1', colors.color1, priority)
     root.style.setProperty('--color-2', colors.color2, priority)
     root.style.setProperty('--color-3', colors.color3, priority)
     root.style.setProperty('--color-4', colors.color4, priority)
     root.style.setProperty('--color-5', colors.color5, priority)
+
 
     // Calculate and apply on-colors
     const calculateOnColor = (hex: string) => {
@@ -201,23 +220,29 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }
 
   const [colorSchemaState, setColorSchemaState] = useState<ColorSchema>(() => {
-    // Try to load cached colors first to prevent flash
+    // Try to load colors from new complete color data service
     try {
-      const cached = localStorage.getItem('pulse_colors')
-      if (cached) {
-        const parsedColors = JSON.parse(cached)
-        return parsedColors
+      const currentMode = getCachedColorSchemaMode() || 'default'
+      const currentTheme = theme
+
+      // Only try to load from service if it has data (user is logged in)
+      if (colorDataService.hasData()) {
+        const colors = colorDataService.getColors(currentMode, currentTheme, 'regular')
+        if (colors) {
+          return colors
+        }
       }
     } catch (error) {
-      console.warn('Failed to load cached colors:', error)
+      console.warn('Failed to load colors from color data service:', error)
     }
 
-    // Fallback to default colors based on current theme
+    // Fallback to default colors based on current theme (for login page, etc.)
     return theme === 'light' ? defaultLightColorSchema : defaultDarkColorSchema
   })
 
   // Custom setColorSchema that also updates CSS variables
   const setColorSchema = (colors: ColorSchema, forceOverride = false) => {
+
     setColorSchemaState(colors)
     applyCSSVariables(colors, forceOverride)
   }
@@ -245,8 +270,13 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (isLoading) return
     if (!user || !user.colorSchemaData) return
 
-    // Apply mode
+    // Apply mode and sync to localStorage to prevent race conditions
     setColorSchemaMode(user.colorSchemaData.mode)
+    try {
+      localStorage.setItem('pulse_color_schema_mode', user.colorSchemaData.mode)
+    } catch (error) {
+      console.warn('ThemeContext: Failed to sync color schema mode to localStorage:', error)
+    }
 
     // Load unified color data from the new structure
     const anyData: any = user.colorSchemaData as any
@@ -259,8 +289,17 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         theme
       )
 
+
+
       // Simply set the colors from database - no mismatch detection needed
       setColorSchema(currentColors)
+
+      // Cache unified colors for preloading to prevent flash on next visit
+      try {
+        localStorage.setItem('pulse_unified_colors', JSON.stringify(anyData.unified_colors))
+      } catch (error) {
+        console.warn('Failed to cache unified colors:', error)
+      }
     } else {
       // No unified colors found - fallback to default colors to prevent crashes
       const fallbackColors = theme === 'light' ? defaultLightColorSchema : defaultDarkColorSchema
@@ -273,8 +312,16 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (unifiedColorData) {
       const currentColors = getCurrentActiveColors(unifiedColorData, theme)
       setColorSchema(currentColors)
+    } else if (colorDataService.hasData()) {
+      // Fallback to color data service if unified data not available and service has data
+      const currentMode = colorSchemaMode
+      const colors = getColorsFromService(currentMode, theme, accessibilityLevel)
+      if (colors) {
+        setColorSchema(colors)
+      }
     }
-  }, [theme, unifiedColorData])
+    // If no data available, keep current colors (fallback to defaults from initialization)
+  }, [theme, unifiedColorData, colorSchemaMode, accessibilityLevel])
 
   // Theme is now loaded during authentication in AuthContext
   // This effect is only for manual theme changes or edge cases
@@ -415,11 +462,35 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     root.style.setProperty('--on-color-4', on4)
     root.style.setProperty('--on-color-5', on5)
 
-    // Gradient on-colors (pairs 1-2, 2-3, 3-4, 4-5)
+    // Gradient on-colors (pairs 1-2, 2-3, 3-4, 4-5) using average luminance method
     const pairOn = (a: string, b: string) => {
       const onA = pickOn(a), onB = pickOn(b)
-      // If both suggest the same color, use it; else prefer white
-      return onA === onB ? onA : '#FFFFFF'
+
+      // If both suggest the same color, use it
+      if (onA === onB) {
+        return onA
+      }
+
+      // Use average luminance method for better gradient text color
+      try {
+        const getLuminance = (hex: string): number => {
+          const h = hex.replace('#', '')
+          const r = parseInt(h.slice(0, 2), 16) / 255
+          const g = parseInt(h.slice(2, 4), 16) / 255
+          const b = parseInt(h.slice(4, 6), 16) / 255
+          const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+          return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        }
+
+        const luminanceA = getLuminance(a)
+        const luminanceB = getLuminance(b)
+        const averageLuminance = (luminanceA + luminanceB) / 2
+
+        // Use 0.5 threshold on average luminance
+        return averageLuminance < 0.5 ? '#FFFFFF' : '#000000'
+      } catch {
+        return '#FFFFFF' // Fallback to white for safety
+      }
     }
 
     root.style.setProperty('--on-gradient-1-2', pairOn(activeColors.color1, activeColors.color2))
@@ -448,7 +519,14 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (unifiedColorData) {
       const newColors = getCurrentActiveColors(unifiedColorData, newTheme)
       setColorSchema(newColors)
+    } else if (colorDataService.hasData()) {
+      // Fallback to color data service if it has data
+      const colors = getColorsFromService(colorSchemaMode, newTheme, accessibilityLevel)
+      if (colors) {
+        setColorSchema(colors)
+      }
     }
+    // If no data available, keep current colors
 
     // Save to API
     try {
@@ -492,21 +570,34 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }
 
   const saveColorSchemaMode = async (mode: ColorSchemaMode): Promise<boolean> => {
-    const success = await saveColorSchemaModeToAPI(mode)
+    // Use centralized service for saving
+    const success = await saveColorSchemaModeAPI(mode)
     if (success) {
       setColorSchemaMode(mode)
-      localStorage.setItem('pulse_color_schema_mode', mode)
-      // Refresh from server to apply correct colors for the selected mode
+      // Note: localStorage sync is handled by the centralized service
+
+      // Refresh colors from server to apply correct colors for the selected mode
       try {
-        const res = await axios.get('/api/v1/admin/color-schema')
-        if (res.data?.success) {
-          setColorSchemaMode(res.data.mode)
-          setColorSchema(res.data.colors)
-          const colorDataWithTimestamp = { ...res.data.colors, _timestamp: Date.now() }
-          localStorage.setItem('pulse_colors', JSON.stringify(colorDataWithTimestamp))
+        const res = await axios.get('/api/v1/admin/color-schema/unified')
+        if (res.data?.success && res.data.unified_colors) {
+          setUnifiedColorData(res.data.unified_colors)
+          const currentColors = getCurrentActiveColors(res.data.unified_colors, theme)
+          setColorSchema(currentColors)
         }
       } catch (e) {
         console.warn('Failed to refresh color schema after mode change', e)
+      }
+
+      // Notify ETL service about the mode change so it can update its cache
+      try {
+        const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
+        await axios.post(`${ETL_SERVICE_URL}/api/v1/internal/color-schema-mode-changed`, {
+          client_id: 1, // TODO: Get actual client ID
+          mode: mode
+        })
+        console.log('🎨 Notified ETL service about color schema mode change:', mode)
+      } catch (e) {
+        console.warn('Failed to notify ETL service about mode change:', e)
       }
     }
     return success

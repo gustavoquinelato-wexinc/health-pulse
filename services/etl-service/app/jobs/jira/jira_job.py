@@ -745,8 +745,8 @@ async def run_jira_sync_optimized(
     logger.info(f"🚀 Starting optimized Jira sync (ID: {job_schedule_id})")
 
     try:
-        # Use the original function but with better session management
-        with database.get_session() as session:
+        # Use job session context for long-running operations with extended timeouts
+        with database.get_job_session_context() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
@@ -755,7 +755,7 @@ async def run_jira_sync_optimized(
             # Add periodic yielding to prevent blocking
             await asyncio.sleep(0)
 
-            # Use the original function
+            # Use the original function with improved session management
             result = await run_jira_sync(
                 session, job_schedule,
                 execution_mode=execution_mode,

@@ -186,16 +186,43 @@ export default function CollapsedSidebar() {
     navigate(path)
   }
 
-  // Simple ETL navigation function (subdomain cookies handle authentication)
+  // ETL navigation function with color data transfer
   const handleETLDirectNavigation = (openInNewTab = false) => {
     const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    if (openInNewTab) {
-      // Open in new tab
-      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
-    } else {
-      // Navigate in same page
-      window.location.href = `${ETL_SERVICE_URL}/home`
+    // Transfer color data to ETL service via URL parameters
+    try {
+      const completeColorData = localStorage.getItem('pulse_complete_color_data')
+      const theme = localStorage.getItem('pulse_theme') || 'light'
+      const mode = localStorage.getItem('pulse_color_schema_mode') || 'default'
+
+      let targetUrl = `${ETL_SERVICE_URL}/home`
+
+      // Add color data as URL parameters if available
+      if (completeColorData) {
+        const params = new URLSearchParams()
+        params.set('color_data', encodeURIComponent(completeColorData))
+        params.set('theme', theme)
+        params.set('mode', mode)
+        targetUrl += `?${params.toString()}`
+      }
+
+      if (openInNewTab) {
+        // Open in new tab
+        window.open(targetUrl, '_blank')
+      } else {
+        // Navigate in same page
+        window.location.href = targetUrl
+      }
+    } catch (error) {
+      console.warn('Failed to transfer color data to ETL, using basic navigation:', error)
+      // Fallback to basic navigation
+      const basicUrl = `${ETL_SERVICE_URL}/home`
+      if (openInNewTab) {
+        window.open(basicUrl, '_blank')
+      } else {
+        window.location.href = basicUrl
+      }
     }
   }
 

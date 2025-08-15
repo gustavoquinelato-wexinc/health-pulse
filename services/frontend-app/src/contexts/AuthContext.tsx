@@ -1,8 +1,10 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import { colorDataService, type ColorData } from '../services/colorDataService'
 import notificationService from '../services/notificationService'
 import websocketService from '../services/websocketService'
 import clientLogger from '../utils/clientLogger'
+import { getColorSchemaMode } from '../utils/colorSchemaService'
 
 // Axios configuration is handled below - no duplicate configuration needed
 
@@ -80,16 +82,85 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [sessionCheckInterval, setSessionCheckInterval] = useState<number | null>(null)
 
-  // Load color schema from API (client-specific, no global caching)
+  // Load complete color data from API and cache it
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
     try {
       const response = await axios.get('/api/v1/admin/color-schema/unified')
 
       if (response.data.success && response.data.color_data) {
-        // Convert unified API response to ColorSchemaData format
-        const colorData = response.data.color_data
-        const lightRegular = colorData.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'regular')
-        const darkRegular = colorData.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'regular')
+        const colorData: ColorData[] = response.data.color_data
+
+        // Cache complete color data for instant access
+        colorDataService.saveToCache(colorData)
+
+        // Get current theme from localStorage/database
+        const colorSchemaMode = await getColorSchemaMode()
+
+        // Get current theme (will be used by ThemeContext)
+        const currentTheme = localStorage.getItem('pulse_theme') || 'light'
+
+        // CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+        const lightRegular = colorData.find((c: any) =>
+          c.theme_mode === 'light' &&
+          c.accessibility_level === 'regular' &&
+          c.color_schema_mode === colorSchemaMode
+        )
+        const darkRegular = colorData.find((c: any) =>
+          c.theme_mode === 'dark' &&
+          c.accessibility_level === 'regular' &&
+          c.color_schema_mode === colorSchemaMode
+        )
+
+
+
+        // If custom colors not found, fallback to default colors
+        if (!lightRegular || !darkRegular) {
+          const lightDefault = colorData.find((c: any) =>
+            c.theme_mode === 'light' &&
+            c.accessibility_level === 'regular' &&
+            c.color_schema_mode === 'default'
+          )
+          const darkDefault = colorData.find((c: any) =>
+            c.theme_mode === 'dark' &&
+            c.accessibility_level === 'regular' &&
+            c.color_schema_mode === 'default'
+          )
+
+          if (lightDefault && darkDefault) {
+            return {
+              mode: 'default', // Override mode to match actual colors used
+              colors: {
+                color1: lightDefault.color1,
+                color2: lightDefault.color2,
+                color3: lightDefault.color3,
+                color4: lightDefault.color4,
+                color5: lightDefault.color5
+              },
+              unified_colors: {
+                light: {
+                  color1: lightDefault.color1,
+                  color2: lightDefault.color2,
+                  color3: lightDefault.color3,
+                  color4: lightDefault.color4,
+                  color5: lightDefault.color5
+                },
+                dark: {
+                  color1: darkDefault.color1,
+                  color2: darkDefault.color2,
+                  color3: darkDefault.color3,
+                  color4: darkDefault.color4,
+                  color5: darkDefault.color5
+                }
+              },
+              enhanced_data: {
+                cache_info: {
+                  cached: false,
+                  source: 'unified_api_fallback'
+                }
+              }
+            } as ColorSchemaData
+          }
+        }
 
         if (lightRegular && darkRegular) {
           // Convert array format to structured format expected by ThemeContext
@@ -110,8 +181,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             }
           }
 
+
+
           return {
-            mode: response.data.color_schema_mode,
+            mode: colorSchemaMode, // Use centralized mode (no fallback needed here)
             colors: unifiedColors.light, // Default to light for legacy compatibility
             unified_colors: unifiedColors,
             enhanced_data: {
@@ -131,58 +204,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Load user-specific colors based on accessibility preference
   const loadUserColors = async (): Promise<ColorSchemaData | null> => {
+    // IMPORTANT: The /api/v1/user/colors endpoint only returns single-theme colors
+    // For proper light/dark theme support, we should use the unified API instead
+    // This function is kept for backward compatibility but should delegate to loadColorSchema
+    return await loadColorSchema()
+  }
+
+  // Original loadUserColors implementation (commented out for reference)
+  /*
+  const loadUserColors_ORIGINAL = async (): Promise<ColorSchemaData | null> => {
     try {
       const response = await axios.get('/api/v1/user/colors')
-
       if (response.data.success) {
         const userColors = response.data.colors
-
-        // Transform user colors to ColorSchemaData format
-        return {
-          mode: userColors.resolved_mode || userColors.color_schema_mode || 'custom',
-          colors: {
-            color1: userColors.color1,
-            color2: userColors.color2,
-            color3: userColors.color3,
-            color4: userColors.color4,
-            color5: userColors.color5
-          },
-          on_colors: {
-            color1: userColors.on_color1,
-            color2: userColors.on_color2,
-            color3: userColors.on_color3,
-            color4: userColors.on_color4,
-            color5: userColors.on_color5
-          },
-          on_gradients: {
-            '1-2': userColors.on_gradient_1_2,
-            '2-3': userColors.on_gradient_2_3,
-            '3-4': userColors.on_gradient_3_4,
-            '4-5': userColors.on_gradient_4_5,
-            '5-1': userColors.on_gradient_5_1
-          },
-          enhanced_data: {
-            font_contrast_threshold: userColors.font_contrast_threshold,
-            colors_defined_in_mode: userColors.colors_defined_in_mode,
-            adaptive_colors: {
-              color1: userColors.adaptive_color1,
-              color2: userColors.adaptive_color2,
-              color3: userColors.adaptive_color3,
-              color4: userColors.adaptive_color4,
-              color5: userColors.adaptive_color5
-            },
-            cache_info: {
-              cached: true,
-              source: 'user_specific_resolution'
-            }
-          }
-        } as ColorSchemaData
+        // ... original implementation
       }
     } catch (error: any) {
       console.error('AuthContext: Failed to load user colors:', error)
     }
     return null
   }
+  */
 
   // Start periodic session validation
   const startSessionValidation = () => {
@@ -331,7 +373,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       }
     }
- 
+   
     window.addEventListener('focus', handleWindowFocus)
     return () => {
       window.removeEventListener('focus', handleWindowFocus)
@@ -405,44 +447,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
               setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
               console.log('✅ Colors loaded:', colorSchemaData.enhanced_data?.cache_info?.source || 'legacy')
             } else {
-              // Final fallback: Set default color schema if all APIs fail
-              const defaultColors = {
-                color1: '#2862EB',
-                color2: '#763DED',
-                color3: '#059669',
-                color4: '#0EA5E9',
-                color5: '#F59E0B'
-              }
-              const fallbackColorSchema: ColorSchemaData = {
-                mode: 'default',
-                colors: defaultColors,
-                unified_colors: {
-                  light: defaultColors,
-                  dark: defaultColors
-                }
-              }
-              setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-              console.warn('⚠️ Using fallback colors - API unavailable')
+              // No fallback here - let the centralized service handle it
+              console.warn('⚠️ No color schema data available from APIs')
             }
           } catch (error) {
             console.error('❌ Error loading colors:', error)
-            // Set fallback colors even on error
-            const defaultColors = {
-              color1: '#2862EB',
-              color2: '#763DED',
-              color3: '#059669',
-              color4: '#0EA5E9',
-              color5: '#F59E0B'
-            }
-            const fallbackColorSchema: ColorSchemaData = {
-              mode: 'default',
-              colors: defaultColors,
-              unified_colors: {
-                light: defaultColors,
-                dark: defaultColors
-              }
-            }
-            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+            // No fallback here - let the centralized service handle it
           }
         }
 
@@ -510,42 +520,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
           } else {
-            // Fallback: Set default color schema if API fails
-            const defaultColors = {
-              color1: '#2862EB',  // Default Blue
-              color2: '#763DED',  // Default Purple
-              color3: '#059669',  // Default Green
-              color4: '#0EA5E9',  // Default Light Blue
-              color5: '#F59E0B'   // Default Orange
-            }
-            const fallbackColorSchema: ColorSchemaData = {
-              mode: 'default',
-              colors: defaultColors,
-              unified_colors: {
-                light: defaultColors,
-                dark: defaultColors
-              }
-            }
-            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+            // No fallback here - let the centralized service handle it
+            console.warn('No color schema data available from loadColorSchema')
           }
         }).catch(error => {
-          // Set fallback colors even on error
-          const defaultColors = {
-            color1: '#2862EB',
-            color2: '#763DED',
-            color3: '#059669',
-            color4: '#0EA5E9',
-            color5: '#F59E0B'
-          }
-          const fallbackColorSchema: ColorSchemaData = {
-            mode: 'default',
-            colors: defaultColors,
-            unified_colors: {
-              light: defaultColors,
-              dark: defaultColors
-            }
-          }
-          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+          // No fallback here - let the centralized service handle it
+          console.error('Error loading color schema:', error)
         })
       } else {
         // Invalid response format, clear token
@@ -605,21 +585,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           colorSchemaData = await loadColorSchema()
         }
         if (!colorSchemaData) {
-          const defaultColors = {
-            color1: '#2862EB',  // Default Blue
-            color2: '#763DED',  // Default Purple
-            color3: '#059669',  // Default Green
-            color4: '#0EA5E9',  // Default Light Blue
-            color5: '#F59E0B'   // Default Orange
-          }
-          colorSchemaData = {
-            mode: 'default',
-            colors: defaultColors,
-            unified_colors: {
-              light: defaultColors,
-              dark: defaultColors
-            }
-          }
+          // No fallback here - let the centralized service handle it
+          console.warn('No color schema data available during login')
         }
 
         // Format user data to match frontend interface (with color schema)

@@ -2,6 +2,8 @@ import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
+import { colorDataService } from '../services/colorDataService'
+import { getColorSchemaMode } from '../utils/colorSchemaService'
 
 export default function ColorSchemaPanel() {
   const { theme, setColorSchemaMode, updateColorSchema } = useTheme()
@@ -45,7 +47,9 @@ export default function ColorSchemaPanel() {
       try {
         setIsLoading(true)
 
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified`, {
+        // Get current mode from localStorage to load correct colors
+        const currentMode = localStorage.getItem('pulse_color_schema_mode') || 'default'
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified?mode=${currentMode}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -57,20 +61,46 @@ export default function ColorSchemaPanel() {
           const json = await response.json()
 
           if (json?.success) {
-            // Set mode
-            const mode = json.color_schema_mode || 'default'
+            // Use centralized service to get mode (handles fallbacks and localStorage sync)
+            const mode = await getColorSchemaMode()
             setTempColorSchemaMode(mode)
             setDatabaseMode(mode)
             setColorSchemaMode(mode)
 
-            // Process unified color data
-            if (json.color_data && Array.isArray(json.color_data)) {
-              const lightRegular = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'regular')
-              const darkRegular = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'regular')
-              const lightAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AA')
-              const darkAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AA')
-              const lightAAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AAA')
-              const darkAAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
+            // Load colors from localStorage complete color data directly
+            const completeColorData = localStorage.getItem('pulse_complete_color_data')
+            let lightRegular: any = null
+            let darkRegular: any = null
+            let lightAA: any = null
+            let darkAA: any = null
+            let lightAAA: any = null
+            let darkAAA: any = null
+
+            if (completeColorData) {
+              try {
+                const allColors = JSON.parse(completeColorData)
+                lightRegular = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'light' && c.accessibility_level === 'regular')
+                darkRegular = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'dark' && c.accessibility_level === 'regular')
+                lightAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'light' && c.accessibility_level === 'AA')
+                darkAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'dark' && c.accessibility_level === 'AA')
+                lightAAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'light' && c.accessibility_level === 'AAA')
+                darkAAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
+
+                console.log('🎨 ColorSchemaPanel loading colors for mode:', mode, {
+                  lightRegular: !!lightRegular,
+                  darkRegular: !!darkRegular,
+                  lightAA: !!lightAA,
+                  darkAA: !!darkAA,
+                  lightAAA: !!lightAAA,
+                  darkAAA: !!darkAAA
+                })
+              } catch (e) {
+                console.warn('Failed to parse complete color data:', e)
+              }
+            }
+
+            // Process color data (now from localStorage instead of API)
+            if (lightRegular && darkRegular) {
 
               if (lightRegular) {
                 const light = {
@@ -80,11 +110,11 @@ export default function ColorSchemaPanel() {
                 setLightColors(light)
                 setDatabaseLightColors(light)
                 setLightVariants({
-                  on_color1: lightRegular.on_color1, on_color2: lightRegular.on_color2, on_color3: lightRegular.on_color3,
-                  on_color4: lightRegular.on_color4, on_color5: lightRegular.on_color5,
-                  on_gradient_1_2: lightRegular.on_gradient_1_2, on_gradient_2_3: lightRegular.on_gradient_2_3,
-                  on_gradient_3_4: lightRegular.on_gradient_3_4, on_gradient_4_5: lightRegular.on_gradient_4_5,
-                  on_gradient_5_1: lightRegular.on_gradient_5_1
+                  on_color1: (lightRegular as any).on_color1, on_color2: (lightRegular as any).on_color2, on_color3: (lightRegular as any).on_color3,
+                  on_color4: (lightRegular as any).on_color4, on_color5: (lightRegular as any).on_color5,
+                  on_gradient_1_2: (lightRegular as any).on_gradient_1_2, on_gradient_2_3: (lightRegular as any).on_gradient_2_3,
+                  on_gradient_3_4: (lightRegular as any).on_gradient_3_4, on_gradient_4_5: (lightRegular as any).on_gradient_4_5,
+                  on_gradient_5_1: (lightRegular as any).on_gradient_5_1
                 })
               }
 
@@ -96,53 +126,53 @@ export default function ColorSchemaPanel() {
                 setDarkColors(dark)
                 setDatabaseDarkColors(dark)
                 setDarkVariants({
-                  on_color1: darkRegular.on_color1, on_color2: darkRegular.on_color2, on_color3: darkRegular.on_color3,
-                  on_color4: darkRegular.on_color4, on_color5: darkRegular.on_color5,
-                  on_gradient_1_2: darkRegular.on_gradient_1_2, on_gradient_2_3: darkRegular.on_gradient_2_3,
-                  on_gradient_3_4: darkRegular.on_gradient_3_4, on_gradient_4_5: darkRegular.on_gradient_4_5,
-                  on_gradient_5_1: darkRegular.on_gradient_5_1
+                  on_color1: (darkRegular as any).on_color1, on_color2: (darkRegular as any).on_color2, on_color3: (darkRegular as any).on_color3,
+                  on_color4: (darkRegular as any).on_color4, on_color5: (darkRegular as any).on_color5,
+                  on_gradient_1_2: (darkRegular as any).on_gradient_1_2, on_gradient_2_3: (darkRegular as any).on_gradient_2_3,
+                  on_gradient_3_4: (darkRegular as any).on_gradient_3_4, on_gradient_4_5: (darkRegular as any).on_gradient_4_5,
+                  on_gradient_5_1: (darkRegular as any).on_gradient_5_1
                 })
               }
 
               // Load AA accessibility level variants
               if (lightAA) {
                 setLightVariantsAA({
-                  on_color1: lightAA.on_color1, on_color2: lightAA.on_color2, on_color3: lightAA.on_color3,
-                  on_color4: lightAA.on_color4, on_color5: lightAA.on_color5,
-                  on_gradient_1_2: lightAA.on_gradient_1_2, on_gradient_2_3: lightAA.on_gradient_2_3,
-                  on_gradient_3_4: lightAA.on_gradient_3_4, on_gradient_4_5: lightAA.on_gradient_4_5,
-                  on_gradient_5_1: lightAA.on_gradient_5_1
+                  on_color1: (lightAA as any).on_color1, on_color2: (lightAA as any).on_color2, on_color3: (lightAA as any).on_color3,
+                  on_color4: (lightAA as any).on_color4, on_color5: (lightAA as any).on_color5,
+                  on_gradient_1_2: (lightAA as any).on_gradient_1_2, on_gradient_2_3: (lightAA as any).on_gradient_2_3,
+                  on_gradient_3_4: (lightAA as any).on_gradient_3_4, on_gradient_4_5: (lightAA as any).on_gradient_4_5,
+                  on_gradient_5_1: (lightAA as any).on_gradient_5_1
                 })
               }
 
               if (darkAA) {
                 setDarkVariantsAA({
-                  on_color1: darkAA.on_color1, on_color2: darkAA.on_color2, on_color3: darkAA.on_color3,
-                  on_color4: darkAA.on_color4, on_color5: darkAA.on_color5,
-                  on_gradient_1_2: darkAA.on_gradient_1_2, on_gradient_2_3: darkAA.on_gradient_2_3,
-                  on_gradient_3_4: darkAA.on_gradient_3_4, on_gradient_4_5: darkAA.on_gradient_4_5,
-                  on_gradient_5_1: darkAA.on_gradient_5_1
+                  on_color1: (darkAA as any).on_color1, on_color2: (darkAA as any).on_color2, on_color3: (darkAA as any).on_color3,
+                  on_color4: (darkAA as any).on_color4, on_color5: (darkAA as any).on_color5,
+                  on_gradient_1_2: (darkAA as any).on_gradient_1_2, on_gradient_2_3: (darkAA as any).on_gradient_2_3,
+                  on_gradient_3_4: (darkAA as any).on_gradient_3_4, on_gradient_4_5: (darkAA as any).on_gradient_4_5,
+                  on_gradient_5_1: (darkAA as any).on_gradient_5_1
                 })
               }
 
               // Load AAA accessibility level variants
               if (lightAAA) {
                 setLightVariantsAAA({
-                  on_color1: lightAAA.on_color1, on_color2: lightAAA.on_color2, on_color3: lightAAA.on_color3,
-                  on_color4: lightAAA.on_color4, on_color5: lightAAA.on_color5,
-                  on_gradient_1_2: lightAAA.on_gradient_1_2, on_gradient_2_3: lightAAA.on_gradient_2_3,
-                  on_gradient_3_4: lightAAA.on_gradient_3_4, on_gradient_4_5: lightAAA.on_gradient_4_5,
-                  on_gradient_5_1: lightAAA.on_gradient_5_1
+                  on_color1: (lightAAA as any).on_color1, on_color2: (lightAAA as any).on_color2, on_color3: (lightAAA as any).on_color3,
+                  on_color4: (lightAAA as any).on_color4, on_color5: (lightAAA as any).on_color5,
+                  on_gradient_1_2: (lightAAA as any).on_gradient_1_2, on_gradient_2_3: (lightAAA as any).on_gradient_2_3,
+                  on_gradient_3_4: (lightAAA as any).on_gradient_3_4, on_gradient_4_5: (lightAAA as any).on_gradient_4_5,
+                  on_gradient_5_1: (lightAAA as any).on_gradient_5_1
                 })
               }
 
               if (darkAAA) {
                 setDarkVariantsAAA({
-                  on_color1: darkAAA.on_color1, on_color2: darkAAA.on_color2, on_color3: darkAAA.on_color3,
-                  on_color4: darkAAA.on_color4, on_color5: darkAAA.on_color5,
-                  on_gradient_1_2: darkAAA.on_gradient_1_2, on_gradient_2_3: darkAAA.on_gradient_2_3,
-                  on_gradient_3_4: darkAAA.on_gradient_3_4, on_gradient_4_5: darkAAA.on_gradient_4_5,
-                  on_gradient_5_1: darkAAA.on_gradient_5_1
+                  on_color1: (darkAAA as any).on_color1, on_color2: (darkAAA as any).on_color2, on_color3: (darkAAA as any).on_color3,
+                  on_color4: (darkAAA as any).on_color4, on_color5: (darkAAA as any).on_color5,
+                  on_gradient_1_2: (darkAAA as any).on_gradient_1_2, on_gradient_2_3: (darkAAA as any).on_gradient_2_3,
+                  on_gradient_3_4: (darkAAA as any).on_gradient_3_4, on_gradient_4_5: (darkAAA as any).on_gradient_4_5,
+                  on_gradient_5_1: (darkAAA as any).on_gradient_5_1
                 })
               }
 
@@ -196,105 +226,106 @@ export default function ColorSchemaPanel() {
 
     // Don't update ThemeContext during mode change - let UI elements stay with database colors
 
-    // Load colors for the selected mode in the background
+    // Load colors for the selected mode from localStorage (complete color data)
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified?mode=${mode}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
-        }
-      })
+      // Get all color combinations for the selected mode from localStorage
+      const lightRegular = colorDataService.getColors(mode, 'light', 'regular')
+      const darkRegular = colorDataService.getColors(mode, 'dark', 'regular')
+      const lightAA = colorDataService.getColors(mode, 'light', 'AA')
+      const darkAA = colorDataService.getColors(mode, 'dark', 'AA')
+      const lightAAA = colorDataService.getColors(mode, 'light', 'AAA')
+      const darkAAA = colorDataService.getColors(mode, 'dark', 'AAA')
 
-      if (response.ok) {
-        const json = await response.json()
+      if (lightRegular && darkRegular) {
 
-        if (json?.success && json.color_data && Array.isArray(json.color_data)) {
-          const lightRegular = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'regular')
-          const darkRegular = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'regular')
-          const lightAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AA')
-          const darkAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AA')
-          const lightAAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AAA')
-          const darkAAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
-
-          if (lightRegular) {
-            const light = {
-              color1: lightRegular.color1, color2: lightRegular.color2, color3: lightRegular.color3,
-              color4: lightRegular.color4, color5: lightRegular.color5
-            }
-            setLightColors(light)
-            setLightVariants({
-              on_color1: lightRegular.on_color1, on_color2: lightRegular.on_color2, on_color3: lightRegular.on_color3,
-              on_color4: lightRegular.on_color4, on_color5: lightRegular.on_color5,
-              on_gradient_1_2: lightRegular.on_gradient_1_2, on_gradient_2_3: lightRegular.on_gradient_2_3,
-              on_gradient_3_4: lightRegular.on_gradient_3_4, on_gradient_4_5: lightRegular.on_gradient_4_5,
-              on_gradient_5_1: lightRegular.on_gradient_5_1
-            })
+        if (lightRegular) {
+          const light = {
+            color1: lightRegular.color1, color2: lightRegular.color2, color3: lightRegular.color3,
+            color4: lightRegular.color4, color5: lightRegular.color5
           }
-
-          if (darkRegular) {
-            const dark = {
-              color1: darkRegular.color1, color2: darkRegular.color2, color3: darkRegular.color3,
-              color4: darkRegular.color4, color5: darkRegular.color5
-            }
-            setDarkColors(dark)
-            setDarkVariants({
-              on_color1: darkRegular.on_color1, on_color2: darkRegular.on_color2, on_color3: darkRegular.on_color3,
-              on_color4: darkRegular.on_color4, on_color5: darkRegular.on_color5,
-              on_gradient_1_2: darkRegular.on_gradient_1_2, on_gradient_2_3: darkRegular.on_gradient_2_3,
-              on_gradient_3_4: darkRegular.on_gradient_3_4, on_gradient_4_5: darkRegular.on_gradient_4_5,
-              on_gradient_5_1: darkRegular.on_gradient_5_1
-            })
-          }
-
-          // Don't update ThemeContext during background loading - let UI elements stay with database colors
-
-          // Load AA accessibility level variants
-          if (lightAA) {
-            setLightVariantsAA({
-              on_color1: lightAA.on_color1, on_color2: lightAA.on_color2, on_color3: lightAA.on_color3,
-              on_color4: lightAA.on_color4, on_color5: lightAA.on_color5,
-              on_gradient_1_2: lightAA.on_gradient_1_2, on_gradient_2_3: lightAA.on_gradient_2_3,
-              on_gradient_3_4: lightAA.on_gradient_3_4, on_gradient_4_5: lightAA.on_gradient_4_5,
-              on_gradient_5_1: lightAA.on_gradient_5_1
-            })
-          }
-
-          if (darkAA) {
-            setDarkVariantsAA({
-              on_color1: darkAA.on_color1, on_color2: darkAA.on_color2, on_color3: darkAA.on_color3,
-              on_color4: darkAA.on_color4, on_color5: darkAA.on_color5,
-              on_gradient_1_2: darkAA.on_gradient_1_2, on_gradient_2_3: darkAA.on_gradient_2_3,
-              on_gradient_3_4: darkAA.on_gradient_3_4, on_gradient_4_5: darkAA.on_gradient_4_5,
-              on_gradient_5_1: darkAA.on_gradient_5_1
-            })
-          }
-
-          // Load AAA accessibility level variants
-          if (lightAAA) {
-            setLightVariantsAAA({
-              on_color1: lightAAA.on_color1, on_color2: lightAAA.on_color2, on_color3: lightAAA.on_color3,
-              on_color4: lightAAA.on_color4, on_color5: lightAAA.on_color5,
-              on_gradient_1_2: lightAAA.on_gradient_1_2, on_gradient_2_3: lightAAA.on_gradient_2_3,
-              on_gradient_3_4: lightAAA.on_gradient_3_4, on_gradient_4_5: lightAAA.on_gradient_4_5,
-              on_gradient_5_1: lightAAA.on_gradient_5_1
-            })
-          }
-
-          if (darkAAA) {
-            setDarkVariantsAAA({
-              on_color1: darkAAA.on_color1, on_color2: darkAAA.on_color2, on_color3: darkAAA.on_color3,
-              on_color4: darkAAA.on_color4, on_color5: darkAAA.on_color5,
-              on_gradient_1_2: darkAAA.on_gradient_1_2, on_gradient_2_3: darkAAA.on_gradient_2_3,
-              on_gradient_3_4: darkAAA.on_gradient_3_4, on_gradient_4_5: darkAAA.on_gradient_4_5,
-              on_gradient_5_1: darkAAA.on_gradient_5_1
-            })
-          }
+          setLightColors(light)
+          setLightVariants({
+            on_color1: (lightRegular as any).on_color1, on_color2: (lightRegular as any).on_color2, on_color3: (lightRegular as any).on_color3,
+            on_color4: (lightRegular as any).on_color4, on_color5: (lightRegular as any).on_color5,
+            on_gradient_1_2: (lightRegular as any).on_gradient_1_2, on_gradient_2_3: (lightRegular as any).on_gradient_2_3,
+            on_gradient_3_4: (lightRegular as any).on_gradient_3_4, on_gradient_4_5: (lightRegular as any).on_gradient_4_5,
+            on_gradient_5_1: (lightRegular as any).on_gradient_5_1
+          })
         }
 
-        // Clear preview color once real colors are loaded
-        setPreviewColor1(null)
+        if (darkRegular) {
+          const dark = {
+            color1: darkRegular.color1, color2: darkRegular.color2, color3: darkRegular.color3,
+            color4: darkRegular.color4, color5: darkRegular.color5
+          }
+          setDarkColors(dark)
+          setDarkVariants({
+            on_color1: (darkRegular as any).on_color1, on_color2: (darkRegular as any).on_color2, on_color3: (darkRegular as any).on_color3,
+            on_color4: (darkRegular as any).on_color4, on_color5: (darkRegular as any).on_color5,
+            on_gradient_1_2: (darkRegular as any).on_gradient_1_2, on_gradient_2_3: (darkRegular as any).on_gradient_2_3,
+            on_gradient_3_4: (darkRegular as any).on_gradient_3_4, on_gradient_4_5: (darkRegular as any).on_gradient_4_5,
+            on_gradient_5_1: (darkRegular as any).on_gradient_5_1
+          })
+        }
+
+        // Update ThemeContext to show the mode change in UI elements
+        if (lightRegular && darkRegular) {
+          const lightColors = {
+            color1: lightRegular.color1, color2: lightRegular.color2, color3: lightRegular.color3,
+            color4: lightRegular.color4, color5: lightRegular.color5
+          }
+          const darkColors = {
+            color1: darkRegular.color1, color2: darkRegular.color2, color3: darkRegular.color3,
+            color4: darkRegular.color4, color5: darkRegular.color5
+          }
+          updateColorSchema(lightColors, darkColors)
+        }
+
+        // Load AA accessibility level variants
+        if (lightAA) {
+          setLightVariantsAA({
+            on_color1: (lightAA as any).on_color1, on_color2: (lightAA as any).on_color2, on_color3: (lightAA as any).on_color3,
+            on_color4: (lightAA as any).on_color4, on_color5: (lightAA as any).on_color5,
+            on_gradient_1_2: (lightAA as any).on_gradient_1_2, on_gradient_2_3: (lightAA as any).on_gradient_2_3,
+            on_gradient_3_4: (lightAA as any).on_gradient_3_4, on_gradient_4_5: (lightAA as any).on_gradient_4_5,
+            on_gradient_5_1: (lightAA as any).on_gradient_5_1
+          })
+        }
+
+        if (darkAA) {
+          setDarkVariantsAA({
+            on_color1: (darkAA as any).on_color1, on_color2: (darkAA as any).on_color2, on_color3: (darkAA as any).on_color3,
+            on_color4: (darkAA as any).on_color4, on_color5: (darkAA as any).on_color5,
+            on_gradient_1_2: (darkAA as any).on_gradient_1_2, on_gradient_2_3: (darkAA as any).on_gradient_2_3,
+            on_gradient_3_4: (darkAA as any).on_gradient_3_4, on_gradient_4_5: (darkAA as any).on_gradient_4_5,
+            on_gradient_5_1: (darkAA as any).on_gradient_5_1
+          })
+        }
+
+        // Load AAA accessibility level variants
+        if (lightAAA) {
+          setLightVariantsAAA({
+            on_color1: (lightAAA as any).on_color1, on_color2: (lightAAA as any).on_color2, on_color3: (lightAAA as any).on_color3,
+            on_color4: (lightAAA as any).on_color4, on_color5: (lightAAA as any).on_color5,
+            on_gradient_1_2: (lightAAA as any).on_gradient_1_2, on_gradient_2_3: (lightAAA as any).on_gradient_2_3,
+            on_gradient_3_4: (lightAAA as any).on_gradient_3_4, on_gradient_4_5: (lightAAA as any).on_gradient_4_5,
+            on_gradient_5_1: (lightAAA as any).on_gradient_5_1
+          })
+        }
+
+        if (darkAAA) {
+          setDarkVariantsAAA({
+            on_color1: (darkAAA as any).on_color1, on_color2: (darkAAA as any).on_color2, on_color3: (darkAAA as any).on_color3,
+            on_color4: (darkAAA as any).on_color4, on_color5: (darkAAA as any).on_color5,
+            on_gradient_1_2: (darkAAA as any).on_gradient_1_2, on_gradient_2_3: (darkAAA as any).on_gradient_2_3,
+            on_gradient_3_4: (darkAAA as any).on_gradient_3_4, on_gradient_4_5: (darkAAA as any).on_gradient_4_5,
+            on_gradient_5_1: (darkAAA as any).on_gradient_5_1
+          })
+        }
       }
+
+      // Clear preview color once real colors are loaded
+      setPreviewColor1(null)
     } catch (error) {
       console.error('❌ Error loading colors for mode change:', error)
       // Clear preview color on error too
@@ -333,8 +364,34 @@ export default function ColorSchemaPanel() {
   const calculateGradientOnColor = (color1: string, color2: string): string => {
     const onColor1 = calculateOnColor(color1)
     const onColor2 = calculateOnColor(color2)
-    // If both colors need the same text color, use it; otherwise default to white
-    return onColor1 === onColor2 ? onColor1 : '#FFFFFF'
+
+    // If both colors need the same text color, use it
+    if (onColor1 === onColor2) {
+      return onColor1
+    }
+
+    // If different, use average luminance method for better gradient text color
+    try {
+      // Calculate luminance for both colors
+      const getLuminance = (hexColor: string): number => {
+        const hex = hexColor.replace('#', '')
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
+        const linearize = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+        return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+      }
+
+      const luminance1 = getLuminance(color1)
+      const luminance2 = getLuminance(color2)
+      const averageLuminance = (luminance1 + luminance2) / 2
+
+      // Use 0.5 threshold on average luminance
+      return averageLuminance < 0.5 ? '#FFFFFF' : '#000000'
+    } catch (error) {
+      console.warn('Error calculating gradient on-color, falling back to white:', error)
+      return '#FFFFFF' // Fallback to white for safety
+    }
   }
 
   // Handle color change with real-time on-color calculation and immediate ThemeContext update

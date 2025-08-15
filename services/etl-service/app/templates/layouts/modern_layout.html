@@ -16,12 +16,112 @@
 
     <!-- Load colors immediately to prevent flashing -->
     <script>
-        // Load colors from server-side data or localStorage immediately to prevent flash
+        // Load colors from URL parameters first, then localStorage, then server-side data
         (function() {
             try {
-                // First try server-side color schema data
-                const serverSchemaElement = document.getElementById('server-color-schema');
-                if (serverSchemaElement) {
+                // Check if color data was passed via URL parameters (from frontend)
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlColorData = urlParams.get('color_data');
+                const urlTheme = urlParams.get('theme');
+                const urlMode = urlParams.get('mode');
+
+                // If URL has color data, store it in localStorage for future use
+                if (urlColorData) {
+                    try {
+                        const decodedColorData = decodeURIComponent(urlColorData);
+                        localStorage.setItem('pulse_complete_color_data', decodedColorData);
+                        if (urlTheme) localStorage.setItem('pulse_theme', urlTheme);
+                        if (urlMode) localStorage.setItem('pulse_color_schema_mode', urlMode);
+                        console.log('🎨 Color data transferred from frontend via URL');
+
+                        // Clean up URL to remove color data parameters
+                        const cleanUrl = window.location.pathname;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    } catch (e) {
+                        console.warn('Failed to process color data from URL:', e);
+                    }
+                }
+
+                // Now try localStorage complete color data (most up-to-date)
+                const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+                const savedColorSchemaMode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+                const completeColorData = localStorage.getItem('pulse_complete_color_data');
+
+                let colorsApplied = false;
+
+                console.log('🔍 ETL Debug - localStorage check:', {
+                    hasCompleteColorData: !!completeColorData,
+                    savedTheme,
+                    savedColorSchemaMode
+                });
+
+                if (completeColorData) {
+                    try {
+                        const allColors = JSON.parse(completeColorData);
+                        console.log('🔍 ETL Debug - localStorage data:', {
+                            savedTheme,
+                            savedColorSchemaMode,
+                            totalColors: allColors.length,
+                            availableCombinations: allColors.map(c => `${c.color_schema_mode}/${c.theme_mode}/${c.accessibility_level}`)
+                        });
+
+                        const targetColors = allColors.find(function(c) {
+                            return c.color_schema_mode === savedColorSchemaMode &&
+                                   c.theme_mode === savedTheme &&
+                                   c.accessibility_level === 'regular';
+                        });
+
+                        console.log('🔍 ETL Debug - Target colors found:', !!targetColors, targetColors?.color1);
+
+                        if (targetColors) {
+                            document.documentElement.setAttribute('data-theme', savedTheme);
+                            document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+
+                            const root = document.documentElement;
+                            root.style.setProperty('--color-1', targetColors.color1);
+                            root.style.setProperty('--color-2', targetColors.color2);
+                            root.style.setProperty('--color-3', targetColors.color3);
+                            root.style.setProperty('--color-4', targetColors.color4);
+                            root.style.setProperty('--color-5', targetColors.color5);
+
+                            // Set gradient variables
+                            root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${targetColors.color1} 0%, ${targetColors.color2} 100%)`);
+                            root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${targetColors.color2} 0%, ${targetColors.color3} 100%)`);
+                            root.style.setProperty('--gradient-3-4', `linear-gradient(135deg, ${targetColors.color3} 0%, ${targetColors.color4} 100%)`);
+                            root.style.setProperty('--gradient-4-5', `linear-gradient(135deg, ${targetColors.color4} 0%, ${targetColors.color5} 100%)`);
+                            root.style.setProperty('--gradient-5-1', `linear-gradient(135deg, ${targetColors.color5} 0%, ${targetColors.color1} 100%)`);
+
+                            // Apply on-colors if available
+                            if (targetColors.on_color1) {
+                                root.style.setProperty('--on-color-1', targetColors.on_color1);
+                                root.style.setProperty('--on-color-2', targetColors.on_color2);
+                                root.style.setProperty('--on-color-3', targetColors.on_color3);
+                                root.style.setProperty('--on-color-4', targetColors.on_color4);
+                                root.style.setProperty('--on-color-5', targetColors.on_color5);
+                            }
+
+                            // Apply gradient on-colors if available
+                            if (targetColors.on_gradient_1_2) {
+                                root.style.setProperty('--on-gradient-1-2', targetColors.on_gradient_1_2);
+                                root.style.setProperty('--on-gradient-2-3', targetColors.on_gradient_2_3);
+                                root.style.setProperty('--on-gradient-3-4', targetColors.on_gradient_3_4);
+                                root.style.setProperty('--on-gradient-4-5', targetColors.on_gradient_4_5);
+                                root.style.setProperty('--on-gradient-5-1', targetColors.on_gradient_5_1);
+                            }
+
+                            colorsApplied = true;
+                            console.log('🎨 Applied colors from localStorage:', savedColorSchemaMode, savedTheme);
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse complete color data from localStorage');
+                    }
+                }
+
+                // Fallback to server-side color schema data if localStorage didn't work
+                if (!colorsApplied) {
+                    console.log('🔍 ETL Debug - Falling back to server-side data');
+                    const serverSchemaElement = document.getElementById('server-color-schema');
+                    if (serverSchemaElement) {
                     const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
 
                     const theme = serverColorSchema.theme || 'light';
@@ -79,11 +179,11 @@
                         root.style.setProperty('--on-gradient-4-5', onGrad['4-5'] || pairOn(colors.color4, colors.color5));
                     }
                 } else {
-                    // Fallback to localStorage
-                    const savedTheme = localStorage.getItem('pulse_theme') || 'light';
-                    const savedColorSchemaMode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+                    // No server-side data available, set basic theme attributes
                     document.documentElement.setAttribute('data-theme', savedTheme);
                     document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+                    console.log('🎨 No server-side color data, using localStorage or defaults');
+                }
                 }
             } catch (error) {
                 console.error('Error loading color schema:', error);
