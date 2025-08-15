@@ -289,7 +289,57 @@ async def run_jira_sync(
                     {"message": "Jira sync job completed successfully"}
                 )
 
-            session.commit()
+            # Enhanced commit with connection recovery for large datasets
+            commit_success = False
+            try:
+                session.commit()
+                commit_success = True
+            except Exception as commit_error:
+                logger.warning(f"Session commit failed, attempting recovery: {commit_error}")
+
+                # Check if it's a connection issue
+                if ("server closed the connection" in str(commit_error) or
+                    "not bound to a Session" in str(commit_error) or
+                    "OperationalError" in str(type(commit_error))):
+
+                    logger.info("Detected connection loss, performing session recovery...")
+
+                    try:
+                        session.rollback()
+                    except Exception as rollback_error:
+                        logger.debug(f"Rollback failed (expected for dead connection): {rollback_error}")
+
+                    try:
+                        session.close()
+                    except Exception as close_error:
+                        logger.debug(f"Session close failed (expected for dead connection): {close_error}")
+
+                    # Create new session and retry the update with fresh connection
+                    from app.core.database import get_database
+                    database = get_database()
+
+                    try:
+                        with database.get_session() as new_session:
+                            # Reload the job schedule and update it
+                            fresh_job_schedule = new_session.query(JobSchedule).filter_by(id=job_schedule.id).first()
+                            if fresh_job_schedule:
+                                # Re-apply the successful status update
+                                fresh_job_schedule.set_finished()
+                                new_session.commit()
+                                commit_success = True
+                                logger.info("Successfully recovered and updated job schedule with new session")
+                            else:
+                                logger.error(f"Could not find job schedule {job_schedule.id} for recovery")
+                    except Exception as recovery_error:
+                        logger.error(f"Session recovery failed: {recovery_error}")
+                        # Don't re-raise - job data is already processed, just status update failed
+                else:
+                    # Re-raise non-connection errors
+                    logger.error(f"Non-connection error during commit: {commit_error}")
+                    raise commit_error
+
+            if commit_success:
+                logger.info("Jira sync job completed successfully with database commit")
 
             logger.info(f"Jira sync completed successfully")
             logger.info(f"   • Issues processed: {result['issues_processed']}")
@@ -301,7 +351,25 @@ async def run_jira_sync(
             checkpoint = result.get('last_processed_updated_at')
 
             job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
-            session.commit()
+
+            # Retry commit with new session if connection is lost
+            try:
+                session.commit()
+            except Exception as commit_error:
+                logger.warning(f"Session commit failed, retrying with new session: {commit_error}")
+                session.rollback()
+                session.close()
+
+                # Create new session and retry the update
+                from app.core.database import get_database
+                database = get_database()
+                with database.get_session() as new_session:
+                    # Reload the job schedule and update it
+                    fresh_job_schedule = new_session.query(JobSchedule).filter_by(id=job_schedule.id).first()
+                    if fresh_job_schedule:
+                        fresh_job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
+                        new_session.commit()
+                        logger.info("Successfully updated job schedule with new session")
 
             # Schedule fast retry if enabled
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
@@ -319,6 +387,21 @@ async def run_jira_sync(
 
             # Send error progress update (short message for progress bar)
             await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync failed - check Issues & Warnings below")
+
+            # Send detailed error via exception message (like GitHub job does)
+            await websocket_manager.send_exception("jira_sync", "ERROR", f"Jira sync failed: {error_msg}", error_msg)
+
+            # Send failure completion notification (like GitHub job does)
+            await websocket_manager.send_completion(
+                "jira_sync",
+                False,
+                {
+                    'error': error_msg,
+                    'checkpoint_saved': checkpoint is not None,
+                    'issues_processed': result.get('issues_processed', 0),
+                    'changelogs_processed': result.get('changelogs_processed', 0)
+                }
+            )
 
             logger.error(f"Jira sync failed: {error_msg}")
             if checkpoint:
@@ -339,6 +422,21 @@ async def run_jira_sync(
         from app.core.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
         await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync error - check Issues & Warnings below")
+
+        # Send detailed error via exception message (like GitHub job does)
+        await websocket_manager.send_exception("jira_sync", "ERROR", f"Jira sync error: {str(e)}", str(e))
+
+        # Send failure completion notification (like GitHub job does)
+        await websocket_manager.send_completion(
+            "jira_sync",
+            False,
+            {
+                'error': str(e),
+                'checkpoint_saved': False,
+                'issues_processed': 0,
+                'changelogs_processed': 0
+            }
+        )
 
         # Set job back to PENDING on unexpected error
         job_schedule.set_pending_with_checkpoint(str(e))
@@ -647,8 +745,8 @@ async def run_jira_sync_optimized(
     logger.info(f"🚀 Starting optimized Jira sync (ID: {job_schedule_id})")
 
     try:
-        # Use the original function but with better session management
-        with database.get_session() as session:
+        # Use job session context for long-running operations with extended timeouts
+        with database.get_job_session_context() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
@@ -657,7 +755,7 @@ async def run_jira_sync_optimized(
             # Add periodic yielding to prevent blocking
             await asyncio.sleep(0)
 
-            # Use the original function
+            # Use the original function with improved session management
             result = await run_jira_sync(
                 session, job_schedule,
                 execution_mode=execution_mode,

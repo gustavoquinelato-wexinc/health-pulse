@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any, List
 import os
 from pathlib import Path
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, case, text
 import httpx
 
 from app.core.logging_config import get_logger
@@ -281,15 +281,15 @@ async def home_page(request: Request, token: Optional[str] = None):
     if auth_token:
         try:
             async with httpx.AsyncClient() as client:
-                # Get color schema from backend
+                # Get color schema from backend (unified API)
                 response_color = await client.get(
-                    f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                     headers={"Authorization": f"Bearer {auth_token}"}
                 )
 
                 if response_color.status_code == 200:
                     data = response_color.json()
-                    if data.get("success"):
+                    if data.get("success") and data.get("color_data"):
                         # Also get user-specific theme mode from backend
                         theme_response = await client.get(
                             f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
@@ -302,12 +302,29 @@ async def home_page(request: Request, token: Optional[str] = None):
                             if theme_data.get('success'):
                                 theme_mode = theme_data.get('mode', 'light')
 
-                        # Combine color schema and theme data
-                        color_schema_data = {
-                            "success": True,
-                            "mode": data.get("mode", "default"),
-                            "colors": data.get("colors", {}),
-                            "theme": theme_mode
+                        # Process unified color data
+                        color_data = data.get("color_data", [])
+                        light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
+                        dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+
+                        # Use colors based on current theme
+                        current_colors = light_regular if theme_mode == 'light' else dark_regular
+                        if not current_colors:
+                            current_colors = light_regular or dark_regular  # fallback
+
+                        if current_colors:
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("color_schema_mode", "default"),
+                                "colors": {
+                                    "color1": current_colors.get("color1"),
+                                    "color2": current_colors.get("color2"),
+                                    "color3": current_colors.get("color3"),
+                                    "color4": current_colors.get("color4"),
+                                    "color5": current_colors.get("color5")
+                                },
+                                "theme": theme_mode
                         }
         except Exception as e:
             logger.debug(f"Could not fetch color schema for home page: {e}")
@@ -785,12 +802,12 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
 
                 async with httpx.AsyncClient() as client:
                     response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {auth_token}"}
                     )
                     if response_color.status_code == 200:
                         data = response_color.json()
-                        if data.get("success"):
+                        if data.get("success") and data.get("color_data"):
                             # Also get user-specific theme mode from backend
                             theme_response = await client.get(
                                 f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
@@ -803,13 +820,30 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                                 if theme_data.get('success'):
                                     theme_mode = theme_data.get('mode', 'light')
 
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                            # Process unified color data
+                            color_data = data.get("color_data", [])
+                            light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
+                            dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+
+                            # Use colors based on current theme
+                            current_colors = light_regular if theme_mode == 'light' else dark_regular
+                            if not current_colors:
+                                current_colors = light_regular or dark_regular  # fallback
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -863,7 +897,7 @@ async def issuetype_mappings_page(request: Request):
 
                 async with httpx.AsyncClient() as client:
                     response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
                     )
                     if response_color.status_code == 200:
@@ -931,15 +965,15 @@ async def issuetype_hierarchies_page(request: Request):
         if token:
             try:
                 async with httpx.AsyncClient() as client:
-                    # Get color schema from backend
+                    # Get color schema from backend (unified API)
                     response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
                     )
 
                     if response_color.status_code == 200:
                         data = response_color.json()
-                        if data.get("success"):
+                        if data.get("success") and data.get("color_data"):
                             # Also get user-specific theme mode from backend
                             theme_response = await client.get(
                                 f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
@@ -952,13 +986,26 @@ async def issuetype_hierarchies_page(request: Request):
                                 if theme_data.get('success'):
                                     theme_mode = theme_data.get('mode', 'light')
 
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                            # Process unified color data
+                            color_data = data.get("color_data", [])
+                            current_colors = next((c for c in color_data if c.get('theme_mode') == theme_mode and c.get('accessibility_level') == 'regular'), None)
+                            if not current_colors:
+                                current_colors = next((c for c in color_data if c.get('accessibility_level') == 'regular'), None)
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
             except Exception as e:
                 logger.debug(f"Could not fetch color schema for issuetype hierarchies: {e}")
 
@@ -1007,12 +1054,12 @@ async def workflows_page(request: Request):
 
                 async with httpx.AsyncClient() as client:
                     response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
                     )
                     if response_color.status_code == 200:
                         data = response_color.json()
-                        if data.get("success"):
+                        if data.get("success") and data.get("color_data"):
                             # Also get user-specific theme mode from backend
                             theme_response = await client.get(
                                 f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
@@ -1025,13 +1072,26 @@ async def workflows_page(request: Request):
                                 if theme_data.get('success'):
                                     theme_mode = theme_data.get('mode', 'light')
 
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                            # Process unified color data
+                            color_data = data.get("color_data", [])
+                            current_colors = next((c for c in color_data if c.get('theme_mode') == theme_mode and c.get('accessibility_level') == 'regular'), None)
+                            if not current_colors:
+                                current_colors = next((c for c in color_data if c.get('accessibility_level') == 'regular'), None)
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 
@@ -1530,11 +1590,14 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
         database = get_database()
 
         with database.get_read_session_context() as session:
-            # Get GitHub integration
-            github_integration = session.query(Integration).filter(func.upper(Integration.name) == 'GITHUB').first()
+            # Get GitHub integration for the authenticated user's client
+            github_integration = session.query(Integration).filter(
+                func.upper(Integration.name) == 'GITHUB',
+                Integration.client_id == user.client_id
+            ).first()
 
             if not github_integration:
-                raise HTTPException(status_code=404, detail="GitHub integration not found")
+                raise HTTPException(status_code=404, detail=f"GitHub integration not found for client {user.client_id}")
 
             # Decrypt GitHub token
             key = AppConfig.load_key()
@@ -1580,6 +1643,10 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
     except Exception as e:
         logger.error(f"Error getting GitHub rate limits: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get GitHub rate limits: {str(e)}")
+
+
+
+
 
 @router.get("/api/v1/jobs/status")
 async def get_jobs_status(user: UserData = Depends(verify_token)):

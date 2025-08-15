@@ -6,8 +6,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db_session
 from app.schemas.api_schemas import HealthResponse
-from app.auth.auth_middleware import require_admin
-from app.models.unified_models import User
 
 router = APIRouter()
 
@@ -16,11 +14,10 @@ router = APIRouter()
     "/health",
     response_model=HealthResponse,
     summary="Health Check",
-    description="Check the health status of the ETL service and its dependencies"
+    description="Check the health status of the Backend service and its dependencies"
 )
 async def health_check(
-    db: Session = Depends(get_db_session),
-    current_user: User = Depends(require_admin)
+    db: Session = Depends(get_db_session)
 ):
     """
     Comprehensive health check for the ETL service.
@@ -43,7 +40,7 @@ async def health_check(
     
     return HealthResponse(
         status=overall_status,
-        message="ETL Service is running",
+        message="Backend Service is running",
         database_status=db_status,
         database_message=db_message,
         version="1.0.0"

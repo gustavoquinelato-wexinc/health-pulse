@@ -17,8 +17,8 @@
 
         <!-- Pulse Brand -->
         <div class="flex items-center space-x-2">
-            <div class="w-12 h-8 flex items-center justify-center gradient-bg">
-                <span class="text-xs font-bold" style="color: white !important;">PEM</span>
+            <div class="w-12 h-8 flex items-center justify-center" style="background: var(--gradient-1-2);">
+                <span class="text-xs font-bold" style="color: var(--on-gradient-1-2)">PEM</span>
             </div>
             <div>
                 <h1 class="text-lg font-semibold" style="color: var(--text-primary);">{{ title }}</h1>
@@ -45,7 +45,7 @@
         <div class="relative">
             <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 nav-item transition-colors" style="background-color: var(--bg-tertiary); border-radius: 0.5rem;" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
                 <div class="w-8 h-8 flex items-center justify-center" style="background: linear-gradient(135deg, var(--color-3), var(--color-4)); border-radius: 9999px;">
-                    <span class="text-sm font-medium text-white" id="user-initials">U</span>
+                    <span class="text-sm font-medium" id="user-initials" style="color: var(--on-gradient-3-4);">U</span>
                 </div>
                 <span class="text-sm font-medium hidden md:block" style="color: var(--text-primary);" id="user-name">User</span>
             </button>

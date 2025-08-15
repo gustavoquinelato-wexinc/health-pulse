@@ -49,11 +49,11 @@ class ColorSchemaManager:
             "success": True,
             "mode": "default",
             "colors": {
-                "color1": "#C8102E",
-                "color2": "#253746",
-                "color3": "#00C7B1",
-                "color4": "#A2DDF8",
-                "color5": "#FFBF3F"
+                "color1": "#2862EB",
+                "color2": "#763DED",
+                "color3": "#059669",
+                "color4": "#0EA5E9",
+                "color5": "#F59E0B"
             },
             "theme": "light"
         }
@@ -114,21 +114,24 @@ class ColorSchemaManager:
             logger.warning(f"⚠️ Color schema fetch failed ({self.failure_count}/{self.max_failures})")
     
     async def fetch_from_backend(self, auth_token: str) -> Optional[Dict[str, Any]]:
-        """Fetch color schema from backend service"""
+        """Fetch color schema from backend service with enhanced color support"""
         settings = get_settings()
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema",
+                # Try user-specific colors first (includes accessibility preferences)
+                user_response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/user/colors",
                     headers={"Authorization": f"Bearer {auth_token}"}
                 )
-                
-                if response.status_code == 200:
-                    data = response.json()
 
-                    if data.get("success"):
-                        # Also get user-specific theme mode
+                if user_response.status_code == 200:
+                    user_data = user_response.json()
+                    if user_data.get("success"):
+                        colors = user_data.get("colors", {})
+                        user_prefs = user_data.get("user_preferences", {})
+
+                        # Get theme mode
                         theme_response = await client.get(
                             f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
                             headers={"Authorization": f"Bearer {auth_token}"}
@@ -140,17 +143,104 @@ class ColorSchemaManager:
                             if theme_data.get('success'):
                                 theme_mode = theme_data.get('mode', 'light')
 
-                        # Combine color schema and theme data
+                        # Transform user colors to expected format
                         return {
                             "success": True,
-                            "mode": data.get("mode", "default"),
-                            "colors": data.get("colors", {}),
-                            "theme": theme_mode
+                            "mode": colors.get("resolved_mode", "custom"),
+                            "colors": {
+                                "color1": colors.get("color1"),
+                                "color2": colors.get("color2"),
+                                "color3": colors.get("color3"),
+                                "color4": colors.get("color4"),
+                                "color5": colors.get("color5")
+                            },
+                            "on_colors": {
+                                "color1": colors.get("on_color1"),
+                                "color2": colors.get("on_color2"),
+                                "color3": colors.get("on_color3"),
+                                "color4": colors.get("on_color4"),
+                                "color5": colors.get("on_color5")
+                            },
+                            "on_gradients": {
+                                "1-2": colors.get("on_gradient_1_2"),
+                                "2-3": colors.get("on_gradient_2_3"),
+                                "3-4": colors.get("on_gradient_3_4"),
+                                "4-5": colors.get("on_gradient_4_5"),
+                                "5-1": colors.get("on_gradient_5_1")
+                            },
+                            "theme": theme_mode,
+                            "enhanced": True,
+                            "user_preferences": user_prefs,
+                            "source": "user_specific_colors"
                         }
-                
+
+                # Fallback to admin color schema (use unified API)
+                logger.debug("User colors not available, falling back to admin unified color schema")
+                response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
+                    headers={"Authorization": f"Bearer {auth_token}"}
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    if data.get("success") and data.get("color_data"):
+                        # Get theme mode
+                        theme_response = await client.get(
+                            f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
+                            headers={"Authorization": f"Bearer {auth_token}"}
+                        )
+
+                        theme_mode = 'light'  # default
+                        if theme_response.status_code == 200:
+                            theme_data = theme_response.json()
+                            if theme_data.get('success'):
+                                theme_mode = theme_data.get('mode', 'light')
+
+                        # Process unified color data
+                        color_data = data.get("color_data", [])
+                        light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
+                        dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+
+                        # Use colors based on current theme
+                        current_colors = light_regular if theme_mode == 'light' else dark_regular
+                        if not current_colors:
+                            current_colors = light_regular or dark_regular  # fallback
+
+                        if current_colors:
+                            # Combine color schema and theme data
+                            return {
+                                "success": True,
+                                "mode": data.get("color_schema_mode", "default"),
+                                "colors": {
+                                    "color1": current_colors.get("color1"),
+                                    "color2": current_colors.get("color2"),
+                                    "color3": current_colors.get("color3"),
+                                    "color4": current_colors.get("color4"),
+                                    "color5": current_colors.get("color5")
+                                },
+                                "on_colors": {
+                                    "color1": current_colors.get("on_color1"),
+                                    "color2": current_colors.get("on_color2"),
+                                    "color3": current_colors.get("on_color3"),
+                                    "color4": current_colors.get("on_color4"),
+                                    "color5": current_colors.get("on_color5")
+                                },
+                                "on_gradients": {
+                                    "1-2": current_colors.get("on_gradient_1_2"),
+                                    "2-3": current_colors.get("on_gradient_2_3"),
+                                    "3-4": current_colors.get("on_gradient_3_4"),
+                                    "4-5": current_colors.get("on_gradient_4_5"),
+                                    "5-1": current_colors.get("on_gradient_5_1")
+                                },
+                                "theme": theme_mode,
+                                "enhanced": True,
+                                "source": "admin_unified_color_schema"
+                            }
+
                 logger.warning(f"Backend returned non-success response: {response.status_code}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Failed to fetch color schema from backend: {e}")
             return None

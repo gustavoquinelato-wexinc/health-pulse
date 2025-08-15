@@ -10,6 +10,7 @@ export default function ColorSchemeSettingsPage() {
 
   // Set document title
   useDocumentTitle('Color Scheme Settings')
+
   return (
     <div className="min-h-screen bg-primary">
       <Header />

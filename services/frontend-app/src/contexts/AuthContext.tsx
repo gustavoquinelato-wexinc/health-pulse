@@ -1,6 +1,10 @@
 import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import { colorDataService, type ColorData } from '../services/colorDataService'
+import notificationService from '../services/notificationService'
+import websocketService from '../services/websocketService'
 import clientLogger from '../utils/clientLogger'
+import { getColorSchemaMode } from '../utils/colorSchemaService'
 
 // Axios configuration is handled below - no duplicate configuration needed
 
@@ -19,6 +23,21 @@ interface ColorSchemaData {
   custom_colors?: ColorSchema
   on_colors?: Record<string, string>
   on_gradients?: Record<string, string>
+  // Unified colors structure for ThemeContext
+  unified_colors?: {
+    light: ColorSchema
+    dark: ColorSchema
+  }
+  // Enhanced data from new color system
+  enhanced_data?: {
+    font_contrast_threshold?: number
+    colors_defined_in_mode?: string
+    adaptive_colors?: Record<string, string>
+    cache_info?: {
+      cached: boolean
+      source: string
+    }
+  }
 }
 
 interface User {
@@ -27,7 +46,10 @@ interface User {
   role: string
   is_admin: boolean
   name?: string
+  first_name?: string
+  last_name?: string
   client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
+  use_accessible_colors?: boolean  // User accessibility preference
   colorSchemaData?: ColorSchemaData
 }
 
@@ -38,6 +60,8 @@ interface AuthContextType {
   isLoading: boolean
   isAuthenticated: boolean
   isAdmin: boolean
+  updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
+  refreshUserColors: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -58,26 +82,149 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [sessionCheckInterval, setSessionCheckInterval] = useState<number | null>(null)
 
-  // Load color schema from API (client-specific, no global caching)
+  // Load complete color data from API and cache it
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
     try {
-      const response = await axios.get('/api/v1/admin/color-schema')
+      const response = await axios.get('/api/v1/admin/color-schema/unified')
 
-      if (response.data.success) {
-        return {
-          mode: response.data.mode,
-          colors: response.data.colors,
-          default_colors: response.data.default_colors,
-          custom_colors: response.data.custom_colors,
-          on_colors: response.data.on_colors,
-          on_gradients: response.data.on_gradients
-        } as any
+      if (response.data.success && response.data.color_data) {
+        const colorData: ColorData[] = response.data.color_data
+
+        // Cache complete color data for instant access
+        colorDataService.saveToCache(colorData)
+
+        // Get current theme from localStorage/database
+        const colorSchemaMode = await getColorSchemaMode()
+
+        // Get current theme (will be used by ThemeContext)
+        const currentTheme = localStorage.getItem('pulse_theme') || 'light'
+
+        // CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+        const lightRegular = colorData.find((c: any) =>
+          c.theme_mode === 'light' &&
+          c.accessibility_level === 'regular' &&
+          c.color_schema_mode === colorSchemaMode
+        )
+        const darkRegular = colorData.find((c: any) =>
+          c.theme_mode === 'dark' &&
+          c.accessibility_level === 'regular' &&
+          c.color_schema_mode === colorSchemaMode
+        )
+
+
+
+        // If custom colors not found, fallback to default colors
+        if (!lightRegular || !darkRegular) {
+          const lightDefault = colorData.find((c: any) =>
+            c.theme_mode === 'light' &&
+            c.accessibility_level === 'regular' &&
+            c.color_schema_mode === 'default'
+          )
+          const darkDefault = colorData.find((c: any) =>
+            c.theme_mode === 'dark' &&
+            c.accessibility_level === 'regular' &&
+            c.color_schema_mode === 'default'
+          )
+
+          if (lightDefault && darkDefault) {
+            return {
+              mode: 'default', // Override mode to match actual colors used
+              colors: {
+                color1: lightDefault.color1,
+                color2: lightDefault.color2,
+                color3: lightDefault.color3,
+                color4: lightDefault.color4,
+                color5: lightDefault.color5
+              },
+              unified_colors: {
+                light: {
+                  color1: lightDefault.color1,
+                  color2: lightDefault.color2,
+                  color3: lightDefault.color3,
+                  color4: lightDefault.color4,
+                  color5: lightDefault.color5
+                },
+                dark: {
+                  color1: darkDefault.color1,
+                  color2: darkDefault.color2,
+                  color3: darkDefault.color3,
+                  color4: darkDefault.color4,
+                  color5: darkDefault.color5
+                }
+              },
+              enhanced_data: {
+                cache_info: {
+                  cached: false,
+                  source: 'unified_api_fallback'
+                }
+              }
+            } as ColorSchemaData
+          }
+        }
+
+        if (lightRegular && darkRegular) {
+          // Convert array format to structured format expected by ThemeContext
+          const unifiedColors = {
+            light: {
+              color1: lightRegular.color1,
+              color2: lightRegular.color2,
+              color3: lightRegular.color3,
+              color4: lightRegular.color4,
+              color5: lightRegular.color5
+            },
+            dark: {
+              color1: darkRegular.color1,
+              color2: darkRegular.color2,
+              color3: darkRegular.color3,
+              color4: darkRegular.color4,
+              color5: darkRegular.color5
+            }
+          }
+
+
+
+          return {
+            mode: colorSchemaMode, // Use centralized mode (no fallback needed here)
+            colors: unifiedColors.light, // Default to light for legacy compatibility
+            unified_colors: unifiedColors,
+            enhanced_data: {
+              cache_info: {
+                cached: false,
+                source: 'unified_api'
+              }
+            }
+          } as ColorSchemaData
+        }
       }
     } catch (error: any) {
       console.error('AuthContext: Failed to load color schema:', error)
     }
     return null
   }
+
+  // Load user-specific colors based on accessibility preference
+  const loadUserColors = async (): Promise<ColorSchemaData | null> => {
+    // IMPORTANT: The /api/v1/user/colors endpoint only returns single-theme colors
+    // For proper light/dark theme support, we should use the unified API instead
+    // This function is kept for backward compatibility but should delegate to loadColorSchema
+    return await loadColorSchema()
+  }
+
+  // Original loadUserColors implementation (commented out for reference)
+  /*
+  const loadUserColors_ORIGINAL = async (): Promise<ColorSchemaData | null> => {
+    try {
+      const response = await axios.get('/api/v1/user/colors')
+      if (response.data.success) {
+        const userColors = response.data.colors
+        // ... original implementation
+      }
+    } catch (error: any) {
+      console.error('AuthContext: Failed to load user colors:', error)
+    }
+    return null
+  }
+  */
 
   // Start periodic session validation
   const startSessionValidation = () => {
@@ -226,7 +373,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       }
     }
-
+   
     window.addEventListener('focus', handleWindowFocus)
     return () => {
       window.removeEventListener('focus', handleWindowFocus)
@@ -272,6 +419,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,
@@ -283,38 +432,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Update client logger context with new user info
         clientLogger.updateClientContext()
 
-        // Load color schema
-        loadColorSchema().then(colorSchemaData => {
-          if (colorSchemaData) {
-            setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
-          } else {
-            // Fallback: Set default color schema if API fails
-            const fallbackColorSchema: ColorSchemaData = {
-              mode: 'default',
-              colors: {
-                color1: '#C8102E',
-                color2: '#253746',
-                color3: '#00C7B1',
-                color4: '#A2DDF8',
-                color5: '#FFBF3F'
-              }
+        // Load color schema - prefer user-specific colors if available
+        const loadColors = async () => {
+          try {
+            // Try user-specific colors first (includes accessibility preferences)
+            let colorSchemaData = await loadUserColors()
+
+            // Fallback to unified admin color schema if user colors not available
+            if (!colorSchemaData) {
+              colorSchemaData = await loadColorSchema()
             }
-            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-          }
-        }).catch(error => {
-          // Set fallback colors even on error
-          const fallbackColorSchema: ColorSchemaData = {
-            mode: 'default',
-            colors: {
-              color1: '#C8102E',
-              color2: '#253746',
-              color3: '#00C7B1',
-              color4: '#A2DDF8',
-              color5: '#FFBF3F'
+
+            if (colorSchemaData) {
+              setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
+              console.log('✅ Colors loaded:', colorSchemaData.enhanced_data?.cache_info?.source || 'legacy')
+            } else {
+              // No fallback here - let the centralized service handle it
+              console.warn('⚠️ No color schema data available from APIs')
             }
+          } catch (error) {
+            console.error('❌ Error loading colors:', error)
+            // No fallback here - let the centralized service handle it
           }
-          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
-        })
+        }
+
+        loadColors()
       }
     } catch (error) {
       // No existing session found, this is normal
@@ -332,6 +474,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (response.data.valid && response.data.user) {
         const { user } = response.data
 
+        // Load theme from database during token validation (for cross-service redirects)
+        let userThemeMode = localStorage.getItem('pulse_theme') || 'light'
+        try {
+          const themeResponse = await axios.get('/api/v1/user/theme-mode')
+          if (themeResponse.data.success && themeResponse.data.mode !== userThemeMode) {
+            userThemeMode = themeResponse.data.mode
+
+
+            // Update all storage layers
+            localStorage.setItem('pulse_theme', userThemeMode)
+            document.documentElement.setAttribute('data-theme', userThemeMode)
+              ; (window as any).__INITIAL_THEME__ = userThemeMode
+          }
+        } catch (error) {
+          console.warn('Failed to sync theme during validation:', error)
+        }
+
         // Format user data to match frontend interface
         const formattedUser = {
           id: user.id.toString(),
@@ -339,6 +498,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
@@ -359,32 +520,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (colorSchemaData) {
             setUser(prev => prev ? { ...prev, colorSchemaData } : prev)
           } else {
-            // Fallback: Set default color schema if API fails
-            const fallbackColorSchema: ColorSchemaData = {
-              mode: 'default',
-              colors: {
-                color1: '#C8102E',  // WEX Red
-                color2: '#253746',  // Dark Blue
-                color3: '#00C7B1',  // Teal
-                color4: '#A2DDF8',  // Light Blue
-                color5: '#FFBF3F'   // Yellow
-              }
-            }
-            setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+            // No fallback here - let the centralized service handle it
+            console.warn('No color schema data available from loadColorSchema')
           }
         }).catch(error => {
-          // Set fallback colors even on error
-          const fallbackColorSchema: ColorSchemaData = {
-            mode: 'default',
-            colors: {
-              color1: '#C8102E',
-              color2: '#253746',
-              color3: '#00C7B1',
-              color4: '#A2DDF8',
-              color5: '#FFBF3F'
-            }
-          }
-          setUser(prev => prev ? { ...prev, colorSchemaData: fallbackColorSchema } : prev)
+          // No fallback here - let the centralized service handle it
+          console.error('Error loading color schema:', error)
         })
       } else {
         // Invalid response format, clear token
@@ -418,19 +559,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set axios default header for future requests
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 
-        // Load color schema before setting user to avoid flash
-        let colorSchemaData = await loadColorSchema()
-        if (!colorSchemaData) {
-          colorSchemaData = {
-            mode: 'default',
-            colors: {
-              color1: '#C8102E',
-              color2: '#253746',
-              color3: '#00C7B1',
-              color4: '#A2DDF8',
-              color5: '#FFBF3F'
-            }
+        // Load theme mode from database FIRST to prevent flash
+        let userThemeMode = 'light' // Default fallback
+        try {
+          const themeResponse = await axios.get('/api/v1/user/theme-mode', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (themeResponse.data.success) {
+            userThemeMode = themeResponse.data.mode
+
+
+            // Immediately broadcast to all storage layers
+            localStorage.setItem('pulse_theme', userThemeMode)
+            document.documentElement.setAttribute('data-theme', userThemeMode)
+              ; (window as any).__INITIAL_THEME__ = userThemeMode
           }
+        } catch (error) {
+          console.warn('Failed to load theme from database, using default:', error)
+        }
+
+        // Load color schema before setting user to avoid flash
+        // Try user-specific colors first, then fallback to admin colors
+        let colorSchemaData = await loadUserColors()
+        if (!colorSchemaData) {
+          colorSchemaData = await loadColorSchema()
+        }
+        if (!colorSchemaData) {
+          // No fallback here - let the centralized service handle it
+          console.warn('No color schema data available during login')
         }
 
         // Format user data to match frontend interface (with color schema)
@@ -440,6 +596,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           name: user.first_name && user.last_name
             ? `${user.first_name} ${user.last_name}`
             : user.first_name || user.last_name || user.email.split('@')[0],
+          first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
           client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
@@ -611,20 +769,86 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.location.replace('/login')
   }
 
+  // Update user accessibility preference
+  const updateAccessibilityPreference = async (useAccessibleColors: boolean): Promise<boolean> => {
+    try {
+      const response = await axios.post('/api/v1/user/accessibility-preference', {
+        use_accessible_colors: useAccessibleColors
+      })
+
+      if (response.data.success) {
+        // Update user state
+        setUser(prev => prev ? { ...prev, use_accessible_colors: useAccessibleColors } : prev)
+
+        // Refresh colors to apply new accessibility preference
+        await refreshUserColors()
+
+        console.log('✅ Accessibility preference updated:', useAccessibleColors)
+        return true
+      }
+    } catch (error) {
+      console.error('❌ Failed to update accessibility preference:', error)
+    }
+    return false
+  }
+
+  // Refresh user colors (useful after preference changes)
+  const refreshUserColors = async (): Promise<void> => {
+    try {
+      // For admin users, prioritize admin colors (unified API) since they might have just saved changes
+      // For regular users, try user-specific colors first
+      let colorSchemaData: ColorSchemaData | null = null
+
+      if (user?.is_admin) {
+        // Admin users: Try admin colors first (they might have just saved changes)
+        colorSchemaData = await loadColorSchema()
+
+        // Fallback to user-specific colors if admin colors fail
+        if (!colorSchemaData) {
+          colorSchemaData = await loadUserColors()
+        }
+      } else {
+        // Regular users: Try user-specific colors first
+        colorSchemaData = await loadUserColors()
+
+        // Fallback to admin colors if user colors fail
+        if (!colorSchemaData) {
+          colorSchemaData = await loadColorSchema()
+        }
+      }
+
+      if (colorSchemaData) {
+        // Force a new object reference to ensure React detects the change
+        setUser(prev => prev ? {
+          ...prev,
+          colorSchemaData: {
+            ...colorSchemaData,
+            _refreshTimestamp: Date.now() // Force dependency change
+          }
+        } : prev)
+
+      }
+    } catch (error) {
+      console.error('❌ Failed to refresh user colors:', error)
+    }
+  }
+
   const value: AuthContextType = {
     user,
     login,
     logout,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: !!user && user.is_admin
+    isAdmin: !!user && user.is_admin,
+    updateAccessibilityPreference,
+    refreshUserColors
   }
 
 
 
   // Listen for cross-service authentication messages
   useEffect(() => {
-    const handleCrossServiceAuth = (event: MessageEvent) => {
+    const handleCrossServiceAuth = async (event: MessageEvent) => {
       // Only accept messages from trusted origins
       const trustedOrigins = ['http://localhost:8000']; // ETL service
       if (!trustedOrigins.includes(event.origin)) {
@@ -635,6 +859,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Store the token
         localStorage.setItem('pulse_token', event.data.token);
         axios.defaults.headers.common['Authorization'] = `Bearer ${event.data.token}`;
+
+        // Load theme from database for cross-service authentication
+        try {
+          const themeResponse = await axios.get('/api/v1/user/theme-mode', {
+            headers: { 'Authorization': `Bearer ${event.data.token}` }
+          })
+          if (themeResponse.data.success) {
+            const userThemeMode = themeResponse.data.mode
+
+
+            // Broadcast to all storage layers
+            localStorage.setItem('pulse_theme', userThemeMode)
+            document.documentElement.setAttribute('data-theme', userThemeMode)
+              ; (window as any).__INITIAL_THEME__ = userThemeMode
+          }
+        } catch (error) {
+          console.warn('Failed to load theme during cross-service auth:', error)
+        }
 
         // Set user data if provided
         if (event.data.user) {
@@ -652,6 +894,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.removeEventListener('message', handleCrossServiceAuth);
     };
   }, []);
+
+  // Set up WebSocket for real-time color updates
+  useEffect(() => {
+    if (!user) return
+
+
+
+    const unsubscribe = websocketService.onColorUpdate(async (colors) => {
+      console.log('🎨 Received real-time color update:', colors)
+
+      try {
+        // Refresh user colors to get the latest data
+        await refreshUserColors()
+
+
+        // Show notification to user
+        notificationService.colorUpdate('Your color scheme has been updated by an administrator')
+      } catch (error) {
+        console.error('❌ Failed to refresh colors from WebSocket update:', error)
+        notificationService.error('Color Update Failed', 'Failed to apply real-time color changes')
+      }
+    })
+
+    return unsubscribe
+  }, [user])
 
   // Expose clear function globally for debugging
   useEffect(() => {

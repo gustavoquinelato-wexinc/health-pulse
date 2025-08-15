@@ -66,6 +66,7 @@ The ETL Service is the core data processing engine of the Pulse Platform, design
 
 ### **Monitoring & Control**
 - ✅ **Real-time Dashboard**: Live job monitoring with control interface
+- ✅ **WebSocket Updates**: Real-time progress updates and notifications *(recently added)*
 - ✅ **Enhanced Log Management**: Table-based log viewer with pagination and individual file actions
 - ✅ **Structured Logging**: Colored console logs with detailed execution tracking
 - ✅ **Health Monitoring**: Service health checks and status reporting
@@ -134,6 +135,20 @@ etl-service/
 - API tokens (Jira, GitHub)
 
 ### 1. Installation
+
+#### **Quick Setup (Recommended)**
+```bash
+# Clone repository
+git clone <repository-url>
+cd pulse-platform
+
+# One-command setup for ALL services (including ETL)
+python scripts/setup_development.py
+
+# ETL service is now ready with virtual environment and dependencies!
+```
+
+#### **Manual Setup (Alternative)**
 ```bash
 # Clone repository
 git clone <repository-url>
@@ -143,8 +158,8 @@ cd pulse-platform/services/etl-service
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies using centralized requirements
+pip install -r ../../requirements/etl-service.txt
 ```
 
 ### 2. Configuration

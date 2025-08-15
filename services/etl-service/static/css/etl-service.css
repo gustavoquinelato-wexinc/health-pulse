@@ -124,7 +124,31 @@ body {
 }
 
 .card:hover {
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Prevent internal card elements from having hover effects */
+.card .badge,
+.card .status-badge,
+.card .status-indicator,
+.card .badge-running,
+.card .badge-pending,
+.card .badge-finished,
+.card .badge-paused,
+.card .badge-error,
+.card .badge-active,
+.card .badge-waiting,
+.card .badge-failed,
+.card .badge-completed,
+.card .badge-stopped {
+    pointer-events: none;
+    /* Prevents hover events on badges */
+}
+
+/* Allow buttons inside cards to still be clickable */
+.card button,
+.card .btn {
+    pointer-events: auto;
 }
 
 .card-header {
@@ -160,7 +184,7 @@ body {
 }
 
 .pulse-gradient {
-    background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%);
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
 }
 
@@ -314,8 +338,7 @@ body {
 }
 
 .btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    opacity: 0.9;
 }
 
 .btn:active:not(:disabled) {
@@ -396,7 +419,6 @@ body {
 
 .btn-crud-create:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-edit {
@@ -418,7 +440,6 @@ body {
 
 .btn-crud-edit:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-edit-sm {
@@ -442,7 +463,6 @@ body {
 
 .btn-crud-edit-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-delete {
@@ -464,7 +484,6 @@ body {
 
 .btn-crud-delete:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-delete-sm {
@@ -488,7 +507,6 @@ body {
 
 .btn-crud-delete-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-warning {
@@ -511,7 +529,6 @@ body {
 
 .btn-crud-warning:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-success {
@@ -534,7 +551,6 @@ body {
 
 .btn-crud-success:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-crud-cancel {
@@ -556,7 +572,6 @@ body {
 
 .btn-crud-cancel:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 /* Enterprise Neutral Buttons - Professional UI actions */
@@ -580,7 +595,6 @@ body {
 
 .btn-neutral-primary:hover:not(:disabled) {
     background-color: var(--neutral-secondary);
-    transform: translateY(-1px);
 }
 
 .btn-neutral-primary-sm {
@@ -603,7 +617,6 @@ body {
 
 .btn-neutral-primary-sm:hover:not(:disabled) {
     background-color: var(--neutral-secondary);
-    transform: translateY(-1px);
 }
 
 .btn-neutral-secondary {
@@ -625,7 +638,6 @@ body {
 
 .btn-neutral-secondary:hover:not(:disabled) {
     background-color: var(--neutral-primary);
-    transform: translateY(-1px);
 }
 
 .btn-neutral-tertiary {
@@ -648,7 +660,6 @@ body {
 
 .btn-neutral-tertiary:hover:not(:disabled) {
     background-color: var(--neutral-secondary);
-    transform: translateY(-1px);
 }
 
 .btn-neutral-light {
@@ -670,7 +681,6 @@ body {
 
 .btn-neutral-light:hover:not(:disabled) {
     background-color: var(--neutral-secondary);
-    transform: translateY(-1px);
 }
 
 /* Status Buttons - Universal system states (smaller versions for control buttons) */
@@ -693,7 +703,54 @@ body {
 
 .btn-status-warning-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
+}
+
+/* Disabled/Neutral Button States */
+.btn-neutral-disabled {
+    background-color: var(--neutral-tertiary);
+    color: var(--neutral-secondary);
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    min-height: 2rem;
+    cursor: not-allowed;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+}
+
+.btn-neutral-disabled:hover {
+    /* No hover effects for disabled buttons */
+    opacity: 0.6;
+    transform: none;
+}
+
+/* Small version for consistency with other -sm buttons */
+.btn-neutral-disabled-sm {
+    background-color: var(--neutral-tertiary);
+    color: var(--neutral-secondary);
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    min-height: 1.75rem;
+    cursor: not-allowed;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+}
+
+.btn-neutral-disabled-sm:hover {
+    /* No hover effects for disabled buttons */
+    opacity: 0.6;
+    transform: none;
 }
 
 .btn-status-info-sm {
@@ -715,7 +772,6 @@ body {
 
 .btn-status-info-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-status-success-sm {
@@ -737,7 +793,6 @@ body {
 
 .btn-status-success-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-status-warning-xs {
@@ -761,7 +816,6 @@ body {
 
 .btn-status-warning-xs:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-status-success-xs {
@@ -785,7 +839,6 @@ body {
 
 .btn-status-success-xs:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-color-2-sm {
@@ -807,7 +860,6 @@ body {
 
 .btn-color-2-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-color-1-sm {
@@ -827,7 +879,6 @@ body {
 
 .btn-color-1-sm:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 /* 5-Color Schema Buttons - Reserved for valuable brand/data elements */
@@ -844,7 +895,6 @@ body {
 
 .btn-color-1:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-color-2 {
@@ -865,7 +915,6 @@ body {
 
 .btn-color-2:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .btn-color-3 {
@@ -881,7 +930,6 @@ body {
 
 .btn-color-3:hover:not(:disabled) {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 /* Universal Status Indicators - Consistent system states */
@@ -1092,7 +1140,7 @@ body {
 }
 
 .job-card:hover {
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 .job-card::before {
@@ -1368,7 +1416,7 @@ textarea:disabled {
 }
 
 .submenu-item.active {
-    background: linear-gradient(to bottom right, var(--color-1), var(--color-2));
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
 }
 
@@ -1469,7 +1517,7 @@ textarea:disabled {
 
 /* Gradient background for Pulse logo */
 .gradient-bg {
-    background: linear-gradient(to bottom right, var(--color-1), var(--color-2)) !important;
+    background: var(--gradient-1-2) !important;
     color: var(--on-gradient-1-2) !important;
     border-radius: 0 !important;
     /* Flat corners to match frontend */
@@ -1482,6 +1530,8 @@ textarea:disabled {
     transform: scale(1);
     transition: all 0.2s ease;
     will-change: transform;
+    border-radius: 0 !important;
+    /* Flat corners to match frontend sidebar */
 }
 
 .sidebar-nav-item:active {
@@ -1798,8 +1848,10 @@ body {
 
 .nav-item-active {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    background: linear-gradient(135deg, var(--color-1), var(--color-2));
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
+    border-radius: 0 !important;
+    /* Flat corners to match frontend sidebar */
 }
 
 /* Professional Sidebar Container */
@@ -1825,7 +1877,6 @@ body {
 
 .btn-enhanced:hover {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    transform: translateY(-1px);
 }
 
 .btn-enhanced:active {
@@ -1874,7 +1925,8 @@ body {
 }
 
 .hover-lift:hover {
-    transform: translateY(-2px);
+    /* Disabled for buttons - use only for non-button elements */
+    /* transform: translateY(-2px); */
 }
 
 .hover-scale {

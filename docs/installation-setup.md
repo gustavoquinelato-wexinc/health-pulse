@@ -17,8 +17,8 @@ This document provides step-by-step instructions for installing, configuring, an
 #### Required Software
 - **Docker**: Version 20.10+ with Docker Compose
 - **Git**: Version 2.20+ for repository management
-- **Python**: Version 3.8+ (for manual development)
-- **Node.js**: Version 16+ (for frontend development)
+- **Python**: Version 3.11+ (for development setup)
+- **Node.js**: Version 18+ (for frontend development)
 
 #### Port Requirements
 Ensure these ports are available:
@@ -29,7 +29,46 @@ Ensure these ports are available:
 - **5433**: PostgreSQL replica database
 - **6379**: Redis cache
 
-### 30-Second Setup (Docker)
+### ⚡ One-Command Development Setup
+
+For fresh development environment setup:
+
+```bash
+# 1. Clone repository
+git clone <repository-url>
+cd pulse-platform
+
+# 2. Complete development setup (ONE COMMAND!)
+python scripts/setup_development.py
+
+# 3. Configure environment files (automatically copied from .env.example files)
+# Edit the root .env file with your settings
+nano .env
+# Edit service-specific .env files if needed
+nano services/backend-service/.env
+nano services/etl-service/.env
+nano services/frontend-app/.env
+
+# 4. Start database and run migrations
+docker-compose -f docker-compose.db.yml up -d
+python services/backend-service/scripts/migration_runner.py --apply-all
+
+# 5. Start services
+# Backend: cd services/backend-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 3001
+# ETL: cd services/etl-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 8000
+# Frontend: cd services/frontend-app && npm run dev
+```
+
+**What `setup_development.py` does:**
+- ✅ Creates Python virtual environments for all services
+- ✅ Installs all Python dependencies (including pandas, numpy, websockets)
+- ✅ Installs Node.js dependencies for frontend
+- ✅ Copies `.env.example` to `.env` for all services (root + individual services)
+- ✅ Cross-platform support (Windows, Linux, macOS)
+
+### 🐳 Docker-Only Setup (Alternative)
+
+For Docker-only deployment:
 
 ```bash
 # 1. Clone repository
@@ -40,14 +79,14 @@ cd pulse-platform
 docker-compose -f docker-compose.db.yml up -d
 
 # 3. Run database migrations
-python scripts/migration_runner.py
+python services/backend-service/scripts/migration_runner.py --apply-all
 
 # 4. Start all services
 docker-compose up -d
 
 # 5. Access the platform
 # Frontend: http://localhost:3000
-# ETL Management: http://localhost:8000
+# ETL Management: http://localhost:8000/home
 # API Documentation: http://localhost:3001/docs
 ```
 
@@ -79,10 +118,13 @@ docker exec pulse-postgres-primary psql -U postgres -d pulse_db -c "SELECT * FRO
 #### Run Migrations
 ```bash
 # Apply all database migrations
-python scripts/migration_runner.py
+python services/backend-service/scripts/migration_runner.py --apply-all
 
 # Check migration status
-python scripts/migration_runner.py --status
+python services/backend-service/scripts/migration_runner.py --status
+
+# Rollback migrations if needed
+python services/backend-service/scripts/migration_runner.py --rollback
 ```
 
 ### Option B: Single Database (Development)
@@ -108,18 +150,83 @@ CREATE USER pulse_user WITH PASSWORD 'pulse_password';
 GRANT ALL PRIVILEGES ON DATABASE pulse_db TO pulse_user;
 ```
 
+## 📦 Dependencies & Requirements
+
+### Centralized Requirements Management
+
+All Python dependencies are managed centrally in the `/requirements/` folder:
+
+- **`common.txt`** - Shared dependencies (FastAPI, SQLAlchemy, etc.)
+- **`backend-service.txt`** - Backend-specific dependencies (pandas, numpy, websockets)
+- **`etl-service.txt`** - ETL-specific dependencies (APScheduler, Jira, websockets)
+- **`auth-service.txt`** - Auth service dependencies (minimal JWT-only)
+
+### Recently Added Dependencies
+
+The following dependencies were added to fix missing imports:
+
+**Backend Service:**
+- `pandas` - Data processing and analytics
+- `numpy` - Numerical computing
+- `websockets` - Real-time WebSocket support
+
+**ETL Service:**
+- `websockets` - Real-time progress updates
+
+### Installation Options
+
+```bash
+# Option 1: Complete setup (recommended for new developers)
+python scripts/setup_development.py
+
+# Option 2: Install specific service
+python scripts/install_requirements.py backend-service
+python scripts/install_requirements.py etl-service
+python scripts/install_requirements.py auth-service
+
+# Option 3: Install all services
+python scripts/install_requirements.py all
+```
+
 ## ⚙️ Service Configuration
 
 ### Environment Files Setup
 
-#### Backend Service Configuration
-```bash
-# Create backend service environment file
-cd services/backend-service
-cp .env.example .env
+**Note:** If you used `python scripts/setup_development.py`, all `.env` files are already created from their respective `.env.example` files.
 
-# Edit .env with your configuration
+#### Environment File Structure
+
+The platform uses both centralized and service-specific configuration:
+
+```bash
+# Root configuration (shared settings)
+.env                              # Main configuration file
+
+# Service-specific configuration
+services/backend-service/.env     # Backend-specific settings
+services/etl-service/.env         # ETL-specific settings (client-specific)
+services/frontend-app/.env        # Frontend-specific settings
+```
+
+#### Configuration Priority
+
+1. **Service-specific `.env`** - Takes priority for that service
+2. **Root `.env`** - Fallback for shared settings
+3. **Environment variables** - Override both files
+
+#### Manual Setup (if not using setup script)
+```bash
+# Copy all .env.example files
+cp .env.example .env
+cp services/backend-service/.env.example services/backend-service/.env
+cp services/etl-service/.env.example services/etl-service/.env
+cp services/frontend-app/.env.example services/frontend-app/.env
+
+# Edit each file with your configuration
 nano .env
+nano services/backend-service/.env
+nano services/etl-service/.env
+nano services/frontend-app/.env
 ```
 
 **Backend .env Example:**
@@ -245,20 +352,43 @@ curl -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/myself"
 
 ### Development Deployment
 
-#### Manual Service Startup
+#### Manual Service Startup (Development)
+
+**Prerequisites:** Run `python scripts/setup_development.py` first to set up virtual environments and dependencies.
+
 ```bash
 # Terminal 1: Backend Service
 cd services/backend-service
-python -m uvicorn app.main:app --reload --port 3001
+# Windows
+venv\Scripts\activate
+# Unix/Linux/macOS
+source venv/bin/activate
+uvicorn app.main:app --reload --port 3001
 
 # Terminal 2: ETL Service
 cd services/etl-service
-python -m uvicorn app.main:app --reload --port 8000
+# Windows
+venv\Scripts\activate
+# Unix/Linux/macOS
+source venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 
 # Terminal 3: Frontend Application
 cd services/frontend-app
-npm install
 npm run dev
+```
+
+#### Alternative: Individual Setup
+If you prefer manual setup without the setup script:
+
+```bash
+# Install Python dependencies
+python scripts/install_requirements.py all
+
+# Install frontend dependencies
+cd services/frontend-app && npm install
+
+# Then start services as above
 ```
 
 #### Docker Development
@@ -320,7 +450,7 @@ server {
 #### Using Migration Script
 ```bash
 # Run user creation migration
-python scripts/migration_runner.py --create-admin-user
+python services/backend-service/scripts/migration_runner.py --create-admin-user
 
 # Or manually create user
 python scripts/create_admin_user.py --email admin@yourcompany.com --password secure_password
@@ -345,6 +475,22 @@ Role: admin
    - Integration credentials
    - Job scheduling preferences
    - Theme and color preferences
+
+## ⏰ Timezone Configuration
+
+### **Important: UTC-First Approach**
+
+The Pulse Platform uses **UTC for all database operations** to ensure consistency across timezones:
+
+- **Database Storage**: All timestamps stored in UTC
+- **PostgreSQL**: Configured with `timezone = 'UTC'`
+- **Job Scheduling**: Use `SCHEDULER_TIMEZONE=UTC` in environment files
+- **Display**: Frontend converts UTC to user's local timezone
+
+**Critical Rules:**
+- ✅ Always use `DateTimeHelper.now_utc()` for database operations
+- ❌ Never use `datetime.now()` for database operations
+- ✅ Convert to local timezone only for display purposes
 
 ## 🔧 System Verification
 
@@ -464,6 +610,51 @@ tar -czf config_backup_$(date +%Y%m%d).tar.gz services/*/\.env docker-compose*.y
 
 ### Common Issues
 
+#### Setup Script Issues
+```bash
+# If setup_development.py fails
+python scripts/setup_development.py --skip-venv  # Skip venv creation
+python scripts/setup_development.py --skip-frontend  # Skip frontend setup
+
+# Check Python version (3.11+ required)
+python --version
+
+# Check Node.js version (18+ required)
+node --version
+
+# Manual fallback
+python scripts/install_requirements.py all
+cd services/frontend-app && npm install
+```
+
+#### Virtual Environment Issues
+```bash
+# Remove and recreate virtual environment
+cd services/backend-service
+rm -rf venv
+python -m venv venv
+
+# Windows activation
+venv\Scripts\activate
+
+# Unix/Linux/macOS activation
+source venv/bin/activate
+
+# Reinstall dependencies
+pip install -r ../../requirements/backend-service.txt
+```
+
+#### Missing Dependencies
+```bash
+# If you get import errors for pandas, numpy, or websockets
+cd services/backend-service
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install pandas numpy websockets
+
+# Or reinstall all requirements
+pip install -r ../../requirements/backend-service.txt
+```
+
 #### Service Won't Start
 ```bash
 # Check port conflicts
@@ -493,6 +684,16 @@ python scripts/test_jobs.py --test-connection
 
 # Check API rate limits
 curl -I -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit
+```
+
+#### Long-Running Job Timeouts
+```bash
+# If Jira/GitHub jobs timeout after processing large datasets (30k+ records)
+# Adjust database connection pool settings in .env:
+DB_POOL_RECYCLE=1800  # 30 minutes (from default 3600)
+
+# Monitor job progress and use chunked processing
+# Jobs automatically implement checkpoint recovery for large datasets
 ```
 
 ### Getting Help

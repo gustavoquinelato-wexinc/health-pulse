@@ -747,7 +747,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         logger.info(f"Found {len(jira_repo_names)} unique repositories in Jira PR links")
 
         # Filter out repositories that contain health- pattern (will be found by search)
-        health_pattern = name_filter.replace('%20', ' ')  # Convert URL encoding back to space
+        health_pattern = name_filter.replace('%20', ' ') if name_filter else None  # Convert URL encoding back to space
         # Clean the pattern for consistent filtering (remove trailing hyphens)
         clean_health_pattern = health_pattern.rstrip('-') if health_pattern and health_pattern.endswith('-') else health_pattern
 

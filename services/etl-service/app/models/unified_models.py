@@ -3,7 +3,7 @@ Unified data models for ETL Service.
 Based on existing snowflake_db_manager.py model with additions for development data.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 from typing import Dict, Any
 
@@ -20,6 +20,7 @@ class Client(Base):
     website = Column(String, nullable=True, quote=False, name="website")
     assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
+    color_schema_mode = Column(String(10), nullable=True, default='default', quote=False, name="color_schema_mode")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
@@ -42,6 +43,7 @@ class Client(Base):
     pull_request_comments = relationship("PullRequestComment", back_populates="client")
     jira_pull_request_links = relationship("JiraPullRequestLinks", back_populates="client")
     system_settings = relationship("SystemSettings", back_populates="client")
+    color_settings = relationship("ClientColorSettings", back_populates="client")
 
 
 class BaseEntity:
@@ -814,3 +816,44 @@ class MigrationHistory(Base):
     applied_at = Column(DateTime, quote=False, name="applied_at", default=func.now())
     rollback_at = Column(DateTime, nullable=True, quote=False, name="rollback_at")
     status = Column(String(20), nullable=False, default='applied', quote=False, name="status")  # 'applied', 'rolled_back'
+
+
+# Color Management Tables
+# These tables manage client-specific color schemas and accessibility variants
+
+class ClientColorSettings(Base, BaseEntity):
+    """Unified color settings table with all color variants and accessibility levels."""
+    __tablename__ = 'client_color_settings'
+    __table_args__ = (
+        UniqueConstraint('client_id', 'color_schema_mode', 'accessibility_level', 'theme_mode'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === IDENTIFIERS ===
+    color_schema_mode = Column(String(10), nullable=False, quote=False, name="color_schema_mode")  # 'default' or 'custom'
+    accessibility_level = Column(String(10), nullable=False, quote=False, name="accessibility_level")  # 'regular', 'AA', 'AAA'
+    theme_mode = Column(String(5), nullable=False, quote=False, name="theme_mode")  # 'light' or 'dark'
+
+    # === BASE COLORS (5 columns) ===
+    color1 = Column(String(7), quote=False, name="color1")
+    color2 = Column(String(7), quote=False, name="color2")
+    color3 = Column(String(7), quote=False, name="color3")
+    color4 = Column(String(7), quote=False, name="color4")
+    color5 = Column(String(7), quote=False, name="color5")
+
+    # === CALCULATED VARIANTS (10 columns) ===
+    on_color1 = Column(String(7), quote=False, name="on_color1")
+    on_color2 = Column(String(7), quote=False, name="on_color2")
+    on_color3 = Column(String(7), quote=False, name="on_color3")
+    on_color4 = Column(String(7), quote=False, name="on_color4")
+    on_color5 = Column(String(7), quote=False, name="on_color5")
+    on_gradient_1_2 = Column(String(7), quote=False, name="on_gradient_1_2")
+    on_gradient_2_3 = Column(String(7), quote=False, name="on_gradient_2_3")
+    on_gradient_3_4 = Column(String(7), quote=False, name="on_gradient_3_4")
+    on_gradient_4_5 = Column(String(7), quote=False, name="on_gradient_4_5")
+    on_gradient_5_1 = Column(String(7), quote=False, name="on_gradient_5_1")
+
+    # Relationships
+    client = relationship("Client", back_populates="color_settings")

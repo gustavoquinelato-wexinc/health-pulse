@@ -15,15 +15,16 @@ interface ProfileData {
   role: string
   auth_provider: string
   theme_mode: string
+  use_accessible_colors?: boolean
   profile_image_filename?: string
   last_login_at?: string
 }
 
 export default function UserPreferencesPage() {
-  const { user } = useAuth()
+  const { updateAccessibilityPreference } = useAuth()
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'profile' | 'password'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'accessibility' | 'password'>('profile')
 
   // Profile form state
   const [profileForm, setProfileForm] = useState({
@@ -41,6 +42,13 @@ export default function UserPreferencesPage() {
   })
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+
+  // Accessibility form state
+  const [accessibilityForm, setAccessibilityForm] = useState({
+    use_accessible_colors: false
+  })
+  const [accessibilityLoading, setAccessibilityLoading] = useState(false)
+  const [accessibilityMessage, setAccessibilityMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
   // Image upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -122,10 +130,13 @@ export default function UserPreferencesPage() {
         first_name: data.first_name || '',
         last_name: data.last_name || ''
       })
+      setAccessibilityForm({
+        use_accessible_colors: data.use_accessible_colors || false
+      })
 
       clientLogger.info('Profile data loaded successfully')
     } catch (error) {
-      clientLogger.error('Failed to load profile data:', error)
+      clientLogger.error('Failed to load profile data:', { error: error instanceof Error ? error.message : String(error) })
       setProfileMessage({ type: 'error', text: 'Failed to load profile data' })
     } finally {
       setLoading(false)
@@ -239,6 +250,36 @@ export default function UserPreferencesPage() {
       clientLogger.error('Failed to change password:', error)
     } finally {
       setPasswordLoading(false)
+    }
+  }
+
+  const handleAccessibilityUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    try {
+      setAccessibilityLoading(true)
+      setAccessibilityMessage(null)
+
+      const success = await updateAccessibilityPreference(accessibilityForm.use_accessible_colors)
+
+      if (success) {
+        setAccessibilityMessage({
+          type: 'success',
+          text: `Accessibility colors ${accessibilityForm.use_accessible_colors ? 'enabled' : 'disabled'} successfully`
+        })
+
+        // Update profile data to reflect the change
+        setProfileData(prev => prev ? { ...prev, use_accessible_colors: accessibilityForm.use_accessible_colors } : prev)
+
+        clientLogger.info('Accessibility preference updated successfully')
+      } else {
+        setAccessibilityMessage({ type: 'error', text: 'Failed to update accessibility preference' })
+      }
+    } catch (error) {
+      setAccessibilityMessage({ type: 'error', text: 'Failed to update accessibility preference' })
+      clientLogger.error('Failed to update accessibility preference:', { error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setAccessibilityLoading(false)
     }
   }
 
@@ -366,6 +407,7 @@ export default function UserPreferencesPage() {
                 <nav className="flex space-x-8 px-6">
                   {[
                     { id: 'profile', label: 'Profile Information', icon: '👤' },
+                    { id: 'accessibility', label: 'Accessibility', icon: '♿' },
                     { id: 'password', label: 'Password', icon: '🔒' }
                   ].map((tab) => (
                     <button
@@ -528,6 +570,113 @@ export default function UserPreferencesPage() {
                               : (selectedFile ? 'Update Profile & Image' : 'Update Profile')
                             }
                           </span>
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                )}
+
+                {/* Accessibility Tab */}
+                {activeTab === 'accessibility' && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <h3 className="text-lg font-semibold text-primary mb-4">Accessibility Preferences</h3>
+                    <p className="text-secondary mb-6">
+                      Configure accessibility features to improve your experience with the platform.
+                    </p>
+
+                    {accessibilityMessage && (
+                      <div className={`mb-4 p-3 rounded-md ${accessibilityMessage.type === 'success'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}>
+                        {accessibilityMessage.text}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleAccessibilityUpdate} className="space-y-6">
+                      {/* Accessible Colors Toggle */}
+                      <div className="bg-tertiary p-4 rounded-lg border border-default">
+                        <div className="flex items-start space-x-4">
+                          <div className="flex-shrink-0 mt-1">
+                            <div className="w-8 h-8 bg-color-1 rounded-lg flex items-center justify-center">
+                              <span className="text-white text-lg">🎨</span>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="text-base font-medium text-primary">Enhanced Color Contrast</h4>
+                                <p className="text-sm text-secondary mt-1">
+                                  Use WCAG AAA compliant colors for better visibility and accessibility.
+                                  This provides higher contrast ratios for improved readability.
+                                </p>
+                              </div>
+                              <div className="flex-shrink-0 ml-4">
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={accessibilityForm.use_accessible_colors}
+                                    onChange={(e) => setAccessibilityForm({
+                                      ...accessibilityForm,
+                                      use_accessible_colors: e.target.checked
+                                    })}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Status indicator */}
+                            <div className="mt-3 flex items-center space-x-2">
+                              <div className={`w-2 h-2 rounded-full ${accessibilityForm.use_accessible_colors ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                              <span className="text-xs text-secondary">
+                                {accessibilityForm.use_accessible_colors ? 'AAA Compliance Enabled' : 'Standard Colors (AA Compliance)'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Information Box */}
+                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0">
+                            <span className="text-blue-500 text-lg">ℹ️</span>
+                          </div>
+                          <div>
+                            <h5 className="text-sm font-medium text-blue-800 dark:text-blue-200">About Accessibility Colors</h5>
+                            <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                              When enabled, the platform will use enhanced color variants that meet WCAG AAA standards
+                              for contrast ratios. This ensures better readability for users with visual impairments
+                              or when viewing in challenging lighting conditions.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={accessibilityLoading}
+                          className="btn-primary flex items-center space-x-2"
+                        >
+                          {accessibilityLoading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              <span>Updating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>♿</span>
+                              <span>Update Accessibility Preferences</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </form>

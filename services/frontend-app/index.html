@@ -12,29 +12,54 @@
         // Disable transitions during initial apply to prevent visual flash
         document.documentElement.classList.add('no-transitions');
 
-        // Apply theme
-        var theme = localStorage.getItem('pulse_theme') || 'light';
+        // Apply theme - check for user preference first, then localStorage, then default
+        var theme = localStorage.getItem('pulse_theme');
+
+        // If no theme in localStorage, check if we have a user token (indicating logged in user)
+        if (!theme) {
+          var token = localStorage.getItem('pulse_token');
+          if (token) {
+            // User is logged in but no theme preference cached - start with dark to avoid flash
+            // The actual preference will be loaded from API and corrected if needed
+            theme = 'dark';
+          } else {
+            // No user logged in, use light as default
+            theme = 'light';
+          }
+        }
+
         document.documentElement.setAttribute('data-theme', theme);
 
         // Apply color schema mode
         var mode = localStorage.getItem('pulse_color_schema_mode') || 'default';
         document.documentElement.setAttribute('data-color-schema', mode);
 
-        // Apply custom colors from localStorage if available
-        if (mode === 'custom') {
-          var saved = localStorage.getItem('pulse_colors');
-          if (saved) {
-            try {
-              var colors = JSON.parse(saved);
+        // Apply colors from complete color data (instant, no flash)
+        var completeColorData = localStorage.getItem('pulse_complete_color_data');
+        if (completeColorData) {
+          try {
+            var allColors = JSON.parse(completeColorData);
+            var targetColors = allColors.find(function(c) {
+              return c.color_schema_mode === mode &&
+                     c.theme_mode === theme &&
+                     c.accessibility_level === 'regular';
+            });
+
+            if (targetColors) {
               var root = document.documentElement.style;
-              if (colors.color1) root.setProperty('--color-1', colors.color1);
-              if (colors.color2) root.setProperty('--color-2', colors.color2);
-              if (colors.color3) root.setProperty('--color-3', colors.color3);
-              if (colors.color4) root.setProperty('--color-4', colors.color4);
-              if (colors.color5) root.setProperty('--color-5', colors.color5);
-            } catch (e) { /* ignore */ }
+              root.setProperty('--color-1', targetColors.color1);
+              root.setProperty('--color-2', targetColors.color2);
+              root.setProperty('--color-3', targetColors.color3);
+              root.setProperty('--color-4', targetColors.color4);
+              root.setProperty('--color-5', targetColors.color5);
+            }
+          } catch (e) {
+            // Silently handle parsing errors
           }
         }
+
+        // Store the initial theme for React to check
+        window.__INITIAL_THEME__ = theme;
 
         // Re-enable transitions on next frame
         requestAnimationFrame(function() {

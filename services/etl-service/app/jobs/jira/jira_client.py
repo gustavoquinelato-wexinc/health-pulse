@@ -373,7 +373,7 @@ class JiraAPIClient:
         logger.info(f"Successfully fetched {len(all_changelogs)} changelogs for issue {issue_key}")
         return all_changelogs
 
-    def _make_request(self, endpoint: str, method: str = 'GET', params: Dict = None, headers: Dict = None, timeout: int = 30) -> Dict:
+    def _make_request(self, endpoint: str, method: str = 'GET', params: Dict = None, headers: Dict = None, timeout: int = 120) -> Dict:
         """
         Generic method to make HTTP requests to Jira API.
 

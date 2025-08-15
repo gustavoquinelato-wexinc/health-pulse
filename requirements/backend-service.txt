@@ -9,3 +9,10 @@ cryptography
 
 # Redis for session management and caching
 redis
+
+# Data processing and analytics (mentioned in README)
+pandas
+numpy
+
+# WebSocket support for real-time updates
+websockets

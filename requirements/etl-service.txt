@@ -16,3 +16,6 @@ python-multipart
 
 # System monitoring
 psutil
+
+# WebSocket support for real-time updates
+websockets

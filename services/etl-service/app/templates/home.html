@@ -23,7 +23,7 @@
 </div>
 
 <!-- Combined Orchestrator + Job Monitor Section -->
-<div class="mb-8 p-6 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+<div class="mb-8 p-6 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
     <div class="flex items-center justify-between mb-6">
         <h2 class="text-2xl font-semibold" style="color: var(--text-primary);">
             <i class="fas fa-robot mr-3" style="color: var(--color-1);"></i>ETL Orchestrator
@@ -36,7 +36,7 @@
     <!-- Two Internal Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Status Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
@@ -51,7 +51,7 @@
         </div>
 
         <!-- Countdown Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
             <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
                 <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
@@ -520,21 +520,15 @@
     window.closeAllWebSockets = closeAllWebSockets;
 
     // Authentication helper
+    // Prefer cookie token; keep localStorage in sync so other scripts can read it
     function getAuthToken() {
-        let token = localStorage.getItem('pulse_token');
-        if (!token) {
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'pulse_token') {
-                    token = value;
-                    // Save to localStorage for future use
-                    localStorage.setItem('pulse_token', token);
-                    break;
-                }
-            }
+        const cookieToken = getCookie('pulse_token');
+        let lsToken = localStorage.getItem('pulse_token');
+        if (cookieToken && cookieToken !== lsToken) {
+            localStorage.setItem('pulse_token', cookieToken);
+            lsToken = cookieToken;
         }
-        return token;
+        return lsToken || cookieToken || null;
     }
 
     // Check if token is valid by making a test API call
@@ -767,6 +761,25 @@
         }
     }
 
+    function handleColorSchemaUpdate(data) {
+        console.log('🎨 Received color schema update:', data);
+
+        try {
+            // Show notification to user
+            showNotification('🎨 Color scheme updated! Refreshing page...', 'info');
+
+            // Simple approach: reload the page to apply new colors
+            // This ensures all colors are properly updated from the server
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500); // Give user time to see the notification
+
+        } catch (error) {
+            console.error('❌ Error handling color schema update:', error);
+            showNotification('❌ Failed to apply color update', 'error');
+        }
+    }
+
     function updateJobProgress(jobName, percentage, step) {
         jobProgress[jobName].percentage = percentage;
         jobProgress[jobName].step = step;
@@ -794,6 +807,22 @@
         if (jobCard) {
             updateJobCardExceptions(jobCard, jobProgress[jobName].exceptions);
         }
+    }
+
+    function clearJobExceptions(jobName) {
+        // Clear exceptions for the specific job
+        if (jobProgress[jobName] && jobProgress[jobName].exceptions) {
+            jobProgress[jobName].exceptions = [];
+        }
+
+        // Update the UI to hide the exceptions section
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            updateJobCardExceptions(jobCard, []);
+        }
+
+        // Also trigger a data refresh to clear any error messages from the database
+        setTimeout(refreshData, 500);
     }
 
     function updateJobStatus(jobName, status) {
@@ -1100,6 +1129,9 @@
     // Job control functions
     async function setJobActive(jobName) {
         try {
+            // Clear any existing error messages when starting a new job run
+            clearJobExceptions(jobName);
+
             const token = getAuthToken();
             if (!token) {
                 throw new Error('No authentication token found');
@@ -1637,6 +1669,10 @@
             console.warn('Cannot start orchestrator while jobs are running');
             return;
         }
+
+        // Clear error messages for all jobs when starting orchestrator
+        clearJobExceptions('jira_sync');
+        clearJobExceptions('github_sync');
 
         const originalText = button.innerHTML;
 

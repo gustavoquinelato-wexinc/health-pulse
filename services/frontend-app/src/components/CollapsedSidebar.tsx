@@ -39,14 +39,31 @@ const navigationItems: NavigationItem[] = [
       { id: 'deployment-frequency', label: 'Deployment Frequency', path: '/dora/deployment-frequency' },
       { id: 'lead-time', label: 'Lead Time for Changes', path: '/dora/lead-time' },
       { id: 'time-to-restore', label: 'Time to Restore', path: '/dora/time-to-restore' },
-      { id: 'change-failure-rate', label: 'Change Failure Rate', path: '/dora/change-failure-rate' }
+      { id: 'change-failure-rate', label: 'Change Failure Rate', path: '/dora/change-failure-rate' },
+      { id: 'dora-flow', label: 'DORA + Flow', path: '/dora/combined' }
     ]
   },
   {
     id: 'engineering',
     label: 'Engineering Analytics',
     icon: TrendingUp,
-    path: '/engineering'
+    path: '/engineering',
+    subItems: [
+      { id: 'lead-time', label: 'Lead-Time Drivers', path: '/engineering/lead-time' },
+      { id: 'lead-time-pr', label: '• PR Lifecycle', path: '/engineering/lead-time/pr-lifecycle' },
+      { id: 'lead-time-reviews', label: '• Reviews', path: '/engineering/lead-time/reviews' },
+      { id: 'lead-time-wip', label: '• WIP & Batch Size', path: '/engineering/lead-time/wip-batch' },
+      { id: 'lead-time-flow', label: '• Flow Efficiency', path: '/engineering/lead-time/flow-efficiency' },
+      { id: 'deployments', label: 'Deployment Drivers', path: '/engineering/deployments' },
+      { id: 'deployments-branching', label: '• Branching & Merge Strategy', path: '/engineering/deployments/branching' },
+      { id: 'deployments-cadence', label: '• Cadence', path: '/engineering/deployments/cadence' },
+      { id: 'quality', label: 'Quality Drivers', path: '/engineering/quality' },
+      { id: 'quality-post-release', label: '• Post-Release Defects', path: '/engineering/quality/post-release' },
+      { id: 'quality-hotfixes', label: '• Hotfixes', path: '/engineering/quality/hotfixes' },
+      { id: 'reliability', label: 'Reliability Drivers', path: '/engineering/reliability' },
+      { id: 'reliability-incidents', label: '• Incidents', path: '/engineering/reliability/incidents' },
+      { id: 'reliability-recovery', label: '• Recovery', path: '/engineering/reliability/recovery' }
+    ]
   },
 
 ]
@@ -169,16 +186,43 @@ export default function CollapsedSidebar() {
     navigate(path)
   }
 
-  // Simple ETL navigation function (subdomain cookies handle authentication)
+  // ETL navigation function with color data transfer
   const handleETLDirectNavigation = (openInNewTab = false) => {
     const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
 
-    if (openInNewTab) {
-      // Open in new tab
-      window.open(`${ETL_SERVICE_URL}/home`, '_blank')
-    } else {
-      // Navigate in same page
-      window.location.href = `${ETL_SERVICE_URL}/home`
+    // Transfer color data to ETL service via URL parameters
+    try {
+      const completeColorData = localStorage.getItem('pulse_complete_color_data')
+      const theme = localStorage.getItem('pulse_theme') || 'light'
+      const mode = localStorage.getItem('pulse_color_schema_mode') || 'default'
+
+      let targetUrl = `${ETL_SERVICE_URL}/home`
+
+      // Add color data as URL parameters if available
+      if (completeColorData) {
+        const params = new URLSearchParams()
+        params.set('color_data', encodeURIComponent(completeColorData))
+        params.set('theme', theme)
+        params.set('mode', mode)
+        targetUrl += `?${params.toString()}`
+      }
+
+      if (openInNewTab) {
+        // Open in new tab
+        window.open(targetUrl, '_blank')
+      } else {
+        // Navigate in same page
+        window.location.href = targetUrl
+      }
+    } catch (error) {
+      console.warn('Failed to transfer color data to ETL, using basic navigation:', error)
+      // Fallback to basic navigation
+      const basicUrl = `${ETL_SERVICE_URL}/home`
+      if (openInNewTab) {
+        window.open(basicUrl, '_blank')
+      } else {
+        window.location.href = basicUrl
+      }
     }
   }
 
@@ -258,11 +302,12 @@ export default function CollapsedSidebar() {
                   <Link
                     to={item.path}
                     className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                      ? 'nav-item-active text-white'
+                      ? 'nav-item-active'
                       : 'text-secondary hover:bg-tertiary hover:text-primary'
                       }`}
                     style={isActive(item) ? {
-                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                      background: 'var(--gradient-1-2)',
+                      color: 'var(--on-gradient-1-2)'
                     } : {}}
                   >
                     <item.icon className="w-5 h-5" />
@@ -286,11 +331,12 @@ export default function CollapsedSidebar() {
                   <Link
                     to={item.path}
                     className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                      ? 'nav-item-active text-white'
+                      ? 'nav-item-active'
                       : 'text-secondary hover:bg-tertiary hover:text-primary'
                       }`}
                     style={isActive(item) ? {
-                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                      background: 'var(--gradient-1-2)',
+                      color: 'var(--on-gradient-1-2)'
                     } : {}}
                   >
                     <item.icon className="w-5 h-5" />
@@ -352,11 +398,12 @@ export default function CollapsedSidebar() {
                     <Link
                       to={subItem.path}
                       className={`flex items-center px-3 py-2 text-sm cursor-pointer transition-colors ${location.pathname === subItem.path
-                        ? 'text-white shadow-sm'
+                        ? 'shadow-sm'
                         : 'text-secondary hover:bg-tertiary hover:text-primary'
                         }`}
                       style={location.pathname === subItem.path ? {
-                        background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`
+                        background: 'var(--gradient-1-2)',
+                        color: 'var(--on-gradient-1-2)'
                       } : {}}
                     >
                       {subItem.label}
