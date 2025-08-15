@@ -43,6 +43,18 @@ The Frontend Application provides an intuitive interface for:
 - Analytics Backend running on port 3001
 
 ### **Development Setup**
+
+#### **Quick Setup (Recommended)**
+```bash
+# From project root - sets up ALL services including frontend
+python scripts/setup_development.py
+
+# Then start frontend
+cd services/frontend-app
+npm run dev
+```
+
+#### **Manual Setup (Alternative)**
 ```bash
 cd services/frontend-app
 
@@ -106,8 +118,10 @@ VITE_ENABLE_AI_FEATURES=true
 
 ## 📚 Documentation
 
-- **[Architecture Guide](docs/ARCHITECTURE.md)** - Detailed frontend architecture
-- **[Design System](docs/DESIGN_SYSTEM.md)** - UI/UX guidelines and components
+- **[Architecture Guide](../../docs/architecture.md)** - System architecture and design
+- **[Design System](../../docs/design-system.md)** - UI/UX guidelines and color system
+- **[Frontend Architecture](docs/architecture.md)** - Frontend-specific architecture details
+- **[Sidebar Implementation](docs/sidebar-implementation.md)** - Navigation system details
 
 ## 🔗 Integration Points
 

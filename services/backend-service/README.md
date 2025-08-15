@@ -29,7 +29,8 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database
 - **FastAPI** - Modern, fast web framework with automatic API documentation
 - **SQLAlchemy** - Advanced ORM for complex analytical queries
 - **Pydantic** - Data validation and serialization
-- **NumPy/Pandas** - Data processing and statistical analysis
+- **NumPy/Pandas** - Data processing and statistical analysis *(recently added)*
+- **WebSockets** - Real-time updates and notifications *(recently added)*
 - **Redis** - Caching and session management
 - **PostgreSQL** - Primary database with connection pooling
 
@@ -49,15 +50,29 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database
 - ETL Service running for job coordination
 
 ### **Development Setup**
+
+#### **Quick Setup (Recommended)**
 ```bash
-cd services/analytics-backend
+# From project root - sets up ALL services
+python scripts/setup_development.py
+
+# Then start backend service
+cd services/backend-service
+venv/Scripts/activate  # Windows
+source venv/bin/activate  # Unix/Linux/macOS
+uvicorn app.main:app --reload --port 3001
+```
+
+#### **Manual Setup (Alternative)**
+```bash
+cd services/backend-service
 
 # Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies using centralized requirements
+pip install -r ../../requirements/backend-service.txt
 
 # Configuration is managed centrally at root level
 # Edit the root .env file: ../../.env

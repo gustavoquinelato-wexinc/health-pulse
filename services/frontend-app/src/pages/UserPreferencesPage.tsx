@@ -21,7 +21,7 @@ interface ProfileData {
 }
 
 export default function UserPreferencesPage() {
-  const { user, updateAccessibilityPreference } = useAuth()
+  const { updateAccessibilityPreference } = useAuth()
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'profile' | 'accessibility' | 'password'>('profile')
@@ -136,7 +136,7 @@ export default function UserPreferencesPage() {
 
       clientLogger.info('Profile data loaded successfully')
     } catch (error) {
-      clientLogger.error('Failed to load profile data:', error)
+      clientLogger.error('Failed to load profile data:', { error: error instanceof Error ? error.message : String(error) })
       setProfileMessage({ type: 'error', text: 'Failed to load profile data' })
     } finally {
       setLoading(false)
@@ -277,7 +277,7 @@ export default function UserPreferencesPage() {
       }
     } catch (error) {
       setAccessibilityMessage({ type: 'error', text: 'Failed to update accessibility preference' })
-      clientLogger.error('Failed to update accessibility preference:', error)
+      clientLogger.error('Failed to update accessibility preference:', { error: error instanceof Error ? error.message : String(error) })
     } finally {
       setAccessibilityLoading(false)
     }

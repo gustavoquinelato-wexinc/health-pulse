@@ -4,448 +4,1013 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 
 export default function ColorSchemaPanel() {
-  const { theme, colorSchemaMode, setColorSchemaMode, saveColorSchemaMode, colorSchema, updateColorSchema, saveColorSchema } = useTheme()
-  const { user } = useAuth()
+  const { theme, setColorSchemaMode, updateColorSchema } = useTheme()
+  const { refreshUserColors } = useAuth()
 
-  // Fix: Force DOM update when theme changes (keep this fix)
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
-
-  // CSS custom properties for dark mode (since Tailwind dark classes aren't working)
-  const chartBg = theme === 'dark' ? '#1f2937' : '#f3f4f6' // gray-800 : gray-100
-  const cardBg = theme === 'dark' ? '#1f2937' : '#f3f4f6'  // gray-800 : gray-100
-  const textColor = theme === 'dark' ? '#f9fafb' : '#111827' // gray-50 : gray-900
-  const mutedColor = theme === 'dark' ? '#9ca3af' : '#6b7280' // gray-400 : gray-600
-  const [tempColorSchema, setTempColorSchema] = useState(colorSchema)
-  const [tempColorSchemaMode, setTempColorSchemaMode] = useState(colorSchemaMode)
+  // State variables for unified architecture
+  const [tempColorSchemaMode, setTempColorSchemaMode] = useState<'default' | 'custom' | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Store database palettes explicitly (from server)
-  const [databaseDefaultColors, setDatabaseDefaultColors] = useState<any>(colorSchema)
-  const [databaseCustomColors, setDatabaseCustomColors] = useState<any>(colorSchema)
-  // Back-compat: keep previous single databaseColors for preview logic when needed
-  const [databaseColors, setDatabaseColors] = useState(colorSchema)
-  // Store original database mode (immutable for comparison)
-  const [databaseMode, setDatabaseMode] = useState(colorSchemaMode)
-  // Track if colors have been changed (separate from mode changes)
-  const [colorsChanged, setColorsChanged] = useState(false)
-  // Track color definition mode (light/dark)
-  const [tempColorDefinitionMode, setTempColorDefinitionMode] = useState('light')
+  // Side-by-side Light/Dark Mode Colors
+  const [lightColors, setLightColors] = useState<any>({
+    color1: '#C8102E', color2: '#253746', color3: '#00C7B1', color4: '#A2DDF8', color5: '#FFBF3F'
+  })
+  const [darkColors, setDarkColors] = useState<any>({
+    color1: '#A00E26', color2: '#1E2B36', color3: '#00A394', color4: '#7BC3E8', color5: '#E6AC38'
+  })
 
-
-  // Helper function to validate hex color format
-  const isValidHexColor = (hex: string): boolean => {
-    return /^#[0-9A-Fa-f]{6}$/.test(hex)
-  }
-
-  // Helper function to ensure valid hex color (fallback to default if invalid)
-  const ensureValidHex = (hex: string, fallback: string = '#000000'): string => {
-    return isValidHexColor(hex) ? hex : fallback
-  }
+  // Instant preview colors for immediate UI feedback
+  const [previewColor1, setPreviewColor1] = useState<string | null>(null)
 
 
 
-  // Default colors (read-only)
-  const defaultColors = {
-    color1: '#C8102E',
-    color2: '#253746',
-    color3: '#00C7B1',
-    color4: '#A2DDF8',
-    color5: '#FFBF3F'
-  }
+  // Calculated variants from unified table - all accessibility levels
+  const [lightVariants, setLightVariants] = useState<any>({})
+  const [darkVariants, setDarkVariants] = useState<any>({})
+  const [lightVariantsAA, setLightVariantsAA] = useState<any>({})
+  const [darkVariantsAA, setDarkVariantsAA] = useState<any>({})
+  const [lightVariantsAAA, setLightVariantsAAA] = useState<any>({})
+  const [darkVariantsAAA, setDarkVariantsAAA] = useState<any>({})
 
-  // Calculated color variants (read-only display)
-  const calculatedVariants = [
-    { category: 'On Colors', description: 'Optimal text colors for each base color', colors: ['on_color1', 'on_color2', 'on_color3', 'on_color4', 'on_color5'] },
-    { category: 'Gradient Colors', description: 'Colors for gradient transitions (shows both on-color and gradient)', colors: ['on_gradient_1_2', 'on_gradient_2_3', 'on_gradient_3_4', 'on_gradient_4_5', 'on_gradient_5_1'] },
-    { category: 'Adaptive Colors', description: 'Colors automatically adjusted for opposite theme mode (light↔dark)', colors: ['adaptive_color1', 'adaptive_color2', 'adaptive_color3', 'adaptive_color4', 'adaptive_color5'] }
-  ]
+  // Database state for comparison
+  const [databaseLightColors, setDatabaseLightColors] = useState<any>({})
+  const [databaseDarkColors, setDatabaseDarkColors] = useState<any>({})
+  const [databaseMode, setDatabaseMode] = useState<string>('default')
 
-  // Fetch color data from API on component mount
+  // Load unified color data from API
   useEffect(() => {
-    const fetchColorData = async () => {
+    const loadUnifiedColorData = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema`, {
+        setIsLoading(true)
+
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified`, {
           method: 'GET',
-          credentials: 'include',
           headers: {
+            'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
           }
         })
 
         if (response.ok) {
           const json = await response.json()
+
           if (json?.success) {
-            if (json.default_colors) {
-              console.log('🎨 Received default colors:', json.default_colors)
-              setDatabaseDefaultColors(json.default_colors)
-            }
-            if (json.custom_colors) {
-              console.log('🎨 Received custom colors:', json.custom_colors)
-              setDatabaseCustomColors(json.custom_colors)
-              // Initialize color definition mode from custom colors
-              if (json.custom_colors.colors_defined_in_mode) {
-                setTempColorDefinitionMode(json.custom_colors.colors_defined_in_mode)
+            // Set mode
+            const mode = json.color_schema_mode || 'default'
+            setTempColorSchemaMode(mode)
+            setDatabaseMode(mode)
+            setColorSchemaMode(mode)
+
+            // Process unified color data
+            if (json.color_data && Array.isArray(json.color_data)) {
+              const lightRegular = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'regular')
+              const darkRegular = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'regular')
+              const lightAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AA')
+              const darkAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AA')
+              const lightAAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AAA')
+              const darkAAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
+
+              if (lightRegular) {
+                const light = {
+                  color1: lightRegular.color1, color2: lightRegular.color2, color3: lightRegular.color3,
+                  color4: lightRegular.color4, color5: lightRegular.color5
+                }
+                setLightColors(light)
+                setDatabaseLightColors(light)
+                setLightVariants({
+                  on_color1: lightRegular.on_color1, on_color2: lightRegular.on_color2, on_color3: lightRegular.on_color3,
+                  on_color4: lightRegular.on_color4, on_color5: lightRegular.on_color5,
+                  on_gradient_1_2: lightRegular.on_gradient_1_2, on_gradient_2_3: lightRegular.on_gradient_2_3,
+                  on_gradient_3_4: lightRegular.on_gradient_3_4, on_gradient_4_5: lightRegular.on_gradient_4_5,
+                  on_gradient_5_1: lightRegular.on_gradient_5_1
+                })
               }
+
+              if (darkRegular) {
+                const dark = {
+                  color1: darkRegular.color1, color2: darkRegular.color2, color3: darkRegular.color3,
+                  color4: darkRegular.color4, color5: darkRegular.color5
+                }
+                setDarkColors(dark)
+                setDatabaseDarkColors(dark)
+                setDarkVariants({
+                  on_color1: darkRegular.on_color1, on_color2: darkRegular.on_color2, on_color3: darkRegular.on_color3,
+                  on_color4: darkRegular.on_color4, on_color5: darkRegular.on_color5,
+                  on_gradient_1_2: darkRegular.on_gradient_1_2, on_gradient_2_3: darkRegular.on_gradient_2_3,
+                  on_gradient_3_4: darkRegular.on_gradient_3_4, on_gradient_4_5: darkRegular.on_gradient_4_5,
+                  on_gradient_5_1: darkRegular.on_gradient_5_1
+                })
+              }
+
+              // Load AA accessibility level variants
+              if (lightAA) {
+                setLightVariantsAA({
+                  on_color1: lightAA.on_color1, on_color2: lightAA.on_color2, on_color3: lightAA.on_color3,
+                  on_color4: lightAA.on_color4, on_color5: lightAA.on_color5,
+                  on_gradient_1_2: lightAA.on_gradient_1_2, on_gradient_2_3: lightAA.on_gradient_2_3,
+                  on_gradient_3_4: lightAA.on_gradient_3_4, on_gradient_4_5: lightAA.on_gradient_4_5,
+                  on_gradient_5_1: lightAA.on_gradient_5_1
+                })
+              }
+
+              if (darkAA) {
+                setDarkVariantsAA({
+                  on_color1: darkAA.on_color1, on_color2: darkAA.on_color2, on_color3: darkAA.on_color3,
+                  on_color4: darkAA.on_color4, on_color5: darkAA.on_color5,
+                  on_gradient_1_2: darkAA.on_gradient_1_2, on_gradient_2_3: darkAA.on_gradient_2_3,
+                  on_gradient_3_4: darkAA.on_gradient_3_4, on_gradient_4_5: darkAA.on_gradient_4_5,
+                  on_gradient_5_1: darkAA.on_gradient_5_1
+                })
+              }
+
+              // Load AAA accessibility level variants
+              if (lightAAA) {
+                setLightVariantsAAA({
+                  on_color1: lightAAA.on_color1, on_color2: lightAAA.on_color2, on_color3: lightAAA.on_color3,
+                  on_color4: lightAAA.on_color4, on_color5: lightAAA.on_color5,
+                  on_gradient_1_2: lightAAA.on_gradient_1_2, on_gradient_2_3: lightAAA.on_gradient_2_3,
+                  on_gradient_3_4: lightAAA.on_gradient_3_4, on_gradient_4_5: lightAAA.on_gradient_4_5,
+                  on_gradient_5_1: lightAAA.on_gradient_5_1
+                })
+              }
+
+              if (darkAAA) {
+                setDarkVariantsAAA({
+                  on_color1: darkAAA.on_color1, on_color2: darkAAA.on_color2, on_color3: darkAAA.on_color3,
+                  on_color4: darkAAA.on_color4, on_color5: darkAAA.on_color5,
+                  on_gradient_1_2: darkAAA.on_gradient_1_2, on_gradient_2_3: darkAAA.on_gradient_2_3,
+                  on_gradient_3_4: darkAAA.on_gradient_3_4, on_gradient_4_5: darkAAA.on_gradient_4_5,
+                  on_gradient_5_1: darkAAA.on_gradient_5_1
+                })
+              }
+
+              // Don't update ThemeContext during initial load - let it use database colors
             }
           }
         }
       } catch (error) {
-        console.error('Error fetching color data:', error)
+        console.error('❌ Error loading unified color data:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
 
-    fetchColorData()
+    loadUnifiedColorData()
   }, [])
 
-  // Update temp values when theme context changes
-  useEffect(() => {
-    setTempColorSchema(colorSchema)
-    setTempColorSchemaMode(colorSchemaMode)
-    setDatabaseColors(colorSchema)
-    setDatabaseMode(colorSchemaMode)
-  }, [colorSchema, colorSchemaMode])
+
 
   // Check for changes
   useEffect(() => {
+    const lightChanged = JSON.stringify(lightColors) !== JSON.stringify(databaseLightColors)
+    const darkChanged = JSON.stringify(darkColors) !== JSON.stringify(databaseDarkColors)
     const modeChanged = tempColorSchemaMode !== databaseMode
-    const hasChanges = modeChanged || colorsChanged
-    setHasChanges(hasChanges)
-  }, [tempColorSchemaMode, databaseMode, colorsChanged])
+    setHasChanges(lightChanged || darkChanged || modeChanged)
+  }, [lightColors, darkColors, tempColorSchemaMode, databaseLightColors, databaseDarkColors, databaseMode])
 
-  // Reset function
-  const handleReset = () => {
-    setTempColorSchema(colorSchema)
-    setTempColorSchemaMode(colorSchemaMode)
-    setColorsChanged(false)
-    setHasChanges(false)
-  }
+  // Don't auto-sync edit mode with hasChanges - it's too unstable during initialization
+  // Only activate edit mode through explicit user actions
 
-  const handleColorChange = (colorKey: string, newValue: string) => {
-    setTempColorSchema(prev => ({
-      ...prev,
-      [colorKey]: newValue
-    }))
-    setColorsChanged(true)
-    setHasChanges(true)
 
-    // Do not update global ThemeContext colors during editing to avoid app-wide flashing.
-    // Global CSS vars will be updated on Apply.
-  }
 
-  const handleColorDefinitionModeChange = (mode: 'light' | 'dark') => {
-    setTempColorDefinitionMode(mode)
-    setColorsChanged(true)
-    setHasChanges(true)
-  }
 
-  const handleModeChange = (mode: 'default' | 'custom') => {
+
+  // Handle mode change
+  const handleModeChange = async (mode: 'default' | 'custom') => {
+    // Update UI immediately for instant feedback
     setTempColorSchemaMode(mode)
+
+    // Set preview color immediately with correct hardcoded values to prevent flicker
+    const defaultColor1Light = '#2862EB' // Default blue
+    const defaultColor1Dark = '#2862EB'   // Same for dark (from migration)
+    const customColor1Light = '#C8102E'   // WEX red (light)
+    const customColor1Dark = '#A00E26'    // WEX red (dark) - corrected to match actual database value
+
+    const previewColor = mode === 'default'
+      ? (theme === 'light' ? defaultColor1Light : defaultColor1Dark)
+      : (theme === 'light' ? customColor1Light : customColor1Dark)
+
+    setPreviewColor1(previewColor)
+
+    // Don't update ThemeContext during mode change - let UI elements stay with database colors
+
+    // Load colors for the selected mode in the background
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified?mode=${mode}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
+        }
+      })
+
+      if (response.ok) {
+        const json = await response.json()
+
+        if (json?.success && json.color_data && Array.isArray(json.color_data)) {
+          const lightRegular = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'regular')
+          const darkRegular = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'regular')
+          const lightAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AA')
+          const darkAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AA')
+          const lightAAA = json.color_data.find((c: any) => c.theme_mode === 'light' && c.accessibility_level === 'AAA')
+          const darkAAA = json.color_data.find((c: any) => c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
+
+          if (lightRegular) {
+            const light = {
+              color1: lightRegular.color1, color2: lightRegular.color2, color3: lightRegular.color3,
+              color4: lightRegular.color4, color5: lightRegular.color5
+            }
+            setLightColors(light)
+            setLightVariants({
+              on_color1: lightRegular.on_color1, on_color2: lightRegular.on_color2, on_color3: lightRegular.on_color3,
+              on_color4: lightRegular.on_color4, on_color5: lightRegular.on_color5,
+              on_gradient_1_2: lightRegular.on_gradient_1_2, on_gradient_2_3: lightRegular.on_gradient_2_3,
+              on_gradient_3_4: lightRegular.on_gradient_3_4, on_gradient_4_5: lightRegular.on_gradient_4_5,
+              on_gradient_5_1: lightRegular.on_gradient_5_1
+            })
+          }
+
+          if (darkRegular) {
+            const dark = {
+              color1: darkRegular.color1, color2: darkRegular.color2, color3: darkRegular.color3,
+              color4: darkRegular.color4, color5: darkRegular.color5
+            }
+            setDarkColors(dark)
+            setDarkVariants({
+              on_color1: darkRegular.on_color1, on_color2: darkRegular.on_color2, on_color3: darkRegular.on_color3,
+              on_color4: darkRegular.on_color4, on_color5: darkRegular.on_color5,
+              on_gradient_1_2: darkRegular.on_gradient_1_2, on_gradient_2_3: darkRegular.on_gradient_2_3,
+              on_gradient_3_4: darkRegular.on_gradient_3_4, on_gradient_4_5: darkRegular.on_gradient_4_5,
+              on_gradient_5_1: darkRegular.on_gradient_5_1
+            })
+          }
+
+          // Don't update ThemeContext during background loading - let UI elements stay with database colors
+
+          // Load AA accessibility level variants
+          if (lightAA) {
+            setLightVariantsAA({
+              on_color1: lightAA.on_color1, on_color2: lightAA.on_color2, on_color3: lightAA.on_color3,
+              on_color4: lightAA.on_color4, on_color5: lightAA.on_color5,
+              on_gradient_1_2: lightAA.on_gradient_1_2, on_gradient_2_3: lightAA.on_gradient_2_3,
+              on_gradient_3_4: lightAA.on_gradient_3_4, on_gradient_4_5: lightAA.on_gradient_4_5,
+              on_gradient_5_1: lightAA.on_gradient_5_1
+            })
+          }
+
+          if (darkAA) {
+            setDarkVariantsAA({
+              on_color1: darkAA.on_color1, on_color2: darkAA.on_color2, on_color3: darkAA.on_color3,
+              on_color4: darkAA.on_color4, on_color5: darkAA.on_color5,
+              on_gradient_1_2: darkAA.on_gradient_1_2, on_gradient_2_3: darkAA.on_gradient_2_3,
+              on_gradient_3_4: darkAA.on_gradient_3_4, on_gradient_4_5: darkAA.on_gradient_4_5,
+              on_gradient_5_1: darkAA.on_gradient_5_1
+            })
+          }
+
+          // Load AAA accessibility level variants
+          if (lightAAA) {
+            setLightVariantsAAA({
+              on_color1: lightAAA.on_color1, on_color2: lightAAA.on_color2, on_color3: lightAAA.on_color3,
+              on_color4: lightAAA.on_color4, on_color5: lightAAA.on_color5,
+              on_gradient_1_2: lightAAA.on_gradient_1_2, on_gradient_2_3: lightAAA.on_gradient_2_3,
+              on_gradient_3_4: lightAAA.on_gradient_3_4, on_gradient_4_5: lightAAA.on_gradient_4_5,
+              on_gradient_5_1: lightAAA.on_gradient_5_1
+            })
+          }
+
+          if (darkAAA) {
+            setDarkVariantsAAA({
+              on_color1: darkAAA.on_color1, on_color2: darkAAA.on_color2, on_color3: darkAAA.on_color3,
+              on_color4: darkAAA.on_color4, on_color5: darkAAA.on_color5,
+              on_gradient_1_2: darkAAA.on_gradient_1_2, on_gradient_2_3: darkAAA.on_gradient_2_3,
+              on_gradient_3_4: darkAAA.on_gradient_3_4, on_gradient_4_5: darkAAA.on_gradient_4_5,
+              on_gradient_5_1: darkAAA.on_gradient_5_1
+            })
+          }
+        }
+
+        // Clear preview color once real colors are loaded
+        setPreviewColor1(null)
+      }
+    } catch (error) {
+      console.error('❌ Error loading colors for mode change:', error)
+      // Clear preview color on error too
+      setPreviewColor1(null)
+    }
+  }
+
+  // Utility function to calculate on-color (text color) for a given background color
+  const calculateOnColor = (hexColor: string): string => {
+    try {
+      // Remove # if present
+      const hex = hexColor.replace('#', '')
+
+      // Convert to RGB
+      const r = parseInt(hex.slice(0, 2), 16) / 255
+      const g = parseInt(hex.slice(2, 4), 16) / 255
+      const b = parseInt(hex.slice(4, 6), 16) / 255
+
+      // Calculate relative luminance using WCAG formula
+      const linearize = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+      const L = 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+
+      // Calculate contrast ratios with black and white
+      const contrastWithBlack = (L + 0.05) / (0 + 0.05)
+      const contrastWithWhite = (1 + 0.05) / (L + 0.05)
+
+      // Return color with better contrast
+      return contrastWithWhite >= contrastWithBlack ? '#FFFFFF' : '#000000'
+    } catch (error) {
+      console.warn('Error calculating on-color for', hexColor, error)
+      return '#000000' // Default to black
+    }
+  }
+
+  // Utility function to calculate on-color for gradients (pair of colors)
+  const calculateGradientOnColor = (color1: string, color2: string): string => {
+    const onColor1 = calculateOnColor(color1)
+    const onColor2 = calculateOnColor(color2)
+    // If both colors need the same text color, use it; otherwise default to white
+    return onColor1 === onColor2 ? onColor1 : '#FFFFFF'
+  }
+
+  // Handle color change with real-time on-color calculation and immediate ThemeContext update
+  const handleColorChange = (theme: 'light' | 'dark', colorKey: string, value: string) => {
+    if (tempColorSchemaMode !== 'custom') return
+
+    if (theme === 'light') {
+      const newLightColors = { ...lightColors, [colorKey]: value }
+      setLightColors(newLightColors)
+
+      // Recalculate on-colors for light theme
+      const newLightVariants = {
+        on_color1: calculateOnColor(newLightColors.color1),
+        on_color2: calculateOnColor(newLightColors.color2),
+        on_color3: calculateOnColor(newLightColors.color3),
+        on_color4: calculateOnColor(newLightColors.color4),
+        on_color5: calculateOnColor(newLightColors.color5),
+        on_gradient_1_2: calculateGradientOnColor(newLightColors.color1, newLightColors.color2),
+        on_gradient_2_3: calculateGradientOnColor(newLightColors.color2, newLightColors.color3),
+        on_gradient_3_4: calculateGradientOnColor(newLightColors.color3, newLightColors.color4),
+        on_gradient_4_5: calculateGradientOnColor(newLightColors.color4, newLightColors.color5),
+        on_gradient_5_1: calculateGradientOnColor(newLightColors.color5, newLightColors.color1)
+      }
+      setLightVariants(newLightVariants)
+
+      // Don't update ThemeContext during color changes - only update local preview
+    } else {
+      const newDarkColors = { ...darkColors, [colorKey]: value }
+      setDarkColors(newDarkColors)
+
+      // Recalculate on-colors for dark theme
+      const newDarkVariants = {
+        on_color1: calculateOnColor(newDarkColors.color1),
+        on_color2: calculateOnColor(newDarkColors.color2),
+        on_color3: calculateOnColor(newDarkColors.color3),
+        on_color4: calculateOnColor(newDarkColors.color4),
+        on_color5: calculateOnColor(newDarkColors.color5),
+        on_gradient_1_2: calculateGradientOnColor(newDarkColors.color1, newDarkColors.color2),
+        on_gradient_2_3: calculateGradientOnColor(newDarkColors.color2, newDarkColors.color3),
+        on_gradient_3_4: calculateGradientOnColor(newDarkColors.color3, newDarkColors.color4),
+        on_gradient_4_5: calculateGradientOnColor(newDarkColors.color4, newDarkColors.color5),
+        on_gradient_5_1: calculateGradientOnColor(newDarkColors.color5, newDarkColors.color1)
+      }
+      setDarkVariants(newDarkVariants)
+
+      // Don't update ThemeContext during color changes - only update local preview
+    }
+
+    // Mark as having changes
     setHasChanges(true)
   }
 
-  // Apply changes function
-  const applyChanges = async () => {
+  // Save changes
+  const handleSave = async () => {
     if (!hasChanges) return
 
-    setIsSaving(true)
     try {
-      // Save mode first
-      let modeSuccess = true
+      setIsSaving(true)
+
+      // Save mode if changed
       if (tempColorSchemaMode !== databaseMode) {
-        setColorSchemaMode(tempColorSchemaMode)
-        modeSuccess = await saveColorSchemaMode()
-      }
+        const modeResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/mode`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
+          },
+          body: JSON.stringify({ mode: tempColorSchemaMode })
+        })
 
-      // Save colors only if in custom mode and colors changed
-      let colorSuccess = true // Default to true for default mode
-
-      if (tempColorSchemaMode === 'custom' && colorsChanged) {
-        // Make direct API call to include color definition mode
-        try {
-          const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
-            },
-            body: JSON.stringify({
-              colors: tempColorSchema,
-              colors_defined_in_mode: tempColorDefinitionMode
-            })
-          })
-
-          colorSuccess = response.status >= 200 && response.status < 300
-
-          if (colorSuccess) {
-            // Update ThemeContext with the new colors
-            updateColorSchema(tempColorSchema)
-          }
-        } catch (error) {
-          console.error('Error saving color schema:', error)
-          colorSuccess = false
+        if (!modeResponse.ok) {
+          throw new Error('Failed to save color schema mode')
         }
       }
 
-      if (modeSuccess && colorSuccess) {
-        // Update database state to match current temp state
-        setDatabaseMode(tempColorSchemaMode)
-        setColorsChanged(false)
-        setHasChanges(false)
-        console.log('✅ Changes applied successfully')
-      } else {
-        console.error('❌ Failed to apply changes')
+      // Save colors if in custom mode and colors changed
+      if (tempColorSchemaMode === 'custom') {
+        const colorResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/v1/admin/color-schema/unified`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('pulse_token') || ''}`
+          },
+          body: JSON.stringify({
+            light_colors: lightColors,
+            dark_colors: darkColors
+          })
+        })
+
+        if (!colorResponse.ok) {
+          throw new Error('Failed to save colors')
+        }
       }
+
+      // Update database state
+      setDatabaseMode(tempColorSchemaMode || 'default')
+      setDatabaseLightColors(lightColors)
+      setDatabaseDarkColors(darkColors)
+      setColorSchemaMode(tempColorSchemaMode || 'default')
+
+      // Update ThemeContext with both light and dark colors
+      updateColorSchema(lightColors, darkColors)
+
+      // Refresh AuthContext colors to ensure consistency across the app
+      await refreshUserColors()
+
+      setHasChanges(false)
     } catch (error) {
-      console.error('Error applying changes:', error)
+      console.error('❌ Error saving color schema:', error)
     } finally {
       setIsSaving(false)
     }
   }
 
-  // Get current colors for display (either default or custom based on mode)
-  const currentColors = tempColorSchemaMode === 'default' ? databaseDefaultColors : databaseCustomColors
+  // Reset changes
+  const handleReset = () => {
+    setTempColorSchemaMode(databaseMode as 'default' | 'custom')
+    setLightColors(databaseLightColors)
+    setDarkColors(databaseDarkColors)
+    setHasChanges(false)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="text-muted">Loading color schema...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <motion.div
-      className="space-y-8"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
+      className="space-y-8"
     >
-      {/* Color Schema Mode Selection */}
-      <div className="card p-6 hover:shadow-lg transition-all duration-300">
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-bold text-primary">Color Schema Settings</h3>
-            {hasChanges && (
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={handleReset}
-                  className="px-4 py-2 text-sm border border-default rounded-lg text-muted hover:text-secondary hover:border-gray-400 transition-colors"
-                >
-                  Reset
-                </button>
-                <button
-                  onClick={applyChanges}
-                  disabled={isSaving}
-                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {isSaving ? 'Applying...' : 'Apply Changes'}
-                </button>
+      {/* Action Buttons */}
+      <div className="flex items-center justify-end space-x-3">
+        <button
+          onClick={handleReset}
+          disabled={!hasChanges}
+          className="px-4 py-2 text-sm border border-default rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Reset
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!hasChanges || isSaving}
+          className="px-4 py-2 text-sm btn-crud-edit text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-200 transform-none hover:transform-none"
+        >
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+
+      {/* Mode Selection */}
+      <div className="card p-6">
+        <h4 className="text-md font-medium text-primary mb-4">Schema Mode</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label
+            className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer transition-all ${tempColorSchemaMode === 'default'
+              ? 'border-white text-white shadow-lg'
+              : 'border-default hover:bg-muted/50'
+              }`}
+            style={{
+              backgroundColor: tempColorSchemaMode === 'default'
+                ? (previewColor1 && tempColorSchemaMode === 'default'
+                  ? previewColor1
+                  : (theme === 'light' ? lightColors.color1 : darkColors.color1))
+                : 'transparent'
+            }}
+          >
+            <input
+              type="radio"
+              name="colorMode"
+              value="default"
+              checked={tempColorSchemaMode === 'default'}
+              onChange={() => handleModeChange('default')}
+              className={tempColorSchemaMode === 'default' ? 'text-white' : 'text-primary'}
+            />
+            <div>
+              <div className={`font-medium ${tempColorSchemaMode === 'default' ? 'text-white' : 'text-primary'}`}>
+                Default Colors
               </div>
-            )}
+              <div className={`text-sm ${tempColorSchemaMode === 'default' ? 'text-white/80' : 'text-muted'}`}>
+                Use system default color palette
+              </div>
+            </div>
+          </label>
+          <label
+            className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer transition-all ${tempColorSchemaMode === 'custom'
+              ? 'border-white text-white shadow-lg'
+              : 'border-default hover:bg-muted/50'
+              }`}
+            style={{
+              backgroundColor: tempColorSchemaMode === 'custom'
+                ? (previewColor1 && tempColorSchemaMode === 'custom'
+                  ? previewColor1
+                  : (theme === 'light' ? lightColors.color1 : darkColors.color1))
+                : 'transparent'
+            }}
+          >
+            <input
+              type="radio"
+              name="colorMode"
+              value="custom"
+              checked={tempColorSchemaMode === 'custom'}
+              onChange={() => handleModeChange('custom')}
+              className={tempColorSchemaMode === 'custom' ? 'text-white' : 'text-primary'}
+            />
+            <div>
+              <div className={`font-medium ${tempColorSchemaMode === 'custom' ? 'text-white' : 'text-primary'}`}>
+                Custom Colors
+              </div>
+              <div className={`text-sm ${tempColorSchemaMode === 'custom' ? 'text-white/80' : 'text-muted'}`}>
+                Customize your own color palette
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Color Editing with Internal Theme Cards */}
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h4 className="text-md font-medium text-primary">
+            {tempColorSchemaMode === 'custom' ? 'Customize Colors' : 'Colors (Read-Only)'}
+          </h4>
+          <span className="text-xs text-muted">
+            {tempColorSchemaMode === 'custom' ? 'Edit colors for both light and dark themes' : 'Switch to Custom mode to edit colors'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Light Theme Card */}
+          <div className="card bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="w-4 h-4 bg-yellow-400 rounded-full"></div>
+              <h5 className="text-sm font-semibold text-gray-900">Light Theme Colors</h5>
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              {Object.entries(lightColors).map(([colorKey, colorValue]) => (
+                <div key={`light-${colorKey}`} className="text-center space-y-2">
+                  <div className="relative">
+                    <div
+                      className={`w-16 h-16 mx-auto rounded-lg shadow-md transition-all ${tempColorSchemaMode === 'custom' ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed'
+                        }`}
+                      style={{ backgroundColor: colorValue as string }}
+                      onClick={() => tempColorSchemaMode === 'custom' && document.getElementById(`light-${colorKey}-picker`)?.click()}
+                      title={tempColorSchemaMode === 'custom' ? `Click to edit ${colorKey}` : 'Switch to Custom mode to edit'}
+                    />
+                    {tempColorSchemaMode === 'custom' && (
+                      <input
+                        id={`light-${colorKey}-picker`}
+                        type="color"
+                        value={colorValue as string}
+                        onChange={(e) => handleColorChange('light', colorKey, e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-gray-900 capitalize">{colorKey}</p>
+                    <p className="text-xs text-gray-600 font-mono">{colorValue as string}</p>
+                    <input
+                      type="text"
+                      value={colorValue as string}
+                      onChange={(e) => handleColorChange('light', colorKey, e.target.value)}
+                      disabled={tempColorSchemaMode === 'default'}
+                      className={`w-full text-xs text-center border rounded px-2 py-1 font-mono transition-all ${tempColorSchemaMode === 'default'
+                        ? 'bg-gray-100 text-gray-500 cursor-not-allowed opacity-60'
+                        : 'bg-white text-gray-900 hover:border-blue-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 focus:outline-none'
+                        }`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Mode Selection */}
-          <div className="space-y-4">
-            <h4 className="text-md font-medium text-primary">Schema Mode</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="flex items-center space-x-3 p-4 border border-default rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                <input
-                  type="radio"
-                  name="colorMode"
-                  value="default"
-                  checked={tempColorSchemaMode === 'default'}
-                  onChange={() => handleModeChange('default')}
-                  className="text-blue-600"
-                />
-                <div>
-                  <div className="font-medium text-primary">Default Colors</div>
-                  <div className="text-sm text-muted">Use system default color palette</div>
+          {/* Dark Theme Card */}
+          <div className="card bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-sm">
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="w-4 h-4 bg-gray-600 rounded-full"></div>
+              <h5 className="text-sm font-semibold text-white">Dark Theme Colors</h5>
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              {Object.entries(darkColors).map(([colorKey, colorValue]) => (
+                <div key={`dark-${colorKey}`} className="text-center space-y-2">
+                  <div className="relative">
+                    <div
+                      className={`w-16 h-16 mx-auto rounded-lg shadow-md transition-all ${tempColorSchemaMode === 'custom' ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed'
+                        }`}
+                      style={{ backgroundColor: colorValue as string }}
+                      onClick={() => tempColorSchemaMode === 'custom' && document.getElementById(`dark-${colorKey}-picker`)?.click()}
+                      title={tempColorSchemaMode === 'custom' ? `Click to edit ${colorKey}` : 'Switch to Custom mode to edit'}
+                    />
+                    {tempColorSchemaMode === 'custom' && (
+                      <input
+                        id={`dark-${colorKey}-picker`}
+                        type="color"
+                        value={colorValue as string}
+                        onChange={(e) => handleColorChange('dark', colorKey, e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-white capitalize">{colorKey}</p>
+                    <p className="text-xs text-gray-400 font-mono">{colorValue as string}</p>
+                    <input
+                      type="text"
+                      value={colorValue as string}
+                      onChange={(e) => handleColorChange('dark', colorKey, e.target.value)}
+                      disabled={tempColorSchemaMode === 'default'}
+                      className={`w-full text-xs text-center border rounded px-2 py-1 font-mono transition-all ${tempColorSchemaMode === 'default'
+                        ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-60 border-gray-700'
+                        : 'bg-gray-800 text-white hover:border-blue-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20 focus:outline-none border-gray-600'
+                        }`}
+                    />
+                  </div>
                 </div>
-              </label>
-              <label className="flex items-center space-x-3 p-4 border border-default rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                <input
-                  type="radio"
-                  name="colorMode"
-                  value="custom"
-                  checked={tempColorSchemaMode === 'custom'}
-                  onChange={() => handleModeChange('custom')}
-                  className="text-blue-600"
-                />
-                <div>
-                  <div className="font-medium text-primary">Custom Colors</div>
-                  <div className="text-sm text-muted">Customize your own color palette</div>
-                </div>
-              </label>
+              ))}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Color Customization - Only for Custom Mode */}
-      {tempColorSchemaMode === 'custom' && (
-        <div className="card p-6 hover:shadow-lg transition-all duration-300">
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h4 className="text-md font-medium text-primary">Customize Base Colors</h4>
-              <span className="text-xs text-muted">Only base colors can be edited</span>
-            </div>
+      {/* Calculated Color Variants - Regular Accessibility */}
+      <div className="card p-6">
+        <h4 className="text-md font-medium text-primary mb-4">Calculated Color Variants - Regular</h4>
+        <p className="text-sm text-muted mb-6">
+          These colors are automatically calculated from your base colors to ensure optimal contrast and accessibility.
+        </p>
 
-            {/* Color Definition Mode Selector */}
-            <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-              <div className="flex items-center justify-between mb-3">
-                <h5 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">Color Definition Mode</h5>
-                <span className="text-xs text-yellow-600 dark:text-yellow-400">Affects adaptive color calculations</span>
-              </div>
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="colorDefinitionMode"
-                    value="light"
-                    checked={tempColorDefinitionMode === 'light'}
-                    onChange={() => handleColorDefinitionModeChange('light')}
-                    className="text-yellow-600"
-                  />
-                  <span className="text-sm text-yellow-800 dark:text-yellow-200">Light Mode</span>
-                  <span className="text-xs text-yellow-600 dark:text-yellow-400">(adaptive colors will be lighter for dark theme)</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="colorDefinitionMode"
-                    value="dark"
-                    checked={tempColorDefinitionMode === 'dark'}
-                    onChange={() => handleColorDefinitionModeChange('dark')}
-                    className="text-yellow-600"
-                  />
-                  <span className="text-sm text-yellow-800 dark:text-yellow-200">Dark Mode</span>
-                  <span className="text-xs text-yellow-600 dark:text-yellow-400">(adaptive colors will be darker for light theme)</span>
-                </label>
-              </div>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Light Theme Variants Card */}
+          <div className="card bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-gray-900 mb-4">Light Theme Variants</h5>
 
-            {/* Base Color Editors */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-              {Object.entries(defaultColors).map(([colorKey, defaultValue]) => {
-                const currentValue = tempColorSchema[colorKey] || defaultValue
-                const validColor = ensureValidHex(currentValue, defaultValue)
-
-                return (
-                  <div key={colorKey} className="text-center space-y-3">
-                    <div className="relative">
-                      <div
-                        className="w-20 h-20 mx-auto rounded-xl shadow-md border border-default cursor-pointer hover:scale-105 transition-transform"
-                        style={{ backgroundColor: validColor }}
-                        onClick={() => document.getElementById(`color-input-${colorKey}`)?.click()}
-                      />
-                      <input
-                        id={`color-input-${colorKey}`}
-                        type="color"
-                        value={validColor}
-                        onChange={(e) => handleColorChange(colorKey, e.target.value)}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-700">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`light-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: lightColors[`color${num}`],
+                        color: lightVariants[`on_color${num}`] || '#000000'
+                      }}
+                    >
+                      Aa
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-primary">{colorKey.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}</p>
-                      <p className="text-xs text-muted font-mono">{validColor}</p>
-                      <input
-                        type="text"
-                        value={currentValue}
-                        onChange={(e) => handleColorChange(colorKey, e.target.value)}
-                        className="w-full text-xs text-center border border-default rounded px-2 py-1 bg-transparent"
-                        placeholder={defaultValue}
-                      />
-                    </div>
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariants[`on_color${num}`] || 'N/A'}</p>
                   </div>
-                )
-              })}
+                ))}
+              </div>
+            </div>
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-700">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`light-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${lightColors[gradient.from]}, ${lightColors[gradient.to]})`,
+                        color: lightVariants[gradient.key] || '#000000'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariants[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Dark Theme Variants Card */}
+          <div className="card bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-white mb-4">Dark Theme Variants</h5>
+
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-300">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`dark-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: darkColors[`color${num}`],
+                        color: darkVariants[`on_color${num}`] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariants[`on_color${num}`] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-300">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`dark-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${darkColors[gradient.from]}, ${darkColors[gradient.to]})`,
+                        color: darkVariants[gradient.key] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariants[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Color Variants Display */}
-      <div className="card p-6 hover:shadow-lg transition-all duration-300">
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h4 className="text-md font-medium text-primary">Calculated Color Variants</h4>
-            <span className="text-xs text-muted">Auto-generated from base colors</span>
-          </div>
+      {/* Calculated Color Variants - AA Accessibility */}
+      <div className="card p-6">
+        <h4 className="text-md font-medium text-primary mb-4">Calculated Color Variants - AA Accessibility</h4>
+        <p className="text-sm text-muted mb-6">
+          Enhanced contrast colors meeting WCAG AA accessibility standards (4.5:1 contrast ratio).
+        </p>
 
-          {calculatedVariants.map((variant, variantIndex) => (
-            <div key={variantIndex} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h5 className="text-sm font-semibold text-secondary">{variant.category}</h5>
-                <span className="text-xs text-muted">{variant.description}</span>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Light Theme AA Variants Card */}
+          <div className="card bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-gray-900 mb-4">Light Theme AA Variants</h5>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                {variant.colors.map((colorKey) => {
-                  const colorValue = currentColors?.[colorKey]
-                  const isAvailable = colorValue && colorValue !== 'N/A'
-
-                  // Special handling for gradient colors
-                  if (colorKey.includes('gradient')) {
-                    const gradientMatch = colorKey.match(/on_gradient_(\d)_(\d)/)
-                    if (gradientMatch) {
-                      const fromColorKey = `color${gradientMatch[1]}`
-                      const toColorKey = `color${gradientMatch[2]}`
-                      const fromColorValue = currentColors?.[fromColorKey] || defaultColors[fromColorKey]
-                      const toColorValue = currentColors?.[toColorKey] || defaultColors[toColorKey]
-
-                      return (
-                        <div key={colorKey} className="text-center space-y-2">
-                          {/* Actual gradient on top */}
-                          <div
-                            className="w-16 h-8 mx-auto rounded-t-xl shadow-md border border-default"
-                            style={{
-                              background: `linear-gradient(90deg, ${fromColorValue} 0%, ${toColorValue} 100%)`
-                            }}
-                            title={`Gradient: ${fromColorValue} → ${toColorValue}`}
-                          />
-                          {/* On-color for gradient on bottom */}
-                          <div
-                            className={`w-16 h-8 mx-auto rounded-b-xl shadow-md border border-default relative ${!isAvailable ? 'opacity-50' : ''}`}
-                            style={{ backgroundColor: colorValue }}
-                            title={`${colorKey}: ${colorValue}${!isAvailable ? ' (Not available)' : ''}`}
-                          >
-                            {!isAvailable && (
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-xs text-gray-600">N/A</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-primary">{colorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
-                            <p className="text-xs text-muted font-mono">{isAvailable ? colorValue : 'Not calculated'}</p>
-                            <p className="text-xs text-muted">On-Color</p>
-                          </div>
-                        </div>
-                      )
-                    }
-                  }
-
-                  // Regular color display
-                  return (
-                    <div key={colorKey} className="text-center space-y-2">
-                      <div
-                        className={`w-16 h-16 mx-auto rounded-xl shadow-md border border-default relative ${!isAvailable ? 'opacity-50' : ''}`}
-                        style={{ backgroundColor: isAvailable ? colorValue : '#f3f4f6' }}
-                        title={`${colorKey}: ${colorValue}${!isAvailable ? ' (Not available)' : ''}`}
-                      >
-                        {!isAvailable && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-xs text-gray-600">N/A</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-primary">{colorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</p>
-                        <p className="text-xs text-muted font-mono">{isAvailable ? colorValue : 'Not calculated'}</p>
-                      </div>
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-700">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`light-aa-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: lightColors[`color${num}`],
+                        color: lightVariantsAA[`on_color${num}`] || '#000000'
+                      }}
+                    >
+                      Aa
                     </div>
-                  )
-                })}
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariantsAA[`on_color${num}`] || 'N/A'}</p>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-700">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`light-aa-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${lightColors[gradient.from]}, ${lightColors[gradient.to]})`,
+                        color: lightVariantsAA[gradient.key] || '#000000'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariantsAA[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Dark Theme AA Variants Card */}
+          <div className="card bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-white mb-4">Dark Theme AA Variants</h5>
+
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-300">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`dark-aa-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: darkColors[`color${num}`],
+                        color: darkVariantsAA[`on_color${num}`] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariantsAA[`on_color${num}`] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-300">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`dark-aa-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${darkColors[gradient.from]}, ${darkColors[gradient.to]})`,
+                        color: darkVariantsAA[gradient.key] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariantsAA[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Calculated Color Variants - AAA Accessibility */}
+      <div className="card p-6">
+        <h4 className="text-md font-medium text-primary mb-4">Calculated Color Variants - AAA Accessibility</h4>
+        <p className="text-sm text-muted mb-6">
+          Maximum contrast colors meeting WCAG AAA accessibility standards (7:1 contrast ratio).
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Light Theme AAA Variants Card */}
+          <div className="card bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-gray-900 mb-4">Light Theme AAA Variants</h5>
+
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-700">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`light-aaa-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: lightColors[`color${num}`],
+                        color: lightVariantsAAA[`on_color${num}`] || '#000000'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariantsAAA[`on_color${num}`] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-700">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`light-aaa-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${lightColors[gradient.from]}, ${lightColors[gradient.to]})`,
+                        color: lightVariantsAAA[gradient.key] || '#000000'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1 font-mono">{lightVariantsAAA[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Dark Theme AAA Variants Card */}
+          <div className="card bg-gray-900 border border-gray-700 p-4 rounded-lg shadow-sm">
+            <h5 className="text-sm font-semibold text-white mb-4">Dark Theme AAA Variants</h5>
+
+            {/* On Colors */}
+            <div className="space-y-3 mb-4">
+              <h6 className="text-xs font-medium text-gray-300">Text Colors (On Colors)</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <div key={`dark-aaa-on-${num}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        backgroundColor: darkColors[`color${num}`],
+                        color: darkVariantsAAA[`on_color${num}`] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariantsAAA[`on_color${num}`] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gradient Colors */}
+            <div className="space-y-3">
+              <h6 className="text-xs font-medium text-gray-300">Gradient Text Colors</h6>
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { key: 'on_gradient_1_2', from: 'color1', to: 'color2' },
+                  { key: 'on_gradient_2_3', from: 'color2', to: 'color3' },
+                  { key: 'on_gradient_3_4', from: 'color3', to: 'color4' },
+                  { key: 'on_gradient_4_5', from: 'color4', to: 'color5' },
+                  { key: 'on_gradient_5_1', from: 'color5', to: 'color1' }
+                ].map((gradient) => (
+                  <div key={`dark-aaa-${gradient.key}`} className="text-center">
+                    <div
+                      className="w-12 h-12 mx-auto rounded shadow-sm flex items-center justify-center text-xs font-bold"
+                      style={{
+                        background: `linear-gradient(45deg, ${darkColors[gradient.from]}, ${darkColors[gradient.to]})`,
+                        color: darkVariantsAAA[gradient.key] || '#FFFFFF'
+                      }}
+                    >
+                      Aa
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 font-mono">{darkVariantsAAA[gradient.key] || 'N/A'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </motion.div>

@@ -455,7 +455,7 @@
 
   .nav-item-active {
     @apply shadow-lg;
-    background: linear-gradient(135deg, var(--color-1), var(--color-2));
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
   }
 

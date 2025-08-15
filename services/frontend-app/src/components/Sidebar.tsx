@@ -82,9 +82,10 @@ export default function Sidebar() {
                                   : '/home'
                   }
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${item.active
-                    ? 'bg-gradient-to-br from-color-1 to-color-2 shadow-lg text-[color:var(--on-gradient-1-2)]'
+                    ? 'shadow-lg text-[color:var(--on-gradient-1-2)]'
                     : 'text-secondary hover:bg-tertiary hover:text-primary'
                     }`}
+                  style={item.active ? { background: 'var(--gradient-1-2)' } : {}}
                 >
                   <div className="flex items-center space-x-3">
                     <span className="text-lg">{item.icon}</span>

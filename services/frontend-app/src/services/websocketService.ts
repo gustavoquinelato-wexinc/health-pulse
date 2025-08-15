@@ -44,18 +44,18 @@ class WebSocketService {
       const etlHost = import.meta.env.VITE_ETL_SERVICE_URL?.replace(/^https?:\/\//, '') || 'localhost:8000'
       const wsUrl = `${protocol}//${etlHost}/ws/progress/orchestrator`
 
-      console.log('🔌 Connecting to WebSocket:', wsUrl)
+
 
       this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected for real-time updates')
+
         this.isConnecting = false
         this.reconnectAttempts = 0
-        
+
         // Send ping to keep connection alive
         this.sendPing()
-        
+
         // Set up periodic ping
         setInterval(() => {
           if (this.ws?.readyState === WebSocket.OPEN) {
@@ -99,9 +99,9 @@ class WebSocketService {
   private scheduleReconnect(): void {
     this.reconnectAttempts++
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000)
-    
+
     console.log(`🔄 Scheduling WebSocket reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`)
-    
+
     setTimeout(() => {
       if (this.shouldReconnect) {
         this.connect()
@@ -151,7 +151,7 @@ class WebSocketService {
     if (!this.messageHandlers.has(messageType)) {
       this.messageHandlers.set(messageType, [])
     }
-    
+
     this.messageHandlers.get(messageType)!.push(handler)
 
     // Return unsubscribe function
@@ -209,4 +209,5 @@ class WebSocketService {
 const websocketService = new WebSocketService()
 
 export default websocketService
-export type { WebSocketMessage, ColorUpdateMessage }
+export type { ColorUpdateMessage, WebSocketMessage }
+

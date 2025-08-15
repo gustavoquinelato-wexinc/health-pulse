@@ -9,12 +9,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy and install Python dependencies
-COPY requirements.txt .
+# Copy and install Python dependencies from centralized requirements
+COPY ../../requirements/backend-service.txt requirements.txt
+COPY ../../requirements/common.txt common.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

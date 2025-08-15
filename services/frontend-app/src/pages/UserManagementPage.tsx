@@ -27,6 +27,8 @@ interface ActiveSession {
   last_activity_at: string
   ip_address?: string
   user_agent?: string
+  token_hash?: string
+  is_current?: boolean
 }
 
 interface CreateUserRequest {

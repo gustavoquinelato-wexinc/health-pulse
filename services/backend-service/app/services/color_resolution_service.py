@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.unified_models import (
-    ClientColorSettings, ClientAccessibilityColors, User, Client
+    ClientColorSettings, User, Client
 )
 from app.core.database import get_database
 from .color_calculation_service import ColorCalculationService
@@ -51,25 +51,29 @@ class ColorResolutionService:
                 database = get_database()
                 db = database.get_read_session()
             
+            # For unified table, we need to specify theme_mode and accessibility_level
+            # Default to 'light' theme and 'regular' accessibility for basic colors
             color_settings = db.query(ClientColorSettings).filter(
                 and_(
                     ClientColorSettings.client_id == client_id,
                     ClientColorSettings.color_schema_mode == mode,
+                    ClientColorSettings.theme_mode == 'light',  # Default to light theme
+                    ClientColorSettings.accessibility_level == 'regular',  # Default to regular
                     ClientColorSettings.active == True
                 )
             ).first()
-            
+
             if not color_settings:
-                self.logger.warning(f"No color settings found for client {client_id}, mode {mode}")
+                self.logger.warning(f"No color settings found for client {client_id}, mode {mode}, theme light, level regular")
                 return None
-            
-            # Convert to dictionary
+
+            # Convert to dictionary using unified table structure
             color_data = {
                 'id': color_settings.id,
                 'color_schema_mode': color_settings.color_schema_mode,
-                'font_contrast_threshold': color_settings.font_contrast_threshold,
-                'colors_defined_in_mode': color_settings.colors_defined_in_mode,
-                
+                'theme_mode': color_settings.theme_mode,
+                'accessibility_level': color_settings.accessibility_level,
+
                 # Base colors
                 'color1': color_settings.color1,
                 'color2': color_settings.color2,
@@ -90,14 +94,7 @@ class ColorResolutionService:
                 'on_gradient_3_4': color_settings.on_gradient_3_4,
                 'on_gradient_4_5': color_settings.on_gradient_4_5,
                 'on_gradient_5_1': color_settings.on_gradient_5_1,
-                
-                # Adaptive colors
-                'adaptive_color1': color_settings.adaptive_color1,
-                'adaptive_color2': color_settings.adaptive_color2,
-                'adaptive_color3': color_settings.adaptive_color3,
-                'adaptive_color4': color_settings.adaptive_color4,
-                'adaptive_color5': color_settings.adaptive_color5,
-                
+
                 # Metadata
                 'client_id': color_settings.client_id,
                 'created_at': color_settings.created_at.isoformat() if color_settings.created_at else None,
@@ -138,58 +135,53 @@ class ColorResolutionService:
                 database = get_database()
                 db = database.get_read_session()
             
-            accessibility_colors = db.query(ClientAccessibilityColors).filter(
+            # Query unified color settings table
+            # For accessibility colors, we need to determine the theme_mode
+            # Default to 'light' theme for now, but this should be passed as parameter
+            theme_mode = 'light'  # TODO: Pass theme_mode as parameter
+
+            accessibility_colors = db.query(ClientColorSettings).filter(
                 and_(
-                    ClientAccessibilityColors.client_id == client_id,
-                    ClientAccessibilityColors.color_schema_mode == mode,
-                    ClientAccessibilityColors.accessibility_level == level,
-                    ClientAccessibilityColors.active == True
+                    ClientColorSettings.client_id == client_id,
+                    ClientColorSettings.color_schema_mode == mode,
+                    ClientColorSettings.accessibility_level == level,
+                    ClientColorSettings.theme_mode == theme_mode,
+                    ClientColorSettings.active == True
                 )
             ).first()
-            
+
             if not accessibility_colors:
-                self.logger.warning(f"No accessibility colors found for client {client_id}, mode {mode}, level {level}")
+                self.logger.warning(f"No accessibility colors found for client {client_id}, mode {mode}, level {level}, theme {theme_mode}")
                 return None
             
-            # Convert to dictionary
+            # Convert to dictionary using unified table structure
             color_data = {
                 'id': accessibility_colors.id,
                 'color_schema_mode': accessibility_colors.color_schema_mode,
                 'accessibility_level': accessibility_colors.accessibility_level,
-                'contrast_ratio_normal': accessibility_colors.contrast_ratio_normal,
-                'contrast_ratio_large': accessibility_colors.contrast_ratio_large,
-                'high_contrast_mode': accessibility_colors.high_contrast_mode,
-                'reduce_motion': accessibility_colors.reduce_motion,
-                'colorblind_safe_palette': accessibility_colors.colorblind_safe_palette,
-                
+                'theme_mode': accessibility_colors.theme_mode,
+
                 # Base colors (accessibility-enhanced)
                 'color1': accessibility_colors.color1,
                 'color2': accessibility_colors.color2,
                 'color3': accessibility_colors.color3,
                 'color4': accessibility_colors.color4,
                 'color5': accessibility_colors.color5,
-                
+
                 # On colors
                 'on_color1': accessibility_colors.on_color1,
                 'on_color2': accessibility_colors.on_color2,
                 'on_color3': accessibility_colors.on_color3,
                 'on_color4': accessibility_colors.on_color4,
                 'on_color5': accessibility_colors.on_color5,
-                
+
                 # Gradient colors
                 'on_gradient_1_2': accessibility_colors.on_gradient_1_2,
                 'on_gradient_2_3': accessibility_colors.on_gradient_2_3,
                 'on_gradient_3_4': accessibility_colors.on_gradient_3_4,
                 'on_gradient_4_5': accessibility_colors.on_gradient_4_5,
                 'on_gradient_5_1': accessibility_colors.on_gradient_5_1,
-                
-                # Adaptive colors
-                'adaptive_color1': accessibility_colors.adaptive_color1,
-                'adaptive_color2': accessibility_colors.adaptive_color2,
-                'adaptive_color3': accessibility_colors.adaptive_color3,
-                'adaptive_color4': accessibility_colors.adaptive_color4,
-                'adaptive_color5': accessibility_colors.adaptive_color5,
-                
+
                 # Metadata
                 'client_id': accessibility_colors.client_id,
                 'created_at': accessibility_colors.created_at.isoformat() if accessibility_colors.created_at else None,
@@ -237,19 +229,19 @@ class ColorResolutionService:
                 self.logger.warning(f"User {user_id} not found")
                 return None
             
-            # Determine color mode and accessibility level
+            # Determine color mode and accessibility level from user preferences
             mode = 'custom'  # Default to custom mode
-            accessibility_level = 'AAA' if user.use_accessible_colors else 'AA'
-            
-            # Get appropriate colors based on user preference
-            if user.use_accessible_colors:
+            accessibility_level = user.accessibility_level or 'regular'  # Use user's accessibility preference
+
+            # Get appropriate colors based on user's accessibility level
+            if accessibility_level in ['AA', 'AAA']:
                 color_data = self.get_accessibility_colors(client_id, mode, accessibility_level, db)
             else:
                 color_data = self.get_client_colors(client_id, mode, db)
-            
+
             if not color_data:
                 # Fallback to default mode if custom not found
-                if user.use_accessible_colors:
+                if accessibility_level in ['AA', 'AAA']:
                     color_data = self.get_accessibility_colors(client_id, 'default', accessibility_level, db)
                 else:
                     color_data = self.get_client_colors(client_id, 'default', db)
@@ -257,10 +249,11 @@ class ColorResolutionService:
             if color_data:
                 # Add user-specific metadata
                 color_data['resolved_for_user'] = user_id
-                color_data['user_accessibility_enabled'] = user.use_accessible_colors
+                color_data['user_accessibility_level'] = accessibility_level
+                color_data['user_theme_mode'] = user.theme_mode or 'light'
                 color_data['resolved_accessibility_level'] = accessibility_level
                 color_data['resolved_mode'] = color_data.get('color_schema_mode', mode)
-                
+
                 # Cache the result
                 self.cache_service.set_user_colors(user_id, client_id, color_data)
             

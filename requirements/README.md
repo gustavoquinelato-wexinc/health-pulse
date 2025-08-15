@@ -13,7 +13,20 @@ This directory contains centralized dependency management for the Pulse Platform
 
 ## 🚀 Installation
 
-### From Root Directory (Recommended)
+### Complete Setup (Recommended for New Developers)
+
+```bash
+# One-command setup: creates virtual environments + installs all dependencies
+python scripts/setup_development.py
+
+# This automatically handles:
+# - Python virtual environments for all services
+# - All Python dependencies (including new additions)
+# - Node.js dependencies for frontend
+# - Environment file setup
+```
+
+### Individual Service Installation
 
 ```bash
 # Install for specific service
@@ -59,16 +72,32 @@ pip install -r requirements.txt
 - Redis - Caching
 - Jinja2 - Web templates
 - psutil - System monitoring
+- **websockets** - Real-time progress updates *(recently added)*
 
 ### Backend Service Specific
 - httpx - HTTP client for service communication
 - cryptography - Additional encryption utilities
+- **pandas** - Data processing and analytics *(recently added)*
+- **numpy** - Numerical computing *(recently added)*
+- **websockets** - Real-time updates and notifications *(recently added)*
 
 ## 🔧 Adding New Dependencies
 
 1. **Shared dependency**: Add to `common.txt`
 2. **Service-specific**: Add to appropriate service file
 3. **Reinstall**: Run installation script to update
+
+### Recent Additions (2025-01-14)
+
+**Backend Service:**
+- `pandas` - Added for data processing and statistical analysis
+- `numpy` - Added for numerical computing operations
+- `websockets` - Added for real-time WebSocket communication
+
+**ETL Service:**
+- `websockets` - Added for real-time progress updates and notifications
+
+These dependencies were added to support enhanced analytics capabilities and real-time monitoring features.
 
 ## 🚨 Important Notes
 

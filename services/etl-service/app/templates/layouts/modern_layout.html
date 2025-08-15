@@ -40,6 +40,13 @@
                         root.style.setProperty('--color-4', colors.color4);
                         root.style.setProperty('--color-5', colors.color5);
 
+                        // Set gradient variables
+                        root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${colors.color1} 0%, ${colors.color2} 100%)`);
+                        root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${colors.color2} 0%, ${colors.color3} 100%)`);
+                        root.style.setProperty('--gradient-3-4', `linear-gradient(135deg, ${colors.color3} 0%, ${colors.color4} 100%)`);
+                        root.style.setProperty('--gradient-4-5', `linear-gradient(135deg, ${colors.color4} 0%, ${colors.color5} 100%)`);
+                        root.style.setProperty('--gradient-5-1', `linear-gradient(135deg, ${colors.color5} 0%, ${colors.color1} 100%)`);
+
                         // Apply on-colors if provided; compute fallback if missing
                         const on = serverColorSchema.on_colors || {};
                         const onGrad = serverColorSchema.on_gradients || {};

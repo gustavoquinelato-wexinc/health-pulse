@@ -52,14 +52,20 @@ class ProfileResponse(BaseModel):
     role: str
     auth_provider: str
     theme_mode: str
-    use_accessible_colors: bool = False
+    accessibility_level: str = 'regular'
+    high_contrast_mode: bool = False
+    reduce_motion: bool = False
+    colorblind_safe_palette: bool = False
     profile_image_filename: Optional[str] = None
     last_login_at: Optional[str] = None
 
 class ProfileUpdateRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    use_accessible_colors: Optional[bool] = None
+    accessibility_level: Optional[str] = None
+    high_contrast_mode: Optional[bool] = None
+    reduce_motion: Optional[bool] = None
+    colorblind_safe_palette: Optional[bool] = None
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
@@ -196,7 +202,10 @@ async def get_user_profile(
                 role=db_user.role,
                 auth_provider=db_user.auth_provider,
                 theme_mode=db_user.theme_mode or "light",
-                use_accessible_colors=db_user.use_accessible_colors or False,
+                accessibility_level=db_user.accessibility_level or "regular",
+                high_contrast_mode=db_user.high_contrast_mode or False,
+                reduce_motion=db_user.reduce_motion or False,
+                colorblind_safe_palette=db_user.colorblind_safe_palette or False,
                 profile_image_filename=db_user.profile_image_filename,
                 last_login_at=db_user.last_login_at.isoformat() if db_user.last_login_at else None
             )
@@ -335,8 +344,11 @@ async def get_user_colors(
             "success": True,
             "colors": user_colors,
             "user_preferences": {
-                "use_accessible_colors": user.use_accessible_colors,
-                "theme_mode": user.theme_mode
+                "accessibility_level": user.accessibility_level or "regular",
+                "theme_mode": user.theme_mode or "light",
+                "high_contrast_mode": user.high_contrast_mode or False,
+                "reduce_motion": user.reduce_motion or False,
+                "colorblind_safe_palette": user.colorblind_safe_palette or False
             }
         }
 

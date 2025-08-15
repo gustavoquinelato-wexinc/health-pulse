@@ -44,8 +44,17 @@ Pulse Platform transforms raw development data into actionable business intellig
 
 ## 🏗️ Architecture Highlights
 
-**Four-Tier Architecture:**
+**Four-Tier Microservices Architecture:**
 - **Frontend App** (React/TypeScript): Executive dashboards and user interface
+- **Backend Service** (FastAPI/Python): User management, RBAC, API gateway, and analytics
+- **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
+- **Auth Service** (FastAPI/Python): API-only authentication validation backend
+
+**Technology Stack:**
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
+- **Backend**: FastAPI, SQLAlchemy, Pandas/NumPy, WebSockets, Redis
+- **Database**: PostgreSQL with primary-replica setup
+- **Infrastructure**: Docker, Redis caching, real-time WebSocket updates
 
 ## 🧭 Navigation UX
 - All sidebar and submenu items support native browser interactions: right-click → Open link in new tab, middle-click, and Cmd/Ctrl+click. We achieve this by rendering real anchor links (React Router Links in the frontend; <a href> in ETL).
@@ -53,10 +62,6 @@ Pulse Platform transforms raw development data into actionable business intellig
 ## 🎨 Design System & Colors
 - See docs/design-system.md for color tokens and rules (on-color, on-gradient) and first-paint fallback strategy.
 - Backend exposes both default_colors and custom_colors; the frontend and ETL set CSS vars accordingly.
-
-- **Auth Service** (FastAPI/Python): API-only authentication validation backend
-- **Backend Service** (FastAPI/Python): User management, RBAC, and API gateway
-- **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
 
 **Enterprise Features:**
 - PostgreSQL primary-replica setup for high availability
@@ -128,7 +133,39 @@ The platform provides comprehensive API documentation through OpenAPI/Swagger:
 
 ## 🚀 Getting Started
 
-Ready to deploy Pulse Platform? Start with our comprehensive [Installation & Setup Guide](docs/installation-setup.md) which covers:
+### **⚡ Quick Setup (Recommended)**
+
+```bash
+# 1. Clone repository
+git clone <repository-url>
+cd pulse-platform
+
+# 2. One-command development setup
+python scripts/setup_development.py
+
+# 3. Configure environment files (automatically created)
+nano .env  # Edit with your database and API credentials
+
+# 4. Start database and run migrations
+docker-compose -f docker-compose.db.yml up -d
+python services/backend-service/scripts/migration_runner.py --apply-all
+
+# 5. Start services (virtual environments already created!)
+# Backend: cd services/backend-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 3001
+# ETL: cd services/etl-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 8000
+# Frontend: cd services/frontend-app && npm run dev
+```
+
+**What the setup script does:**
+- ✅ Creates Python virtual environments for all services
+- ✅ Installs all dependencies (FastAPI, pandas, numpy, websockets, etc.)
+- ✅ Installs Node.js dependencies for frontend
+- ✅ Copies `.env.example` files to `.env` for all services
+- ✅ Cross-platform support (Windows, Linux, macOS)
+
+### **📚 Comprehensive Guide**
+
+For detailed setup instructions, see our [Installation & Setup Guide](docs/installation-setup.md) which covers:
 
 1. **Prerequisites**: System requirements and dependencies
 2. **Database Setup**: PostgreSQL primary-replica configuration

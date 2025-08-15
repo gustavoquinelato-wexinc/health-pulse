@@ -172,11 +172,10 @@ export default function DoraOverviewPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  className="rounded-xl p-6 space-y-4 border-2 backdrop-blur-sm hover:shadow-md transition-all duration-300"
+                  className="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300"
                   style={{
                     background: metric.gradient,
-                    color: metric.onColor,
-                    borderColor: metric.borderColor
+                    color: metric.onColor
                   }}
                 >
                   <div className="flex items-center justify-between">

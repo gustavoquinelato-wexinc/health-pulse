@@ -12,8 +12,22 @@
         // Disable transitions during initial apply to prevent visual flash
         document.documentElement.classList.add('no-transitions');
 
-        // Apply theme
-        var theme = localStorage.getItem('pulse_theme') || 'light';
+        // Apply theme - check for user preference first, then localStorage, then default
+        var theme = localStorage.getItem('pulse_theme');
+
+        // If no theme in localStorage, check if we have a user token (indicating logged in user)
+        if (!theme) {
+          var token = localStorage.getItem('pulse_token');
+          if (token) {
+            // User is logged in but no theme preference cached - start with dark to avoid flash
+            // The actual preference will be loaded from API and corrected if needed
+            theme = 'dark';
+          } else {
+            // No user logged in, use light as default
+            theme = 'light';
+          }
+        }
+
         document.documentElement.setAttribute('data-theme', theme);
 
         // Apply color schema mode
@@ -35,6 +49,9 @@
             } catch (e) { /* ignore */ }
           }
         }
+
+        // Store the initial theme for React to check
+        window.__INITIAL_THEME__ = theme;
 
         // Re-enable transitions on next frame
         requestAnimationFrame(function() {

@@ -265,7 +265,7 @@ export default function Header() {
         <div className="flex items-center space-x-2">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'linear-gradient(to bottom right, var(--color-1), var(--color-2))' }}
+            style={{ background: 'var(--gradient-1-2)' }}
           >
             <span className="text-sm font-bold" style={{ color: 'var(--on-gradient-1-2)' }}>P</span>
           </div>

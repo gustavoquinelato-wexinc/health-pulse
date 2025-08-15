@@ -3,7 +3,7 @@ Unified data models for ETL Service.
 Based on existing snowflake_db_manager.py model with additions for development data.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 from typing import Dict, Any
 
@@ -20,6 +20,7 @@ class Client(Base):
     website = Column(String, nullable=True, quote=False, name="website")
     assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
+    color_schema_mode = Column(String(10), nullable=True, default='default', quote=False, name="color_schema_mode")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
@@ -43,7 +44,6 @@ class Client(Base):
     jira_pull_request_links = relationship("JiraPullRequestLinks", back_populates="client")
     system_settings = relationship("SystemSettings", back_populates="client")
     color_settings = relationship("ClientColorSettings", back_populates="client")
-    accessibility_colors = relationship("ClientAccessibilityColors", back_populates="client")
 
 
 class BaseEntity:
@@ -83,7 +83,12 @@ class User(Base, BaseEntity):
     okta_user_id = Column(String(255), unique=True, quote=False, name="okta_user_id")  # OKTA's user ID
     password_hash = Column(String(255), quote=False, name="password_hash")  # Only for local auth
     theme_mode = Column(String(10), nullable=False, default='light', quote=False, name="theme_mode")  # 'light', 'dark'
-    use_accessible_colors = Column(Boolean, default=False, quote=False, name="use_accessible_colors")  # User accessibility preference
+
+    # === ACCESSIBILITY PREFERENCES (moved from accessibility colors table) ===
+    high_contrast_mode = Column(Boolean, default=False, quote=False, name="high_contrast_mode")
+    reduce_motion = Column(Boolean, default=False, quote=False, name="reduce_motion")
+    colorblind_safe_palette = Column(Boolean, default=False, quote=False, name="colorblind_safe_palette")
+    accessibility_level = Column(String(10), default='regular', quote=False, name="accessibility_level")  # 'regular', 'AA', 'AAA'
 
     # Profile image fields
     profile_image_filename = Column(String(255), quote=False, name="profile_image_filename")  # Image filename
@@ -910,103 +915,38 @@ class DoraMetricInsight(Base):
 # These tables manage client-specific color schemas and accessibility variants
 
 class ClientColorSettings(Base, BaseEntity):
-    """Main color settings table with base colors and calculated variants."""
+    """Unified color settings table with all color variants and accessibility levels."""
     __tablename__ = 'client_color_settings'
-    __table_args__ = {'quote': False}
+    __table_args__ = (
+        UniqueConstraint('client_id', 'color_schema_mode', 'accessibility_level', 'theme_mode'),
+        {'quote': False}
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
-    # Mode identifier
+    # === IDENTIFIERS ===
     color_schema_mode = Column(String(10), nullable=False, quote=False, name="color_schema_mode")  # 'default' or 'custom'
+    accessibility_level = Column(String(10), nullable=False, quote=False, name="accessibility_level")  # 'regular', 'AA', 'AAA'
+    theme_mode = Column(String(5), nullable=False, quote=False, name="theme_mode")  # 'light' or 'dark'
 
-    # Settings (only in main table)
-    font_contrast_threshold = Column(Float, default=0.5, quote=False, name="font_contrast_threshold")
-    colors_defined_in_mode = Column(String(5), default='light', quote=False, name="colors_defined_in_mode")  # 'light' or 'dark'
-
-    # Base colors (simplified - no prefixes)
+    # === BASE COLORS (5 columns) ===
     color1 = Column(String(7), quote=False, name="color1")
     color2 = Column(String(7), quote=False, name="color2")
     color3 = Column(String(7), quote=False, name="color3")
     color4 = Column(String(7), quote=False, name="color4")
     color5 = Column(String(7), quote=False, name="color5")
 
-    # Computed variants (simplified - no prefixes)
-    # On colors (5 columns)
+    # === CALCULATED VARIANTS (10 columns) ===
     on_color1 = Column(String(7), quote=False, name="on_color1")
     on_color2 = Column(String(7), quote=False, name="on_color2")
     on_color3 = Column(String(7), quote=False, name="on_color3")
     on_color4 = Column(String(7), quote=False, name="on_color4")
     on_color5 = Column(String(7), quote=False, name="on_color5")
-
-    # On gradient colors (5 columns)
     on_gradient_1_2 = Column(String(7), quote=False, name="on_gradient_1_2")
     on_gradient_2_3 = Column(String(7), quote=False, name="on_gradient_2_3")
     on_gradient_3_4 = Column(String(7), quote=False, name="on_gradient_3_4")
     on_gradient_4_5 = Column(String(7), quote=False, name="on_gradient_4_5")
     on_gradient_5_1 = Column(String(7), quote=False, name="on_gradient_5_1")
-
-    # Adaptive colors (5 columns) - for opposite theme
-    adaptive_color1 = Column(String(7), quote=False, name="adaptive_color1")
-    adaptive_color2 = Column(String(7), quote=False, name="adaptive_color2")
-    adaptive_color3 = Column(String(7), quote=False, name="adaptive_color3")
-    adaptive_color4 = Column(String(7), quote=False, name="adaptive_color4")
-    adaptive_color5 = Column(String(7), quote=False, name="adaptive_color5")
 
     # Relationships
     client = relationship("Client", back_populates="color_settings")
-    accessibility_colors = relationship("ClientAccessibilityColors", back_populates="color_settings")
-
-
-class ClientAccessibilityColors(Base, BaseEntity):
-    """Accessibility color variants table with enhanced contrast and compliance."""
-    __tablename__ = 'client_accessibility_colors'
-    __table_args__ = {'quote': False}
-
-    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-
-    # Foreign key to link to color settings
-    color_settings_id = Column(Integer, ForeignKey('client_color_settings.id'), nullable=False, quote=False, name="color_settings_id")
-
-    # Mode and level identifiers
-    color_schema_mode = Column(String(10), nullable=False, quote=False, name="color_schema_mode")  # 'default' or 'custom'
-    accessibility_level = Column(String(3), nullable=False, quote=False, name="accessibility_level")  # 'AA', 'AAA'
-
-    # Accessibility settings (only in this table)
-    contrast_ratio_normal = Column(Float, default=4.5, quote=False, name="contrast_ratio_normal")
-    contrast_ratio_large = Column(Float, default=3.0, quote=False, name="contrast_ratio_large")
-    high_contrast_mode = Column(Boolean, default=False, quote=False, name="high_contrast_mode")
-    reduce_motion = Column(Boolean, default=False, quote=False, name="reduce_motion")
-    colorblind_safe_palette = Column(Boolean, default=False, quote=False, name="colorblind_safe_palette")
-
-    # Base colors (simplified - no prefixes, same as main table)
-    color1 = Column(String(7), quote=False, name="color1")
-    color2 = Column(String(7), quote=False, name="color2")
-    color3 = Column(String(7), quote=False, name="color3")
-    color4 = Column(String(7), quote=False, name="color4")
-    color5 = Column(String(7), quote=False, name="color5")
-
-    # Computed variants (simplified - no prefixes, same as main table)
-    # On colors (5 columns)
-    on_color1 = Column(String(7), quote=False, name="on_color1")
-    on_color2 = Column(String(7), quote=False, name="on_color2")
-    on_color3 = Column(String(7), quote=False, name="on_color3")
-    on_color4 = Column(String(7), quote=False, name="on_color4")
-    on_color5 = Column(String(7), quote=False, name="on_color5")
-
-    # On gradient colors (5 columns)
-    on_gradient_1_2 = Column(String(7), quote=False, name="on_gradient_1_2")
-    on_gradient_2_3 = Column(String(7), quote=False, name="on_gradient_2_3")
-    on_gradient_3_4 = Column(String(7), quote=False, name="on_gradient_3_4")
-    on_gradient_4_5 = Column(String(7), quote=False, name="on_gradient_4_5")
-    on_gradient_5_1 = Column(String(7), quote=False, name="on_gradient_5_1")
-
-    # Adaptive colors (5 columns) - for opposite theme
-    adaptive_color1 = Column(String(7), quote=False, name="adaptive_color1")
-    adaptive_color2 = Column(String(7), quote=False, name="adaptive_color2")
-    adaptive_color3 = Column(String(7), quote=False, name="adaptive_color3")
-    adaptive_color4 = Column(String(7), quote=False, name="adaptive_color4")
-    adaptive_color5 = Column(String(7), quote=False, name="adaptive_color5")
-
-    # Relationships
-    client = relationship("Client")
-    color_settings = relationship("ClientColorSettings", back_populates="accessibility_colors")

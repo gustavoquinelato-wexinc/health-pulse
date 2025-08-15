@@ -184,7 +184,7 @@ body {
 }
 
 .pulse-gradient {
-    background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%);
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
 }
 
@@ -1416,7 +1416,7 @@ textarea:disabled {
 }
 
 .submenu-item.active {
-    background: linear-gradient(to bottom right, var(--color-1), var(--color-2));
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
 }
 
@@ -1517,7 +1517,7 @@ textarea:disabled {
 
 /* Gradient background for Pulse logo */
 .gradient-bg {
-    background: linear-gradient(to bottom right, var(--color-1), var(--color-2)) !important;
+    background: var(--gradient-1-2) !important;
     color: var(--on-gradient-1-2) !important;
     border-radius: 0 !important;
     /* Flat corners to match frontend */
@@ -1530,6 +1530,8 @@ textarea:disabled {
     transform: scale(1);
     transition: all 0.2s ease;
     will-change: transform;
+    border-radius: 0 !important;
+    /* Flat corners to match frontend sidebar */
 }
 
 .sidebar-nav-item:active {
@@ -1846,8 +1848,10 @@ body {
 
 .nav-item-active {
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    background: linear-gradient(135deg, var(--color-1), var(--color-2));
+    background: var(--gradient-1-2);
     color: var(--on-gradient-1-2);
+    border-radius: 0 !important;
+    /* Flat corners to match frontend sidebar */
 }
 
 /* Professional Sidebar Container */

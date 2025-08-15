@@ -27,7 +27,7 @@ from app.core.database import get_database
 from app.models.unified_models import (
     User, UserPermission, UserSession, Integration, Project, Issue, Client, IssueChangelog,
     Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
-    JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings,
+    JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings, ClientColorSettings,
     StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
     ProjectsIssuetypes, ProjectsStatuses
 )
@@ -176,9 +176,12 @@ class ActiveSessionResponse(BaseModel):
     token_hash: Optional[str] = None
     is_current: bool = False
 
-class ColorSchemaRequest(BaseModel):
-    colors: Dict[str, str]
-    colors_defined_in_mode: Optional[str] = 'light'  # 'light' or 'dark'
+
+
+class UnifiedColorSchemaRequest(BaseModel):
+    light_colors: Dict[str, str]
+    dark_colors: Dict[str, str]
+    accessibility_level: Optional[str] = 'regular'  # 'regular', 'AA', 'AAA'
 
 class ColorSchemaModeRequest(BaseModel):
     mode: str  # "default" or "custom"
@@ -1195,359 +1198,15 @@ async def get_permission_matrix(
 # THEME/COLOR SETTINGS ENDPOINTS
 # ============================================================================
 
-@router.get("/color-schema")
-async def get_color_schema(
-    user: User = Depends(require_authentication)
-):
-    """Get color schema settings with caching and new color table support"""
-    try:
-        database = get_database()
-        with database.get_read_session_context() as session:
-            # Get color schema mode from system settings (backward compatibility)
-            mode_setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "color_schema_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
-
-            color_mode = mode_setting.setting_value if mode_setting else "custom"
-
-            # Get colors using new color resolution service with caching
-            default_colors_data = color_resolution_service.get_client_colors(
-                user.client_id, 'default', session
-            )
-            custom_colors_data = color_resolution_service.get_client_colors(
-                user.client_id, 'custom', session
-            )
-
-            # Fallback to system_settings if new tables don't have data (migration compatibility)
-            if not default_colors_data or not custom_colors_data:
-                logger.warning(f"Color tables missing data for client {user.client_id}, falling back to system_settings")
-                return await _get_color_schema_legacy(user, session)
-
-            # Extract complete color data including calculated variants
-            default_colors = {}
-            custom_colors = {}
-
-            # Base colors
-            for i in range(1, 6):
-                if default_colors_data.get(f"color{i}"):
-                    default_colors[f"color{i}"] = default_colors_data.get(f"color{i}")
-                if custom_colors_data.get(f"color{i}"):
-                    custom_colors[f"color{i}"] = custom_colors_data.get(f"color{i}")
-
-            # On colors
-            for i in range(1, 6):
-                if default_colors_data.get(f"on_color{i}"):
-                    default_colors[f"on_color{i}"] = default_colors_data.get(f"on_color{i}")
-                if custom_colors_data.get(f"on_color{i}"):
-                    custom_colors[f"on_color{i}"] = custom_colors_data.get(f"on_color{i}")
-
-            # Gradient colors
-            gradient_keys = ["on_gradient_1_2", "on_gradient_2_3", "on_gradient_3_4", "on_gradient_4_5", "on_gradient_5_1"]
-            for key in gradient_keys:
-                if default_colors_data.get(key):
-                    default_colors[key] = default_colors_data.get(key)
-                if custom_colors_data.get(key):
-                    custom_colors[key] = custom_colors_data.get(key)
-
-            # Adaptive colors
-            for i in range(1, 6):
-                if default_colors_data.get(f"adaptive_color{i}"):
-                    default_colors[f"adaptive_color{i}"] = default_colors_data.get(f"adaptive_color{i}")
-                if custom_colors_data.get(f"adaptive_color{i}"):
-                    custom_colors[f"adaptive_color{i}"] = custom_colors_data.get(f"adaptive_color{i}")
-
-            # Settings
-            if default_colors_data.get("font_contrast_threshold"):
-                default_colors["font_contrast_threshold"] = default_colors_data.get("font_contrast_threshold")
-            if custom_colors_data.get("font_contrast_threshold"):
-                custom_colors["font_contrast_threshold"] = custom_colors_data.get("font_contrast_threshold")
-
-            if default_colors_data.get("colors_defined_in_mode"):
-                default_colors["colors_defined_in_mode"] = default_colors_data.get("colors_defined_in_mode")
-            if custom_colors_data.get("colors_defined_in_mode"):
-                custom_colors["colors_defined_in_mode"] = custom_colors_data.get("colors_defined_in_mode")
-
-            # Active colors based on mode (base colors only for backward compatibility)
-            active_base_colors = {
-                f"color{i}": (custom_colors if color_mode == 'custom' else default_colors).get(f"color{i}")
-                for i in range(1, 6)
-                if (custom_colors if color_mode == 'custom' else default_colors).get(f"color{i}")
-            }
-
-            active_data = custom_colors_data if color_mode == 'custom' else default_colors_data
-
-            # Extract on-colors and gradients for backward compatibility (from active mode)
-            on_colors = {
-                f"color{i}": active_data.get(f"on_color{i}")
-                for i in range(1, 6)
-                if active_data.get(f"on_color{i}")
-            }
-
-            on_gradients = {
-                "1-2": active_data.get("on_gradient_1_2"),
-                "2-3": active_data.get("on_gradient_2_3"),
-                "3-4": active_data.get("on_gradient_3_4"),
-                "4-5": active_data.get("on_gradient_4_5"),
-                "5-1": active_data.get("on_gradient_5_1")  # Include 5-1 wrap
-            }
-
-            # Remove None values
-            on_gradients = {k: v for k, v in on_gradients.items() if v is not None}
-
-            # Enhanced response with new color system data
-            response = {
-                "success": True,
-                "mode": color_mode,
-                "colors": active_base_colors,  # Base colors only for backward compatibility
-                "default_colors": default_colors,  # Complete default color data including variants
-                "custom_colors": custom_colors,    # Complete custom color data including variants
-                "on_colors": on_colors,
-                "on_gradients": on_gradients,
-
-                # New color system enhancements
-                "enhanced_data": {
-                    "font_contrast_threshold": active_data.get("font_contrast_threshold", 0.5),
-                    "colors_defined_in_mode": active_data.get("colors_defined_in_mode", "light"),
-                    "adaptive_colors": {
-                        f"color{i}": active_data.get(f"adaptive_color{i}")
-                        for i in range(1, 6)
-                        if active_data.get(f"adaptive_color{i}")
-                    },
-                    "cache_info": {
-                        "cached": True,
-                        "source": "new_color_tables"
-                    }
-                }
-            }
-
-            return response
-
-    except Exception as e:
-        logger.error(f"Error getting color schema: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get color schema"
-        )
 
 
-async def _get_color_schema_legacy(user: User, session) -> Dict[str, Any]:
-    """Legacy fallback for color schema when new tables are not populated"""
-    # Load default palette from system_settings
-    default_colors = {}
-    for i in range(1, 6):
-        setting_key = f"default_color{i}"
-        setting = session.query(SystemSettings).filter(
-            SystemSettings.setting_key == setting_key,
-            SystemSettings.client_id == user.client_id
-        ).first()
-        if setting:
-            default_colors[f"color{i}"] = setting.setting_value
-
-    # Fallback if defaults are missing
-    if len(default_colors) < 5:
-        default_colors = {
-            "color1": "#2862EB", "color2": "#763DED", "color3": "#059669",
-            "color4": "#0EA5E9", "color5": "#F59E0B"
-        }
-
-    # Load custom palette
-    custom_colors = {}
-    for i in range(1, 6):
-        setting_key = f"custom_color{i}"
-        setting = session.query(SystemSettings).filter(
-            SystemSettings.setting_key == setting_key,
-            SystemSettings.client_id == user.client_id
-        ).first()
-        if setting:
-            custom_colors[f"color{i}"] = setting.setting_value
-
-    # Get color mode
-    mode_setting = session.query(SystemSettings).filter(
-        SystemSettings.setting_key == "color_schema_mode",
-        SystemSettings.client_id == user.client_id
-    ).first()
-    color_mode = mode_setting.setting_value if mode_setting else "default"
-
-    # Active colors
-    active_colors = custom_colors if color_mode == 'custom' and custom_colors else default_colors
-
-    # Load precomputed on-color tokens
-    on_colors = {}
-    on_gradients = {}
-    prefix = 'custom' if color_mode == 'custom' else 'default'
-    for i in range(1, 6):
-        key = f"{prefix}_on_color{i}"
-        setting = session.query(SystemSettings).filter(
-            SystemSettings.setting_key == key,
-            SystemSettings.client_id == user.client_id
-        ).first()
-        if setting:
-            on_colors[f"color{i}"] = setting.setting_value
-
-    for pair in ["1-2", "2-3", "3-4", "4-5"]:
-        key = f"{prefix}_on_gradient_{pair}"
-        setting = session.query(SystemSettings).filter(
-            SystemSettings.setting_key == key,
-            SystemSettings.client_id == user.client_id
-        ).first()
-        if setting:
-            on_gradients[pair] = setting.setting_value
-
-    return {
-        "success": True,
-        "mode": color_mode,
-        "colors": active_colors,
-        "default_colors": default_colors,
-        "custom_colors": custom_colors,
-        "on_colors": on_colors,
-        "on_gradients": on_gradients,
-        "enhanced_data": {
-            "cache_info": {
-                "cached": False,
-                "source": "legacy_system_settings"
-            }
-        }
-    }
 
 
-@router.post("/color-schema")
-async def update_color_schema(
-    request: ColorSchemaRequest,
-    user: User = Depends(require_permission("settings", "admin"))
-):
-    """Update custom color schema settings with new color table support"""
-    try:
-        database = get_database()
-        with database.get_write_session_context() as session:
-            colors = request.colors
-            colors_defined_in_mode = request.colors_defined_in_mode or 'light'
-
-            # Update using new color resolution service with color definition mode
-            success = color_resolution_service.update_client_colors(
-                user.client_id, 'custom', colors, session, colors_defined_in_mode
-            )
-
-            if not success:
-                logger.warning(f"Failed to update new color tables for client {user.client_id}, falling back to legacy")
-                # Fallback to legacy system_settings update
-                await _update_color_schema_legacy(user, colors, session)
-
-            # Update color schema mode in system_settings (backward compatibility)
-            mode_setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "color_schema_mode",
-                SystemSettings.client_id == user.client_id
-            ).first()
-
-            if mode_setting:
-                mode_setting.setting_value = "custom"
-                mode_setting.last_updated_at = func.now()
-            else:
-                new_mode_setting = SystemSettings(
-                    setting_key="color_schema_mode",
-                    setting_value="custom",
-                    setting_type='string',
-                    client_id=user.client_id,
-                    description="Color schema mode (default or custom)"
-                )
-                session.add(new_mode_setting)
-
-            session.commit()
-
-            # Notify ETL service of color schema change
-            await notify_etl_color_schema_change(user.client_id, colors)
-
-            # Send WebSocket notification for real-time frontend updates
-            await notify_frontend_color_update(user.client_id, colors)
-
-            logger.info(f"User {user.email} updated color schema using new color system")
-
-            return {
-                "message": "Color schema updated successfully",
-                "enhanced": True,
-                "cache_invalidated": True,
-                "websocket_notified": True
-            }
-
-    except Exception as e:
-        logger.error(f"Error updating color schema: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update color schema"
-        )
 
 
-async def _update_color_schema_legacy(user: User, colors: Dict[str, str], session) -> None:
-    """Legacy fallback for updating color schema in system_settings"""
-    # Update each color setting in system_settings
-    for color_key, color_value in colors.items():
-        setting_key = f"custom_{color_key}"
 
-        setting = session.query(SystemSettings).filter(
-            SystemSettings.setting_key == setting_key,
-            SystemSettings.client_id == user.client_id
-        ).first()
 
-        if setting:
-            setting.setting_value = color_value
-            setting.last_updated_at = func.now()
-        else:
-            new_setting = SystemSettings(
-                setting_key=setting_key,
-                setting_value=color_value,
-                setting_type='string',
-                client_id=user.client_id,
-                description=f"Custom color setting for {color_key}"
-            )
-            session.add(new_setting)
 
-    # Recompute WCAG on-color tokens for CUSTOM palette
-    try:
-        def _hex_to_rgb(h):
-            h = h.lstrip('#')
-            return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
-        def _lin(c):
-            return (c/12.92) if c <= 0.03928 else ((c+0.055)/1.055) ** 2.4
-        def _rel_luma(hex_color):
-            r, g, b = _hex_to_rgb(hex_color)
-            return 0.2126*_lin(r) + 0.7152*_lin(g) + 0.0722*_lin(b)
-        def _contrast(bg_hex, fg_hex):
-            L1 = _rel_luma(bg_hex)
-            L2 = _rel_luma(fg_hex)
-            L_light, L_dark = (max(L1, L2), min(L1, L2))
-            return (L_light + 0.05) / (L_dark + 0.05)
-        def _pick_on(bg_hex):
-            black, white = '#000000', '#FFFFFF'
-            return white if _contrast(bg_hex, white) >= _contrast(bg_hex, black) else black
-        def _pick_on_pair(a_hex, b_hex):
-            black, white = '#000000', '#FFFFFF'
-            min_black = min(_contrast(a_hex, black), _contrast(b_hex, black))
-            min_white = min(_contrast(a_hex, white), _contrast(b_hex, white))
-            return white if min_white >= min_black else black
-
-        c1 = colors.get('color1'); c2 = colors.get('color2'); c3 = colors.get('color3'); c4 = colors.get('color4'); c5 = colors.get('color5')
-        if all([c1, c2, c3, c4, c5]):
-            custom_on = {'1': _pick_on(c1), '2': _pick_on(c2), '3': _pick_on(c3), '4': _pick_on(c4), '5': _pick_on(c5)}
-            custom_on_grad = {'1-2': _pick_on_pair(c1, c2), '2-3': _pick_on_pair(c2, c3), '3-4': _pick_on_pair(c3, c4), '4-5': _pick_on_pair(c4, c5)}
-
-            for i in ['1','2','3','4','5']:
-                key = f"custom_on_color{i}"
-                setting = session.query(SystemSettings).filter(SystemSettings.setting_key == key, SystemSettings.client_id == user.client_id).first()
-                if setting:
-                    setting.setting_value = custom_on[i]
-                    setting.last_updated_at = func.now()
-                else:
-                    session.add(SystemSettings(setting_key=key, setting_value=custom_on[i], setting_type='string', client_id=user.client_id, description=f"WCAG on-color for custom color {i}"))
-            for pair_key, val in custom_on_grad.items():
-                key = f"custom_on_gradient_{pair_key}"
-                setting = session.query(SystemSettings).filter(SystemSettings.setting_key == key, SystemSettings.client_id == user.client_id).first()
-                if setting:
-                    setting.setting_value = val
-                    setting.last_updated_at = func.now()
-                else:
-                    session.add(SystemSettings(setting_key=key, setting_value=val, setting_type='string', client_id=user.client_id, description=f"WCAG on-color for custom gradient {pair_key}"))
-    except Exception as ce:
-        logger.warning(f"Failed to recompute custom on-color tokens: {ce}")
 
 
 @router.post("/color-schema/mode")
@@ -1566,29 +1225,20 @@ async def update_color_schema_mode(
 
         database = get_database()
         with database.get_write_session_context() as session:
-            # ✅ SECURITY: Use current user's client for system settings
-            # No need to query client - use user's client_id directly
-
-            # ✅ SECURITY: Get or create the color schema mode setting filtered by client_id
-            setting = session.query(SystemSettings).filter(
-                SystemSettings.setting_key == "color_schema_mode",
-                SystemSettings.client_id == user.client_id
+            # ✅ SECURITY: Update color schema mode in clients table
+            client = session.query(Client).filter(
+                Client.id == user.client_id
             ).first()
 
-            if setting:
-                # Update existing setting
-                setting.setting_value = request.mode
-                setting.last_updated_at = func.now()
-            else:
-                # Create new setting
-                setting = SystemSettings(
-                    setting_key="color_schema_mode",
-                    setting_value=request.mode,
-                    setting_type='string',
-                    description="Color schema mode (default or custom)",
-                    client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Client not found"
                 )
-                session.add(setting)
+
+            # Update client's color schema mode
+            client.color_schema_mode = request.mode
+            client.last_updated_at = func.now()
 
             session.commit()
 
@@ -1613,6 +1263,202 @@ async def update_color_schema_mode(
 
 
 
+
+
+# ============================================================================
+# UNIFIED COLOR SCHEMA ENDPOINTS (New Architecture)
+# ============================================================================
+
+@router.get("/color-schema/unified")
+async def get_unified_color_schema(
+    mode: Optional[str] = None,
+    user: User = Depends(require_authentication)
+):
+    """Get unified color schema with all theme modes and accessibility levels"""
+    try:
+        database = get_database()
+        with database.get_read_session_context() as session:
+            # Get client's current color schema mode or use provided mode
+            if mode and mode in ['default', 'custom']:
+                color_mode = mode
+            else:
+                client = session.query(Client).filter(
+                    Client.id == user.client_id
+                ).first()
+                color_mode = client.color_schema_mode if client else "default"
+
+            # Get all color data for this client and mode
+            color_rows = session.query(ClientColorSettings).filter(
+                ClientColorSettings.client_id == user.client_id,
+                ClientColorSettings.color_schema_mode == color_mode,
+                ClientColorSettings.active == True
+            ).all()
+
+            # Convert to array format expected by frontend
+            color_data = []
+            for row in color_rows:
+                color_data.append({
+                    'theme_mode': row.theme_mode,
+                    'accessibility_level': row.accessibility_level,
+                    'color1': row.color1,
+                    'color2': row.color2,
+                    'color3': row.color3,
+                    'color4': row.color4,
+                    'color5': row.color5,
+                    'on_color1': row.on_color1,
+                    'on_color2': row.on_color2,
+                    'on_color3': row.on_color3,
+                    'on_color4': row.on_color4,
+                    'on_color5': row.on_color5,
+                    'on_gradient_1_2': row.on_gradient_1_2,
+                    'on_gradient_2_3': row.on_gradient_2_3,
+                    'on_gradient_3_4': row.on_gradient_3_4,
+                    'on_gradient_4_5': row.on_gradient_4_5,
+                    'on_gradient_5_1': row.on_gradient_5_1
+                })
+
+            return {
+                "success": True,
+                "color_schema_mode": color_mode,
+                "color_data": color_data
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting unified color schema: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get unified color schema"
+        )
+
+
+@router.post("/color-schema/unified")
+async def update_unified_color_schema(
+    request: UnifiedColorSchemaRequest,
+    user: User = Depends(require_permission("settings", "admin"))
+):
+    """Update unified color schema with light and dark colors"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Update colors in the unified table structure
+            # This will update multiple rows: light/dark × regular/AA/AAA
+
+            for theme_mode in ['light', 'dark']:
+                colors = request.light_colors if theme_mode == 'light' else request.dark_colors
+
+                for accessibility_level in ['regular', 'AA', 'AAA']:
+                    # Get or create the color settings row
+                    color_row = session.query(ClientColorSettings).filter(
+                        ClientColorSettings.client_id == user.client_id,
+                        ClientColorSettings.color_schema_mode == 'custom',
+                        ClientColorSettings.theme_mode == theme_mode,
+                        ClientColorSettings.accessibility_level == accessibility_level
+                    ).first()
+
+                    if not color_row:
+                        color_row = ClientColorSettings(
+                            client_id=user.client_id,
+                            color_schema_mode='custom',
+                            theme_mode=theme_mode,
+                            accessibility_level=accessibility_level
+                        )
+                        session.add(color_row)
+
+                    # Apply accessibility enhancement if needed
+                    if accessibility_level != 'regular':
+                        # Apply accessibility color calculations
+                        enhanced_colors = apply_accessibility_enhancement(colors, accessibility_level)
+                    else:
+                        enhanced_colors = colors
+
+                    # Update base colors
+                    color_row.color1 = enhanced_colors.get('color1')
+                    color_row.color2 = enhanced_colors.get('color2')
+                    color_row.color3 = enhanced_colors.get('color3')
+                    color_row.color4 = enhanced_colors.get('color4')
+                    color_row.color5 = enhanced_colors.get('color5')
+
+                    # Calculate and update variants (on-colors, gradients)
+                    # This would use the same calculation logic as the migration
+                    calculated_variants = calculate_color_variants(enhanced_colors)
+
+                    color_row.on_color1 = calculated_variants.get('on_color1')
+                    color_row.on_color2 = calculated_variants.get('on_color2')
+                    color_row.on_color3 = calculated_variants.get('on_color3')
+                    color_row.on_color4 = calculated_variants.get('on_color4')
+                    color_row.on_color5 = calculated_variants.get('on_color5')
+
+                    color_row.on_gradient_1_2 = calculated_variants.get('on_gradient_1_2')
+                    color_row.on_gradient_2_3 = calculated_variants.get('on_gradient_2_3')
+                    color_row.on_gradient_3_4 = calculated_variants.get('on_gradient_3_4')
+                    color_row.on_gradient_4_5 = calculated_variants.get('on_gradient_4_5')
+                    color_row.on_gradient_5_1 = calculated_variants.get('on_gradient_5_1')
+
+                    color_row.last_updated_at = func.now()
+
+            session.commit()
+
+            logger.info(f"User {user.email} updated unified color schema")
+
+            return {
+                "success": True,
+                "message": "Unified color schema updated successfully"
+            }
+
+    except Exception as e:
+        logger.error(f"Error updating unified color schema: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update unified color schema"
+        )
+
+
+# Helper functions for unified color processing
+def apply_accessibility_enhancement(colors: Dict[str, str], level: str) -> Dict[str, str]:
+    """Apply accessibility enhancement to colors based on WCAG level"""
+    # Placeholder implementation - would use the same logic as migration
+    enhanced = colors.copy()
+    if level == 'AAA':
+        # Apply stronger accessibility enhancements
+        for key, color in enhanced.items():
+            enhanced[key] = darken_color_for_accessibility(color, 0.1)
+    return enhanced
+
+def calculate_color_variants(colors: Dict[str, str]) -> Dict[str, str]:
+    """Calculate on-colors and gradients using proper calculation service"""
+    from app.services.color_calculation_service import ColorCalculationService
+
+    try:
+        calculation_service = ColorCalculationService()
+        variants = calculation_service.calculate_all_variants(colors)
+
+        # Convert ColorVariants object to dictionary format expected by the API
+        result = {}
+        result.update(variants.on_colors)
+        result.update(variants.gradient_colors)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error calculating color variants: {e}")
+        # Fallback to safe defaults if calculation fails
+        return {
+            'on_color1': '#FFFFFF',
+            'on_color2': '#FFFFFF',
+            'on_color3': '#FFFFFF',
+            'on_color4': '#FFFFFF',
+            'on_color5': '#FFFFFF',
+            'on_gradient_1_2': '#FFFFFF',
+            'on_gradient_2_3': '#FFFFFF',
+            'on_gradient_3_4': '#FFFFFF',
+            'on_gradient_4_5': '#FFFFFF',
+            'on_gradient_5_1': '#FFFFFF'
+        }
+
+def darken_color_for_accessibility(hex_color: str, factor: float) -> str:
+    """Darken a color for accessibility - same logic as migration"""
+    # Placeholder implementation
+    return hex_color
 
 
 # ============================================================================

@@ -279,7 +279,7 @@ export default function CollapsedSidebar() {
                       : 'text-secondary hover:bg-tertiary hover:text-primary'
                       }`}
                     style={isActive(item) ? {
-                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`,
+                      background: 'var(--gradient-1-2)',
                       color: 'var(--on-gradient-1-2)'
                     } : {}}
                   >
@@ -308,7 +308,7 @@ export default function CollapsedSidebar() {
                       : 'text-secondary hover:bg-tertiary hover:text-primary'
                       }`}
                     style={isActive(item) ? {
-                      background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`,
+                      background: 'var(--gradient-1-2)',
                       color: 'var(--on-gradient-1-2)'
                     } : {}}
                   >
@@ -375,7 +375,7 @@ export default function CollapsedSidebar() {
                         : 'text-secondary hover:bg-tertiary hover:text-primary'
                         }`}
                       style={location.pathname === subItem.path ? {
-                        background: `linear-gradient(to bottom right, var(--color-1), var(--color-2))`,
+                        background: 'var(--gradient-1-2)',
                         color: 'var(--on-gradient-1-2)'
                       } : {}}
                     >
