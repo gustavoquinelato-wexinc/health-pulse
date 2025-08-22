@@ -163,8 +163,8 @@ class PostgreSQLDatabase:
         session = self.get_write_session()
         try:
             # Configure session for long-running job execution
-            session.execute(text("SET statement_timeout = '30min'"))  # Extended timeout for large datasets
-            session.execute(text("SET idle_in_transaction_session_timeout = '10min'"))  # Extended idle timeout
+            session.execute(text("SET statement_timeout = '45min'"))  # Extended timeout for large datasets (increased)
+            session.execute(text("SET idle_in_transaction_session_timeout = '15min'"))  # Extended idle timeout (increased)
             session.execute(text("SET lock_timeout = '5min'"))  # Extended lock timeout
 
             # Enable TCP keepalive for this session to prevent connection drops

@@ -24,11 +24,34 @@ from datetime import datetime
 import re
 
 # Add the backend service to the path to access database configuration
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Handle both running from project root and from scripts directory
+script_dir = os.path.dirname(__file__)
+backend_service_dir = os.path.join(script_dir, '..')
+sys.path.append(backend_service_dir)
 
 def get_database_connection():
     """Get database connection using backend service configuration."""
     try:
+        # Load environment variables from .env file
+        from dotenv import load_dotenv
+
+        # Try to find .env file in multiple locations
+        env_paths = [
+            os.path.join(os.path.dirname(__file__), '..', '.env'),  # services/backend-service/.env
+            os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env'),  # project root/.env
+        ]
+
+        env_loaded = False
+        for env_path in env_paths:
+            if os.path.exists(env_path):
+                load_dotenv(env_path)
+                print(f"Loading configuration from service .env: {os.path.abspath(env_path)}")
+                env_loaded = True
+                break
+
+        if not env_loaded:
+            print("⚠️  No .env file found, using system environment variables")
+
         from app.core.config import Settings
         config = Settings()
 
@@ -67,18 +90,19 @@ def get_migration_files():
     """Get list of available migration files."""
     migration_dir = os.path.join(os.path.dirname(__file__), 'migrations')
     migration_files = []
-    
+
     for filename in os.listdir(migration_dir):
-        if filename.startswith(('001_', '002_', '003_')) and filename.endswith('.py'):
-            migration_number = filename[:3]
-            migration_name = filename[4:-3].replace('_', ' ').title()
+        # Only process files that match the 4-digit pattern: 0001_name.py
+        if re.match(r'^\d{4}_.*\.py$', filename):
+            migration_number = filename[:4]
+            migration_name = filename[5:-3].replace('_', ' ').title()
             migration_files.append({
                 'number': migration_number,
                 'name': migration_name,
                 'filename': filename,
                 'path': os.path.join(migration_dir, filename)
             })
-    
+
     return sorted(migration_files, key=lambda x: x['number'])
 
 def load_migration_module(migration_path):
@@ -259,8 +283,8 @@ def get_next_migration_number():
 
     for filename in os.listdir(migration_dir):
         if filename.endswith('.py') and not filename.startswith('migration_runner'):
-            # Extract number from filename like "001_initial_schema.py"
-            match = re.match(r'^(\d+)_', filename)
+            # Extract number from filename like "0001_initial_schema.py" (4-digit pattern only)
+            match = re.match(r'^(\d{4})_', filename)
             if match:
                 number = int(match.group(1))
                 max_number = max(max_number, number)
@@ -269,8 +293,8 @@ def get_next_migration_number():
 
 def create_new_migration(migration_name):
     """Create a new migration file with template."""
-    # Get next migration number
-    migration_number = f"{get_next_migration_number():03d}"
+    # Get next migration number (4-digit format)
+    migration_number = f"{get_next_migration_number():04d}"
 
     # Create filename
     filename = f"{migration_number}_{migration_name.lower().replace(' ', '_')}.py"

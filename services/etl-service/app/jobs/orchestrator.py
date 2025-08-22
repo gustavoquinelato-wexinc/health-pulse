@@ -489,11 +489,12 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
         execution_params: Optional execution parameters for the job
     """
     try:
-
-
-        from app.jobs.github.github_job import run_github_sync
+        from app.jobs.github.github_job import run_github_sync_optimized, GitHubExecutionMode
 
         database = get_database()
+
+        # Step 1: Quick session to get job schedule info
+        job_schedule_id_copy = job_schedule_id
         with database.get_session() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
             if not job_schedule:
@@ -502,10 +503,20 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
 
             logger.info(f"STARTING: GitHub sync job (ID: {job_schedule_id})")
 
+        # Step 2: Run the job with shorter session management
+        # Use the original function but with shorter database sessions
+        from app.jobs.github.github_job import run_github_sync, GitHubExecutionMode
+
+        # Use shorter session for job execution
+        database = get_database()
+        with database.get_job_session_context() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id_copy).first()
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id_copy} not found")
+                return
+
             # Parse execution parameters if provided
             if execution_params:
-                from app.jobs.github.github_job import GitHubExecutionMode
-
                 mode = GitHubExecutionMode(execution_params.mode) if execution_params.mode != "all" else GitHubExecutionMode.ALL
                 await run_github_sync(
                     session, job_schedule,
