@@ -17,7 +17,7 @@ from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 
-from app.models.unified_models import JobSchedule, Integration, Issue
+from app.models.unified_models import JobSchedule, Integration, Issue, Client
 from typing import Dict, Any, Optional, List
 from enum import Enum
 import asyncio
@@ -100,6 +100,137 @@ async def execute_jira_extraction_by_mode(
 
     except Exception as e:
         logger.error(f"Error in Jira extraction mode {execution_mode}: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def execute_jira_extraction_session_free(
+    client_id: int,
+    integration_id: int,
+    jira_client,
+    job_schedule_id: int,
+    execution_mode: JiraExecutionMode,
+    custom_query: Optional[str] = None,
+    target_projects: Optional[List[str]] = None,
+    update_sync_timestamp: bool = True,
+    update_job_schedule: bool = True
+) -> Dict[str, Any]:
+    """
+    Execute Jira extraction without keeping a database session open during API calls.
+    This prevents connection timeouts and detached instance errors.
+    """
+    from app.core.database import get_database
+    from sqlalchemy import func
+
+    try:
+        # Create fresh session for each database operation
+        database = get_database()
+
+        # Get integration details (fetch from job schedule if not provided)
+        with database.get_read_session_context() as session:
+            if integration_id is None:
+                # Get integration from job schedule
+                job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                if not job_schedule:
+                    return {'success': False, 'error': 'Job schedule not found'}
+
+                integration = session.query(Integration).filter(
+                    Integration.client_id == client_id,
+                    func.upper(Integration.name) == 'JIRA'
+                ).first()
+
+                if not integration:
+                    return {'success': False, 'error': 'Jira integration not found for client'}
+
+                integration_id = integration.id
+            else:
+                integration = session.query(Integration).filter(
+                    Integration.id == integration_id,
+                Integration.client_id == client_id
+            ).first()
+
+            if not integration:
+                return {'success': False, 'error': 'Integration not found'}
+
+            # Store integration details for jira_client creation if needed
+            integration_username = integration.username
+            integration_password = integration.password
+
+        # Create jira_client if not provided
+        if jira_client is None:
+            from app.jobs.jira import JiraAPIClient
+            from app.core.config import AppConfig
+            from app.core.config import get_settings
+
+            key = AppConfig.load_key()
+            jira_token = AppConfig.decrypt_token(integration_password, key)
+            jira_client = JiraAPIClient(
+                username=integration_username,
+                token=jira_token,
+                base_url=get_settings().JIRA_URL
+            )
+
+        # Execute the extraction mode without an open session
+        if execution_mode == JiraExecutionMode.ISSUETYPES:
+            logger.info("Executing ISSUETYPES mode - extracting issue types and statuses")
+            from app.jobs.jira.jira_extractors import extract_issue_types_and_statuses
+
+            with database.get_write_session_context() as session:
+                # Re-fetch integration in new session
+                integration = session.query(Integration).get(integration_id)
+                result = await extract_issue_types_and_statuses(session, jira_client, integration, update_sync_timestamp)
+            return {'success': True, **result}
+
+        elif execution_mode == JiraExecutionMode.STATUSES:
+            logger.info("Executing STATUSES mode - extracting statuses only")
+            from app.jobs.jira.jira_extractors import extract_statuses_only
+
+            with database.get_write_session_context() as session:
+                integration = session.query(Integration).get(integration_id)
+                result = await extract_statuses_only(session, jira_client, integration, update_sync_timestamp)
+            return {'success': True, **result}
+
+        elif execution_mode == JiraExecutionMode.ISSUES:
+            logger.info("Executing ISSUES mode - extracting issues, changelogs, and dev_status")
+            from app.jobs.jira.jira_extractors import extract_work_items_and_changelogs_session_free
+            from app.core.logging_config import JobLogger
+            from app.core.websocket_manager import get_websocket_manager
+
+            job_logger = JobLogger("jira_sync")
+            websocket_manager = get_websocket_manager()
+
+            # Use session-free extraction to prevent connection timeouts
+            result = await extract_work_items_and_changelogs_session_free(
+                client_id, integration_id, jira_client, job_logger,
+                websocket_manager=websocket_manager,
+                update_sync_timestamp=update_sync_timestamp
+            )
+            return result
+
+        elif execution_mode == JiraExecutionMode.CUSTOM_QUERY:
+            logger.info("Executing CUSTOM_QUERY mode - using provided JQL query")
+            if not custom_query:
+                return {'success': False, 'error': 'Custom query mode requires a JQL query'}
+
+            with database.get_write_session_context() as session:
+                integration = session.query(Integration).get(integration_id)
+                job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                result = await extract_jira_custom_query(session, integration, jira_client, job_schedule, custom_query, update_sync_timestamp)
+            return result
+
+        elif execution_mode == JiraExecutionMode.ALL:
+            logger.info("Executing ALL mode - full extraction (production behavior)")
+
+            with database.get_write_session_context() as session:
+                integration = session.query(Integration).get(integration_id)
+                job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                result = await extract_jira_issues_and_dev_status(session, integration, jira_client, job_schedule)
+            return result
+
+        else:
+            return {'success': False, 'error': f'Unknown execution mode: {execution_mode}'}
+
+    except Exception as e:
+        logger.error(f"Error in session-free Jira extraction: {e}")
         return {'success': False, 'error': str(e)}
 
 
@@ -236,140 +367,97 @@ async def run_jira_sync(
             session.commit()
             return
         
+        # Store integration details for session-free operations
+        integration_id = jira_integration.id
+        integration_username = jira_integration.username
+        integration_password = jira_integration.password
+        client_id = job_schedule.client_id
+        job_schedule_id = job_schedule.id
+
         # Setup Jira client
         from app.jobs.jira import JiraAPIClient
-        
+
         key = AppConfig.load_key()
-        jira_token = AppConfig.decrypt_token(jira_integration.password, key)
+        jira_token = AppConfig.decrypt_token(integration_password, key)
         jira_client = JiraAPIClient(
-            username=jira_integration.username,
+            username=integration_username,
             token=jira_token,
             base_url=get_settings().JIRA_URL
         )
-        
-        # Execute based on mode
-        result = await execute_jira_extraction_by_mode(
-            session, jira_integration, jira_client, job_schedule,
+
+        # Set job as running before closing session
+        if update_job_schedule:
+            job_schedule.set_running()
+            session.commit()
+
+        # Close the session before long-running API operations
+        session.close()
+
+        # Execute data fetching without an open session
+        result = await execute_jira_extraction_session_free(
+            client_id, integration_id, jira_client, job_schedule_id,
             execution_mode, custom_query, target_projects,
             update_sync_timestamp, update_job_schedule
         )
         
         if result['success']:
-            # Success: Handle job status transitions based on GitHub job status
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
-            github_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'github_sync',
-                JobSchedule.client_id == job_schedule.client_id
-            ).first()
+            # Success: Handle job status transitions with a fresh session
+            from app.core.database import get_database
+            database = get_database()
 
-            if github_job and github_job.status == 'PAUSED':
-                # GitHub is PAUSED: Keep Jira as PENDING for next run
-                job_schedule.status = 'PENDING'
-                logger.info(f"   • GitHub job is PAUSED - keeping Jira job as PENDING")
-            else:
-                # GitHub is not PAUSED: Set GitHub to PENDING and Jira to FINISHED
-                if github_job:
-                    github_job.status = 'PENDING'
-                job_schedule.set_finished()
+            with database.get_write_session_context() as fresh_session:
+                # Re-fetch job schedule and GitHub job in fresh session
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                github_job = fresh_session.query(JobSchedule).filter(
+                    JobSchedule.job_name == 'github_sync',
+                    JobSchedule.client_id == client_id
+                ).first()
 
-                # Reset retry attempts and restore normal schedule on success
-                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-                orchestrator_scheduler = get_orchestrator_scheduler()
-                orchestrator_scheduler.reset_retry_attempts('jira_sync')
-                orchestrator_scheduler.restore_normal_schedule()
-
-                logger.info(f"   • GitHub job set to PENDING, Jira job set to FINISHED")
-
-                # Send status update that job is finished
-                from app.core.websocket_manager import get_websocket_manager
-                websocket_manager = get_websocket_manager()
-                await websocket_manager.send_status_update(
-                    "jira_sync",
-                    "FINISHED",
-                    {"message": "Jira sync job completed successfully"}
-                )
-
-            # Enhanced commit with connection recovery for large datasets
-            commit_success = False
-            try:
-                session.commit()
-                commit_success = True
-            except Exception as commit_error:
-                logger.warning(f"Session commit failed, attempting recovery: {commit_error}")
-
-                # Check if it's a connection issue
-                if ("server closed the connection" in str(commit_error) or
-                    "not bound to a Session" in str(commit_error) or
-                    "OperationalError" in str(type(commit_error))):
-
-                    logger.info("Detected connection loss, performing session recovery...")
-
-                    try:
-                        session.rollback()
-                    except Exception as rollback_error:
-                        logger.debug(f"Rollback failed (expected for dead connection): {rollback_error}")
-
-                    try:
-                        session.close()
-                    except Exception as close_error:
-                        logger.debug(f"Session close failed (expected for dead connection): {close_error}")
-
-                    # Create new session and retry the update with fresh connection
-                    from app.core.database import get_database
-                    database = get_database()
-
-                    try:
-                        with database.get_session() as new_session:
-                            # Reload the job schedule and update it
-                            fresh_job_schedule = new_session.query(JobSchedule).filter_by(id=job_schedule.id).first()
-                            if fresh_job_schedule:
-                                # Re-apply the successful status update
-                                fresh_job_schedule.set_finished()
-                                new_session.commit()
-                                commit_success = True
-                                logger.info("Successfully recovered and updated job schedule with new session")
-                            else:
-                                logger.error(f"Could not find job schedule {job_schedule.id} for recovery")
-                    except Exception as recovery_error:
-                        logger.error(f"Session recovery failed: {recovery_error}")
-                        # Don't re-raise - job data is already processed, just status update failed
+                if github_job and github_job.status == 'PAUSED':
+                    # GitHub is PAUSED: Keep Jira as PENDING for next run
+                    job_schedule.status = 'PENDING'
+                    logger.info(f"   • GitHub job is PAUSED - keeping Jira job as PENDING")
                 else:
-                    # Re-raise non-connection errors
-                    logger.error(f"Non-connection error during commit: {commit_error}")
-                    raise commit_error
+                    # GitHub is not PAUSED: Set GitHub to PENDING and Jira to FINISHED
+                    if github_job:
+                        github_job.status = 'PENDING'
+                    job_schedule.set_finished()
 
-            if commit_success:
-                logger.info("Jira sync job completed successfully with database commit")
+                    # Reset retry attempts and restore normal schedule on success
+                    from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                    orchestrator_scheduler = get_orchestrator_scheduler()
+                    orchestrator_scheduler.reset_retry_attempts('jira_sync')
+                    orchestrator_scheduler.restore_normal_schedule()
 
+                    logger.info(f"   • GitHub job set to PENDING, Jira job set to FINISHED")
+
+                    # Send status update that job is finished
+                    from app.core.websocket_manager import get_websocket_manager
+                    websocket_manager = get_websocket_manager()
+                    await websocket_manager.send_status_update(
+                        "jira_sync",
+                        "FINISHED",
+                        {"message": "Jira sync job completed successfully"}
+                    )
+
+                # Session will be committed automatically by context manager
             logger.info(f"Jira sync completed successfully")
-            logger.info(f"   • Issues processed: {result['issues_processed']}")
-            logger.info(f"   • PR links created: {result['pr_links_created']}")
-            
+            logger.info(f"   • Issues processed: {result.get('issues_processed', 0)}")
+            logger.info(f"   • PR links created: {result.get('pr_links_created', 0)}")
+
         else:
-            # Failure: Set this job back to PENDING with checkpoint
+            # Failure: Set this job back to PENDING with checkpoint using fresh session
             error_msg = result.get('error', 'Unknown error')
             checkpoint = result.get('last_processed_updated_at')
 
-            job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
+            from app.core.database import get_database
+            database = get_database()
 
-            # Retry commit with new session if connection is lost
-            try:
-                session.commit()
-            except Exception as commit_error:
-                logger.warning(f"Session commit failed, retrying with new session: {commit_error}")
-                session.rollback()
-                session.close()
-
-                # Create new session and retry the update
-                from app.core.database import get_database
-                database = get_database()
-                with database.get_session() as new_session:
-                    # Reload the job schedule and update it
-                    fresh_job_schedule = new_session.query(JobSchedule).filter_by(id=job_schedule.id).first()
-                    if fresh_job_schedule:
-                        fresh_job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
-                        new_session.commit()
-                        logger.info("Successfully updated job schedule with new session")
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.set_pending_with_checkpoint(error_msg, repo_checkpoint=checkpoint)
+                    logger.info("Successfully updated job schedule with error status")
 
             # Schedule fast retry if enabled
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
@@ -411,12 +499,9 @@ async def run_jira_sync(
                 logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
     except Exception as e:
-        logger.error(f"Jira sync job error: {e}")
+        logger.error(f"ERROR: Error in async Jira sync: {e}")
         import traceback
         traceback.print_exc()
-
-        # Rollback the session to clear any failed transaction state
-        session.rollback()
 
         # Send error progress update (short message for progress bar)
         from app.core.websocket_manager import get_websocket_manager
@@ -438,15 +523,23 @@ async def run_jira_sync(
             }
         )
 
-        # Set job back to PENDING on unexpected error
-        job_schedule.set_pending_with_checkpoint(str(e))
+        # Set job back to PENDING on unexpected error using fresh session
+        from app.core.database import get_database
+        database = get_database()
+
+        try:
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.set_pending_with_checkpoint(str(e))
+                    logger.info("Successfully updated job schedule with error status")
+        except Exception as session_error:
+            logger.error(f"Job session error: {session_error}")
 
         # Schedule fast retry if enabled
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
         orchestrator_scheduler = get_orchestrator_scheduler()
         fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
-
-        session.commit()
 
         if fast_retry_scheduled:
             retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
@@ -662,6 +755,14 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                     logger.info(f"Processed dev_status for {issues_processed}/{total_issues} issues")
                     session.commit()  # Commit periodically
 
+                    # 🔥 Database heartbeat during dev_status processing to keep connection alive
+                    try:
+                        from sqlalchemy import text
+                        session.execute(text("SELECT 1"))
+                        logger.debug(f"[DB_HEARTBEAT] Connection kept alive during dev_status processing ({issues_processed}/{total_issues})")
+                    except Exception as heartbeat_error:
+                        logger.warning(f"[DB_HEARTBEAT] Failed to keep connection alive during dev_status: {heartbeat_error}")
+
                 # Yield control after each issue to ensure UI responsiveness
                 await asyncio.sleep(0)  # Yield control to prevent blocking
 
@@ -745,27 +846,28 @@ async def run_jira_sync_optimized(
     logger.info(f"🚀 Starting optimized Jira sync (ID: {job_schedule_id})")
 
     try:
-        # Use job session context for long-running operations with extended timeouts
-        with database.get_job_session_context() as session:
+        # Use session-free approach to prevent connection timeouts during long API calls
+        # Get job schedule info with a quick session
+        with database.get_read_session_context() as session:
             job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
                 return {'success': False, 'error': 'Job schedule not found'}
 
-            # Add periodic yielding to prevent blocking
-            await asyncio.sleep(0)
+            # Store job details for session-free operations
+            client_id = job_schedule.client_id
 
-            # Use the original function with improved session management
-            result = await run_jira_sync(
-                session, job_schedule,
-                execution_mode=execution_mode,
-                custom_query=custom_query,
-                target_projects=target_projects,
-                update_sync_timestamp=update_sync_timestamp,
-                update_job_schedule=update_job_schedule
-            )
+        # Add periodic yielding to prevent blocking
+        await asyncio.sleep(0)
 
-            return result
+        # Use session-free execution to prevent connection timeouts
+        result = await execute_jira_extraction_session_free(
+            client_id, None, None, job_schedule_id,  # integration details will be fetched inside
+            execution_mode, custom_query, target_projects,
+            update_sync_timestamp, update_job_schedule
+        )
+
+        return result
 
     except Exception as e:
         logger.error(f"Optimized Jira sync error: {e}")

@@ -259,7 +259,7 @@ async def validate_token(request: Request):
         if not token:
             token = request.cookies.get("pulse_token")
             if token:
-                logger.info(f"Backend validating token from cookie: {token[:30]}... (length: {len(token)})")
+                logger.debug(f"Backend validating token from cookie: {token[:30]}... (length: {len(token)})")
 
         if not token:
             logger.debug("No token found in Authorization header or cookies")

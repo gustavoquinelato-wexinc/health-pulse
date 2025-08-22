@@ -19,14 +19,16 @@ class GitHubRateLimitException(Exception):
 class GitHubGraphQLClient:
     """Client for GitHub GraphQL API interactions with cursor-based pagination."""
     
-    def __init__(self, token: str):
+    def __init__(self, token: str, db_session=None):
         """
         Initialize GitHub GraphQL client.
 
         Args:
             token: GitHub personal access token
+            db_session: Optional database session for connection heartbeat
         """
         self.token = token
+        self.db_session = db_session  # Store database session for heartbeat
         self.graphql_url = "https://api.github.com/graphql"
         self.rate_limit_remaining = 5000  # Default GitHub GraphQL limit
         self.rate_limit_reset = None
@@ -89,6 +91,17 @@ class GitHubGraphQLClient:
 
                 # Update rate limit info from response
                 self._update_rate_limit_info(response_data)
+
+                # 🔥 CRITICAL: Database heartbeat to keep connection alive during long GitHub API operations
+                if self.db_session:
+                    try:
+                        from sqlalchemy import text
+                        self.db_session.execute(text("SELECT 1"))
+                        self.db_session.commit()
+                        logger.debug(f"[DB_HEARTBEAT] Connection kept alive after GitHub GraphQL request")
+                    except Exception as heartbeat_error:
+                        logger.warning(f"[DB_HEARTBEAT] Failed to keep connection alive during GitHub API: {heartbeat_error}")
+                        # Continue with API processing - the caller will handle connection issues
 
                 # Check for GraphQL errors
                 if 'errors' in response_data:

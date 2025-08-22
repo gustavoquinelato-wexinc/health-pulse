@@ -125,6 +125,89 @@ async def execute_github_extraction_by_mode(
         return {'success': False, 'error': str(e)}
 
 
+async def execute_github_extraction_session_free(
+    client_id: int,
+    integration_id: int,
+    github_token: str,
+    job_schedule_id: int,
+    execution_mode: GitHubExecutionMode,
+    target_repository: Optional[str] = None,
+    target_repositories: Optional[List[str]] = None,
+    update_sync_timestamp: bool = True,
+    update_job_schedule: bool = True
+) -> Dict[str, Any]:
+    """
+    Execute GitHub extraction without keeping a database session open during API calls.
+    This prevents connection timeouts and detached instance errors.
+    """
+    from app.core.database import get_database
+    from sqlalchemy import func
+
+    try:
+        # Create fresh session for each database operation
+        database = get_database()
+
+        # Get integration details with a quick session
+        with database.get_read_session_context() as session:
+            if integration_id is None:
+                # Get integration from job schedule
+                job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                if not job_schedule:
+                    return {'success': False, 'error': 'Job schedule not found'}
+
+                integration = session.query(Integration).filter(
+                    Integration.client_id == client_id,
+                    func.upper(Integration.name) == 'GITHUB'
+                ).first()
+
+                if not integration:
+                    return {'success': False, 'error': 'GitHub integration not found for client'}
+
+                integration_id = integration.id
+            else:
+                integration = session.query(Integration).filter(
+                    Integration.id == integration_id,
+                    Integration.client_id == client_id
+                ).first()
+
+            if not integration:
+                return {'success': False, 'error': 'Integration not found'}
+
+            # Store integration details for github_client creation if needed
+            integration_username = integration.username
+            integration_password = integration.password
+
+        # Create github_token if not provided
+        if github_token is None:
+            from app.core.config import AppConfig
+
+            key = AppConfig.load_key()
+            github_token = AppConfig.decrypt_token(integration_password, key)
+
+        # Execute the extraction mode without an open session
+        if execution_mode == GitHubExecutionMode.SINGLE_REPO:
+            logger.info("Executing SINGLE_REPO mode - session-free approach")
+            if not target_repository:
+                return {'success': False, 'error': 'Single repo mode requires a target repository'}
+
+            return await extract_github_single_repo_prs_session_free(
+                client_id, integration_id, github_token, job_schedule_id, target_repository
+            )
+
+        elif execution_mode == GitHubExecutionMode.ALL:
+            logger.info("Executing ALL mode - session-free approach")
+            return await process_github_data_with_graphql_session_free(
+                client_id, integration_id, github_token, job_schedule_id
+            )
+
+        else:
+            return {'success': False, 'error': f'Session-free mode not implemented for: {execution_mode}'}
+
+    except Exception as e:
+        logger.error(f"Error in session-free GitHub extraction: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 async def extract_github_repositories_only(session, github_integration, github_token, websocket_manager, target_repositories: Optional[List[str]]) -> Dict[str, Any]:
     """Extract GitHub repositories only (no PR processing)."""
     try:
@@ -172,8 +255,8 @@ async def extract_github_pull_requests_only(session, github_integration, github_
 
         logger.info(f"Found {len(repositories)} repositories for PR extraction")
 
-        # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token)
+        # Initialize GraphQL client with database session for heartbeat
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Initialize queue for PR processing
         job_schedule.initialize_repo_queue(repositories)
@@ -245,8 +328,8 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
         if not repository:
             return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
 
-        # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token)
+        # Initialize GraphQL client with database session for heartbeat
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Process PRs for this specific repository
         owner, repo_name = target_repository.split('/', 1)
@@ -994,8 +1077,8 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
         if websocket_manager is None:
             websocket_manager = get_websocket_manager()
 
-        # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token)
+        # Initialize GraphQL client with database session for heartbeat
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Determine processing mode and get repositories
         full_queue = job_schedule.get_repo_queue()
@@ -1217,3 +1300,228 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
             'prs_processed': 0,
             'checkpoint_data': {}
         }
+
+
+async def extract_github_single_repo_prs_session_free(
+    client_id: int,
+    integration_id: int,
+    github_token: str,
+    job_schedule_id: int,
+    target_repository: str
+) -> Dict[str, Any]:
+    """
+    Session-free version of extract_github_single_repo_prs.
+    Processes a single repository without keeping database session open during API calls.
+    """
+    from app.core.database import get_database
+    from app.core.websocket_manager import get_websocket_manager
+    from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+
+    try:
+        database = get_database()
+        websocket_manager = get_websocket_manager()
+
+        # Get repository details with a quick session
+        with database.get_read_session_context() as session:
+            integration = session.query(Integration).get(integration_id)
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+
+            repository = session.query(Repository).filter(
+                Repository.name == target_repository,
+                Repository.client_id == client_id
+            ).first()
+
+            if not repository:
+                return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
+
+        # Initialize GraphQL client
+        graphql_client = GitHubGraphQLClient(github_token)
+
+        # Process PRs for this specific repository
+        owner, repo_name = target_repository.split('/', 1)
+        logger.info(f"Processing all PRs for {owner}/{repo_name} (session-free)")
+
+        await websocket_manager.send_progress_update("github_sync", 50.0, f"Extracting PRs from {owner}/{repo_name}")
+
+        # Process with fresh session
+        with database.get_job_session_context() as session:
+            # Re-fetch objects in this session
+            integration = session.query(Integration).get(integration_id)
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            repository = session.query(Repository).filter(
+                Repository.name == target_repository,
+                Repository.client_id == client_id
+            ).first()
+
+            from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
+            pr_result = await process_repository_prs_with_graphql(
+                session, graphql_client, repository, owner, repo_name, integration, job_schedule, websocket_manager
+            )
+
+        if pr_result['success']:
+            await websocket_manager.send_progress_update("github_sync", 100.0, f"Completed processing {target_repository}")
+            return {
+                'success': True,
+                'prs_processed': pr_result.get('prs_processed', 0),
+                'rate_limit_reached': pr_result.get('rate_limit_reached', False)
+            }
+        else:
+            return pr_result
+
+    except Exception as e:
+        logger.error(f"Error in session-free single repo extraction: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def process_github_data_with_graphql_session_free(
+    client_id: int,
+    integration_id: int,
+    github_token: str,
+    job_schedule_id: int
+) -> Dict[str, Any]:
+    """
+    Session-free version of process_github_data_with_graphql.
+    Processes GitHub data without keeping database session open during API calls.
+    """
+    from app.core.database import get_database
+    from app.core.websocket_manager import get_websocket_manager
+
+    try:
+        database = get_database()
+        websocket_manager = get_websocket_manager()
+
+        logger.info("Starting session-free GraphQL-based GitHub data processing")
+
+        # Process repositories in chunks with fresh sessions
+        chunk_size = 5  # Process 5 repositories at a time
+        total_processed = 0
+        total_prs_processed = 0
+
+        # Get repository list with a quick session
+        with database.get_read_session_context() as session:
+            repositories = session.query(Repository).filter(
+                Repository.client_id == client_id
+            ).all()
+
+            repo_list = [(repo.id, repo.name, repo.external_id) for repo in repositories]
+
+        if not repo_list:
+            logger.warning("No repositories found for processing")
+            return {
+                'success': True,
+                'repos_processed': 0,
+                'prs_processed': 0,
+                'rate_limit_reached': False
+            }
+
+        logger.info(f"Processing {len(repo_list)} repositories in chunks of {chunk_size}")
+
+        # Process repositories in chunks
+        for i in range(0, len(repo_list), chunk_size):
+            chunk = repo_list[i:i + chunk_size]
+
+            # Process this chunk with a fresh session
+            try:
+                with database.get_job_session_context() as session:
+                    # Re-fetch integration and job schedule in this session
+                    integration = session.query(Integration).get(integration_id)
+                    job_schedule = session.query(JobSchedule).get(job_schedule_id)
+
+                    # Process each repository in this chunk
+                    for repo_id, repo_name, repo_external_id in chunk:
+                        repository = session.query(Repository).get(repo_id)
+
+                        if '/' in repo_name:
+                            owner, repo_name_only = repo_name.split('/', 1)
+
+                            # Process this repository
+                            from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+                            from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
+
+                            graphql_client = GitHubGraphQLClient(github_token)
+
+                            result = await process_repository_prs_with_graphql(
+                                session, graphql_client, repository, owner, repo_name_only,
+                                integration, job_schedule, websocket_manager
+                            )
+
+                            if result['success']:
+                                total_prs_processed += result.get('prs_processed', 0)
+                                total_processed += 1
+
+                                progress = 10.0 + (total_processed / len(repo_list)) * 80.0
+                                await websocket_manager.send_progress_update(
+                                    "github_sync", progress,
+                                    f"Processed {total_processed}/{len(repo_list)} repositories"
+                                )
+                            else:
+                                logger.warning(f"Failed to process repository {repo_name}: {result.get('error', 'Unknown error')}")
+
+            except Exception as chunk_error:
+                logger.error(f"Error processing repository chunk {i//chunk_size + 1}: {chunk_error}")
+                # Continue with next chunk instead of failing completely
+                continue
+
+        logger.info(f"Session-free GitHub processing completed: {total_processed} repositories, {total_prs_processed} PRs")
+
+        return {
+            'success': True,
+            'repos_processed': total_processed,
+            'prs_processed': total_prs_processed,
+            'rate_limit_reached': False,
+            'partial_success': False
+        }
+
+    except Exception as e:
+        logger.error(f"Error in session-free GitHub data processing: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def run_github_sync_optimized(
+    job_schedule_id: int,
+    execution_mode: GitHubExecutionMode = GitHubExecutionMode.ALL,
+    target_repository: Optional[str] = None,
+    target_repositories: Optional[List[str]] = None,
+    update_sync_timestamp: bool = True,
+    update_job_schedule: bool = True
+):
+    """
+    Optimized GitHub sync with proper session management to prevent UI blocking.
+    Uses session-free approach to prevent connection timeouts during API calls.
+    """
+    from app.core.database import get_database
+    from app.models.unified_models import JobSchedule
+    import asyncio
+
+    database = get_database()
+    logger.info(f"🚀 Starting optimized GitHub sync (ID: {job_schedule_id})")
+
+    try:
+        # Use session-free approach to prevent connection timeouts during long API calls
+        # Get job schedule info with a quick session
+        with database.get_read_session_context() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return {'success': False, 'error': 'Job schedule not found'}
+
+            # Store job details for session-free operations
+            client_id = job_schedule.client_id
+
+        # Add periodic yielding to prevent blocking
+        await asyncio.sleep(0)
+
+        # Use session-free execution to prevent connection timeouts
+        result = await execute_github_extraction_session_free(
+            client_id, None, None, job_schedule_id,  # integration details will be fetched inside
+            execution_mode, target_repository, target_repositories,
+            update_sync_timestamp, update_job_schedule
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Optimized GitHub sync error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}

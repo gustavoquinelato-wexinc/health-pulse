@@ -199,8 +199,22 @@ class ColorSchemaManager:
 
                         # Process unified color data
                         color_data = data.get("color_data", [])
-                        light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
-                        dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+                        color_schema_mode = data.get("color_schema_mode", "default")
+
+                        logger.debug(f"🎨 ETL Color Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
+                        logger.debug(f"🎨 ETL Color Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
+
+                        # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                        light_regular = next((c for c in color_data if
+                                            c.get('color_schema_mode') == color_schema_mode and
+                                            c.get('theme_mode') == 'light' and
+                                            c.get('accessibility_level') == 'regular'), None)
+                        dark_regular = next((c for c in color_data if
+                                           c.get('color_schema_mode') == color_schema_mode and
+                                           c.get('theme_mode') == 'dark' and
+                                           c.get('accessibility_level') == 'regular'), None)
+
+                        logger.debug(f"🎨 ETL Color Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
 
                         # Use colors based on current theme
                         current_colors = light_regular if theme_mode == 'light' else dark_regular

@@ -212,7 +212,7 @@ class JiraAPIClient:
         logger.info(f"Successfully fetched {len(all_statuses)} issue types with statuses for project {project_id}")
         return all_statuses
     
-    def get_issues(self, jql: str = None, max_results: int = 100, progress_callback=None) -> List[Dict]:
+    def get_issues(self, jql: str = None, max_results: int = 100, progress_callback=None, db_session=None) -> List[Dict]:
         """
         Fetch all Jira issues with changelog using JQL with pagination and retry logic.
 
@@ -220,6 +220,7 @@ class JiraAPIClient:
             jql: JQL query string
             max_results: Maximum results per page (default: 100)
             progress_callback: Optional callback function for progress updates
+            db_session: Optional database session for connection heartbeat
 
         Returns:
             List of all issues matching the JQL query
@@ -249,7 +250,7 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         params=params,
-                        timeout=5  # Very short timeout to prevent blocking
+                        timeout=60  # Increased timeout for large data requests
                     )
                     response.raise_for_status()
 
@@ -273,6 +274,17 @@ class JiraAPIClient:
                             'total': total,
                             'percentage': (len(all_issues) / total) * 100 if total > 0 else 0
                         }
+
+                        # 🔥 CRITICAL: Database heartbeat to keep connection alive during long API operations
+                        if db_session:
+                            try:
+                                from sqlalchemy import text
+                                db_session.execute(text("SELECT 1"))
+                                db_session.commit()
+                                logger.debug(f"[DB_HEARTBEAT] Connection kept alive after fetching page {start_at//max_results + 1}")
+                            except Exception as heartbeat_error:
+                                logger.warning(f"[DB_HEARTBEAT] Failed to keep connection alive: {heartbeat_error}")
+                                # Continue with API fetch - the caller will handle connection issues
 
                     # Check if we have more pages
                     if not batch_issues or len(batch_issues) < max_results or start_at + len(batch_issues) >= total:

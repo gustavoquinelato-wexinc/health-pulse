@@ -129,7 +129,7 @@ class CentralizedAuthService:
 
             # Cache miss - call backend service
             logger.info(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
-            logger.info(f"Token being validated: {token[:30]}... (length: {len(token)})")
+            logger.debug(f"Token being validated: {token[:30]}... (length: {len(token)})")
 
             # Create client with explicit configuration for local connections
             client_config = {

@@ -278,6 +278,8 @@ async def home_page(request: Request, token: Optional[str] = None):
     # Get color schema - use direct backend call like workflows page for consistency
     color_schema_data = {"mode": "default"}  # Default fallback
 
+    logger.debug(f"🎨 ETL Home Route Debug: Starting color schema fetch, auth_token present: {bool(auth_token)}")
+
     if auth_token:
         try:
             async with httpx.AsyncClient() as client:
@@ -304,8 +306,26 @@ async def home_page(request: Request, token: Optional[str] = None):
 
                         # Process unified color data
                         color_data = data.get("color_data", [])
-                        light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
-                        dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+                        color_schema_mode = data.get("color_schema_mode", "default")
+
+                        logger.debug(f"🎨 ETL Web Route Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
+                        logger.debug(f"🎨 ETL Web Route Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
+
+                        # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                        light_regular = next((c for c in color_data if
+                                            c.get('color_schema_mode') == color_schema_mode and
+                                            c.get('theme_mode') == 'light' and
+                                            c.get('accessibility_level') == 'regular'), None)
+                        dark_regular = next((c for c in color_data if
+                                           c.get('color_schema_mode') == color_schema_mode and
+                                           c.get('theme_mode') == 'dark' and
+                                           c.get('accessibility_level') == 'regular'), None)
+
+                        logger.debug(f"🎨 ETL Web Route Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
+                        if light_regular:
+                            logger.debug(f"🎨 ETL Web Route Debug: Light colors - color1: {light_regular.get('color1')}, mode: {light_regular.get('color_schema_mode')}")
+                        if dark_regular:
+                            logger.debug(f"🎨 ETL Web Route Debug: Dark colors - color1: {dark_regular.get('color1')}, mode: {dark_regular.get('color_schema_mode')}")
 
                         # Use colors based on current theme
                         current_colors = light_regular if theme_mode == 'light' else dark_regular
@@ -325,9 +345,12 @@ async def home_page(request: Request, token: Optional[str] = None):
                                     "color5": current_colors.get("color5")
                                 },
                                 "theme": theme_mode
-                        }
+                            }
+                            logger.debug(f"🎨 ETL Web Route Debug: Final color_schema_data - mode: {color_schema_data['mode']}, color1: {color_schema_data['colors']['color1']}")
         except Exception as e:
             logger.debug(f"Could not fetch color schema for home page: {e}")
+
+    logger.debug(f"🎨 ETL Home Route Debug: Final color_schema_data being sent to template: {color_schema_data}")
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -822,8 +845,17 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
 
                             # Process unified color data
                             color_data = data.get("color_data", [])
-                            light_regular = next((c for c in color_data if c.get('theme_mode') == 'light' and c.get('accessibility_level') == 'regular'), None)
-                            dark_regular = next((c for c in color_data if c.get('theme_mode') == 'dark' and c.get('accessibility_level') == 'regular'), None)
+                            color_schema_mode = data.get("color_schema_mode", "default")
+
+                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                            light_regular = next((c for c in color_data if
+                                                c.get('color_schema_mode') == color_schema_mode and
+                                                c.get('theme_mode') == 'light' and
+                                                c.get('accessibility_level') == 'regular'), None)
+                            dark_regular = next((c for c in color_data if
+                                               c.get('color_schema_mode') == color_schema_mode and
+                                               c.get('theme_mode') == 'dark' and
+                                               c.get('accessibility_level') == 'regular'), None)
 
                             # Use colors based on current theme
                             current_colors = light_regular if theme_mode == 'light' else dark_regular
@@ -988,9 +1020,17 @@ async def issuetype_hierarchies_page(request: Request):
 
                             # Process unified color data
                             color_data = data.get("color_data", [])
-                            current_colors = next((c for c in color_data if c.get('theme_mode') == theme_mode and c.get('accessibility_level') == 'regular'), None)
+                            color_schema_mode = data.get("color_schema_mode", "default")
+
+                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                            current_colors = next((c for c in color_data if
+                                                 c.get('color_schema_mode') == color_schema_mode and
+                                                 c.get('theme_mode') == theme_mode and
+                                                 c.get('accessibility_level') == 'regular'), None)
                             if not current_colors:
-                                current_colors = next((c for c in color_data if c.get('accessibility_level') == 'regular'), None)
+                                current_colors = next((c for c in color_data if
+                                                     c.get('color_schema_mode') == color_schema_mode and
+                                                     c.get('accessibility_level') == 'regular'), None)
 
                             if current_colors:
                                 # Combine color schema and theme data
@@ -1074,9 +1114,17 @@ async def workflows_page(request: Request):
 
                             # Process unified color data
                             color_data = data.get("color_data", [])
-                            current_colors = next((c for c in color_data if c.get('theme_mode') == theme_mode and c.get('accessibility_level') == 'regular'), None)
+                            color_schema_mode = data.get("color_schema_mode", "default")
+
+                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                            current_colors = next((c for c in color_data if
+                                                 c.get('color_schema_mode') == color_schema_mode and
+                                                 c.get('theme_mode') == theme_mode and
+                                                 c.get('accessibility_level') == 'regular'), None)
                             if not current_colors:
-                                current_colors = next((c for c in color_data if c.get('accessibility_level') == 'regular'), None)
+                                current_colors = next((c for c in color_data if
+                                                     c.get('color_schema_mode') == color_schema_mode and
+                                                     c.get('accessibility_level') == 'regular'), None)
 
                             if current_colors:
                                 # Combine color schema and theme data
