@@ -1,3 +1,7 @@
+---
+type: "manual"
+---
+
 # Comprehensive AI Development Guide for Pulse Platform
 
 **Essential guidance for AI assistants working on the Pulse Platform codebase**
@@ -160,6 +164,7 @@ NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
 - `docs/jobs-orchestration.md` - Job management and orchestration
 - `docs/system-settings.md` - Configuration reference
 - `docs/installation-setup.md` - Setup and deployment
+- `docs/design-system.md` - Design and UX
 
 ### Service-Specific Guides
 - `services/etl-service/docs/development-guide.md` - ETL development and testing
