@@ -1,0 +1,8 @@
+# Augment Jira Integration Script Dependencies
+# Used by scripts/augment_jira_integration/jira_client.py
+
+# HTTP requests library for Jira API calls
+requests>=2.31.0
+
+# SSL certificate verification
+certifi>=2023.7.22
