@@ -1,16 +1,18 @@
 # Phase 2: Validation & Self-Correction Layer
 
-**Duration**: Weeks 3-4  
-**Priority**: HIGH  
-**Risk Level**: MEDIUM  
+**Component**: Cognitive Core → Self-healing, self-validating AI agent (Part 1 of 3)
+**Duration**: Weeks 3-4
+**Priority**: HIGH
+**Risk Level**: MEDIUM
 
 ## 🎯 Objectives
 
 1. **SQL Syntax Validation**: Catch AI-generated SQL errors before database execution
 2. **Semantic Self-Correction**: Ensure SQL queries logically answer user questions
 3. **Data Structure Validation**: Prevent malformed data from reaching analysis steps
-4. **Self-Healing Memory**: Learn from validation failures to improve future queries
-5. **Validation Endpoints**: Backend endpoints for validation pipeline
+4. **Self-Healing Memory**: Learn from validation failures AND user feedback to improve future queries
+5. **User Feedback Integration**: Create the critical feedback loop that transforms users into AI trainers
+6. **Validation Endpoints**: Backend endpoints for validation pipeline with feedback processing
 
 ## 📋 Task Breakdown
 
@@ -144,20 +146,31 @@ class ReworkAnalysisRecord(BaseModel):
 - **Feedback Integration**: Use learning context in retry attempts
 - **Memory Retrieval**: Query similar successful patterns for guidance
 
-#### Database Schema (Already in Phase 1)
+#### Enhanced Database Schema with User Feedback (Updated from Phase 1)
 ```sql
-CREATE TABLE ai_learning_memory (
-    id SERIAL PRIMARY KEY,
-    error_type VARCHAR(50) NOT NULL,
-    user_intent TEXT NOT NULL,
-    failed_query TEXT NOT NULL,
-    specific_issue TEXT NOT NULL,
-    suggested_fix TEXT NOT NULL,
-    confidence FLOAT NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-    learning_context JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE
-);
+-- Enhanced ai_learning_memory table with user feedback integration
+ALTER TABLE ai_learning_memory ADD COLUMN IF NOT EXISTS
+    user_feedback VARCHAR(20), -- 'helpful', 'incorrect', 'incomplete'
+ADD COLUMN IF NOT EXISTS
+    user_correction TEXT,
+ADD COLUMN IF NOT EXISTS
+    feedback_timestamp TIMESTAMP WITH TIME ZONE,
+ADD COLUMN IF NOT EXISTS
+    message_id VARCHAR(100), -- Links to specific AI responses
+ADD COLUMN IF NOT EXISTS
+    response_text TEXT, -- Store the AI response that received feedback
+ADD COLUMN IF NOT EXISTS
+    query_text TEXT; -- Store the original user query
+
+-- Create index for user feedback queries
+CREATE INDEX IF NOT EXISTS idx_ai_learning_feedback
+ON ai_learning_memory(client_id, user_feedback, feedback_timestamp)
+WHERE user_feedback IS NOT NULL;
+
+-- Create index for message tracking
+CREATE INDEX IF NOT EXISTS idx_ai_learning_message
+ON ai_learning_memory(message_id)
+WHERE message_id IS NOT NULL;
 ```
 
 #### Self-Healing Logic
