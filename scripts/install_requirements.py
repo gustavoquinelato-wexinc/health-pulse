@@ -79,12 +79,64 @@ def install_service_requirements(service_name):
     command = f"{pip_cmd} install -r {requirements_file}"
     return run_command(command, cwd=service_dir)
 
+def install_script_requirements(script_name):
+    """Install requirements for a script in the scripts directory."""
+    root_dir = Path(__file__).parent.parent
+    requirements_dir = root_dir / "requirements"
+
+    # Handle name mapping: requirements file uses hyphens, directory uses underscores
+    script_dir_name = script_name.replace('-', '_')
+    script_dir = root_dir / "scripts" / script_dir_name
+
+    if not script_dir.exists():
+        print(f"❌ Script directory not found: {script_dir}")
+        return False
+
+    requirements_file = requirements_dir / f"{script_name}.txt"
+    if not requirements_file.exists():
+        print(f"❌ Requirements file not found: {requirements_file}")
+        return False
+
+    print(f"\n📦 Installing requirements for {script_name}...")
+    print(f"   Requirements file: {requirements_file}")
+    print(f"   Script directory: {script_dir}")
+
+    # Create virtual environment in script directory if it doesn't exist
+    venv_dir = script_dir / "venv"
+    if not venv_dir.exists():
+        print(f"🔧 Creating virtual environment for {script_name}...")
+        if not run_command(f"{sys.executable} -m venv venv", cwd=script_dir):
+            print(f"❌ Failed to create virtual environment for {script_name}")
+            return False
+        print(f"✅ Virtual environment created for {script_name}")
+    else:
+        print(f"📁 Using existing virtual environment for {script_name}")
+
+    # Determine pip command based on platform
+    import os
+    if os.name == 'nt':  # Windows
+        pip_cmd = "venv\\Scripts\\pip"
+        python_cmd = "venv\\Scripts\\python"
+    else:  # Unix/Linux/Mac
+        pip_cmd = "venv/bin/pip"
+        python_cmd = "venv/bin/python"
+
+    # Upgrade pip first
+    print(f"🔄 Upgrading pip in {script_name} virtual environment...")
+    if not run_command(f"{python_cmd} -m pip install --upgrade pip", cwd=script_dir):
+        print(f"⚠️  Failed to upgrade pip, continuing with installation...")
+
+    # Install requirements using the script's virtual environment
+    print(f"📦 Installing dependencies for {script_name}...")
+    command = f"{pip_cmd} install -r {requirements_file}"
+    return run_command(command, cwd=script_dir)
+
 def main():
     """Main installation function."""
     if len(sys.argv) < 2:
         print("📋 Pulse Platform Requirements Installer")
         print()
-        print("Usage: python scripts/install_requirements.py <service_name|all>")
+        print("Usage: python scripts/install_requirements.py <service_name|script_name|all>")
         print()
         print("Available services:")
         print("  • etl-service      - ETL Service dependencies")
@@ -92,8 +144,12 @@ def main():
         print("  • auth-service     - Auth Service dependencies")
         print("  • all              - Install for all services")
         print()
+        print("Available scripts:")
+        print("  • augment-jira-integration - Jira integration script dependencies")
+        print()
         print("Examples:")
         print("  python scripts/install_requirements.py etl-service")
+        print("  python scripts/install_requirements.py augment-jira-integration")
         print("  python scripts/install_requirements.py all")
         sys.exit(1)
 
@@ -128,9 +184,18 @@ def main():
         else:
             print(f"❌ {target} installation failed!")
 
+    elif target == "augment-jira-integration":
+        success = install_script_requirements(target)
+        print("=" * 50)
+        if success:
+            print(f"🎉 {target} requirements installed successfully!")
+        else:
+            print(f"❌ {target} installation failed!")
+
     else:
-        print(f"❌ Unknown service: {target}")
-        print("Available services: etl-service, backend-service")
+        print(f"❌ Unknown service or script: {target}")
+        print("Available services: etl-service, backend-service, auth-service")
+        print("Available scripts: augment-jira-integration")
         sys.exit(1)
 
 if __name__ == "__main__":
