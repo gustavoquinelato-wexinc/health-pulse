@@ -6,15 +6,56 @@ type: "manual"
 
 **Essential guidance for AI assistants working on the Pulse Platform codebase**
 
+## 📖 Project Context Instructions
+
+### Primary Reading: Core Documentation
+📖 **Primary Reading**: Core documentation at `/docs/` + service READMEs
+📋 **Secondary Reading**: Service-specific documentation in `services/*/docs/`
+
+### 📝 Documentation Standards (Updated 2025-01-07):
+- **Naming Convention**: All documentation uses lowercase with hyphens (architecture.md, security-authentication.md)
+- **Location**: Core docs in `/docs/`, service-specific docs in `services/*/docs/`
+- **Cross-References**: Always use lowercase file names in links
+- **Consolidated Security**: All security content is in `docs/security-authentication.md`
+
+### 🚨 Critical Architecture Rules:
+- **Client Isolation**: ALL database queries must filter by client_id
+- **Authentication Flow**: All services authenticate through Backend Service (no direct frontend-ETL)
+- **Deactivated Records**: Exclude data connected to deactivated records at ANY level
+- **Test File Cleanup**: Delete test scripts after execution unless explicitly requested to keep
+- **Migration Pattern**: Update existing migration 0001 instead of creating new migrations
+
+### Environment Configuration:
+- **Root .env**: Used by Docker Compose, startup scripts, and service configuration loading
+- **Service Priority**: Services prioritize root-level .env, then service-specific overrides
+- **Multi-Instance**: Use CLIENT_NAME environment variable for client-specific ETL instances
+- **Package Management**: Always use package managers (npm, pip, etc.) - never edit package files manually
+- **Centralized Requirements**: Use `python scripts/install_requirements.py <service|all>` for Python dependencies
+
 ## 🎯 Platform Overview
 
-### Architecture Summary
-- **Frontend**: React/TypeScript (Port 3000) - Executive dashboards, DORA metrics, responsive UI
-- **Backend Service**: FastAPI (Port 3001) - User management, API gateway, authentication, analytics
-- **ETL Service**: FastAPI (Port 8000) - Data processing, job orchestration, integrations
-- **Auth Service**: FastAPI (Port 4000) - Centralized authentication, OAuth-like flow
+### Service Architecture:
+- **Backend Service**: User identity, authentication, permissions, API gateway ONLY
+- **ETL Service**: Business data, analytics, job orchestration, admin interface ONLY
+- **Frontend**: User interface, token management, real-time updates
+- **Auth Service**: Centralized authentication, OAuth-like flow, OKTA integration ready
+
+### Security & Authentication:
+- **Centralized authentication** via Backend Service (no direct frontend-ETL)
+- **JWT token management** with shared secret across services, includes `client_id`
+- **Session-based validation** with database-backed sessions + Redis caching
+- **ALL ETL functionality** requires admin credentials
+- **RBAC**: Role-based access control with granular permissions
+
+### 🌐 Current Platform Configuration:
+- **Frontend**: Port 3000 (Vite dev server)
+- **Backend**: Port 3001 (authentication & API)
+- **ETL Service**: Port 8000 (dev), 8001+ (multi-instance)
+- **Auth Service**: Port 4000 (centralized auth)
 - **Database**: PostgreSQL primary (5432) + replica (5433) with streaming replication
 - **Cache**: Redis (6379) for sessions and caching
+- **ETL Routes**: /home (not /dashboard)
+- **Job Statuses**: NOT_STARTED, PENDING, RUNNING, FINISHED, PAUSED
 
 ### Service Communication Flow
 ```
@@ -25,29 +66,14 @@ Frontend → Backend Service ← ETL Service
 
 ## 🔧 Development Standards
 
-### Documentation Standards (Updated 2025-01-07)
-- **Naming Convention**: All documentation uses lowercase with hyphens (e.g., `architecture.md`, `security-authentication.md`)
-- **Location**: Core docs in `/docs/`, service-specific docs in `services/*/docs/`
-- **Cross-References**: Always use lowercase file names in links
-- **Consolidated Security**: All security content is in `docs/security-authentication.md`
-
-### Environment Configuration
-- **Root `.env`**: Used by Docker Compose, startup scripts, and service configuration loading
-- **Service-Specific**: Each service can have its own `.env` but prioritizes root-level configuration
-- **Multi-Instance**: Use `CLIENT_NAME` environment variable for client-specific ETL instances
-
 ### Database Patterns
 - **Client Isolation**: ALL tables include `client_id` for multi-tenant separation
 - **Queries**: Always filter by `client_id` in database operations
-- **Migrations**: Update existing migration 001 instead of creating new migrations
+- **Migrations**: Update existing migration 0001_initial_db_schema.py instead of creating new migrations
 - **Deactivated Records**: Exclude data connected to deactivated records at ANY level
+- **Database Router**: Use primary for writes, replica for analytics reads
 
-### Authentication & Security
-- **Centralized Auth**: All authentication flows through Backend Service
-- **JWT Tokens**: Include `client_id` in token payload
-- **Session Management**: Database-backed sessions with Redis caching
-- **Cross-Service**: Services validate tokens through Backend Service, not directly
-- **RBAC**: Role-based access control with granular permissions
+
 
 ## 🏗️ Service-Specific Guidelines
 
@@ -60,9 +86,10 @@ Frontend → Backend Service ← ETL Service
 ### ETL Service (Port 8000)
 - **Purpose**: Business data, analytics, job orchestration ONLY
 - **Routes**: Use `/home` not `/dashboard`, no `/admin` prefix (entire service is admin-only)
-- **Jobs**: NOT_STARTED, PENDING, RUNNING, FINISHED, ERROR, PAUSED statuses
+- **Job Statuses**: NOT_STARTED, PENDING, RUNNING, FINISHED, ERROR, PAUSED
 - **Client Context**: Automatic client-specific logging with CLIENT_NAME environment variable
 - **Scripts**: Keep `run_etl.py` and `run_etl.bat` - they provide clean shutdown handling
+- **WebSocket**: Real-time job progress at `/ws/progress/{job_name}`
 
 ### Frontend (Port 3000)
 - **Auth Flow**: JWT token management with shared sessions across services
@@ -80,7 +107,7 @@ Frontend → Backend Service ← ETL Service
 
 ### Job Status Flow
 ```
-NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
+NOT_STARTED → PENDING → RUNNING → FINISHED
                 ↓
               PAUSED (can resume to RUNNING)
 ```
@@ -89,10 +116,13 @@ NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
 
 ### Design System
 - **Target**: Enterprise B2B SaaS for C-level executives
-- **Colors**: 5-color schema (#C8102E, #253746, #00C7B1, #A2DDF8, #FFBF3F)
-- **Storage**: Colors in system_settings table with color_schema_mode field
+- **Colors**: 5-color schema with **12 combinations per client** (2 modes × 2 themes × 3 accessibility levels)
+  - **Modes**: default, custom
+  - **Themes**: light, dark
+  - **Accessibility**: regular, AA, AAA compliance
+- **Storage**: Unified `client_color_settings` table with complete color variants
 - **Typography**: Inter font, clean minimalism
-- **Themes**: Light/dark mode with client customization
+- **Auto-Calculation**: Optimal text colors, contrast ratios, gradient colors, theme-adaptive variants
 
 ### Component Standards
 - **Modals**: Consistent black/dark background style
@@ -116,8 +146,46 @@ NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
 - **Centralized**: Use `python scripts/install_requirements.py <service|all>`
 - **Virtual Environments**: Per-service isolation
 - **Package Managers**: NEVER edit package files manually - always use package managers
+- **Requirements Structure**:
+  - `requirements/common.txt` - Shared dependencies (FastAPI, SQLAlchemy, etc.)
+  - `requirements/backend-service.txt` - Backend-specific (pandas, numpy, websockets)
+  - `requirements/etl-service.txt` - ETL-specific (APScheduler, Jira, websockets)
+  - `requirements/auth-service.txt` - Auth service dependencies (minimal JWT-only)
 
 ## 🔍 Development Workflow
+
+### Task Management Guidelines
+**Use task management tools for complex work that benefits from structured planning:**
+
+#### When to Use Task Lists:
+- **Multi-step implementations** or refactors
+- **Debugging** that requires investigating multiple areas
+- **Feature development** with several components
+- **Any request** with explicit requirements
+- **Work that spans** multiple files or systems
+- **Any work requiring 3+ distinct steps**
+
+#### Task Management Best Practices:
+- ✅ **Create tasks BEFORE starting work**, not after
+- ✅ **Include ALL steps** in task list: Jira creation, implementation, documentation, release
+- ✅ **Mark tasks as IN_PROGRESS** when starting them
+- ✅ **Complete tasks IMMEDIATELY** after finishing them
+- ✅ **Break complex work** into specific, actionable items
+- ✅ **Track progress** to give visibility to the user
+
+#### Subtask Description Guidelines:
+- ✅ **Simple checklist format**: Use numbered list of implementation tasks only
+- ✅ **Include**: Technical work (database changes, code updates, API development)
+- ❌ **Exclude**: Jira management tasks (creation, transitions, comments)
+- ❌ **Exclude**: Objectives, acceptance criteria, definition of done
+- ✅ **Purpose**: Subtask is a checklist, not a comprehensive specification
+
+#### Jira Integration Guidelines:
+- 📋 **Complete Reference**: `.augment/rules/ai_jira_integration_guidelines.md`
+- 🚀 **End-to-End Workflow**: `.augment/rules/jira_e2e_flow.md` (only when user explicitly requests "jira-e2e-flow")
+- 🏗️ **Epic Creation Workflow**: `.augment/rules/jira_epic_flow.md` (only when user explicitly requests "jira-epic-flow" or epic creation only)
+- 🔄 **Story & Task Workflow**: `.augment/rules/jira_story_flow.md` (only when user explicitly requests "jira-story-flow")
+- 🎯 **Authority**: All Jira workflows are user-driven only - AI never suggests workflows autonomously
 
 ### Before Making Changes
 1. **Read Documentation**: Always review `/docs/` for architecture understanding
@@ -178,6 +246,24 @@ NOT_STARTED → PENDING → RUNNING → FINISHED/ERROR
 - Primary-replica database setup for performance
 - Client-specific logging and configuration
 - Enterprise-grade security and RBAC
+
+## 📚 Quick Reference:
+
+| Work Area | Primary Guide | Key Patterns |
+|-----------|---------------|--------------|
+| Authentication/Users | Core docs + Backend README | JWT, sessions, RBAC |
+| Jobs/Data Processing | Core docs + ETL docs | Orchestration, WebSocket, APIs |
+| Database/Security | Core docs + security-authentication.md | Client isolation, migrations, RBAC |
+| UI/Frontend | Core docs + Frontend docs | React patterns, auth flow, responsive |
+| Platform-wide | Core docs + Architecture guide | Service communication, multi-tenancy |
+
+## ✅ Recent Implementations:
+- **Documentation Standardization**: All docs use lowercase naming convention (2025-01-07)
+- **Client-Specific Logging**: Complete across all services with automatic client context
+- **Docker Enhancement**: Production-ready configurations with security best practices
+- **Consolidated Security Documentation**: Single comprehensive security guide
+- **Centralized Requirements**: Complete dependency management system with virtual environments
+- **WebSocket Integration**: Real-time job progress monitoring across frontend and ETL services
 
 ---
 
