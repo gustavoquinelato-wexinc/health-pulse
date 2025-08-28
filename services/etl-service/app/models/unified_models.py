@@ -1,11 +1,56 @@
 """
-Unified data models for ETL Service.
-Based on existing snowflake_db_manager.py model with additions for development data.
+Unified data models for ETL Service with AI Enhancements.
+Based on existing snowflake_db_manager.py model with additions for development data and AI capabilities.
+Enhanced with vector columns and ML monitoring for Pulse AI Evolution Plan Phase 1-2.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY
 from sqlalchemy.orm import declarative_base, relationship
-from typing import Dict, Any
+from sqlalchemy.types import TypeDecorator, Text as SQLText
+from typing import Dict, Any, Optional, List
+import json
+
+
+class VectorType(TypeDecorator):
+    """
+    Custom vector type for embeddings.
+    Uses native VECTOR type when available (PostgresML/pgvector),
+    falls back to JSON text for compatibility.
+    """
+    impl = SQLText
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        # Try to use native VECTOR type if available
+        try:
+            from sqlalchemy.dialects.postgresql import ARRAY
+            from sqlalchemy import Float
+            # For now, use ARRAY of FLOAT as a fallback
+            # In production with proper pgvector, this would be VECTOR(1536)
+            return dialect.type_descriptor(ARRAY(Float))
+        except ImportError:
+            # Fallback to text storage
+            return dialect.type_descriptor(SQLText())
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            # If it's already a list (for ARRAY type), return as-is
+            if isinstance(value, list):
+                return value
+            # Otherwise, assume it's JSON string and parse it
+            if isinstance(value, str):
+                return json.loads(value)
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            # If it's already a list (from ARRAY type), return as-is
+            if isinstance(value, list):
+                return value
+            # Otherwise, parse JSON
+            return json.loads(value)
+        return value
 
 Base = declarative_base()
 
@@ -24,6 +69,9 @@ class Client(Base):
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships - allows easy navigation to related data
     integrations = relationship("Integration", back_populates="client")
@@ -44,6 +92,11 @@ class Client(Base):
     jira_pull_request_links = relationship("JiraPullRequestLinks", back_populates="client")
     system_settings = relationship("SystemSettings", back_populates="client")
     color_settings = relationship("ClientColorSettings", back_populates="client")
+
+    # AI Enhancement: ML monitoring relationships
+    ai_learning_memories = relationship("AILearningMemory", back_populates="client")
+    ai_predictions = relationship("AIPrediction", back_populates="client")
+    ai_performance_metrics = relationship("AIPerformanceMetric", back_populates="client")
 
 
 class BaseEntity:
@@ -81,6 +134,9 @@ class Integration(Base, BaseEntity):
     base_search = Column(String, quote=False, name="base_search")
     last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="integrations")
     projects = relationship("Project", back_populates="integration")
@@ -110,6 +166,9 @@ class Project(Base, IntegrationBaseEntity):
     key = Column(String, quote=False, unique=True, nullable=False, name="key")
     name = Column(String, quote=False, nullable=False, name="name")
     project_type = Column(String, quote=False, name="project_type")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     client = relationship("Client", back_populates="projects")
@@ -146,6 +205,9 @@ class Issuetype(Base, IntegrationBaseEntity):
     description = Column(String, quote=False, name="description")
     hierarchy_level = Column(Integer, quote=False, nullable=False, name="hierarchy_level")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="issuetypes")
     integration = relationship("Integration", back_populates="issuetypes")
@@ -164,6 +226,9 @@ class StatusMapping(Base, IntegrationBaseEntity):
     status_category = Column(String, quote=False, nullable=False, name="status_category")
     workflow_id = Column(Integer, ForeignKey('workflows.id'), quote=False, nullable=True, name="workflow_id")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="status_mappings")
     integration = relationship("Integration", back_populates="status_mappings")
@@ -180,6 +245,9 @@ class IssuetypeHierarchy(Base, IntegrationBaseEntity):
     level_number = Column(Integer, quote=False, nullable=False, name="level_number")
     description = Column(String, quote=False, nullable=True, name="description")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="issuetype_hierarchies")
     integration = relationship("Integration", back_populates="issuetype_hierarchies")
@@ -195,6 +263,9 @@ class IssuetypeMapping(Base, IntegrationBaseEntity):
     issuetype_from = Column(String, quote=False, nullable=False, name="issuetype_from")
     issuetype_to = Column(String, quote=False, nullable=False, name="issuetype_to")
     issuetype_hierarchy_id = Column(Integer, ForeignKey('issuetype_hierarchies.id'), quote=False, nullable=False, name="issuetype_hierarchy_id")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     client = relationship("Client", back_populates="issuetype_mappings")
@@ -218,6 +289,9 @@ class Workflow(Base, IntegrationBaseEntity):
     step_category = Column(String, quote=False, nullable=False, name="step_category")
     is_commitment_point = Column(Boolean, quote=False, nullable=False, default=False, name="is_commitment_point")  # Commitment point for lead time calculation
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="workflows")
     integration = relationship("Integration", back_populates="workflows")
@@ -234,6 +308,9 @@ class Status(Base, IntegrationBaseEntity):
     status_mapping_id = Column(Integer, ForeignKey('status_mappings.id'), quote=False, nullable=True, name="status_mapping_id")
     category = Column(String, quote=False, nullable=False, name="category")
     description = Column(String, quote=False, name="description")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     client = relationship("Client", back_populates="statuses")
@@ -317,6 +394,9 @@ class Issue(Base, IntegrationBaseEntity):
     status = relationship("Status", back_populates="issues")
     integration = relationship("Integration", back_populates="issues")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Note: Parent-child relationships now use external_id instead of foreign key
     # This provides better data integrity and simpler import logic
 
@@ -346,6 +426,9 @@ class IssueChangelog(Base, IntegrationBaseEntity):
     # Change metadata
     changed_by = Column(String, quote=False, name="changed_by")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="changelogs")
     integration = relationship("Integration", back_populates="issue_changelogs")
@@ -371,6 +454,9 @@ class Repository(Base, IntegrationBaseEntity):
     language = Column(String, quote=False, name="language")
     default_branch = Column(String, quote=False, name="default_branch")
     archived = Column(Boolean, quote=False, name="archived")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     client = relationship("Client", back_populates="repositories")
@@ -435,6 +521,9 @@ class PullRequestReview(Base, IntegrationBaseEntity):
     body = Column(Text, quote=False, name="body")  # Review comment text
     submitted_at = Column(DateTime, quote=False, name="submitted_at")  # Review submission timestamp
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     pull_request = relationship("PullRequest", back_populates="reviews")
     client = relationship("Client", back_populates="pull_request_reviews")
@@ -455,6 +544,9 @@ class PullRequestCommit(Base, IntegrationBaseEntity):
     message = Column(Text, quote=False, name="message")  # Commit message
     authored_date = Column(DateTime, quote=False, name="authored_date")  # Commit timestamp
     committed_date = Column(DateTime, quote=False, name="committed_date")  # Committed timestamp
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     pull_request = relationship("PullRequest", back_populates="commits")
@@ -477,6 +569,9 @@ class PullRequestComment(Base, IntegrationBaseEntity):
     line = Column(Integer, quote=False, name="line")  # Line number for line-specific comments
     created_at_github = Column(DateTime, quote=False, name="created_at_github")  # GitHub timestamp
     updated_at_github = Column(DateTime, quote=False, name="updated_at_github")  # GitHub update timestamp
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     pull_request = relationship("PullRequest", back_populates="comments")
@@ -502,6 +597,9 @@ class SystemSettings(Base, BaseEntity):
     setting_value = Column(String, nullable=False, quote=False, name="setting_value")
     setting_type = Column(String, nullable=False, default='string', quote=False, name="setting_type")  # 'string', 'integer', 'boolean', 'json'
     description = Column(String, nullable=True, quote=False, name="description")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     client = relationship("Client", back_populates="system_settings")
@@ -568,6 +666,9 @@ class JobSchedule(Base, IntegrationBaseEntity):
     last_success_at = Column(DateTime, nullable=True, quote=False, name="last_success_at")
     error_message = Column(Text, nullable=True, quote=False, name="error_message")
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
 
     # Relationships
     integration = relationship("Integration", back_populates="job_schedules")
@@ -800,6 +901,9 @@ class JiraPullRequestLinks(Base, IntegrationBaseEntity):
     commit_sha = Column(String, quote=False, name="commit_sha")
     pr_status = Column(String, quote=False, name="pr_status")  # 'OPEN', 'MERGED', 'DECLINED'
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     issue = relationship("Issue", back_populates="pr_links")
     client = relationship("Client", back_populates="jira_pull_request_links")
@@ -855,5 +959,77 @@ class ClientColorSettings(Base, BaseEntity):
     on_gradient_4_5 = Column(String(7), quote=False, name="on_gradient_4_5")
     on_gradient_5_1 = Column(String(7), quote=False, name="on_gradient_5_1")
 
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
     # Relationships
     client = relationship("Client", back_populates="color_settings")
+
+
+# ===================================
+# AI ENHANCEMENT: ML MONITORING MODELS
+# ===================================
+
+class AILearningMemory(Base, BaseEntity):
+    """AI Learning Memory table - stores user feedback and corrections for ML improvement."""
+    __tablename__ = 'ai_learning_memory'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    error_type = Column(String(50), nullable=False, quote=False, name="error_type")
+    user_intent = Column(Text, nullable=False, quote=False, name="user_intent")
+    failed_query = Column(Text, nullable=False, quote=False, name="failed_query")
+    specific_issue = Column(Text, nullable=False, quote=False, name="specific_issue")
+    corrected_query = Column(Text, nullable=True, quote=False, name="corrected_query")
+    user_feedback = Column(Text, nullable=True, quote=False, name="user_feedback")
+    user_correction = Column(Text, nullable=True, quote=False, name="user_correction")
+    message_id = Column(String(255), nullable=True, quote=False, name="message_id")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
+    # Relationships
+    client = relationship("Client", back_populates="ai_learning_memories")
+
+
+class AIPrediction(Base, BaseEntity):
+    """AI Predictions table - logs ML model predictions and accuracy tracking."""
+    __tablename__ = 'ai_predictions'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    model_name = Column(String(100), nullable=False, quote=False, name="model_name")
+    model_version = Column(String(50), nullable=True, quote=False, name="model_version")
+    input_data = Column(Text, nullable=False, quote=False, name="input_data")  # JSON as text
+    prediction_result = Column(Text, nullable=False, quote=False, name="prediction_result")  # JSON as text
+    confidence_score = Column(Float, nullable=True, quote=False, name="confidence_score")
+    actual_outcome = Column(Text, nullable=True, quote=False, name="actual_outcome")  # JSON as text
+    accuracy_score = Column(Float, nullable=True, quote=False, name="accuracy_score")
+    prediction_type = Column(String(50), nullable=False, quote=False, name="prediction_type")  # 'trajectory', 'complexity', 'risk', etc.
+    validated_at = Column(DateTime, nullable=True, quote=False, name="validated_at")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
+    # Relationships
+    client = relationship("Client", back_populates="ai_predictions")
+
+
+class AIPerformanceMetric(Base, BaseEntity):
+    """AI Performance Metrics table - tracks system performance metrics for ML monitoring."""
+    __tablename__ = 'ai_performance_metrics'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    metric_name = Column(String(100), nullable=False, quote=False, name="metric_name")
+    metric_value = Column(Float, nullable=False, quote=False, name="metric_value")
+    metric_unit = Column(String(20), nullable=True, quote=False, name="metric_unit")
+    measurement_timestamp = Column(DateTime, nullable=False, default=func.now(), quote=False, name="measurement_timestamp")
+    context_data = Column(Text, nullable=True, quote=False, name="context_data")  # JSON as text
+    service_name = Column(String(50), nullable=True, quote=False, name="service_name")  # 'backend', 'etl', 'ai'
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
+    # Relationships
+    client = relationship("Client", back_populates="ai_performance_metrics")

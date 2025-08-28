@@ -1,24 +1,56 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database with ML capabilities
   postgres:
-    image: postgres:17
+    image: ghcr.io/postgresml/postgresml:2.10.0
     container_name: pulse-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DATABASE}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/custom-entrypoint.sh:/custom-entrypoint.sh:ro
     networks:
       - pulse-network
     restart: unless-stopped
+    # Use custom entrypoint to avoid PostgreSQL double-start issue
+    entrypoint: ["bash", "/custom-entrypoint.sh"]
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DATABASE}" ]
       interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Read Replica with ML capabilities
+  postgres-replica:
+    image: ghcr.io/postgresml/postgresml:2.10.0
+    container_name: pulse-postgres-replica
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./docker/postgres/custom-entrypoint.sh:/custom-entrypoint.sh:ro
+    networks:
+      - pulse-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Use custom entrypoint to avoid PostgreSQL double-start issue
+    entrypoint: ["bash", "/custom-entrypoint.sh"]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DATABASE}" ]
+      interval: 15s
       timeout: 5s
       retries: 5
 
@@ -103,6 +135,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres_replica_data:
   redis_data:
 
 
