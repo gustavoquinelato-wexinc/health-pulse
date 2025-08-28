@@ -1,8 +1,9 @@
 # Phase 1-1: Database Schema Enhancement
 
-**Duration**: Days 1-2  
-**Priority**: CRITICAL  
-**Dependencies**: None  
+**Implemented**: YES ✅
+**Duration**: Days 1-2
+**Priority**: CRITICAL
+**Dependencies**: None
 **Must Complete Before**: Phase 1-2 (Unified Models)
 
 ## 🎯 Objectives
@@ -10,8 +11,9 @@
 1. **Enhanced Migration 0001**: Create clean schema with vector columns integrated
 2. **ML Monitoring Tables**: Add AI learning and prediction logging infrastructure
 3. **Vector Indexes**: Create HNSW indexes for similarity search
-4. **PostgresML Preparation**: Upgrade replica for ML capabilities
-5. **Clean Execution**: No ALTER statements, only CREATE statements
+4. **PostgresML Preparation**: Upgrade replica for ML capabilities with full ML dependencies
+5. **ML Dependencies Installation**: Install XGBoost, LightGBM, and scikit-learn for Phase 3 readiness
+6. **Clean Execution**: No ALTER statements, only CREATE statements
 
 ## 📋 Implementation Tasks
 
@@ -30,15 +32,35 @@
 **Files**:
 - `docker-compose.yml`
 - `docker/postgres/init-postgresml.sql`
+- `docker/postgres/custom-entrypoint.sh`
 
 **Objective**: Prepare PostgresML infrastructure for ML capabilities
 
 **Changes Required**:
-- Update both primary and replica to `postgresml/postgresml:latest` for consistency
+- Update both primary and replica to `postgresml/postgresml:2.10.0` for consistency
 - Add PostgresML initialization script to both databases
+- Use custom entrypoint to avoid dashboard startup issues
 - Primary database: Full ML capabilities (training, inference)
 - Replica database: Same extensions available (read-only operations, inference only)
 - Maintain existing port mappings and volumes
+
+### Task 1-1.3: ML Dependencies Installation
+**Objective**: Install required ML libraries for Phase 3 readiness
+
+**Dependencies to Install**:
+- **XGBoost**: Required for trajectory forecasting and complexity estimation models
+- **LightGBM**: Required for PR rework classification model
+- **scikit-learn**: Required for data preprocessing and model validation
+- **Additional ML libraries**: pandas, numpy (usually pre-installed)
+
+**Installation Commands**:
+```bash
+# Install in PostgresML container after startup
+docker exec pulse-postgres-primary pip3 install xgboost lightgbm scikit-learn
+
+# Verify installation
+docker exec pulse-postgres-primary python3 -c "import xgboost, lightgbm, sklearn; print('All ML dependencies installed successfully')"
+```
 
 ## 🔧 Implementation Details
 
@@ -185,7 +207,9 @@ postgres-replica:
 3. **ML Tables**: All 3 ML monitoring tables created
 4. **Indexes**: Vector and ML indexes created successfully
 5. **PostgresML**: Replica upgraded and accessible
-6. **No Errors**: Clean execution without failures
+6. **ML Dependencies**: XGBoost, LightGBM, and scikit-learn installed and verified
+7. **Extensions**: Vector and pgml extensions created successfully
+8. **No Errors**: Clean execution without failures
 
 ## 🚨 Risk Mitigation
 
@@ -203,6 +227,9 @@ postgres-replica:
 - [ ] Vector indexes created (HNSW)
 - [ ] ML monitoring indexes created
 - [ ] PostgresML extension available (if replica upgraded)
+- [ ] XGBoost, LightGBM, scikit-learn installed and importable
+- [ ] Vector extension working (test vector operations)
+- [ ] pgml extension working (test basic ML functions)
 - [ ] No migration errors or warnings
 - [ ] Database performance acceptable
 - [ ] Rollback capability verified
@@ -245,7 +272,8 @@ python scripts/migration_runner.py
 - ✅ Enhanced database schema with vector columns
 - ✅ ML monitoring tables ready
 - ✅ Vector indexes operational
-- ✅ PostgresML infrastructure prepared
+- ✅ PostgresML infrastructure prepared with full ML dependencies
+- ✅ XGBoost, LightGBM, and scikit-learn installed and verified
 - ✅ Migration script ready for execution
 
 **Next Phase Requirements**:
