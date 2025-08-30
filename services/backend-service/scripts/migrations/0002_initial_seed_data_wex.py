@@ -140,33 +140,25 @@ def apply(connection):
             settings = None
             encryption_available = False
 
-        # JIRA Integration
+        # JIRA Integration - Using hardcoded credentials for migration
         jira_url = "https://wexinc.atlassian.net"
         jira_username = "gustavo.quinelato@wexinc.com"
+        jira_token = "ATATT3xFfGF0XFl4a6xMqsYHKiMpIjuSdrZ8ZFDEIXQ13l6QhZ2O9CMBeqf17LY5fbfV_CCwfbSZ9KF43VVHeI_-9KompF5PpuWmki8oJpJppCVGJF5IwnR7VnX_HA-h6lQdmA0eczYMnRhab-SFfIdM_7NoaMY0tP3UTwPD-6XyhzrXZDgro_Q=0C6B86D3"
         jira_password = None
-        jira_active = False
+        jira_active = True
 
-        if settings and hasattr(settings, 'JIRA_URL') and hasattr(settings, 'JIRA_USERNAME') and hasattr(settings, 'JIRA_TOKEN'):
-            if settings.JIRA_URL and settings.JIRA_USERNAME and settings.JIRA_TOKEN:
-                print(f"   📋 Found JIRA credentials: {settings.JIRA_URL}, {settings.JIRA_USERNAME}")
-                try:
-                    if encryption_available:
-                        key = AppConfig.load_key()
-                        jira_password = AppConfig.encrypt_token(settings.JIRA_TOKEN, key)
-                        print("   🔐 JIRA token encrypted successfully")
-                    else:
-                        jira_password = settings.JIRA_TOKEN
-                        print("   ⚠️  JIRA token stored unencrypted (AppConfig not available)")
-
-                    jira_url = settings.JIRA_URL
-                    jira_username = settings.JIRA_USERNAME
-                    jira_active = True
-                except Exception as e:
-                    print(f"   ❌ Failed to process JIRA credentials: {e}")
+        print(f"   📋 Using hardcoded JIRA credentials: {jira_url}, {jira_username}")
+        try:
+            if encryption_available:
+                key = AppConfig.load_key()
+                jira_password = AppConfig.encrypt_token(jira_token, key)
+                print("   🔐 JIRA token encrypted successfully")
             else:
-                print("   💡 JIRA credentials incomplete in environment")
-        else:
-            print("   💡 JIRA credentials not found in environment")
+                jira_password = jira_token
+                print("   ⚠️  JIRA token stored unencrypted (AppConfig not available)")
+        except Exception as e:
+            print(f"   ❌ Failed to process JIRA credentials: {e}")
+            jira_active = False
 
         cursor.execute("""
             INSERT INTO integrations (name, url, username, password, projects, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
@@ -184,36 +176,30 @@ def apply(connection):
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
 
-        # GitHub Integration
+        # GitHub Integration - Using hardcoded credentials for migration
+        github_token = "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"
         github_password = None
-        github_active = False
+        github_active = True
 
-        if settings and hasattr(settings, 'GITHUB_TOKEN'):
-            if settings.GITHUB_TOKEN:
-                print(f"   📋 Found GitHub token: {settings.GITHUB_TOKEN[:10]}...")
-                try:
-                    if encryption_available:
-                        key = AppConfig.load_key()
-                        github_password = AppConfig.encrypt_token(settings.GITHUB_TOKEN, key)
-                        print("   🔐 GitHub token encrypted successfully")
-                    else:
-                        github_password = settings.GITHUB_TOKEN
-                        print("   ⚠️  GitHub token stored unencrypted (AppConfig not available)")
-
-                    github_active = True
-                except Exception as e:
-                    print(f"   ❌ Failed to process GitHub credentials: {e}")
+        print(f"   📋 Using hardcoded GitHub token: {github_token[:10]}...")
+        try:
+            if encryption_available:
+                key = AppConfig.load_key()
+                github_password = AppConfig.encrypt_token(github_token, key)
+                print("   🔐 GitHub token encrypted successfully")
             else:
-                print("   💡 GitHub token not found in environment")
-        else:
-            print("   💡 GitHub token not available in settings")
+                github_password = github_token
+                print("   ⚠️  GitHub token stored unencrypted (AppConfig not available)")
+        except Exception as e:
+            print(f"   ❌ Failed to process GitHub credentials: {e}")
+            github_active = False
 
         cursor.execute("""
             INSERT INTO integrations (name, url, username, password, projects, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (name, client_id) DO NOTHING
             RETURNING id;
-        """, ("GITHUB", "https://api.github.com", None, github_password, None, "health-", "2000-01-01 00:00:00", client_id, github_active))
+        """, ("GITHUB", "https://api.github.com", None, github_password, None, None, "2000-01-01 00:00:00", client_id, github_active))
 
         github_result = cursor.fetchone()
         if github_result:
