@@ -254,12 +254,21 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     try:
         # Extract project keys from integration base_search
         project_keys = None
+        logger.info(f"DEBUG: Integration base_search: {repr(integration.base_search)}")
+
         if integration.base_search:
             # Parse project keys from base_search like "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"
             import re
             match = re.search(r'PROJECT\s+IN\s*\(([^)]+)\)', integration.base_search, re.IGNORECASE)
             if match:
                 project_keys = [key.strip().strip('"\'') for key in match.group(1).split(',')]
+                logger.info(f"DEBUG: Parsed project keys from base_search: {project_keys}")
+            else:
+                logger.warning(f"DEBUG: base_search regex did not match: {integration.base_search}")
+        else:
+            logger.info("DEBUG: No base_search found, will use fallback to environment settings")
+
+        logger.info(f"DEBUG: Final project_keys passed to jira_client: {project_keys}")
 
         # Get all projects from Jira
         jira_projects = jira_client.get_projects(expand="issueTypes", project_keys=project_keys)

@@ -39,8 +39,10 @@ class JiraAPIClient:
             # Fallback to settings for backward compatibility
             settings = get_settings()
             jira_projects = settings.jira_projects_list
+            logger.info(f"DEBUG: Using fallback to environment settings: {jira_projects}")
         else:
             jira_projects = project_keys
+            logger.info(f"DEBUG: Using provided project_keys: {jira_projects}")
 
         all_projects = []
         start_at = 0
@@ -67,6 +69,10 @@ class JiraAPIClient:
 
                     if expand:
                         params.append(('expand', expand))
+
+                    logger.info(f"DEBUG: Making API call to {url}")
+                    logger.info(f"DEBUG: API params: {params}")
+                    logger.info(f"DEBUG: Number of project keys: {len(jira_projects) if jira_projects else 0}")
 
                     response = requests.get(
                         url,
