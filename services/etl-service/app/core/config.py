@@ -51,16 +51,10 @@ class Settings(BaseSettings):
     USE_READ_REPLICA: bool = Field(default=False, env="USE_READ_REPLICA")
     REPLICA_FALLBACK_ENABLED: bool = Field(default=True, env="REPLICA_FALLBACK_ENABLED")
     
-    # Jira Configuration
-    JIRA_URL: str
-    JIRA_USERNAME: str
-    JIRA_TOKEN: str
-    JIRA_PROJECTS: str = Field(default="", env="JIRA_PROJECTS")
+    # NOTE: Jira Configuration moved to database (integrations table)
+    # All integration credentials are now stored in the database for security
 
-    @property
-    def jira_base_url(self) -> str:
-        """Returns Jira base API URL."""
-        return f"{self.JIRA_URL}/rest/api/2"
+    # NOTE: jira_base_url property removed - URLs now come from database
 
     @property
     def jira_dev_status_url(self) -> str:
@@ -74,16 +68,8 @@ class Settings(BaseSettings):
             return []
         return [project.strip() for project in self.JIRA_PROJECTS.split(',') if project.strip()]
     
-    # GitHub Configuration (for dev status)
-    GITHUB_TOKEN: Optional[str] = None
-
-    # Azure DevOps Configuration
-    AZDO_URL: Optional[str] = None
-    AZDO_TOKEN: Optional[str] = None
-
-    # Aha! Configuration
-    AHA_URL: Optional[str] = None
-    AHA_TOKEN: Optional[str] = None
+    # NOTE: All integration configurations (GitHub, Azure DevOps, Aha!)
+    # are now stored in the database (integrations table) for security
     
     # Job Scheduling Configuration
     SCHEDULER_TIMEZONE: str = Field(default="UTC", env="SCHEDULER_TIMEZONE")
@@ -135,10 +121,7 @@ class Settings(BaseSettings):
         replica_port = self.POSTGRES_REPLICA_PORT if self.POSTGRES_REPLICA_HOST else self.POSTGRES_PORT
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{replica_host}:{replica_port}/{self.POSTGRES_DATABASE}"
     
-    @property
-    def jira_base_url(self) -> str:
-        """Base URL for Jira APIs."""
-        return f"{self.JIRA_URL}/rest/api/2"
+    # NOTE: jira_base_url property removed - URLs now come from database
     
 
     

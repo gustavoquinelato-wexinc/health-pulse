@@ -169,11 +169,11 @@ def apply(connection):
             print("   💡 JIRA credentials not found in environment")
 
         cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            INSERT INTO integrations (name, url, username, password, projects, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (name, client_id) DO NOTHING
             RETURNING id;
-        """, ("JIRA", jira_url, jira_username, jira_password, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id, jira_active))
+        """, ("JIRA", jira_url, jira_username, jira_password, "BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS", None, "2000-01-01 00:00:00", client_id, jira_active))
 
         jira_result = cursor.fetchone()
         if jira_result:
@@ -209,11 +209,11 @@ def apply(connection):
             print("   💡 GitHub token not available in settings")
 
         cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            INSERT INTO integrations (name, url, username, password, projects, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (name, client_id) DO NOTHING
             RETURNING id;
-        """, ("GITHUB", "https://api.github.com", None, github_password, "health-", "2000-01-01 00:00:00", client_id, github_active))
+        """, ("GITHUB", "https://api.github.com", None, github_password, None, "health-", "2000-01-01 00:00:00", client_id, github_active))
 
         github_result = cursor.fetchone()
         if github_result:

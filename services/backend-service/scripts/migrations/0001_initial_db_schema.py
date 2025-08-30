@@ -192,6 +192,7 @@ def apply(connection):
                 url VARCHAR,
                 username VARCHAR,
                 password VARCHAR,
+                projects TEXT,
                 base_search VARCHAR,
                 last_sync_at TIMESTAMP,
                 client_id INTEGER NOT NULL,

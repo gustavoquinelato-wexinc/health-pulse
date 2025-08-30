@@ -48,35 +48,13 @@ class Settings(BaseSettings):
     USE_READ_REPLICA: bool = Field(default=False, env="USE_READ_REPLICA")
     REPLICA_FALLBACK_ENABLED: bool = Field(default=True, env="REPLICA_FALLBACK_ENABLED")
     
-    # Jira Configuration (optional - mainly used by ETL service)
-    JIRA_URL: Optional[str] = None
-    JIRA_USERNAME: Optional[str] = None
-    JIRA_TOKEN: Optional[str] = None
+    # NOTE: Jira Configuration moved to database (integrations table)
+    # All integration credentials are now stored in the database for security
 
-    @property
-    def jira_base_url(self) -> str:
-        """Returns Jira base API URL."""
-        if self.JIRA_URL:
-            return f"{self.JIRA_URL}/rest/api/2"
-        return ""
-
-    @property
-    def jira_dev_status_url(self) -> str:
-        """Returns Jira dev status API URL."""
-        if self.JIRA_URL:
-            return f"{self.JIRA_URL}/rest/dev-status/1.0"
-        return ""
+    # NOTE: Jira URL properties removed - URLs now come from database
     
-    # GitHub Configuration (for dev status)
-    GITHUB_TOKEN: Optional[str] = None
-
-    # Azure DevOps Configuration
-    AZDO_URL: Optional[str] = None
-    AZDO_TOKEN: Optional[str] = None
-
-    # Aha! Configuration
-    AHA_URL: Optional[str] = None
-    AHA_TOKEN: Optional[str] = None
+    # NOTE: All integration configurations (GitHub, Azure DevOps, Aha!)
+    # are now stored in the database (integrations table) for security
     
     # Job Scheduling Configuration
     SCHEDULER_TIMEZONE: str = Field(default="UTC", env="SCHEDULER_TIMEZONE")

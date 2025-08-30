@@ -241,6 +241,7 @@ class Integration(Base, BaseEntity):
     url = Column(String, quote=False, name="url")
     username = Column(String, quote=False, name="username")
     password = Column(String, quote=False, name="password")
+    projects = Column(String, quote=False, name="projects")
     base_search = Column(String, quote=False, name="base_search")
     last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
 

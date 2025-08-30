@@ -61,13 +61,13 @@ class JiraAPIClient:
                         ('maxResults', max_results)
                     ]
 
-                    # TEMPORARY: Test without project filtering to see if we get any projects
-                    logger.info(f"DEBUG: TESTING WITHOUT PROJECT FILTERING - should return all accessible projects")
-                    # Comment out project filtering temporarily
-                    # if jira_projects:
-                    #     for project_key in jira_projects:
-                    #         params.append(('keys', str(project_key)))
-                    # If no project keys specified, the API will return all accessible projects
+                    # Add each project key as a separate 'keys' parameter (only if we have project keys)
+                    if jira_projects:
+                        for project_key in jira_projects:
+                            params.append(('keys', str(project_key)))
+                        logger.info(f"DEBUG: Added {len(jira_projects)} project key filters")
+                    else:
+                        logger.info(f"DEBUG: No project filtering - will return all accessible projects")
 
                     if expand:
                         params.append(('expand', expand))
