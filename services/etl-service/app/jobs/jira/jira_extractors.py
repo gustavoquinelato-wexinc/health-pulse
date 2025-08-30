@@ -518,9 +518,13 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     current_relationships_jira.add(relationship_key)
 
                     if relationship_key not in existing_relationships_set:
+                        # Ensure both IDs are integers for schema validation
+                        project_id_int = int(project_id) if project_id is not None else None
+                        issuetype_id_int = int(issuetype.id) if issuetype.id is not None else None
+
                         relationships_to_insert.append({
-                            'project_id': project_id,
-                            'issuetype_id': issuetype.id
+                            'project_id': project_id_int,
+                            'issuetype_id': issuetype_id_int
                         })
                         relationships_processed += 1
 
