@@ -162,6 +162,35 @@ class User(Base, BaseEntity):
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
 
+    def to_dict(self, include_ml_fields=False):
+        """Convert User object to dictionary for API responses."""
+        user_dict = {
+            "id": self.id,
+            "email": self.email,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "role": self.role,
+            "is_admin": self.is_admin,
+            "auth_provider": self.auth_provider,
+            "theme_mode": self.theme_mode,
+            "high_contrast_mode": self.high_contrast_mode,
+            "reduce_motion": self.reduce_motion,
+            "colorblind_safe_palette": self.colorblind_safe_palette,
+            "accessibility_level": self.accessibility_level,
+            "profile_image_filename": self.profile_image_filename,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+            "client_id": self.client_id,
+            "active": self.active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None
+        }
+
+        # Include ML fields if requested (Phase 1: embedding is always None)
+        if include_ml_fields:
+            user_dict["embedding"] = self.embedding
+
+        return user_dict
+
 
 class UserSession(Base, BaseEntity):
     """User sessions table for JWT management."""
