@@ -36,10 +36,9 @@ class JiraAPIClient:
             List of project objects
         """
         if project_keys is None:
-            # Fallback to settings for backward compatibility
-            settings = get_settings()
-            jira_projects = settings.jira_projects_list
-            logger.info(f"DEBUG: Using fallback to environment settings: {jira_projects}")
+            # No fallback to settings - project keys must be provided from database
+            jira_projects = None
+            logger.info(f"DEBUG: No project_keys provided - will return all accessible projects")
         else:
             jira_projects = project_keys
             logger.info(f"DEBUG: Using provided project_keys: {jira_projects}")

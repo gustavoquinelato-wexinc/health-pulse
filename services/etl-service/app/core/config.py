@@ -56,17 +56,7 @@ class Settings(BaseSettings):
 
     # NOTE: jira_base_url property removed - URLs now come from database
 
-    @property
-    def jira_dev_status_url(self) -> str:
-        """Returns Jira dev status API URL."""
-        return f"{self.JIRA_URL}/rest/dev-status/1.0"
-
-    @property
-    def jira_projects_list(self) -> List[str]:
-        """Returns list of Jira project keys from comma-separated string."""
-        if not self.JIRA_PROJECTS:
-            return []
-        return [project.strip() for project in self.JIRA_PROJECTS.split(',') if project.strip()]
+    # NOTE: Jira URL and projects properties removed - these now come from database integration records
     
     # NOTE: All integration configurations (GitHub, Azure DevOps, Aha!)
     # are now stored in the database (integrations table) for security
