@@ -73,6 +73,8 @@ class JiraAPIClient:
                     logger.info(f"DEBUG: Making API call to {url}")
                     logger.info(f"DEBUG: API params: {params}")
                     logger.info(f"DEBUG: Number of project keys: {len(jira_projects) if jira_projects else 0}")
+                    logger.info(f"DEBUG: Username: {self.username}")
+                    logger.info(f"DEBUG: Token (masked): {self.token[:10]}...{self.token[-4:] if len(self.token) > 14 else 'SHORT'}")
 
                     response = requests.get(
                         url,
@@ -80,6 +82,11 @@ class JiraAPIClient:
                         params=params,
                         timeout=30
                     )
+
+                    logger.info(f"DEBUG: API response status: {response.status_code}")
+                    if response.status_code != 200:
+                        logger.error(f"DEBUG: API response error: {response.text[:500]}")
+
                     response.raise_for_status()
 
                     # Handle the API 3 response structure
