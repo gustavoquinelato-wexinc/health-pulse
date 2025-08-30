@@ -145,7 +145,51 @@ class DatabaseRouter:
             raise
         finally:
             session.close()
-    
+
+    @contextmanager
+    def get_ml_session_context(self):
+        """Context manager for ML operations (replica-only, optimized)."""
+        session = self.get_read_session()  # Always routes to replica
+        try:
+            # Optimize for ML workloads
+            session.execute(text("SET statement_timeout = '300s'"))
+            session.execute(text("SET transaction_read_only = on"))
+            session.execute(text("SET work_mem = '256MB'"))  # Larger work memory for ML
+            session.execute(text("SET random_page_cost = 1.1"))  # Optimize for SSD
+
+            logger.debug("ML session context initialized")
+            yield session
+
+        except Exception as e:
+            logger.error(f"ML session error: {e}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_ml_session(self, read_only: bool = True) -> Session:
+        """Get session optimized for ML operations (typically read-only)."""
+        if read_only:
+            session = self.get_read_session()
+        else:
+            session = self.get_write_session()
+
+        return session
+
+    def test_vector_column_access(self) -> bool:
+        """Test if vector columns are accessible."""
+        try:
+            with self.get_read_session_context() as session:
+                # Test vector column access on a few key tables
+                session.execute(text("SELECT embedding FROM issues LIMIT 1"))
+                session.execute(text("SELECT embedding FROM pull_requests LIMIT 1"))
+                session.execute(text("SELECT embedding FROM projects LIMIT 1"))
+                logger.debug("Vector column access test passed")
+                return True
+        except Exception as e:
+            logger.warning(f"Vector column access test failed: {e}")
+            return False
+
     def _should_use_replica(self) -> bool:
         """Determine if replica should be used for reads."""
         if not self.settings.USE_READ_REPLICA or not self.replica_engine:
@@ -263,3 +307,18 @@ def get_read_session_context():
 def get_analytics_session_context():
     """Get an analytics session context manager."""
     return get_database_router().get_analytics_session_context()
+
+
+def get_ml_session_context():
+    """Get an ML session context manager."""
+    return get_database_router().get_ml_session_context()
+
+
+def get_ml_session(read_only: bool = True):
+    """Get an ML session."""
+    return get_database_router().get_ml_session(read_only)
+
+
+def test_vector_column_access():
+    """Test vector column access."""
+    return get_database_router().test_vector_column_access()

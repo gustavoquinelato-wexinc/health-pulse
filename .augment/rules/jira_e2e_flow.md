@@ -191,7 +191,19 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
       --issue [SUBTASK_KEY] --status "Released"
     ```
 
-18. **Create Git Commit**: Make a git commit with the story key at the beginning of the commit message
+18. **Transition Story to Code Review**: Move story from Development to Code Review
+    ```bash
+    python scripts/augment_jira_integration/jira_agent_client.py transition \
+      --issue [STORY_KEY] --status "Code Review"
+    ```
+
+19. **Transition Story to Ready for Story Testing**: Move story from Code Review to Ready for Story Testing
+    ```bash
+    python scripts/augment_jira_integration/jira_agent_client.py transition \
+      --issue [STORY_KEY] --status "Ready for Story Testing"
+    ```
+
+20. **Create Git Commit**: Make a git commit with the story key at the beginning of the commit message
     ```bash
     git add .
     git commit -m "[STORY_KEY] [Brief description of the work completed]"
@@ -199,7 +211,14 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
 
     **IMPORTANT**: This step is ONLY for story items (not epics or subtasks). The story key at the beginning enables Jira-GitHub integration.
 
-19. **Inform User of Created Jira Tickets**: Provide summary of all created Jira items
+21. **Push Git Changes**: Push the committed changes to the current branch
+    ```bash
+    git push origin [current_branch]
+    ```
+
+    Replace `[current_branch]` with the actual current branch name. This ensures the Jira-GitHub integration can link the commit to the story.
+
+22. **Inform User of Created Jira Tickets**: Provide summary of all created Jira items
     - **Epic**: [EPIC_KEY] - [Epic Title]
     - **Story**: [STORY_KEY] - [Story Title]
     - **Subtask**: [SUBTASK_KEY] - [Subtask Title]

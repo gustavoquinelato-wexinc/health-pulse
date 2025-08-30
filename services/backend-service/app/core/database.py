@@ -13,7 +13,10 @@ import logging
 
 from app.core.config import get_settings
 from app.models.unified_models import Base
-from app.core.database_router import get_database_router, get_write_session, get_read_session
+from app.core.database_router import (
+    get_database_router, get_write_session, get_read_session,
+    get_ml_session_context, get_ml_session, test_vector_column_access
+)
 
 # Import pgvector for PostgreSQL vector type support
 try:
@@ -129,6 +132,20 @@ class PostgreSQLDatabase:
         router = get_database_router()
         with router.get_analytics_session_context() as session:
             yield session
+
+    @contextmanager
+    def get_ml_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for ML operations (replica-only, optimized)."""
+        with get_ml_session_context() as session:
+            yield session
+
+    def get_ml_session(self, read_only: bool = True) -> Session:
+        """Get session optimized for ML operations (typically read-only)."""
+        return get_ml_session(read_only)
+
+    def test_vector_column_access(self) -> bool:
+        """Test if vector columns are accessible."""
+        return test_vector_column_access()
     
     def is_connection_alive(self) -> bool:
         """Checks if the connection is alive."""
