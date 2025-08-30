@@ -92,6 +92,18 @@ class JiraAPIClient:
                     # Handle the API 3 response structure
                     response_data = response.json()
 
+                    # Debug the actual response
+                    logger.info(f"DEBUG: API response keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+                    logger.info(f"DEBUG: Response type: {type(response_data)}")
+                    if isinstance(response_data, dict):
+                        logger.info(f"DEBUG: Total projects in response: {response_data.get('total', 'N/A')}")
+                        logger.info(f"DEBUG: Max results: {response_data.get('maxResults', 'N/A')}")
+                        logger.info(f"DEBUG: Start at: {response_data.get('startAt', 'N/A')}")
+                        logger.info(f"DEBUG: Is last: {response_data.get('isLast', 'N/A')}")
+                        logger.info(f"DEBUG: Values length: {len(response_data.get('values', []))}")
+                        if response_data.get('total', 0) == 0:
+                            logger.warning(f"DEBUG: Empty response despite 200 status. Full response: {response.text[:1000]}")
+
                     # API 3 returns: {"values": [...], "total": 12, "maxResults": 50, ...}
                     if isinstance(response_data, dict) and 'values' in response_data:
                         batch_data = response_data['values']
