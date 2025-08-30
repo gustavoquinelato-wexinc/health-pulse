@@ -166,7 +166,7 @@ async def execute_jira_extraction_session_free(
             jira_client = JiraAPIClient(
                 username=integration_username,
                 token=jira_token,
-                base_url=get_settings().JIRA_URL
+                base_url=integration_url
             )
 
         # Execute the extraction mode without an open session
@@ -391,7 +391,7 @@ async def run_jira_sync(
         jira_client = JiraAPIClient(
             username=integration_username,
             token=jira_token,
-            base_url=get_settings().JIRA_URL
+            base_url=integration_url
         )
 
         # Set job as running before closing session
