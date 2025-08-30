@@ -102,6 +102,7 @@ class Client(Base):
     ai_learning_memories = relationship("AILearningMemory", back_populates="client")
     ai_predictions = relationship("AIPrediction", back_populates="client")
     ai_performance_metrics = relationship("AIPerformanceMetric", back_populates="client")
+    ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="client")
 
 
 class BaseEntity:
@@ -1140,3 +1141,23 @@ class AIPerformanceMetric(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="ai_performance_metrics")
+
+
+class MLAnomalyAlert(Base, BaseEntity):
+    """ML Anomaly Alert table - tracks anomalies detected by ML monitoring systems."""
+    __tablename__ = 'ml_anomaly_alert'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    model_name = Column(String(100), nullable=False, quote=False, name="model_name")
+    severity = Column(String(20), nullable=False, quote=False, name="severity")  # 'low', 'medium', 'high', 'critical'
+    alert_data = Column(JSON, nullable=False, quote=False, name="alert_data")
+    acknowledged = Column(Boolean, default=False, quote=False, name="acknowledged")
+    acknowledged_by = Column(Integer, quote=False, name="acknowledged_by")
+    acknowledged_at = Column(DateTime(timezone=True), quote=False, name="acknowledged_at")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
+    # Relationships
+    client = relationship("Client", back_populates="ml_anomaly_alerts")

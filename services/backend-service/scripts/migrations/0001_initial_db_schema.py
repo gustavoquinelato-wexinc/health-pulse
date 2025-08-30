@@ -821,6 +821,26 @@ def apply(connection):
             );
         """)
 
+        # ML Anomaly Alert table - tracks anomalies detected by ML monitoring
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ml_anomaly_alert (
+                id SERIAL PRIMARY KEY,
+                model_name VARCHAR(100) NOT NULL,
+                severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
+                alert_data JSONB NOT NULL,
+                acknowledged BOOLEAN DEFAULT FALSE,
+                acknowledged_by INTEGER,
+                acknowledged_at TIMESTAMP,
+                client_id INTEGER NOT NULL,
+                embedding vector(1536), -- AI Enhancement: Vector column for embeddings
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                active BOOLEAN DEFAULT TRUE,
+
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+        """)
+
         print("✅ ML monitoring tables created")
 
         print("📋 Creating foreign key constraints...")
@@ -1057,6 +1077,11 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_client_id ON ai_performance_metrics(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_client_id ON ml_anomaly_alert(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_model ON ml_anomaly_alert(model_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 
@@ -1103,6 +1128,7 @@ def rollback(connection):
             'ai_performance_metrics',
             'ai_predictions',
             'ai_learning_memory',
+            'ml_anomaly_alert',
             'client_color_settings',
             'dora_metric_insights',
             'dora_market_benchmarks',
