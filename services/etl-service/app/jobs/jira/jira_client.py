@@ -76,10 +76,18 @@ class JiraAPIClient:
                     logger.info(f"DEBUG: Username: {self.username}")
                     logger.info(f"DEBUG: Token (masked): {self.token[:10]}...{self.token[-4:] if len(self.token) > 14 else 'SHORT'}")
 
+                    # Add headers that Insomnia includes by default
+                    headers = {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Health-Pulse-ETL/1.0'
+                    }
+
                     response = requests.get(
                         url,
                         auth=(self.username, self.token),
                         params=params,
+                        headers=headers,
                         timeout=30
                     )
 
