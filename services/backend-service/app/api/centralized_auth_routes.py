@@ -24,6 +24,7 @@ settings = get_settings()
 class CredentialValidationRequest(BaseModel):
     email: str
     password: str
+    include_ml_fields: Optional[bool] = False
 
 class CredentialValidationResponse(BaseModel):
     valid: bool
@@ -70,17 +71,8 @@ async def validate_user_credentials(request: CredentialValidationRequest):
                 logger.warning(f"Invalid password for user: {request.email}")
                 return CredentialValidationResponse(valid=False, user=None)
 
-            # Return user data for token generation
-            user_data = {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "role": user.role,
-                "is_admin": user.is_admin,
-                "client_id": user.client_id,
-                "active": user.active
-            }
+            # Return user data for token generation with optional ML fields
+            user_data = user.to_dict(include_ml_fields=request.include_ml_fields)
 
             logger.info(f"Credentials validated successfully for user: {request.email}")
             return CredentialValidationResponse(valid=True, user=user_data)
@@ -163,6 +155,7 @@ async def exchange_authorization_code(request: AuthCodeExchangeRequest):
 
 class TokenValidationRequest(BaseModel):
     token: str
+    include_ml_fields: Optional[bool] = False
 
 @router.post("/validate-centralized-token", response_model=TokenValidationResponse)
 async def validate_centralized_token(request: TokenValidationRequest):
@@ -182,16 +175,7 @@ async def validate_centralized_token(request: TokenValidationRequest):
             logger.debug(f"Token valid locally for user: {user.email}")
             return TokenValidationResponse(
                 valid=True,
-                user={
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": user.role,
-                    "is_admin": user.is_admin,
-                    "client_id": user.client_id,
-                    "active": user.active
-                }
+                user=user.to_dict(include_ml_fields=request.include_ml_fields)
             )
         
         # If not valid locally, check with centralized auth service
