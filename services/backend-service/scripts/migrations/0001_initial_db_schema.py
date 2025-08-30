@@ -63,6 +63,21 @@ def apply(connection):
     cursor = connection.cursor()
 
     try:
+        # Check if migration is already applied
+        print("📋 Checking migration status...")
+        try:
+            cursor.execute("""
+                SELECT status FROM migration_history
+                WHERE migration_number = %s AND status = 'applied';
+            """, ('0001',))
+            result = cursor.fetchone()
+            if result:
+                print("⚠️ Migration 0001 is already applied. Use --rollback first if you want to reapply.")
+                return
+        except Exception:
+            # migration_history table doesn't exist yet, which is fine for first run
+            print("✅ First-time migration detected")
+
         # Start transaction
         print("📋 Creating extensions...")
 
@@ -1068,9 +1083,22 @@ def rollback(connection):
     cursor = connection.cursor()
 
     try:
+        # First, update migration history to mark as rolled back (before dropping the table)
+        print("📋 Updating migration history...")
+        try:
+            cursor.execute("""
+                UPDATE migration_history
+                SET status = 'rolled_back', rollback_at = NOW()
+                WHERE migration_number = %s;
+            """, ('0001',))
+            print("✅ Migration history updated")
+        except Exception as e:
+            print(f"⚠️ Could not update migration history (table may not exist): {e}")
+
         print("📋 Dropping all tables in reverse dependency order...")
 
         # Drop tables in reverse order to handle foreign key dependencies
+        # Note: migration_history is dropped last so we can track the rollback
         tables_to_drop = [
             'ai_performance_metrics',
             'ai_predictions',
@@ -1078,7 +1106,6 @@ def rollback(connection):
             'client_color_settings',
             'dora_metric_insights',
             'dora_market_benchmarks',
-            'migration_history',
             'jira_pull_request_links',
             'job_schedules',
             'system_settings',
@@ -1102,7 +1129,8 @@ def rollback(connection):
             'user_permissions',
             'user_sessions',
             'users',
-            'clients'
+            'clients',
+            'migration_history'  # Drop last
         ]
 
         for table in tables_to_drop:
@@ -1111,9 +1139,16 @@ def rollback(connection):
 
         print("✅ All tables dropped successfully")
 
-        # Note: Cannot update migration_history as it was dropped with all other tables
+        # Optionally drop extensions (commented out as they might be used by other databases)
+        print("📋 Extensions (vector, pgml) left intact - they may be used by other applications")
+        # Uncomment these lines if you want to completely clean the database:
+        # cursor.execute("DROP EXTENSION IF EXISTS pgml CASCADE;")
+        # cursor.execute("DROP EXTENSION IF EXISTS vector CASCADE;")
+        # print("✅ Extensions dropped")
+
         connection.commit()
         print("✅ Migration 0001 rolled back successfully")
+        print("⚠️ Note: You can now safely reapply this migration")
 
     except Exception as e:
         connection.rollback()
