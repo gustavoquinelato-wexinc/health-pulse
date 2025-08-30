@@ -214,11 +214,14 @@ class JiraAPIClient:
     
     def get_issues(self, jql: str = None, max_results: int = 100, progress_callback=None, db_session=None) -> List[Dict]:
         """
-        Fetch all Jira issues with changelog using JQL with pagination and retry logic.
+        Fetch all Jira issues with changelog using NEW JQL API with pagination and retry logic.
+
+        MIGRATION NOTE: Updated to use /rest/api/3/search/jql (new enhanced API)
+        instead of deprecated /rest/api/2/search endpoint.
 
         Args:
             jql: JQL query string
-            max_results: Maximum results per page (default: 100)
+            max_results: Maximum results per page (default: 100, max: 100)
             progress_callback: Optional callback function for progress updates
             db_session: Optional database session for connection heartbeat
 
@@ -230,33 +233,40 @@ class JiraAPIClient:
             jql = f"updated >= -30d ORDER BY updated DESC"
 
         all_issues = []
-        start_at = 0
+        next_page_token = None
         max_retries = 3
 
         while True:
             # Try to fetch a page with retries
             for retry_count in range(max_retries):
                 try:
-                    url = f"{self.base_url}/rest/api/2/search"
-                    params = {
+                    # Use NEW enhanced JQL API endpoint
+                    url = f"{self.base_url}/rest/api/3/search/jql"
+
+                    # Build request body for POST request (new API uses POST)
+                    request_body = {
                         'jql': jql,
-                        'startAt': start_at,
-                        'maxResults': max_results,
-                        'fields': '*all',
-                        'expand': 'changelog'  # Always include changelog
+                        'maxResults': min(max_results, 100),  # API limit is 100
+                        'fields': ['*all'],  # Request all fields
+                        'expand': ['changelog']  # Include changelog data
                     }
 
-                    response = requests.get(
+                    # Add pagination token if available
+                    if next_page_token:
+                        request_body['nextPageToken'] = next_page_token
+
+                    response = requests.post(
                         url,
                         auth=(self.username, self.token),
-                        params=params,
+                        json=request_body,
+                        headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
                         timeout=60  # Increased timeout for large data requests
                     )
                     response.raise_for_status()
 
                     result = response.json()
                     batch_issues = result.get('issues', [])
-                    total = result.get('total', 0)
+                    next_page_token = result.get('nextPageToken')
 
                     # Success! Process the data
                     if batch_issues:
@@ -264,15 +274,15 @@ class JiraAPIClient:
 
                         # Call progress callback if provided
                         if progress_callback:
-                            progress_callback(f"Fetched {len(all_issues)} of {total} issues so far...")
+                            progress_callback(f"Fetched {len(all_issues)} issues (batch: {len(batch_issues)})")
                         else:
-                            logger.info(f"[JIRA] Fetched {len(batch_issues)} issues (total: {len(all_issues)}/{total})")
+                            logger.info(f"[JIRA] Fetched {len(batch_issues)} issues (total so far: {len(all_issues)})")
 
-                        # Store progress information for external access
+                        # Store progress information for external access (no total available in new API)
                         self.last_fetch_progress = {
                             'current': len(all_issues),
-                            'total': total,
-                            'percentage': (len(all_issues) / total) * 100 if total > 0 else 0
+                            'batch_size': len(batch_issues),
+                            'has_more': bool(next_page_token)
                         }
 
                         # 🔥 CRITICAL: Database heartbeat to keep connection alive during long API operations
@@ -281,19 +291,18 @@ class JiraAPIClient:
                                 from sqlalchemy import text
                                 db_session.execute(text("SELECT 1"))
                                 db_session.commit()
-                                logger.debug(f"[DB_HEARTBEAT] Connection kept alive after fetching page {start_at//max_results + 1}")
+                                logger.debug(f"[DB_HEARTBEAT] Connection kept alive after fetching batch of {len(batch_issues)} issues")
                             except Exception as heartbeat_error:
                                 logger.warning(f"[DB_HEARTBEAT] Failed to keep connection alive: {heartbeat_error}")
                                 # Continue with API fetch - the caller will handle connection issues
 
-                    # Check if we have more pages
-                    if not batch_issues or len(batch_issues) < max_results or start_at + len(batch_issues) >= total:
+                    # Check if we have more pages (new token-based pagination)
+                    if not next_page_token or len(batch_issues) == 0:
                         # No more pages, we're done with pagination
                         logger.info(f"Successfully fetched {len(all_issues)} issues with JQL: {jql}")
                         return all_issues
 
-                    # More pages available, continue pagination
-                    start_at += max_results
+                    # More pages available, continue with next page token
                     break  # Break out of retry loop, continue with next page
 
                 except requests.exceptions.RequestException as e:
@@ -311,6 +320,36 @@ class JiraAPIClient:
                 # If we get here, all retries failed
                 logger.error(f"Failed to fetch issues with JQL '{jql}' after {max_retries} attempts")
                 return all_issues
+
+    def get_issue_count_approximate(self, jql: str) -> int:
+        """
+        Get approximate count of issues matching JQL using the new count API.
+
+        Args:
+            jql: JQL query string
+
+        Returns:
+            Approximate count of matching issues
+        """
+        try:
+            url = f"{self.base_url}/rest/api/3/search/approximate-count"
+            request_body = {'jql': jql}
+
+            response = requests.post(
+                url,
+                auth=(self.username, self.token),
+                json=request_body,
+                headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+                timeout=30
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            return result.get('count', 0)
+
+        except Exception as e:
+            logger.warning(f"Failed to get approximate count for JQL '{jql}': {e}")
+            return 0
 
     def get_issue_changelogs(self, issue_key: str, max_results: int = 100) -> List[Dict]:
         """
@@ -332,7 +371,8 @@ class JiraAPIClient:
         max_retries = 3
 
         while True:
-            url = f"{self.base_url}/rest/api/2/issue/{issue_key}/changelog"
+            # Use API v3 for better compatibility
+            url = f"{self.base_url}/rest/api/3/issue/{issue_key}/changelog"
             params = {
                 'startAt': start_at,
                 'maxResults': max_results

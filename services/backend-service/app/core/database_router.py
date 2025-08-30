@@ -7,10 +7,16 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import contextmanager
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from app.core.config import get_settings
+
+# Import pgvector for PostgreSQL vector type support
+try:
+    from pgvector.psycopg2 import register_vector
+except ImportError:
+    register_vector = None
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,24 @@ class DatabaseRouter:
         self.last_health_check = None
         self.max_lag_seconds = 30
         self._initialize_engines()
-    
+
+    def _setup_pgvector_event_listener(self, engine):
+        """Set up event listener to register pgvector on every new connection."""
+        if register_vector:
+            @event.listens_for(engine, "connect")
+            def register_vector_on_connect(dbapi_connection, connection_record):
+                try:
+                    register_vector(dbapi_connection)
+                    logger.debug("pgvector registered for new connection")
+                except Exception as e:
+                    logger.warning(f"Failed to register pgvector for connection: {e}")
+
+            logger.info("pgvector event listener registered for database router engine")
+            return True
+        else:
+            logger.warning("pgvector not available - vector operations may not work")
+            return False
+
     def _initialize_engines(self):
         """Initialize database engines for primary and replica."""
         # Primary database engine (writes)
@@ -43,6 +66,8 @@ class DatabaseRouter:
             echo=self.settings.DEBUG,
             pool_pre_ping=True
         )
+        # Set up pgvector event listener for primary engine
+        self._setup_pgvector_event_listener(self.primary_engine)
         
         # Replica database engine (reads) - only if replica is configured
         if self.settings.USE_READ_REPLICA and self.settings.POSTGRES_REPLICA_HOST:
@@ -56,6 +81,8 @@ class DatabaseRouter:
                 echo=self.settings.DEBUG,
                 pool_pre_ping=True
             )
+            # Set up pgvector event listener for replica engine
+            self._setup_pgvector_event_listener(self.replica_engine)
             logger.info("✅ Database router initialized with replica support")
         else:
             logger.info("✅ Database router initialized (primary only)")

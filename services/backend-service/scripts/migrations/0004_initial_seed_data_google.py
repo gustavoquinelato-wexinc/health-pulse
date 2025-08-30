@@ -46,7 +46,7 @@ def apply(connection):
         print("📋 Creating Google client...")
         cursor.execute("""
             INSERT INTO clients (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
-            VALUES ('Google', 'https://www.google.com', 'google', 'google-logo.png', 'default', TRUE, NOW(), NOW())
+            VALUES ('Google', 'https://www.google.com', 'google', 'logo.png', 'default', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 
@@ -669,10 +669,15 @@ def rollback(connection):
         cursor.execute("DELETE FROM job_schedules WHERE job_name IN ('jira_sync', 'github_sync');")
 
         print("📋 Removing user permissions...")
+        # First remove permissions for Google client
         cursor.execute("DELETE FROM user_permissions WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        # Then remove ALL permissions for the specific users we're about to delete
+        cursor.execute("DELETE FROM user_permissions WHERE user_id IN (SELECT id FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com'));")
 
         print("📋 Removing user sessions...")
         cursor.execute("DELETE FROM user_sessions WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        # Also remove sessions for the specific users we're about to delete
+        cursor.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com'));")
 
         print("📋 Removing default users...")
         cursor.execute("DELETE FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com');")

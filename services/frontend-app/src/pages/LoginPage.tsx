@@ -62,7 +62,7 @@ export default function LoginPage() {
             <div className="mb-8">
               <div style={{ width: '300px', height: '120px', position: 'relative', margin: '0 auto' }}>
                 <img
-                  src="/wex-logo-image.png"
+                  src="/logo.png"
                   alt="Client Logo"
                   style={{
                     width: '100%',

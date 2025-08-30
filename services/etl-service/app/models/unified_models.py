@@ -21,16 +21,20 @@ class VectorType(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        # Try to use native VECTOR type if available
+        # Try to use native pgvector VECTOR type if available
         try:
-            from sqlalchemy.dialects.postgresql import ARRAY
-            from sqlalchemy import Float
-            # For now, use ARRAY of FLOAT as a fallback
-            # In production with proper pgvector, this would be VECTOR(1536)
-            return dialect.type_descriptor(ARRAY(Float))
+            from pgvector.sqlalchemy import Vector
+            # Use pgvector's native Vector type with 1536 dimensions
+            return dialect.type_descriptor(Vector(1536))
         except ImportError:
-            # Fallback to text storage
-            return dialect.type_descriptor(SQLText())
+            try:
+                from sqlalchemy.dialects.postgresql import ARRAY
+                from sqlalchemy import Float
+                # Fallback to ARRAY of FLOAT
+                return dialect.type_descriptor(ARRAY(Float))
+            except ImportError:
+                # Final fallback to text storage
+                return dialect.type_descriptor(SQLText())
 
     def process_bind_param(self, value, dialect):
         if value is not None:

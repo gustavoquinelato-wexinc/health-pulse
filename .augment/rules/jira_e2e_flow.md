@@ -191,7 +191,15 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
       --issue [SUBTASK_KEY] --status "Released"
     ```
 
-18. **Inform User of Created Jira Tickets**: Provide summary of all created Jira items
+18. **Create Git Commit**: Make a git commit with the story key at the beginning of the commit message
+    ```bash
+    git add .
+    git commit -m "[STORY_KEY] [Brief description of the work completed]"
+    ```
+
+    **IMPORTANT**: This step is ONLY for story items (not epics or subtasks). The story key at the beginning enables Jira-GitHub integration.
+
+19. **Inform User of Created Jira Tickets**: Provide summary of all created Jira items
     - **Epic**: [EPIC_KEY] - [Epic Title]
     - **Story**: [STORY_KEY] - [Story Title]
     - **Subtask**: [SUBTASK_KEY] - [Subtask Title]

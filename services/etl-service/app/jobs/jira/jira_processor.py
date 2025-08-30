@@ -78,11 +78,13 @@ class JiraDataProcessor:
                 'custom_field_19': None,  # Available for future mapping
                 'custom_field_20': None   # Available for future mapping
             }
-            
+
+            # Log schema compatibility success
+            logger.debug(f"✅ Processed issue {issue_data.get('key', 'unknown')} with enhanced schema compatibility (embedding=None)")
             return processed
-            
+
         except Exception as e:
-            logger.error(f"Error processing issue data for {issue_data.get('key', 'unknown')}: {e}")
+            logger.error(f"❌ Schema compatibility error processing issue {issue_data.get('key', 'unknown')}: {e}")
             return {}
     
     def _parse_datetime(self, date_str: str) -> datetime:
@@ -150,14 +152,20 @@ class JiraDataProcessor:
             Processed project data ready for database insertion
         """
         try:
-            return {
+            processed_data = {
                 'external_id': project_data.get('id', None),
                 'key': project_data.get('key', None),
                 'name': project_data.get('name', None),
                 'project_type': project_data.get('projectTypeKey', None)
+                # embedding field automatically defaults to None in model
             }
+
+            # Log schema compatibility success
+            logger.debug(f"✅ Processed project {project_data.get('key', 'unknown')} with enhanced schema compatibility")
+            return processed_data
+
         except Exception as e:
-            logger.error(f"Error processing project data for {project_data.get('key', 'unknown')}: {e}")
+            logger.error(f"❌ Schema compatibility error processing project {project_data.get('key', 'unknown')}: {e}")
             return {}
     
     def process_issuetype_data(self, issuetype_data: Dict[str, Any]) -> Dict[str, Any]:

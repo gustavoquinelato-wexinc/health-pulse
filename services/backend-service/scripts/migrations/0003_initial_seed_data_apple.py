@@ -46,7 +46,7 @@ def apply(connection):
         print("📋 Creating Apple client...")
         cursor.execute("""
             INSERT INTO clients (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
-            VALUES ('Apple', 'https://www.apple.com', 'apple', 'apple-logo.png', 'default', TRUE, NOW(), NOW())
+            VALUES ('Apple', 'https://www.apple.com', 'apple', 'logo.png', 'default', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 

@@ -260,27 +260,36 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
         # Store original JQL query method and replace with custom query
         original_get_issues = jira_client.get_issues_updated_since
 
-        def custom_get_issues(start_date=None, max_results=50, start_at=0):
-            """Custom issues getter that uses the provided JQL query."""
+        def custom_get_issues(start_date=None, max_results=50, next_page_token=None):
+            """Custom issues getter that uses the provided JQL query with NEW enhanced API."""
             try:
-                # Use the custom query instead of the default date-based query
+                # Use the NEW enhanced JQL API instead of deprecated endpoint
                 import requests
-                response = requests.get(
-                    f"{jira_client.base_url}/rest/api/2/search",
+
+                request_body = {
+                    'jql': custom_query,
+                    'maxResults': min(max_results, 100),  # API limit is 100
+                    'fields': ['key', 'summary', 'description', 'status', 'assignee', 'reporter', 'creator',
+                              'priority', 'labels', 'components', 'versions', 'fixVersions', 'issuetype',
+                              'project', 'created', 'updated', 'resolutiondate', 'resolution', 'environment',
+                              'attachment', 'customfield_10020'],
+                    'expand': ['changelog']
+                }
+
+                if next_page_token:
+                    request_body['nextPageToken'] = next_page_token
+
+                response = requests.post(
+                    f"{jira_client.base_url}/rest/api/3/search/jql",
                     auth=(jira_client.username, jira_client.token),
-                    params={
-                        'jql': custom_query,
-                        'maxResults': max_results,
-                        'startAt': start_at,
-                        'expand': 'changelog',
-                        'fields': 'key,summary,description,status,assignee,reporter,creator,priority,labels,components,versions,fixVersions,issuetype,project,created,updated,resolutiondate,resolution,environment,attachment,customfield_10020'
-                    },
+                    json=request_body,
+                    headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
                     timeout=30
                 )
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                logger.error(f"Error executing custom JQL query: {e}")
+                logger.error(f"Error executing custom JQL query with new API: {e}")
                 raise
 
         # Temporarily replace the method

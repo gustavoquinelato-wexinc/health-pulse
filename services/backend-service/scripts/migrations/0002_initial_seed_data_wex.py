@@ -84,7 +84,7 @@ def apply(connection):
         print("📋 Creating WEX client...")
         cursor.execute("""
             INSERT INTO clients (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
-            VALUES ('WEX', 'https://www.wexinc.com', 'wex', 'wex-logo.png', 'default', TRUE, NOW(), NOW())
+            VALUES ('WEX', 'https://www.wexinc.com', 'wex', 'logo.png', 'default', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 

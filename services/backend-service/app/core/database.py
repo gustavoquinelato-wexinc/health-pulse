@@ -4,7 +4,7 @@ Migrated from Snowflake to PostgreSQL for better performance.
 Enhanced with read replica routing for improved scalability.
 """
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
@@ -14,6 +14,12 @@ import logging
 from app.core.config import get_settings
 from app.models.unified_models import Base
 from app.core.database_router import get_database_router, get_write_session, get_read_session
+
+# Import pgvector for PostgreSQL vector type support
+try:
+    from pgvector.psycopg2 import register_vector
+except ImportError:
+    register_vector = None
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -26,6 +32,23 @@ class PostgreSQLDatabase:
         self.engine = None
         self.SessionLocal = None
         self._initialize_engine()
+
+    def _setup_pgvector_event_listener(self, engine):
+        """Set up event listener to register pgvector on every new connection."""
+        if register_vector:
+            @event.listens_for(engine, "connect")
+            def register_vector_on_connect(dbapi_connection, connection_record):
+                try:
+                    register_vector(dbapi_connection)
+                    logger.debug("pgvector registered for new connection")
+                except Exception as e:
+                    logger.warning(f"Failed to register pgvector for connection: {e}")
+
+            logger.info("pgvector event listener registered for all new connections")
+            return True
+        else:
+            logger.warning("pgvector not available - vector operations may not work")
+            return False
 
     def _initialize_engine(self):
         """Initializes SQLAlchemy engine with PostgreSQL connection."""
@@ -41,6 +64,9 @@ class PostgreSQLDatabase:
                 pool_pre_ping=True,
                 echo=False  # Disable SQLAlchemy logging completely
             )
+
+            # Set up pgvector event listener for all new connections
+            self._setup_pgvector_event_listener(self.engine)
 
             # Create sessionmaker
             self.SessionLocal = sessionmaker(
