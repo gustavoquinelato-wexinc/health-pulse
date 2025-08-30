@@ -4,7 +4,7 @@ Based on existing snowflake_db_manager.py model with additions for development d
 Enhanced with vector columns and ML monitoring for Pulse AI Evolution Plan Phase 1-2.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY, JSON
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import TypeDecorator, Text as SQLText
 from typing import Dict, Any, Optional, List
