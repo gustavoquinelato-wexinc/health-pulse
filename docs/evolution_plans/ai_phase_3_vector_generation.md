@@ -102,6 +102,27 @@ CREATE TABLE IF NOT EXISTS client_ai_configuration (
 );
 ```
 
+### AI Usage Tracking Table (Migration 0001 Update)
+```sql
+-- Add to 0001_initial_db_schema.py
+CREATE TABLE IF NOT EXISTS ai_usage_tracking (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL,
+    provider VARCHAR(50) NOT NULL, -- 'openai', 'custom_gateway', 'sentence_transformers'
+    operation VARCHAR(50) NOT NULL, -- 'embedding', 'text_generation', 'analysis'
+    model_name VARCHAR(100),
+    input_count INTEGER DEFAULT 0, -- Number of texts/requests processed
+    input_tokens INTEGER DEFAULT 0, -- Input tokens used
+    output_tokens INTEGER DEFAULT 0, -- Output tokens generated
+    total_tokens INTEGER DEFAULT 0, -- Total tokens used
+    cost DECIMAL(10,4) DEFAULT 0.0, -- Cost in USD
+    request_metadata JSONB DEFAULT '{}', -- Additional request details
+    created_at TIMESTAMP DEFAULT NOW(),
+
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+);
+```
+
 ### Indexes for AI Configuration (Migration 0001 Update)
 ```sql
 -- Add to index creation section in 0001_initial_db_schema.py
@@ -113,6 +134,15 @@ CREATE INDEX IF NOT EXISTS idx_client_ai_config_client ON client_ai_configuratio
 CREATE INDEX IF NOT EXISTS idx_client_ai_config_category ON client_ai_configuration(config_category);
 CREATE INDEX IF NOT EXISTS idx_integrations_model_config ON integrations USING GIN(model_config);
 CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_config ON client_ai_preferences USING GIN(configuration);
+
+-- AI usage tracking indexes
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_client ON ai_usage_tracking(client_id);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_provider ON ai_usage_tracking(provider);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_operation ON ai_usage_tracking(operation);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_created_at ON ai_usage_tracking(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_cost ON ai_usage_tracking(cost);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_tokens ON ai_usage_tracking(total_tokens);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_metadata ON ai_usage_tracking USING GIN(request_metadata);
 ```
 
 ---
@@ -205,11 +235,32 @@ class ClientAIConfiguration(Base):
     # Relationships
     client = relationship("Client", back_populates="ai_configuration")
 
+class AIUsageTracking(Base):
+    """AI usage tracking for cost monitoring and billing"""
+    __tablename__ = 'ai_usage_tracking'
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
+    provider = Column(String(50), nullable=False)  # 'openai', 'custom_gateway', etc.
+    operation = Column(String(50), nullable=False)  # 'embedding', 'text_generation'
+    model_name = Column(String(100))
+    input_count = Column(Integer, default=0)
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    cost = Column(Numeric(10, 4), default=0.0)
+    request_metadata = Column(JSONB, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    client = relationship("Client", back_populates="ai_usage_records")
+
 # Update existing models with new relationships
 class Client(Base):
     # ... existing fields ...
     ai_preferences = relationship("ClientAIPreferences", back_populates="client")
     ai_configuration = relationship("ClientAIConfiguration", back_populates="client")
+    ai_usage_records = relationship("AIUsageTracking", back_populates="client")
 ```
 
 #### ETL Service Models (services/etl-service/app/models/)
@@ -354,14 +405,15 @@ class OpenAIProvider(AIProviderInterface):
         return all_embeddings
 
 class CustomGatewayProvider(AIProviderInterface):
-    """Custom gateway provider for your hackathon models"""
+    """Custom gateway provider for your hackathon models with cost tracking"""
 
     def __init__(self, config: AIProviderConfig):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.usage_tracker = CustomGatewayUsageTracker(config)
 
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using custom gateway"""
+        """Generate embeddings using custom gateway with cost tracking"""
         import aiohttp
 
         base_url = self.config.credentials.get('base_url')
@@ -380,6 +432,7 @@ class CustomGatewayProvider(AIProviderInterface):
         }
 
         async with aiohttp.ClientSession() as session:
+            # Generate embeddings
             async with session.post(
                 f"{base_url}/embeddings",
                 json=payload,
@@ -387,9 +440,142 @@ class CustomGatewayProvider(AIProviderInterface):
             ) as response:
                 if response.status == 200:
                     data = await response.json()
+
+                    # Track usage and cost
+                    await self.usage_tracker.track_embedding_usage(
+                        texts=texts,
+                        response_data=data,
+                        session=session
+                    )
+
                     return [item['embedding'] for item in data['data']]
                 else:
                     raise Exception(f"Gateway error: {response.status}")
+
+class CustomGatewayUsageTracker:
+    """Track usage and costs for custom AI Gateway"""
+
+    def __init__(self, config: AIProviderConfig):
+        self.config = config
+        self.base_url = config.credentials.get('base_url')
+        self.api_key = config.credentials.get('api_key')
+        self.logger = logging.getLogger(__name__)
+
+    async def track_embedding_usage(
+        self,
+        texts: List[str],
+        response_data: Dict[str, Any],
+        session: aiohttp.ClientSession
+    ):
+        """Track embedding usage and calculate costs"""
+
+        try:
+            # Extract usage information from response
+            usage_info = response_data.get('usage', {})
+            input_tokens = usage_info.get('prompt_tokens', 0)
+            total_tokens = usage_info.get('total_tokens', 0)
+
+            # Calculate cost using AI Gateway endpoint
+            cost_info = await self._calculate_request_cost(
+                input_tokens=input_tokens,
+                total_tokens=total_tokens,
+                session=session
+            )
+
+            # Log usage for monitoring
+            self.logger.info(
+                f"AI Gateway Usage - Texts: {len(texts)}, "
+                f"Input Tokens: {input_tokens}, "
+                f"Total Tokens: {total_tokens}, "
+                f"Cost: ${cost_info.get('cost', 0):.4f}"
+            )
+
+            # Store usage in database for client billing/monitoring
+            await self._store_usage_record({
+                'provider': 'custom_gateway',
+                'operation': 'embedding',
+                'input_count': len(texts),
+                'input_tokens': input_tokens,
+                'total_tokens': total_tokens,
+                'cost': cost_info.get('cost', 0),
+                'model': self.config.model_config.get('model_name'),
+                'timestamp': datetime.now()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Failed to track usage: {e}")
+
+    async def _calculate_request_cost(
+        self,
+        input_tokens: int,
+        total_tokens: int,
+        session: aiohttp.ClientSession
+    ) -> Dict[str, Any]:
+        """Calculate cost using AI Gateway /spend/calculate endpoint"""
+
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {
+            'input_tokens': input_tokens,
+            'total_tokens': total_tokens,
+            'model': self.config.model_config.get('model_name')
+        }
+
+        try:
+            async with session.post(
+                f"{self.base_url}/spend/calculate",
+                json=payload,
+                headers=headers
+            ) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    self.logger.warning(f"Cost calculation failed: {response.status}")
+                    return {'cost': 0}
+        except Exception as e:
+            self.logger.error(f"Cost calculation error: {e}")
+            return {'cost': 0}
+
+    async def get_total_spend(self) -> Dict[str, Any]:
+        """Get total spend using AI Gateway /key/info endpoint"""
+
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/key/info",
+                    headers=headers
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        self.logger.warning(f"Key info request failed: {response.status}")
+                        return {'total_spend': 0}
+        except Exception as e:
+            self.logger.error(f"Key info error: {e}")
+            return {'total_spend': 0}
+
+    async def _store_usage_record(self, usage_data: Dict[str, Any]):
+        """Store usage record in database for client monitoring"""
+
+        # This would store in a new ai_usage_tracking table
+        # for client billing and monitoring purposes
+
+        try:
+            # In full implementation, this would use SQLAlchemy
+            # to store in ai_usage_tracking table
+
+            self.logger.info(f"Stored usage record: {usage_data}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to store usage record: {e}")
 
 class AIProviderFactory:
     """Factory for creating AI providers"""
@@ -449,6 +635,9 @@ const AIConfigurationHub: React.FC<AIConfigurationProps> = ({ clientId }) => {
         </TabPanel>
         <TabPanel label="Testing & Analytics">
           <AITestingInterface />
+        </TabPanel>
+        <TabPanel label="Usage & Costs">
+          <AIUsageMonitoring />
         </TabPanel>
       </AIConfigurationTabs>
     </div>
@@ -671,6 +860,171 @@ const AddProviderModal: React.FC<AddProviderModalProps> = ({
     </Modal>
   );
 };
+
+// AI Usage Monitoring Component (integrates with AI Gateway endpoints)
+const AIUsageMonitoring: React.FC = () => {
+  const [usageData, setUsageData] = useState<AIUsageData>({});
+  const [timeRange, setTimeRange] = useState('7d');
+  const [loading, setLoading] = useState(false);
+
+  const loadUsageData = async () => {
+    setLoading(true);
+    try {
+      // Load internal usage tracking
+      const response = await fetch(`/api/v1/ai/usage/summary?range=${timeRange}`);
+      const data = await response.json();
+
+      // Load AI Gateway key info using /key/info endpoint
+      const gatewayResponse = await fetch('/api/v1/ai/gateway/key-info');
+      const gatewayData = await gatewayResponse.json();
+
+      setUsageData({
+        ...data,
+        gatewayTotalSpend: gatewayData.total_spend,
+        gatewayKeyInfo: gatewayData
+      });
+    } catch (error) {
+      console.error('Failed to load usage data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="ai-usage-monitoring">
+      <div className="usage-summary">
+        <MetricCard
+          title="Total Cost (Internal)"
+          value={`$${usageData.totalCost?.toFixed(2) || '0.00'}`}
+          description="Tracked from request metadata"
+        />
+        <MetricCard
+          title="Total Cost (Gateway)"
+          value={`$${usageData.gatewayTotalSpend?.toFixed(2) || '0.00'}`}
+          description="From /key/info endpoint"
+        />
+        <MetricCard
+          title="Total Tokens"
+          value={usageData.totalTokens?.toLocaleString() || '0'}
+          description="Input + output tokens used"
+        />
+        <MetricCard
+          title="Requests"
+          value={usageData.totalRequests?.toLocaleString() || '0'}
+          description="Total API requests made"
+        />
+      </div>
+
+      <div className="gateway-integration">
+        <h3>AI Gateway Integration</h3>
+        <div className="gateway-endpoints">
+          <EndpointCard
+            endpoint="/key/info"
+            description="Get API key information and total spend"
+            usage="Used for overall cost tracking"
+          />
+          <EndpointCard
+            endpoint="/spend/calculate"
+            description="Calculate cost for specific requests"
+            usage="Used for per-request cost tracking"
+          />
+          <EndpointCard
+            endpoint="/embeddings"
+            description="Generate embeddings with usage in response"
+            usage="Returns token usage in 'usage' attribute"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+### AI Usage Tracking API Endpoints
+```typescript
+// services/backend-service/app/api/ai_usage.py
+
+@router.get("/usage/summary")
+async def get_usage_summary(
+    range: str = "7d",
+    user: User = Depends(require_authentication)
+):
+    """Get AI usage summary for client"""
+
+    # Calculate date range
+    end_date = datetime.now()
+    if range == "1d":
+        start_date = end_date - timedelta(days=1)
+    elif range == "7d":
+        start_date = end_date - timedelta(days=7)
+    elif range == "30d":
+        start_date = end_date - timedelta(days=30)
+    else:
+        start_date = end_date - timedelta(days=90)
+
+    # Query usage tracking table
+    with get_db_session() as session:
+        usage_records = session.query(AIUsageTracking).filter(
+            AIUsageTracking.client_id == user.client_id,
+            AIUsageTracking.created_at >= start_date
+        ).all()
+
+        # Calculate summary metrics
+        total_cost = sum(record.cost for record in usage_records)
+        total_tokens = sum(record.total_tokens for record in usage_records)
+        total_requests = len(usage_records)
+
+        # Provider breakdown
+        provider_breakdown = {}
+        for record in usage_records:
+            if record.provider not in provider_breakdown:
+                provider_breakdown[record.provider] = {
+                    'cost': 0, 'tokens': 0, 'requests': 0
+                }
+            provider_breakdown[record.provider]['cost'] += record.cost
+            provider_breakdown[record.provider]['tokens'] += record.total_tokens
+            provider_breakdown[record.provider]['requests'] += 1
+
+        return {
+            'totalCost': float(total_cost),
+            'totalTokens': total_tokens,
+            'totalRequests': total_requests,
+            'avgCostPerRequest': float(total_cost / total_requests) if total_requests > 0 else 0,
+            'providerBreakdown': provider_breakdown,
+            'dateRange': {'start': start_date.isoformat(), 'end': end_date.isoformat()}
+        }
+
+@router.get("/gateway/key-info")
+async def get_gateway_key_info(
+    user: User = Depends(require_authentication)
+):
+    """Get AI Gateway key information using /key/info endpoint"""
+
+    # Load custom gateway configuration for client
+    with get_db_session() as session:
+        gateway_integration = session.query(Integration).filter(
+            Integration.client_id == user.client_id,
+            Integration.integration_type == 'ai_model',
+            Integration.integration_subtype == 'gateway',
+            Integration.active == True
+        ).first()
+
+        if not gateway_integration:
+            return {'error': 'No AI Gateway configuration found'}
+
+        # Use CustomGatewayUsageTracker to get key info
+        config = AIProviderConfig(
+            provider_type='custom_gateway',
+            model_name='',
+            credentials=gateway_integration.credentials,
+            model_config={},
+            performance_config={}
+        )
+
+        tracker = CustomGatewayUsageTracker(config)
+        key_info = await tracker.get_total_spend()
+
+        return key_info
 ```
 
 ---
