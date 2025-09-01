@@ -44,7 +44,11 @@ async def login(login_request: LoginRequest, request: Request):
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{auth_service_url}/api/v1/validate-credentials",
-                    json={"email": login_request.email, "password": login_request.password},
+                    json={
+                        "email": login_request.email,
+                        "password": login_request.password,
+                        "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
+                    },
                     timeout=10.0
                 )
 
@@ -54,7 +58,11 @@ async def login(login_request: LoginRequest, request: Request):
                         # Generate centralized token and return it
                         gen_resp = await client.post(
                             f"{auth_service_url}/api/v1/generate-token",
-                            json={"email": login_request.email, "password": login_request.password},
+                            json={
+                                "email": login_request.email,
+                                "password": login_request.password,
+                                "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
+                            },
                             timeout=10.0
                         )
                         if gen_resp.status_code == 200:
@@ -329,23 +337,18 @@ async def validate_token(request: Request):
 
 
 @router.post("/validate-service")
-async def validate_service_token(user: User = Depends(require_authentication)):
+async def validate_service_token(
+    include_ml_fields: bool = False,
+    user: User = Depends(require_authentication)
+):
     """
-    Token validation endpoint for service-to-service communication.
+    Token validation endpoint for service-to-service communication with optional ML fields.
     Returns user information if token is valid.
     """
     try:
         return {
             "valid": True,
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "role": user.role,
-                "is_admin": user.is_admin,
-                "client_id": user.client_id  # ✅ Added missing client_id
-            }
+            "user": user.to_dict(include_ml_fields=include_ml_fields)
         }
     except Exception as e:
         logger.error(f"Service token validation error: {e}")
@@ -359,23 +362,16 @@ async def validate_service_token(user: User = Depends(require_authentication)):
 
 
 @router.get("/user-info")
-async def get_user_info(user: User = Depends(require_authentication)):
+async def get_user_info(
+    include_ml_fields: bool = False,
+    user: User = Depends(require_authentication)
+):
     """
-    Get current user information.
+    Get current user information with optional ML fields.
     Requires valid authentication token.
     """
     try:
-        return {
-            "id": user.id,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "role": user.role,
-            "is_admin": user.is_admin,
-            "auth_provider": user.auth_provider,
-            "client_id": user.client_id,  # ✅ Added missing client_id for consistency
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None
-        }
+        return user.to_dict(include_ml_fields=include_ml_fields)
     except Exception as e:
         logger.error(f"Get user info error: {e}")
         raise HTTPException(

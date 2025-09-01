@@ -167,22 +167,29 @@ class GitHubGraphQLProcessor:
                 if commit_data.get('committer', {}).get('date'):
                     committed_date = DateTimeHelper.parse_iso_datetime(commit_data['committer']['date'])
                 
-                commit = PullRequestCommit(
-                    external_id=commit_data.get('oid'),  # SHA
-                    pull_request_id=pull_request_id,
-                    author_name=commit_data.get('author', {}).get('name'),
-                    author_email=commit_data.get('author', {}).get('email'),
-                    committer_name=commit_data.get('committer', {}).get('name'),
-                    committer_email=commit_data.get('committer', {}).get('email'),
-                    message=commit_data.get('message'),
-                    authored_date=authored_date,
-                    committed_date=committed_date,
-                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
-                    client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
-                    active=True,
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc()
-                )
+                # Create commit with schema compatibility
+                try:
+                    commit = PullRequestCommit(
+                        external_id=commit_data.get('oid'),  # SHA
+                        pull_request_id=pull_request_id,
+                        author_name=commit_data.get('author', {}).get('name'),
+                        author_email=commit_data.get('author', {}).get('email'),
+                        committer_name=commit_data.get('committer', {}).get('name'),
+                        committer_email=commit_data.get('committer', {}).get('email'),
+                        message=commit_data.get('message'),
+                        authored_date=authored_date,
+                        committed_date=committed_date,
+                        integration_id=getattr(self.integration, 'id', None) if self.integration else None,
+                        client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
+                        active=True,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                        # embedding automatically defaults to None in model
+                    )
+                    logger.debug(f"✅ Created commit {commit_data.get('oid', 'unknown')[:8]} with enhanced schema")
+                except Exception as e:
+                    logger.error(f"❌ Schema compatibility error creating commit: {e}")
+                    continue
                 
                 commits.append(commit)
                 
@@ -212,21 +219,28 @@ class GitHubGraphQLProcessor:
                 if review_node.get('submittedAt'):
                     submitted_at = DateTimeHelper.parse_iso_datetime(review_node['submittedAt'])
                 
-                review = PullRequestReview(
-                    external_id=review_node.get('id'),
-                    pull_request_id=pull_request_id,
-                    author_login=review_node.get('author', {}).get('login') if review_node.get('author') else None,
-                    state=review_node.get('state'),
-                    body=review_node.get('body'),
-                    submitted_at=submitted_at,
-                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
-                    client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
-                    active=True,
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc()
-                )
-                
-                reviews.append(review)
+                # Create review with schema compatibility
+                try:
+                    review = PullRequestReview(
+                        external_id=review_node.get('id'),
+                        pull_request_id=pull_request_id,
+                        author_login=review_node.get('author', {}).get('login') if review_node.get('author') else None,
+                        state=review_node.get('state'),
+                        body=review_node.get('body'),
+                        submitted_at=submitted_at,
+                        integration_id=getattr(self.integration, 'id', None) if self.integration else None,
+                        client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
+                        active=True,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                        # embedding automatically defaults to None in model
+                    )
+
+                    reviews.append(review)
+                    logger.debug(f"✅ Created review {review_node.get('id', 'unknown')[:8]} with enhanced schema")
+                except Exception as e:
+                    logger.error(f"❌ Schema compatibility error creating review: {e}")
+                    continue
                 
             except Exception as e:
                 logger.error(f"Error processing review node: {e}")
@@ -260,25 +274,32 @@ class GitHubGraphQLProcessor:
                 if comment_node.get('updatedAt'):
                     updated_at_github = DateTimeHelper.parse_iso_datetime(comment_node['updatedAt'])
                 
-                comment = PullRequestComment(
-                    external_id=comment_node.get('id'),
-                    pull_request_id=pull_request_id,
-                    author_login=comment_node.get('author', {}).get('login') if comment_node.get('author') else None,
-                    body=comment_node.get('body'),
-                    comment_type=comment_type,
-                    path=comment_node.get('path'),  # Only for review comments
-                    position=comment_node.get('position'),  # Only for review comments
-                    line=comment_node.get('line'),  # Only for review comments
-                    created_at_github=created_at_github,
-                    updated_at_github=updated_at_github,
-                    integration_id=getattr(self.integration, 'id', None) if self.integration else None,
-                    client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
-                    active=True,
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc()
-                )
-                
-                comments.append(comment)
+                # Create comment with schema compatibility
+                try:
+                    comment = PullRequestComment(
+                        external_id=comment_node.get('id'),
+                        pull_request_id=pull_request_id,
+                        author_login=comment_node.get('author', {}).get('login') if comment_node.get('author') else None,
+                        body=comment_node.get('body'),
+                        comment_type=comment_type,
+                        path=comment_node.get('path'),  # Only for review comments
+                        position=comment_node.get('position'),  # Only for review comments
+                        line=comment_node.get('line'),  # Only for review comments
+                        created_at_github=created_at_github,
+                        updated_at_github=updated_at_github,
+                        integration_id=getattr(self.integration, 'id', None) if self.integration else None,
+                        client_id=getattr(self.integration, 'client_id', None) if self.integration else None,
+                        active=True,
+                        created_at=DateTimeHelper.now_utc(),
+                        last_updated_at=DateTimeHelper.now_utc()
+                        # embedding automatically defaults to None in model
+                    )
+
+                    comments.append(comment)
+                    logger.debug(f"✅ Created {comment_type} comment {comment_node.get('id', 'unknown')[:8]} with enhanced schema")
+                except Exception as e:
+                    logger.error(f"❌ Schema compatibility error creating comment: {e}")
+                    continue
                 
             except Exception as e:
                 logger.error(f"Error processing comment node: {e}")

@@ -252,14 +252,17 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     logger.info("Starting combined projects and issue types extraction")
 
     try:
-        # Extract project keys from integration base_search
+        # Extract project keys from integration projects column
         project_keys = None
-        if integration.base_search:
-            # Parse project keys from base_search like "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"
-            import re
-            match = re.search(r'PROJECT\s+IN\s*\(([^)]+)\)', integration.base_search, re.IGNORECASE)
-            if match:
-                project_keys = [key.strip().strip('"\'') for key in match.group(1).split(',')]
+
+        if integration.projects:
+            # Parse project keys from projects column like "BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS"
+            project_keys = [key.strip() for key in integration.projects.split(',') if key.strip()]
+
+        else:
+            logger.warning("DEBUG: No projects found in integration.projects column")
+
+
 
         # Get all projects from Jira
         jira_projects = jira_client.get_projects(expand="issueTypes", project_keys=project_keys)
@@ -340,13 +343,22 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in projects_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'key': obj.key,
-                    'name': obj.name,
-                    'project_type': getattr(obj, 'project_type', None),
+                    'key': safe_unicode_string(obj.key),
+                    'name': safe_unicode_string(obj.name),
+                    'project_type': safe_unicode_string(getattr(obj, 'project_type', None)),
                     'client_id': obj.client_id,
                     'active': obj.active,
                     'last_updated_at': obj.last_updated_at
@@ -472,13 +484,22 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in issuetypes_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'original_name': obj.original_name,
+                    'original_name': safe_unicode_string(obj.original_name),
                     'issuetype_mapping_id': getattr(obj, 'issuetype_mapping_id', None),
-                    'description': getattr(obj, 'description', None),
+                    'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'hierarchy_level': obj.hierarchy_level,
                     'client_id': obj.client_id,
                     'active': getattr(obj, 'active', True),
@@ -509,9 +530,13 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     current_relationships_jira.add(relationship_key)
 
                     if relationship_key not in existing_relationships_set:
+                        # Ensure both IDs are integers for schema validation
+                        project_id_int = int(project_id) if project_id is not None else None
+                        issuetype_id_int = int(issuetype.id) if issuetype.id is not None else None
+
                         relationships_to_insert.append({
-                            'project_id': project_id,
-                            'issuetype_id': issuetype.id
+                            'project_id': project_id_int,
+                            'issuetype_id': issuetype_id_int
                         })
                         relationships_processed += 1
 
@@ -691,14 +716,23 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in statuses_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'original_name': obj.original_name,
+                    'original_name': safe_unicode_string(obj.original_name),
                     'status_mapping_id': getattr(obj, 'status_mapping_id', None),
-                    'category': obj.category,
-                    'description': getattr(obj, 'description', None),
+                    'category': safe_unicode_string(obj.category),
+                    'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'client_id': obj.client_id,
                     'active': getattr(obj, 'active', True),
                     'last_updated_at': obj.last_updated_at
@@ -816,17 +850,41 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             last_sync = integration.last_sync_at or datetime.now() - timedelta(days=30)
 
-        # Format datetime for Jira JQL (YYYY-MM-DD HH:mm format)
-        jira_datetime = last_sync.strftime('%Y-%m-%d %H:%M')
+        # Format datetime for Jira JQL (use relative date format for API v3 compatibility)
+        from datetime import datetime, timedelta, timezone
 
-        # Use base_search from integration instead of environment variable
-        base_search = integration.base_search
+        # Calculate days ago from last sync
+        now_utc = datetime.now(timezone.utc)
 
-        jql = f"""
-                {base_search}
-                AND updated >= '{jira_datetime}'
-                ORDER BY updated DESC
-        """
+        # Ensure last_sync is timezone-aware
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+
+        days_ago = (now_utc - last_sync).days
+
+        # Use relative date format which is more reliable with API v3
+        if days_ago <= 0:
+            jira_date_filter = "updated >= -1d"  # At least 1 day
+        else:
+            jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
+
+        # Construct JQL query: PROJECT IN (projects) AND base_search AND updated timestamp
+        jql_parts = []
+
+        # Add project filtering if projects are specified
+        if integration.projects:
+            project_list = integration.projects.replace(' ', '')  # Remove spaces
+            jql_parts.append(f"PROJECT IN ({project_list})")
+
+        # Add base_search if specified
+        if integration.base_search:
+            jql_parts.append(f"({integration.base_search})")
+
+        # Add updated timestamp filter (use relative date format)
+        jql_parts.append(jira_date_filter)
+
+        # Combine all parts with AND
+        jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
         #AND key = BEN-7914
 
         job_logger.progress(f"[FETCHING] Fetching issues with JQL: {jql}")
@@ -1594,7 +1652,6 @@ def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], status
     last_status_category = None
 
     # Calculate time tracking in chronological order
-    # TODO: Consider using get_flow_step_category for more granular tracking
     for changelog in changelogs:
         from_category = get_status_category(changelog.from_status_id)
         to_category = get_status_category(changelog.to_status_id)
@@ -1834,7 +1891,8 @@ async def extract_work_items_and_changelogs_session_free(
                 return {'success': False, 'error': 'Integration not found'}
 
             # Store integration details for session-free operations
-            base_search = integration.base_search
+            integration_projects = integration.projects
+            integration_base_search = integration.base_search
             integration_name = integration.name
 
         # Fetch all issues from Jira API (session-free)
@@ -1843,11 +1901,23 @@ async def extract_work_items_and_changelogs_session_free(
         def get_issues_sync():
             """Synchronous function to fetch issues from Jira API."""
             try:
-                # Build JQL query
-                if base_search:
-                    jql_query = f"{base_search} ORDER BY updated DESC"
+                # Build JQL query: PROJECT IN (projects) AND base_search
+                jql_parts = []
+
+                # Add project filtering if projects are specified
+                if integration_projects:
+                    project_list = integration_projects.replace(' ', '')  # Remove spaces
+                    jql_parts.append(f"PROJECT IN ({project_list})")
+
+                # Add base_search if specified
+                if integration_base_search:
+                    jql_parts.append(f"({integration_base_search})")
+
+                # Combine all parts with AND or use default
+                if jql_parts:
+                    jql_query = " AND ".join(jql_parts) + " ORDER BY updated DESC"
                 else:
-                    jql_query = "updated >= '2000-01-01 00:00' ORDER BY updated DESC"
+                    jql_query = "updated >= -365d ORDER BY updated DESC"  # Use relative date format
 
                 job_logger.progress(f"[API] Fetching issues with JQL: {jql_query}")
 

@@ -7,6 +7,7 @@ Uses raw SQL for maximum performance with Snowflake/PostgreSQL.
 
 from sqlalchemy import text
 from app.core.logging_config import JobLogger
+from app.core.schema_compatibility import SchemaCompatibilityValidator, log_schema_compatibility_status
 
 
 def perform_bulk_insert(session, model_class, data_list, table_name, job_logger: JobLogger, batch_size=100):
@@ -33,6 +34,23 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
     columns_str = ', '.join(columns)
 
     job_logger.progress(f"Starting bulk insert for {len(data_list)} {table_name} records...")
+
+    # Validate schema compatibility for bulk data
+    validator = SchemaCompatibilityValidator("Jira-ETL")
+    try:
+        # Validate a sample of the data for schema compatibility
+        sample_size = min(5, len(data_list))  # Validate first 5 records as sample
+        for i in range(sample_size):
+            if not validator.validate_model_data(model_class, data_list[i], f"bulk sample {i+1}"):
+                job_logger.error(f"❌ Schema validation failed for {table_name} bulk insert")
+                return
+
+        # Log schema compatibility status
+        log_schema_compatibility_status(table_name, len(data_list), "Jira-ETL")
+
+    except Exception as e:
+        job_logger.error(f"❌ Schema compatibility validation error for {table_name}: {e}")
+        # Continue with insert but log the error
 
     # Process in batches
     for i in range(0, len(data_list), batch_size):
@@ -84,7 +102,12 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
                 else:
                     # For all other columns (including foreign keys), use the actual values
                     value_placeholders.append(f":{param_prefix}{col}")
-                    params[f"{param_prefix}{col}"] = record[col]
+                    # Handle unicode encoding for string values
+                    value = record[col]
+                    if isinstance(value, str):
+                        # Ensure proper unicode handling
+                        value = value.encode('utf-8', errors='replace').decode('utf-8')
+                    params[f"{param_prefix}{col}"] = value
             
             values_list.append(f"({', '.join(value_placeholders)})")
         

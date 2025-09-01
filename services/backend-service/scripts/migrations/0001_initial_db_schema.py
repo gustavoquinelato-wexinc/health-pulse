@@ -18,11 +18,13 @@ This migration creates the complete initial database schema including:
 
 This migration contains ONLY schema creation with integrated AI capabilities - no seed data.
 
-Phase 1 Requirements Implemented:
+Phase 1 + Phase 2 Requirements Implemented:
 ✅ pgvector and postgresml extensions
 ✅ Vector columns (embedding vector(1536)) in all 23 business tables
 ✅ ML monitoring tables (ai_learning_memory, ai_predictions, ai_performance_metrics)
+✅ AI validation tables (ai_validation_patterns) and enhanced ai_learning_memory
 ✅ Vector indexes for similarity search
+✅ Validation indexes for pattern recognition and learning
 ✅ Clean CREATE-only statements (no ALTER statements)
 """
 
@@ -63,6 +65,21 @@ def apply(connection):
     cursor = connection.cursor()
 
     try:
+        # Check if migration is already applied
+        print("📋 Checking migration status...")
+        try:
+            cursor.execute("""
+                SELECT status FROM migration_history
+                WHERE migration_number = %s AND status = 'applied';
+            """, ('0001',))
+            result = cursor.fetchone()
+            if result:
+                print("⚠️ Migration 0001 is already applied. Use --rollback first if you want to reapply.")
+                return
+        except Exception:
+            # migration_history table doesn't exist yet, which is fine for first run
+            print("✅ First-time migration detected")
+
         # Start transaction
         print("📋 Creating extensions...")
 
@@ -177,6 +194,7 @@ def apply(connection):
                 url VARCHAR,
                 username VARCHAR,
                 password VARCHAR,
+                projects TEXT,
                 base_search VARCHAR,
                 last_sync_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
@@ -750,7 +768,7 @@ def apply(connection):
 
         print("📋 Creating ML monitoring tables...")
 
-        # AI Learning Memory table - stores user feedback and corrections
+        # AI Learning Memory table - stores user feedback and corrections (Phase 1 + Phase 2)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ai_learning_memory (
                 id SERIAL PRIMARY KEY,
@@ -765,6 +783,34 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                -- Phase 2: Validation enhancement columns
+                validation_type VARCHAR(50) DEFAULT 'syntax',
+                confidence_score DECIMAL(3,2) DEFAULT 0.0,
+                retry_count INTEGER DEFAULT 0,
+                learning_context JSONB DEFAULT '{}',
+                pattern_hash VARCHAR(64),
+                resolution_time_ms INTEGER,
+                validation_passed BOOLEAN DEFAULT FALSE,
+
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+        """)
+
+        # AI Validation Patterns table - stores validation failure patterns for self-healing (Phase 2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_validation_patterns (
+                id SERIAL PRIMARY KEY,
+                pattern_hash VARCHAR(64) UNIQUE NOT NULL,
+                error_pattern TEXT NOT NULL,
+                failure_count INTEGER DEFAULT 1,
+                success_count INTEGER DEFAULT 0,
+                last_seen_at TIMESTAMP DEFAULT NOW(),
+                pattern_metadata JSONB DEFAULT '{}',
+                suggested_fix TEXT,
+                confidence_score DECIMAL(3,2) DEFAULT 0.0,
+                client_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
 
                 FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             );
@@ -801,6 +847,26 @@ def apply(connection):
                 context_data JSONB,
                 client_id INTEGER NOT NULL,
                 service_name VARCHAR(50), -- 'backend', 'etl', 'ai'
+
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+        """)
+
+        # ML Anomaly Alert table - tracks anomalies detected by ML monitoring
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ml_anomaly_alert (
+                id SERIAL PRIMARY KEY,
+                model_name VARCHAR(100) NOT NULL,
+                severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
+                alert_data JSONB NOT NULL,
+                acknowledged BOOLEAN DEFAULT FALSE,
+                acknowledged_by INTEGER,
+                acknowledged_at TIMESTAMP,
+                client_id INTEGER NOT NULL,
+                embedding vector(1536), -- AI Enhancement: Vector column for embeddings
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                active BOOLEAN DEFAULT TRUE,
 
                 FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             );
@@ -1032,16 +1098,35 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_mode ON client_color_settings(client_id, color_schema_mode);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_unified ON client_color_settings(client_id, color_schema_mode, accessibility_level, theme_mode);")
 
-        # ML monitoring table indexes
+        # ML monitoring table indexes (Phase 1 + Phase 2)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_client_id ON ai_learning_memory(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_error_type ON ai_learning_memory(error_type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_message_id ON ai_learning_memory(message_id);")
+
+        # Phase 2: Validation-specific indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_type ON ai_learning_memory(validation_type);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_confidence ON ai_learning_memory(confidence_score);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_pattern_hash ON ai_learning_memory(pattern_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_passed ON ai_learning_memory(validation_passed);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_retry_count ON ai_learning_memory(retry_count);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_learning_context ON ai_learning_memory USING GIN(learning_context);")
+
+        # AI validation patterns indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_hash ON ai_validation_patterns(pattern_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_client ON ai_validation_patterns(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_confidence ON ai_validation_patterns(confidence_score);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_metadata ON ai_validation_patterns USING GIN(pattern_metadata);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_client_id ON ai_predictions(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_client_id ON ai_performance_metrics(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_client_id ON ml_anomaly_alert(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_model ON ml_anomaly_alert(model_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 
@@ -1068,17 +1153,31 @@ def rollback(connection):
     cursor = connection.cursor()
 
     try:
+        # First, update migration history to mark as rolled back (before dropping the table)
+        print("📋 Updating migration history...")
+        try:
+            cursor.execute("""
+                UPDATE migration_history
+                SET status = 'rolled_back', rollback_at = NOW()
+                WHERE migration_number = %s;
+            """, ('0001',))
+            print("✅ Migration history updated")
+        except Exception as e:
+            print(f"⚠️ Could not update migration history (table may not exist): {e}")
+
         print("📋 Dropping all tables in reverse dependency order...")
 
         # Drop tables in reverse order to handle foreign key dependencies
+        # Note: migration_history is dropped last so we can track the rollback
         tables_to_drop = [
             'ai_performance_metrics',
             'ai_predictions',
+            'ai_validation_patterns',
             'ai_learning_memory',
+            'ml_anomaly_alert',
             'client_color_settings',
             'dora_metric_insights',
             'dora_market_benchmarks',
-            'migration_history',
             'jira_pull_request_links',
             'job_schedules',
             'system_settings',
@@ -1102,7 +1201,8 @@ def rollback(connection):
             'user_permissions',
             'user_sessions',
             'users',
-            'clients'
+            'clients',
+            'migration_history'  # Drop last
         ]
 
         for table in tables_to_drop:
@@ -1111,9 +1211,16 @@ def rollback(connection):
 
         print("✅ All tables dropped successfully")
 
-        # Note: Cannot update migration_history as it was dropped with all other tables
+        # Optionally drop extensions (commented out as they might be used by other databases)
+        print("📋 Extensions (vector, pgml) left intact - they may be used by other applications")
+        # Uncomment these lines if you want to completely clean the database:
+        # cursor.execute("DROP EXTENSION IF EXISTS pgml CASCADE;")
+        # cursor.execute("DROP EXTENSION IF EXISTS vector CASCADE;")
+        # print("✅ Extensions dropped")
+
         connection.commit()
         print("✅ Migration 0001 rolled back successfully")
+        print("⚠️ Note: You can now safely reapply this migration")
 
     except Exception as e:
         connection.rollback()

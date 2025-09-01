@@ -14,8 +14,6 @@ import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import ClientManagementPage from './pages/ClientManagementPage'
 import HomePage from './pages/HomePage'
-import HomePageBackup from './pages/HomePageBackup'
-import HomePageOptionB from './pages/HomePageOptionB'
 import LeadTimeForChangesPage from './pages/LeadTimeForChangesPage'
 import LoginPage from './pages/LoginPage'
 import NotificationsPage from './pages/NotificationsPage'
@@ -62,23 +60,7 @@ function App() {
                   }
                 />
 
-                {/* Alternative Homepage Routes (accessible by direct URL) */}
-                <Route
-                  path="/home-backup"
-                  element={
-                    <ProtectedRoute>
-                      <HomePageBackup />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/home-option-b"
-                  element={
-                    <ProtectedRoute>
-                      <HomePageOptionB />
-                    </ProtectedRoute>
-                  }
-                />
+
 
                 {/* DORA Metrics Routes */}
                 <Route

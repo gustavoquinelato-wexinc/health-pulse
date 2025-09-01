@@ -39,13 +39,13 @@ if %errorlevel% == 0 (
     echo Starting WEX ETL instance (Port 8000)...
     cd services\etl-service
     copy .env.wex .env
-    start "WEX ETL" python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    start "WEX ETL" venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     cd ..\..
 
     echo Starting TechCorp ETL instance (Port 8001)...
     cd services\etl-service
     copy .env.techcorp .env
-    start "TechCorp ETL" python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+    start "TechCorp ETL" venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
     
     cd ..\..
     

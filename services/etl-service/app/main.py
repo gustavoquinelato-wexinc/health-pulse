@@ -39,7 +39,6 @@ from app.api.data import router as data_router
 from app.api.home import router as home_router
 
 from app.api.logs import router as logs_router
-from app.api.debug import router as debug_router
 from app.api.scheduler import router as scheduler_router
 
 # Import web interface routers
@@ -426,7 +425,7 @@ app.include_router(jobs_router, prefix="/api/v1", tags=["Jobs"])
 app.include_router(data_router, prefix="/api/v1", tags=["Data"])
 app.include_router(home_router, tags=["Home"])
 app.include_router(logs_router, prefix="/api/v1", tags=["Logs"])
-app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
+
 app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
 
 

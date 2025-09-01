@@ -1,6 +1,9 @@
 # ETL Service specific dependencies
 -r common.txt
 
+# HTTP client for service communication
+httpx
+
 # Job scheduling and orchestration
 APScheduler
 

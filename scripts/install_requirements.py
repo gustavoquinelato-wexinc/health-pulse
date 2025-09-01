@@ -79,38 +79,24 @@ def install_service_requirements(service_name):
     command = f"{pip_cmd} install -r {requirements_file}"
     return run_command(command, cwd=service_dir)
 
-def install_script_requirements(script_name):
-    """Install requirements for a script in the scripts directory."""
+def install_all_requirements_root():
+    """Install all requirements in a single root virtual environment."""
     root_dir = Path(__file__).parent.parent
     requirements_dir = root_dir / "requirements"
 
-    # Handle name mapping: requirements file uses hyphens, directory uses underscores
-    script_dir_name = script_name.replace('-', '_')
-    script_dir = root_dir / "scripts" / script_dir_name
+    print(f"\n📦 Installing all requirements in root virtual environment...")
+    print(f"   Root directory: {root_dir}")
 
-    if not script_dir.exists():
-        print(f"❌ Script directory not found: {script_dir}")
-        return False
-
-    requirements_file = requirements_dir / f"{script_name}.txt"
-    if not requirements_file.exists():
-        print(f"❌ Requirements file not found: {requirements_file}")
-        return False
-
-    print(f"\n📦 Installing requirements for {script_name}...")
-    print(f"   Requirements file: {requirements_file}")
-    print(f"   Script directory: {script_dir}")
-
-    # Create virtual environment in script directory if it doesn't exist
-    venv_dir = script_dir / "venv"
+    # Create virtual environment in root directory if it doesn't exist
+    venv_dir = root_dir / "venv"
     if not venv_dir.exists():
-        print(f"🔧 Creating virtual environment for {script_name}...")
-        if not run_command(f"{sys.executable} -m venv venv", cwd=script_dir):
-            print(f"❌ Failed to create virtual environment for {script_name}")
+        print(f"🔧 Creating root virtual environment...")
+        if not run_command(f"{sys.executable} -m venv venv", cwd=root_dir):
+            print(f"❌ Failed to create root virtual environment")
             return False
-        print(f"✅ Virtual environment created for {script_name}")
+        print(f"✅ Root virtual environment created")
     else:
-        print(f"📁 Using existing virtual environment for {script_name}")
+        print(f"📁 Using existing root virtual environment")
 
     # Determine pip command based on platform
     import os
@@ -122,34 +108,43 @@ def install_script_requirements(script_name):
         python_cmd = "venv/bin/python"
 
     # Upgrade pip first
-    print(f"🔄 Upgrading pip in {script_name} virtual environment...")
-    if not run_command(f"{python_cmd} -m pip install --upgrade pip", cwd=script_dir):
+    print(f"🔄 Upgrading pip in root virtual environment...")
+    if not run_command(f"{python_cmd} -m pip install --upgrade pip", cwd=root_dir):
         print(f"⚠️  Failed to upgrade pip, continuing with installation...")
 
-    # Install requirements using the script's virtual environment
-    print(f"📦 Installing dependencies for {script_name}...")
-    command = f"{pip_cmd} install -r {requirements_file}"
-    return run_command(command, cwd=script_dir)
+    # Install all requirements files
+    requirements_files = ["common.txt", "auth-service.txt", "backend-service.txt", "etl-service.txt"]
+    success_count = 0
+
+    for req_file in requirements_files:
+        req_path = requirements_dir / req_file
+        if req_path.exists():
+            print(f"📦 Installing {req_file}...")
+            command = f"{pip_cmd} install -r {req_path}"
+            if run_command(command, cwd=root_dir):
+                success_count += 1
+            else:
+                print(f"❌ Failed to install {req_file}")
+        else:
+            print(f"⚠️  Requirements file not found: {req_file}")
+
+    return success_count == len([f for f in requirements_files if (requirements_dir / f).exists()])
 
 def main():
     """Main installation function."""
     if len(sys.argv) < 2:
         print("📋 Pulse Platform Requirements Installer")
         print()
-        print("Usage: python scripts/install_requirements.py <service_name|script_name|all>")
+        print("Usage: python scripts/install_requirements.py <service_name|all>")
         print()
         print("Available services:")
-        print("  • etl-service      - ETL Service dependencies")
-        print("  • backend-service  - Backend Service dependencies")
-        print("  • auth-service     - Auth Service dependencies")
-        print("  • all              - Install for all services")
-        print()
-        print("Available scripts:")
-        print("  • augment-jira-integration - Jira integration script dependencies")
+        print("  • etl-service      - ETL Service dependencies (individual venv)")
+        print("  • backend-service  - Backend Service dependencies (individual venv)")
+        print("  • auth-service     - Auth Service dependencies (individual venv)")
+        print("  • all              - Install all dependencies in root venv")
         print()
         print("Examples:")
         print("  python scripts/install_requirements.py etl-service")
-        print("  python scripts/install_requirements.py augment-jira-integration")
         print("  python scripts/install_requirements.py all")
         sys.exit(1)
 
@@ -159,22 +154,13 @@ def main():
     print("=" * 50)
 
     if target == "all":
-        print("📦 Installing requirements for all services...")
-        services = ["etl-service", "backend-service", "auth-service"]
-        success_count = 0
-
-        for service in services:
-            if install_service_requirements(service):
-                success_count += 1
-            print()  # Add spacing between services
-
+        success = install_all_requirements_root()
         print("=" * 50)
-        print(f"📊 Installation Summary: {success_count}/{len(services)} services successful")
-
-        if success_count == len(services):
-            print("🎉 All services installed successfully!")
+        if success:
+            print("🎉 All requirements installed successfully in root venv!")
+            print("💡 Activate with: venv\\Scripts\\activate (Windows) or source venv/bin/activate (Unix)")
         else:
-            print("⚠️  Some installations failed. Check the output above.")
+            print("❌ Installation failed! Check the output above.")
 
     elif target in ["etl-service", "backend-service", "auth-service"]:
         success = install_service_requirements(target)
@@ -184,18 +170,9 @@ def main():
         else:
             print(f"❌ {target} installation failed!")
 
-    elif target == "augment-jira-integration":
-        success = install_script_requirements(target)
-        print("=" * 50)
-        if success:
-            print(f"🎉 {target} requirements installed successfully!")
-        else:
-            print(f"❌ {target} installation failed!")
-
     else:
-        print(f"❌ Unknown service or script: {target}")
-        print("Available services: etl-service, backend-service, auth-service")
-        print("Available scripts: augment-jira-integration")
+        print(f"❌ Unknown service: {target}")
+        print("Available services: etl-service, backend-service, auth-service, all")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -53,18 +53,26 @@ nano services/frontend-app/.env
 docker-compose -f docker-compose.db.yml up -d
 python services/backend-service/scripts/migration_runner.py --apply-all
 
-# 5. Start services
-# Backend: cd services/backend-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 3001
-# ETL: cd services/etl-service && venv/Scripts/activate && uvicorn app.main:app --reload --port 8000
+# 5. Start services (using root venv)
+# Activate root virtual environment first: venv\Scripts\activate (Windows) or source venv/bin/activate (Unix)
+# Backend: cd services/backend-service && python -m uvicorn app.main:app --reload --port 3001
+# ETL: cd services/etl-service && python -m uvicorn app.main:app --reload --port 8000
 # Frontend: cd services/frontend-app && npm run dev
 ```
 
 **What `setup_development.py` does:**
-- ✅ Creates Python virtual environments for all services
+- ✅ Creates Python virtual environments for all services (individual service venvs)
 - ✅ Installs all Python dependencies (including pandas, numpy, websockets)
 - ✅ Installs Node.js dependencies for frontend
 - ✅ Copies `.env.example` to `.env` for all services (root + individual services)
 - ✅ Cross-platform support (Windows, Linux, macOS)
+
+**Alternative: Root Virtual Environment Setup**
+For simplified dependency management, use the root venv approach instead:
+```bash
+# Create and use single root virtual environment
+python scripts/install_requirements.py all
+```
 
 ### 🐳 Docker-Only Setup (Alternative)
 
@@ -179,13 +187,39 @@ The following dependencies were added to fix missing imports:
 # Option 1: Complete setup (recommended for new developers)
 python scripts/setup_development.py
 
-# Option 2: Install specific service
+# Option 2: Install all dependencies in root virtual environment (RECOMMENDED)
+python scripts/install_requirements.py all
+
+# Option 3: Install specific service (creates individual service venv)
 python scripts/install_requirements.py backend-service
 python scripts/install_requirements.py etl-service
 python scripts/install_requirements.py auth-service
+```
 
-# Option 3: Install all services
+### Root Virtual Environment (Recommended)
+
+The platform now supports a **unified root virtual environment** approach for simplified dependency management:
+
+**Benefits:**
+- ✅ **Single venv**: One virtual environment for all services
+- ✅ **Consistent versions**: No package conflicts between services
+- ✅ **Easier maintenance**: Single requirements installation
+- ✅ **Simplified activation**: Just activate root `venv/`
+
+**Usage:**
+```bash
+# Install all dependencies in root venv
 python scripts/install_requirements.py all
+
+# Activate root virtual environment
+# Windows
+venv\Scripts\activate
+# Unix/Linux/macOS
+source venv/bin/activate
+
+# Now all services use the same environment
+cd services/backend-service && python -m uvicorn app.main:app --reload --port 3001
+cd services/etl-service && python -m uvicorn app.main:app --reload --port 8000
 ```
 
 ## ⚙️ Service Configuration
@@ -354,7 +388,33 @@ curl -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/myself"
 
 #### Manual Service Startup (Development)
 
-**Prerequisites:** Run `python scripts/setup_development.py` first to set up virtual environments and dependencies.
+**Option A: Root Virtual Environment (Recommended)**
+
+**Prerequisites:** Run `python scripts/install_requirements.py all` to set up root virtual environment.
+
+```bash
+# Activate root virtual environment once
+# Windows
+venv\Scripts\activate
+# Unix/Linux/macOS
+source venv/bin/activate
+
+# Terminal 1: Backend Service
+cd services/backend-service
+python -m uvicorn app.main:app --reload --port 3001
+
+# Terminal 2: ETL Service
+cd services/etl-service
+python -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 3: Frontend Application
+cd services/frontend-app
+npm run dev
+```
+
+**Option B: Individual Service Virtual Environments**
+
+**Prerequisites:** Run `python scripts/setup_development.py` first to set up individual virtual environments.
 
 ```bash
 # Terminal 1: Backend Service
@@ -378,17 +438,30 @@ cd services/frontend-app
 npm run dev
 ```
 
-#### Alternative: Individual Setup
-If you prefer manual setup without the setup script:
+#### Alternative: Manual Setup Without Scripts
 
+**Root Virtual Environment Approach (Recommended):**
 ```bash
-# Install Python dependencies
+# Install all Python dependencies in root venv
 python scripts/install_requirements.py all
 
 # Install frontend dependencies
 cd services/frontend-app && npm install
 
-# Then start services as above
+# Then start services using Option A above
+```
+
+**Individual Service Approach:**
+```bash
+# Install individual service dependencies
+python scripts/install_requirements.py backend-service
+python scripts/install_requirements.py etl-service
+python scripts/install_requirements.py auth-service
+
+# Install frontend dependencies
+cd services/frontend-app && npm install
+
+# Then start services using Option B above
 ```
 
 #### Docker Development

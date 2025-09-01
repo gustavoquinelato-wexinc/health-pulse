@@ -48,35 +48,13 @@ class Settings(BaseSettings):
     USE_READ_REPLICA: bool = Field(default=False, env="USE_READ_REPLICA")
     REPLICA_FALLBACK_ENABLED: bool = Field(default=True, env="REPLICA_FALLBACK_ENABLED")
     
-    # Jira Configuration (optional - mainly used by ETL service)
-    JIRA_URL: Optional[str] = None
-    JIRA_USERNAME: Optional[str] = None
-    JIRA_TOKEN: Optional[str] = None
+    # NOTE: Jira Configuration moved to database (integrations table)
+    # All integration credentials are now stored in the database for security
 
-    @property
-    def jira_base_url(self) -> str:
-        """Returns Jira base API URL."""
-        if self.JIRA_URL:
-            return f"{self.JIRA_URL}/rest/api/2"
-        return ""
-
-    @property
-    def jira_dev_status_url(self) -> str:
-        """Returns Jira dev status API URL."""
-        if self.JIRA_URL:
-            return f"{self.JIRA_URL}/rest/dev-status/1.0"
-        return ""
+    # NOTE: Jira URL properties removed - URLs now come from database
     
-    # GitHub Configuration (for dev status)
-    GITHUB_TOKEN: Optional[str] = None
-
-    # Azure DevOps Configuration
-    AZDO_URL: Optional[str] = None
-    AZDO_TOKEN: Optional[str] = None
-
-    # Aha! Configuration
-    AHA_URL: Optional[str] = None
-    AHA_TOKEN: Optional[str] = None
+    # NOTE: All integration configurations (GitHub, Azure DevOps, Aha!)
+    # are now stored in the database (integrations table) for security
     
     # Job Scheduling Configuration
     SCHEDULER_TIMEZONE: str = Field(default="UTC", env="SCHEDULER_TIMEZONE")
@@ -116,20 +94,18 @@ class Settings(BaseSettings):
 
     @property
     def postgres_connection_string(self) -> str:
-        """Builds the PostgreSQL connection string."""
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DATABASE}"
+        """Builds the PostgreSQL connection string with proper UTF-8 encoding."""
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DATABASE}?client_encoding=utf8"
 
     @property
     def postgres_replica_connection_string(self) -> str:
-        """Read replica connection string (falls back to primary if no replica configured)"""
+        """Read replica connection string (falls back to primary if no replica configured) with proper UTF-8 encoding"""
         replica_host = self.POSTGRES_REPLICA_HOST or self.POSTGRES_HOST
         replica_port = self.POSTGRES_REPLICA_PORT if self.POSTGRES_REPLICA_HOST else self.POSTGRES_PORT
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{replica_host}:{replica_port}/{self.POSTGRES_DATABASE}"
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{replica_host}:{replica_port}/{self.POSTGRES_DATABASE}?client_encoding=utf8"
     
-    @property
-    def jira_base_url_legacy(self) -> str:
-        """Legacy property - use jira_base_url instead."""
-        return self.jira_base_url
+    # NOTE: Legacy jira_base_url_legacy property removed
+    # Jira configuration now stored in database (integrations table)
     
 
     

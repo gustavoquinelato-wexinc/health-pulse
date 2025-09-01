@@ -374,6 +374,208 @@ async def process_repositories_parallel(repositories: List[str]):
 - **Configuration Caching**: Cache integration configurations
 - **Schema Caching**: Cache database schema information
 
+## 🤖 AI & ML Job Management (Phase 1+)
+
+### AI-Enhanced Job Orchestration
+
+The orchestrator has been enhanced with AI capabilities for intelligent job management and ML monitoring:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Enhanced Orchestrator                        │
+│                                                                 │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐  │
+│  │  Job Scheduler  │    │  Recovery Mgr   │    │ Status Mgr  │  │
+│  │                 │    │                 │    │             │  │
+│  │ • Smart Timing  │    │ • Checkpoint    │    │ • Real-time │  │
+│  │ • Dependencies  │    │ • Retry Logic   │    │ • WebSocket │  │
+│  │ • Load Balance  │    │ • Error Handle  │    │ • Progress  │  │
+│  │ • AI Monitoring │    │ • ML Recovery   │    │ • AI Metrics│  │
+│  └─────────────────┘    └─────────────────┘    └─────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   GitHub Job    │    │    Jira Job     │    │   AI Jobs       │
+│                 │    │                 │    │  (Phase 2+)     │
+│ • Pull Requests │    │ • Issues        │    │                 │
+│ • Repositories  │    │ • Projects      │    │ • Embedding Gen │
+│ • Commits       │    │ • Sprints       │    │ • ML Training   │
+│ • Deployments   │    │ • Workflows     │    │ • Validation    │
+│ • ML Data Prep  │    │ • ML Data Prep  │    │ • Predictions   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### ML Monitoring Integration
+
+#### Performance Metrics Collection
+```python
+# AI Performance Monitoring during job execution
+class AIJobMonitor:
+    def __init__(self, job_name: str, client_id: int):
+        self.job_name = job_name
+        self.client_id = client_id
+        self.start_time = None
+        self.metrics = []
+
+    async def log_performance_metric(self, metric_name: str, value: float, unit: str = None):
+        """Log performance metrics to ML monitoring system"""
+        metric = AIPerformanceMetric(
+            metric_name=metric_name,
+            metric_value=value,
+            metric_unit=unit,
+            service_name='etl',
+            client_id=self.client_id,
+            measurement_timestamp=datetime.utcnow()
+        )
+        await self.save_metric(metric)
+
+    async def detect_anomalies(self, current_metrics: Dict[str, float]):
+        """Detect performance anomalies during job execution"""
+        for metric_name, value in current_metrics.items():
+            if await self.is_anomaly(metric_name, value):
+                await self.create_anomaly_alert(metric_name, value)
+```
+
+#### AI Learning Memory Integration
+```python
+# Capture job failures for AI learning
+class JobFailureLearning:
+    async def capture_failure(self, job_name: str, error: Exception, context: Dict):
+        """Capture job failures for AI learning and improvement"""
+        learning_entry = AILearningMemory(
+            error_type='job_failure',
+            user_intent=f'Execute {job_name} job successfully',
+            failed_query=str(context.get('last_operation', '')),
+            specific_issue=str(error),
+            client_id=context['client_id'],
+            learning_context=context
+        )
+        await self.save_learning_entry(learning_entry)
+
+    async def suggest_recovery_strategy(self, job_name: str, error_type: str):
+        """Use AI learning to suggest recovery strategies"""
+        similar_failures = await self.find_similar_failures(job_name, error_type)
+        if similar_failures:
+            return await self.generate_recovery_suggestion(similar_failures)
+        return None
+```
+
+### AI Job Types (Phase 2+)
+
+#### Embedding Generation Jobs
+```python
+class EmbeddingGenerationJob(BaseJob):
+    """Generate embeddings for text content"""
+
+    async def run(self):
+        # Process issues, PRs, and other text content
+        # Generate embeddings using AI service
+        # Update vector columns in database
+        # Monitor performance and accuracy
+        pass
+```
+
+#### ML Model Training Jobs
+```python
+class MLModelTrainingJob(BaseJob):
+    """Train ML models for predictions and validation"""
+
+    async def run(self):
+        # Extract features from historical data
+        # Train models (story point estimation, timeline forecasting)
+        # Validate model performance
+        # Deploy models to AI service
+        pass
+```
+
+#### Data Validation Jobs
+```python
+class DataValidationJob(BaseJob):
+    """Validate data quality using ML models"""
+
+    async def run(self):
+        # Run data quality checks
+        # Detect anomalies in incoming data
+        # Flag potential data issues
+        # Generate validation reports
+        pass
+```
+
+### Enhanced Job Recovery with AI
+
+#### Intelligent Retry Strategies
+```python
+class AIEnhancedRecovery:
+    async def determine_retry_strategy(self, job_name: str, error: Exception):
+        """Use AI to determine optimal retry strategy"""
+
+        # Analyze error patterns from AI learning memory
+        error_analysis = await self.analyze_error_pattern(str(error))
+
+        # Determine retry strategy based on AI insights
+        if error_analysis.get('transient_error_probability') > 0.8:
+            return RetryStrategy(
+                max_attempts=5,
+                backoff_factor=2,
+                jitter=True
+            )
+        elif error_analysis.get('configuration_error_probability') > 0.7:
+            return RetryStrategy(
+                max_attempts=1,
+                require_manual_intervention=True
+            )
+
+        return RetryStrategy(max_attempts=3, backoff_factor=1.5)
+```
+
+### AI Monitoring Dashboard Integration
+
+#### Real-time AI Metrics
+- **ML Model Performance**: Accuracy, precision, recall metrics
+- **Embedding Generation**: Processing speed and quality metrics
+- **Anomaly Detection**: Alert frequency and accuracy
+- **Data Validation**: Quality scores and issue detection rates
+- **AI Service Health**: Response times and availability
+
+#### AI Job Status Tracking
+```python
+# Enhanced job status with AI metrics
+{
+    "job_name": "github_data_extraction",
+    "status": "RUNNING",
+    "progress": 75,
+    "ai_metrics": {
+        "data_quality_score": 0.95,
+        "anomalies_detected": 2,
+        "ml_predictions_generated": 150,
+        "embedding_generation_rate": "50 items/sec"
+    },
+    "ai_alerts": [
+        {
+            "type": "performance_degradation",
+            "severity": "medium",
+            "message": "Processing speed 20% below baseline"
+        }
+    ]
+}
+```
+
+### Phase Implementation Status
+
+#### Phase 1 (Completed ✅)
+- **ML Monitoring Infrastructure**: Performance metrics and anomaly detection tables
+- **AI Learning Memory**: Error capture and learning system
+- **Enhanced Job Models**: Vector columns and AI-ready data structures
+- **Monitoring Integration**: Basic AI metrics collection framework
+
+#### Phase 2+ (Future)
+- **Embedding Generation Jobs**: Automatic text-to-vector conversion
+- **ML Model Training Jobs**: Automated model training and deployment
+- **Data Validation Jobs**: AI-powered data quality assurance
+- **Intelligent Recovery**: AI-driven error analysis and recovery strategies
+- **Predictive Scheduling**: ML-based optimal job scheduling
+
 ---
 
-This orchestration system provides robust, scalable, and reliable job management for the Pulse Platform's ETL operations.
+This enhanced orchestration system provides robust, scalable, and AI-powered job management for the Pulse Platform's ETL and ML operations.

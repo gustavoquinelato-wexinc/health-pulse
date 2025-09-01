@@ -2715,6 +2715,116 @@ async def update_system_setting(
         )
 
 
+@router.post("/api/v1/settings/bulk")
+async def update_system_settings_bulk(
+    request: dict,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Update multiple system settings in bulk - requires admin privileges"""
+    try:
+        settings_data = request.get('settings', [])
+
+        if not settings_data or not isinstance(settings_data, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Settings array is required"
+            )
+
+        from app.core.settings_manager import SettingsManager
+        updated_settings = []
+        failed_settings = []
+
+        # Process each setting
+        for setting_item in settings_data:
+            if not isinstance(setting_item, dict):
+                failed_settings.append({"error": "Invalid setting format", "data": setting_item})
+                continue
+
+            # Handle both 'key' and 'setting_key' for compatibility
+            setting_key = setting_item.get('key') or setting_item.get('setting_key')
+            setting_value = setting_item.get('value') or setting_item.get('setting_value')
+            description = setting_item.get('description')
+
+            if not setting_key:
+                failed_settings.append({"error": "Setting key is required", "data": setting_item})
+                continue
+
+            try:
+                # ✅ SECURITY: Pass client_id for client-specific settings
+                success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
+
+                if success:
+                    updated_settings.append({
+                        "setting_key": setting_key,
+                        "setting_value": setting_value,
+                        "status": "success"
+                    })
+
+                    # Handle special orchestrator settings
+                    if setting_key in ['orchestrator_interval_minutes', 'orchestrator_enabled']:
+                        from app.core.settings_manager import get_orchestrator_interval, is_orchestrator_enabled
+                        from app.main import update_orchestrator_schedule
+
+                        interval = get_orchestrator_interval()
+                        enabled = is_orchestrator_enabled()
+                        await update_orchestrator_schedule(interval, enabled)
+
+                    elif setting_key == 'orchestrator_retry_interval_minutes':
+                        # For retry interval changes, log for future retry attempts
+                        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                        orchestrator_scheduler = get_orchestrator_scheduler()
+                        if orchestrator_scheduler:
+                            orchestrator_scheduler.update_retry_settings()
+                        logger.info(f"Retry setting {setting_key} updated to {setting_value} - will apply to future retry attempts")
+
+                else:
+                    failed_settings.append({
+                        "setting_key": setting_key,
+                        "error": "Failed to update setting",
+                        "status": "failed"
+                    })
+
+            except Exception as e:
+                failed_settings.append({
+                    "setting_key": setting_key,
+                    "error": str(e),
+                    "status": "failed"
+                })
+
+        # Determine overall success
+        total_settings = len(settings_data)
+        successful_count = len(updated_settings)
+        failed_count = len(failed_settings)
+
+        response = {
+            "success": failed_count == 0,
+            "message": f"Bulk update completed: {successful_count}/{total_settings} settings updated successfully",
+            "updated_settings": updated_settings,
+            "failed_settings": failed_settings,
+            "summary": {
+                "total": total_settings,
+                "successful": successful_count,
+                "failed": failed_count
+            }
+        }
+
+        if failed_count > 0:
+            logger.warning(f"Bulk settings update partially failed: {failed_count}/{total_settings} failed")
+        else:
+            logger.info(f"Bulk settings update successful: {successful_count} settings updated")
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk settings update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process bulk settings update"
+        )
+
+
 @router.get("/websocket_test", response_class=HTMLResponse)
 async def websocket_test():
     """WebSocket test page for debugging."""

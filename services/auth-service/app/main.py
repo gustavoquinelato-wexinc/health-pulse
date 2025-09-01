@@ -45,6 +45,7 @@ app.add_middleware(
 class CredentialValidationRequest(BaseModel):
     email: str
     password: str
+    include_ml_fields: Optional[bool] = False
 
 class CredentialValidationResponse(BaseModel):
     valid: bool
@@ -60,6 +61,12 @@ class TokenResponse(BaseModel):
 class TokenValidationResponse(BaseModel):
     valid: bool
     user: Optional[Dict[str, Any]] = None
+
+class UserInfoRequest(BaseModel):
+    include_ml_fields: Optional[bool] = False
+
+class SessionInfoRequest(BaseModel):
+    include_ml_fields: Optional[bool] = False
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -116,17 +123,21 @@ async def health_check():
 @app.post("/api/v1/validate-credentials", response_model=CredentialValidationResponse)
 async def validate_credentials(request: CredentialValidationRequest):
     """
-    Validate user credentials against backend service.
+    Validate user credentials against backend service with optional ML fields.
     Called by backend service for authentication.
     """
     try:
         logger.info(f"Validating credentials for user: {request.email}")
 
-        # Call backend service to validate credentials
+        # Call backend service to validate credentials with ML fields support
         async with httpx.AsyncClient() as client:
             auth_response = await client.post(
                 f"{settings.BACKEND_SERVICE_URL}/api/v1/auth/centralized/validate-credentials",
-                json={"email": request.email, "password": request.password},
+                json={
+                    "email": request.email,
+                    "password": request.password,
+                    "include_ml_fields": request.include_ml_fields
+                },
                 timeout=10.0
             )
 
@@ -161,13 +172,13 @@ async def validate_credentials(request: CredentialValidationRequest):
 @app.post("/api/v1/generate-token", response_model=TokenResponse)
 async def generate_token(request: CredentialValidationRequest):
     """
-    Generate JWT token for validated user.
+    Generate JWT token for validated user with optional ML fields.
     Called by backend service after credential validation.
     """
     try:
         logger.info(f"Token generation request for user: {request.email}")
 
-        # First validate credentials
+        # First validate credentials with ML fields support
         validation_result = await validate_credentials(request)
 
         if not validation_result.valid:
@@ -243,6 +254,200 @@ async def logout_api(request):
     except Exception as e:
         logger.error(f"Logout error: {e}")
         raise HTTPException(status_code=500, detail="Logout failed")
+
+
+@app.post("/api/v1/user/info")
+async def get_user_info(request: UserInfoRequest, http_request: Request):
+    """Get user information with optional ML fields from token"""
+    try:
+        # Get token from Authorization header
+        auth_header = http_request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required"
+            )
+
+        token = auth_header.split(" ")[1]
+
+        # Validate token first
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+            # Check if token is expired
+            if datetime.utcnow() > datetime.fromtimestamp(payload["exp"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token expired"
+                )
+
+            # Get user data from backend service with ML fields if requested
+            async with httpx.AsyncClient() as client:
+                user_response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}",
+                    params={"include_ml_fields": request.include_ml_fields},
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10.0
+                )
+
+                if user_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=user_response.status_code,
+                        detail="Failed to fetch user information"
+                    )
+
+                user_data = user_response.json()
+                return {
+                    "user": user_data,
+                    "ml_fields_included": request.include_ml_fields
+                }
+
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user info error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user information"
+        )
+
+
+@app.post("/api/v1/sessions/info")
+async def get_session_info(request: SessionInfoRequest, http_request: Request):
+    """Get current session information with optional ML fields"""
+    try:
+        # Get token from Authorization header
+        auth_header = http_request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required"
+            )
+
+        token = auth_header.split(" ")[1]
+
+        # Validate token first
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+            # Check if token is expired
+            if datetime.utcnow() > datetime.fromtimestamp(payload["exp"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token expired"
+                )
+
+            # Get session data from backend service with ML fields if requested
+            async with httpx.AsyncClient() as client:
+                session_response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}/sessions",
+                    params={"include_ml_fields": request.include_ml_fields, "active_only": True},
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10.0
+                )
+
+                if session_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=session_response.status_code,
+                        detail="Failed to fetch session information"
+                    )
+
+                session_data = session_response.json()
+                return {
+                    "sessions": session_data.get("sessions", []),
+                    "ml_fields_included": request.include_ml_fields,
+                    "user_id": payload["user_id"]
+                }
+
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get session info error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get session information"
+        )
+
+
+@app.get("/api/v1/sessions/current")
+async def get_current_session(
+    include_ml_fields: bool = False,
+    http_request: Request = None
+):
+    """Get current session information with optional ML fields"""
+    try:
+        # Get token from Authorization header
+        auth_header = http_request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authorization header required"
+            )
+
+        token = auth_header.split(" ")[1]
+
+        # Validate token and extract session info
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+            # Check if token is expired
+            if datetime.utcnow() > datetime.fromtimestamp(payload["exp"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token expired"
+                )
+
+            # Build session info from token payload
+            session_info = {
+                "user_id": payload["user_id"],
+                "email": payload["email"],
+                "role": payload["role"],
+                "is_admin": payload["is_admin"],
+                "client_id": payload["client_id"],
+                "issued_at": datetime.fromtimestamp(payload["iat"]).isoformat(),
+                "expires_at": datetime.fromtimestamp(payload["exp"]).isoformat(),
+                "issuer": payload.get("iss", "pulse-auth-service")
+            }
+
+            # Include ML fields if requested (placeholder for future enhancement)
+            if include_ml_fields:
+                session_info["ml_fields"] = {
+                    "embedding": None,  # Phase 1: Always None
+                    "ml_context": None  # Phase 1: Always None
+                }
+
+            return {
+                "session": session_info,
+                "ml_fields_included": include_ml_fields,
+                "valid": True
+            }
+
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get current session error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get current session"
+        )
 
 
 @app.post("/api/v1/permissions/check", response_model=PermissionCheckResponse)

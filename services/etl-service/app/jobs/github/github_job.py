@@ -526,18 +526,23 @@ async def run_github_sync(
                 # Clear checkpoint data
                 job_schedule.clear_checkpoints()
 
-                # Update integration.last_sync_at only on complete success with no remaining checkpoints
+                # Update integration.last_sync_at only on complete success with repositories processed
                 if update_sync_timestamp:
-                    # Verify no recovery checkpoints remain
-                    remaining_checkpoints = job_schedule.has_recovery_checkpoints()
-                    if not remaining_checkpoints:
-                        from datetime import datetime
-                        # Update to current time (truncated to minute precision like Jira)
-                        current_time = datetime.now().replace(second=0, microsecond=0)
-                        github_integration.last_sync_at = current_time
-                        logger.info(f"[SYNC_TIME] Updated GitHub integration last_sync_at to: {current_time.strftime('%Y-%m-%d %H:%M')}")
+                    # Only update if repositories were actually processed
+                    repos_processed = result.get('repos_processed', 0)
+                    if repos_processed > 0:
+                        # Verify no recovery checkpoints remain
+                        remaining_checkpoints = job_schedule.has_recovery_checkpoints()
+                        if not remaining_checkpoints:
+                            from datetime import datetime
+                            # Update to current time (truncated to minute precision like Jira)
+                            current_time = datetime.now().replace(second=0, microsecond=0)
+                            github_integration.last_sync_at = current_time
+                            logger.info(f"[SYNC_TIME] Updated GitHub integration last_sync_at to: {current_time.strftime('%Y-%m-%d %H:%M')} (processed {repos_processed} repositories)")
+                        else:
+                            logger.info("[SYNC_TIME] Skipped updating integration last_sync_at (recovery checkpoints remain)")
                     else:
-                        logger.info("[SYNC_TIME] Skipped updating integration last_sync_at (recovery checkpoints remain)")
+                        logger.info(f"[SYNC_TIME] Skipped updating integration last_sync_at (no repositories processed)")
                 else:
                     logger.info("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
 
@@ -860,13 +865,27 @@ async def discover_all_repositories(session: Session, integration: Integration, 
             start_date = job_schedule.last_repo_sync_checkpoint.strftime('%Y-%m-%d')
             logger.info(f"Recovery run detected - using checkpoint date: {start_date}")
         elif integration.last_sync_at:
-            # Normal run - use integration's last sync date
-            start_date = integration.last_sync_at.strftime('%Y-%m-%d')
-            logger.info(f"Using integration last sync date: {start_date}")
+            # Normal run - use integration's last sync date, but cap at reasonable range
+            sync_date = integration.last_sync_at
+
+            # GitHub search API has limitations on very old dates
+            # If last_sync_at is older than 2 years, use 2 years ago instead
+            from datetime import datetime, timedelta
+            two_years_ago = datetime.now() - timedelta(days=730)
+
+            if sync_date < two_years_ago:
+                start_date = two_years_ago.strftime('%Y-%m-%d')
+                logger.info(f"Integration last sync date ({sync_date.strftime('%Y-%m-%d')}) is too old for GitHub search API")
+                logger.info(f"Using capped date instead: {start_date}")
+            else:
+                start_date = sync_date.strftime('%Y-%m-%d')
+                logger.info(f"Using integration last sync date: {start_date}")
         else:
-            # Fallback - should not happen if integration is properly initialized
-            start_date = "1900-01-01"
-            logger.warning("No last_sync_at found, using fallback date")
+            # Fallback - use 1 year ago for first run (reasonable for GitHub search)
+            from datetime import datetime, timedelta
+            one_year_ago = datetime.now() - timedelta(days=365)
+            start_date = one_year_ago.strftime('%Y-%m-%d')
+            logger.info(f"No last_sync_at found, using 1-year fallback date: {start_date}")
 
         end_date = datetime.today().strftime('%Y-%m-%d')
 

@@ -46,13 +46,13 @@ Pulse Platform transforms raw development data into actionable business intellig
 
 **Four-Tier Microservices Architecture:**
 - **Frontend App** (React/TypeScript): Executive dashboards and user interface
-- **Backend Service** (FastAPI/Python): User management, RBAC, API gateway, and analytics
+- **Backend Service** (FastAPI/Python): User management, RBAC, API gateway, analytics, and AI validation
 - **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
 - **Auth Service** (FastAPI/Python): API-only authentication validation backend
 
 **Technology Stack:**
 - **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **Backend**: FastAPI, SQLAlchemy, Pandas/NumPy, WebSockets, Redis
+- **Backend**: FastAPI, SQLAlchemy, Pandas/NumPy, WebSockets, Redis, AI Validation (sqlglot)
 - **Database**: PostgreSQL with primary-replica setup
 - **Infrastructure**: Docker, Redis caching, real-time WebSocket updates
 
@@ -178,7 +178,7 @@ For detailed setup instructions, see our [Installation & Setup Guide](docs/insta
 Pulse Platform is designed for enterprise reliability with comprehensive monitoring, logging, and recovery capabilities. The platform includes:
 
 - **Health Monitoring**: Real-time system health checks
-- **Automated Recovery**: Self-healing job orchestration
+- **Automated Recovery**: Self-healing job orchestration and AI validation
 - **Comprehensive Logging**: Client-specific audit trails
 - **Performance Metrics**: Built-in performance monitoring
 
