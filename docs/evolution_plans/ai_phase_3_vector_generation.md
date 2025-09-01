@@ -1,253 +1,920 @@
-# Phase 3: Vector Generation & Embedding Population
+# Phase 3: AI Configuration & Vector Generation
 
-**Implemented**: NO ❌  
-**Duration**: Weeks 5-6  
-**Priority**: HIGH  
-**Risk Level**: LOW  
+**Implemented**: NO ❌
+**Duration**: Weeks 5-7
+**Priority**: HIGH
+**Risk Level**: LOW
+
+## 🎯 Phase Overview
+
+Transform the platform from basic data analytics to intelligent, AI-powered insights with user-configurable AI models, high-performance embedding generation, and foundation for AI agents.
+
+### **Sub-Phases:**
+- **Phase 3-1**: Database Schema for AI Configuration *(1 day)*
+- **Phase 3-2**: Backend AI Models & Services *(2 days)*
+- **Phase 3-3**: Frontend AI Configuration Interface *(2 days)*
+- **Phase 3-4**: ETL AI Integration *(2 days)*
+- **Phase 3-5**: Vector Generation & Backfill *(2 days)*
+- **Phase 3-6**: AI Agent Foundation *(2 days)*
+- **Phase 3-7**: Testing & Documentation *(1 day)*
+
+## 🎯 Overall Objectives
+
+1. **Frontend AI Configuration**: User-friendly AI model selection and configuration
+2. **Multi-Provider AI Support**: OpenAI, Azure, Gemini, Claude, Custom Gateway integration
+3. **High-Performance Embedding Generation**: 10x faster than hackathon AI Gateway approach
+4. **AI Agent Foundation**: Prepare infrastructure for dashboard AI agents and Q&A systems
+5. **Vector Population**: Populate all embedding columns with meaningful vectors
+6. **User Empowerment**: Business users control their AI experience through frontend interface
+
+---
+
+# Phase 3-1: Database Schema for AI Configuration
+
+**Duration**: 1 day
+**Priority**: CRITICAL
+**Dependencies**: Phase 2 completion
 
 ## 🎯 Objectives
 
-1. **Text Extraction Enhancement**: Extract meaningful text content from all data sources
-2. **High-Performance Embedding Generation**: Fast, efficient vector generation using optimized models
-3. **ETL Integration**: Seamlessly integrate embedding generation into existing data pipelines
-4. **Backfill Existing Data**: Populate vectors for all historical data
-5. **Vector Quality Assurance**: Ensure embedding quality and consistency across all content
+1. **Enhance Integration Table**: Add AI-specific columns for model configuration
+2. **User AI Preferences**: Store per-user AI configuration preferences
+3. **Client AI Configuration**: Store organization-level AI policies and settings
+4. **Migration Updates**: Update migrations 0001/0002 with CREATE statements (no ALTER)
 
-## 🚀 Performance Strategy
+## 📋 Database Schema Enhancements
 
-**Problem**: AI Gateway was too slow during hackathon  
-**Solution**: Multiple high-performance embedding approaches
+### Enhanced Integration Table (Migration 0001 Update)
+```sql
+-- Update existing integrations table creation in 0001_initial_db_schema.py
+CREATE TABLE IF NOT EXISTS integrations (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL,
+    integration_type VARCHAR(50) NOT NULL, -- 'jira', 'github', 'ai_model', etc.
+    integration_subtype VARCHAR(50), -- 'embedding', 'llm', 'gateway', 'data_source'
+    integration_name VARCHAR(100) NOT NULL,
+    base_url TEXT,
+    credentials JSONB DEFAULT '{}',
+    configuration JSONB DEFAULT '{}',
 
-### Option 1: Local Sentence Transformers (FASTEST)
-- **Model**: `all-MiniLM-L6-v2` (384 dimensions) or `all-mpnet-base-v2` (768 dimensions)
-- **Speed**: 1000+ embeddings/second on CPU, 5000+ on GPU
-- **Pros**: No API calls, no rate limits, consistent performance
-- **Cons**: Slightly lower quality than OpenAI, requires model download
+    -- AI-specific columns
+    model_config JSONB DEFAULT '{}',
+    performance_config JSONB DEFAULT '{}',
+    fallback_integration_id INTEGER REFERENCES integrations(id),
 
-### Option 2: OpenAI Embeddings with Batching (BALANCED)
-- **Model**: `text-embedding-3-small` (1536 dimensions)
-- **Speed**: 100+ embeddings/second with proper batching
-- **Pros**: High quality, standardized dimensions
-- **Cons**: API costs, rate limits
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated_at TIMESTAMP DEFAULT NOW(),
 
-### Option 3: Azure OpenAI with Dedicated Capacity (ENTERPRISE)
-- **Model**: `text-embedding-ada-002` or `text-embedding-3-small`
-- **Speed**: 500+ embeddings/second with dedicated throughput
-- **Pros**: Enterprise-grade, predictable performance
-- **Cons**: Higher cost, requires Azure setup
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+);
+```
 
-## 📋 Task Breakdown
+### User AI Preferences Table (Migration 0001 Update)
+```sql
+-- Add to 0001_initial_db_schema.py
+CREATE TABLE IF NOT EXISTS user_ai_preferences (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    preference_type VARCHAR(50) NOT NULL, -- 'agent_config', 'dashboard_ai', 'embedding_config'
+    configuration JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated_at TIMESTAMP DEFAULT NOW(),
 
-### Task 3.1: High-Performance Embedding Service
-**Duration**: 2 days  
-**Priority**: CRITICAL  
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(user_id, preference_type)
+);
+```
 
-#### Embedding Service Implementation
+### Client AI Configuration Table (Migration 0001 Update)
+```sql
+-- Add to 0001_initial_db_schema.py
+CREATE TABLE IF NOT EXISTS client_ai_configuration (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL,
+    config_category VARCHAR(50) NOT NULL, -- 'models', 'policies', 'cost_limits', 'features'
+    configuration JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated_at TIMESTAMP DEFAULT NOW(),
+
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+    UNIQUE(client_id, config_category)
+);
+```
+
+### Indexes for AI Configuration (Migration 0001 Update)
+```sql
+-- Add to index creation section in 0001_initial_db_schema.py
+CREATE INDEX IF NOT EXISTS idx_integrations_ai_type ON integrations(integration_type, integration_subtype);
+CREATE INDEX IF NOT EXISTS idx_integrations_client_ai ON integrations(client_id, integration_type);
+CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_user ON user_ai_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_type ON user_ai_preferences(preference_type);
+CREATE INDEX IF NOT EXISTS idx_client_ai_config_client ON client_ai_configuration(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_ai_config_category ON client_ai_configuration(config_category);
+CREATE INDEX IF NOT EXISTS idx_integrations_model_config ON integrations USING GIN(model_config);
+CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_config ON user_ai_preferences USING GIN(configuration);
+```
+
+---
+
+# Phase 3-2: Backend AI Models & Services
+
+**Duration**: 2 days
+**Priority**: CRITICAL
+**Dependencies**: Phase 3-1 completion
+
+## 🎯 Objectives
+
+1. **AI Provider Framework**: Generic interface for multiple AI providers
+2. **Embedding Service**: High-performance embedding generation (10x faster than hackathon)
+3. **Model Management**: Dynamic model loading and configuration
+4. **Unified Models Update**: Add AI configuration models to backend/ETL/auth services
+
+## 🚀 AI Provider Performance Strategy
+
+**Problem**: AI Gateway was too slow during hackathon
+**Solution**: Multiple high-performance approaches with user choice
+
+### Provider Options:
+- **Local Sentence Transformers**: 1000+ embeddings/second, $0 cost
+- **OpenAI with Batching**: 100+ embeddings/second, high quality
+- **Azure OpenAI**: 500+ embeddings/second, enterprise-grade
+- **Custom Gateway**: Your hackathon models, configurable performance
+- **Google Gemini**: Industry-standard alternative
+- **Anthropic Claude**: When embedding support available
+
+## 📋 Backend Implementation Tasks
+
+### Unified Models Updates
+
+#### Backend Service Models (services/backend-service/app/models/)
 ```python
-# services/backend-service/app/ai/embedding_service.py
+# Add to unified_models.py
 
+class Integration(Base):
+    """Enhanced integration model with AI support"""
+    __tablename__ = 'integrations'
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
+    integration_type = Column(String(50), nullable=False)
+    integration_subtype = Column(String(50))  # NEW: 'embedding', 'llm', 'gateway'
+    integration_name = Column(String(100), nullable=False)
+    base_url = Column(Text)
+    credentials = Column(JSONB, default={})
+    configuration = Column(JSONB, default={})
+
+    # AI-specific fields
+    model_config = Column(JSONB, default={})  # NEW
+    performance_config = Column(JSONB, default={})  # NEW
+    fallback_integration_id = Column(Integer, ForeignKey('integrations.id'))  # NEW
+
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    client = relationship("Client", back_populates="integrations")
+    fallback_integration = relationship("Integration", remote_side=[id])
+
+class UserAIPreferences(Base):
+    """User AI configuration preferences"""
+    __tablename__ = 'user_ai_preferences'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    preference_type = Column(String(50), nullable=False)
+    configuration = Column(JSONB, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="ai_preferences")
+
+class ClientAIConfiguration(Base):
+    """Client-level AI configuration"""
+    __tablename__ = 'client_ai_configuration'
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
+    config_category = Column(String(50), nullable=False)
+    configuration = Column(JSONB, default={})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    client = relationship("Client", back_populates="ai_configuration")
+
+# Update existing models with new relationships
+class User(Base):
+    # ... existing fields ...
+    ai_preferences = relationship("UserAIPreferences", back_populates="user")
+
+class Client(Base):
+    # ... existing fields ...
+    ai_configuration = relationship("ClientAIConfiguration", back_populates="client")
+```
+
+#### ETL Service Models (services/etl-service/app/models/)
+```python
+# Copy same models to ETL service unified_models.py
+# ETL needs access to AI configuration for embedding generation
+```
+
+### AI Provider Framework Implementation
+```python
+# services/backend-service/app/ai/ai_provider_framework.py
+
+from abc import ABC, abstractmethod
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
 import asyncio
-from typing import List, Dict, Optional, Union
-from sentence_transformers import SentenceTransformer
-import openai
-import numpy as np
-from concurrent.futures import ThreadPoolExecutor
 import logging
 
-class EmbeddingService:
-    """High-performance embedding generation service"""
-    
-    def __init__(self, provider: str = "sentence_transformers"):
-        self.provider = provider
+@dataclass
+class ModelInfo:
+    """Information about an AI model"""
+    name: str
+    provider: str
+    dimensions: int
+    max_tokens: int
+    cost_per_1k_tokens: float
+    capabilities: List[str]  # ['embedding', 'text_generation', 'analysis']
+
+@dataclass
+class AIProviderConfig:
+    """Configuration for AI provider"""
+    provider_type: str
+    model_name: str
+    credentials: Dict[str, Any]
+    model_config: Dict[str, Any]
+    performance_config: Dict[str, Any]
+
+class AIProviderInterface(ABC):
+    """Abstract interface for AI providers"""
+
+    @abstractmethod
+    async def get_available_models(self) -> List[ModelInfo]:
+        """Get list of available models"""
+        pass
+
+    @abstractmethod
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for texts"""
+        pass
+
+    @abstractmethod
+    async def validate_credentials(self) -> bool:
+        """Validate provider credentials"""
+        pass
+
+    @abstractmethod
+    def get_model_info(self) -> ModelInfo:
+        """Get current model information"""
+        pass
+
+class SentenceTransformersProvider(AIProviderInterface):
+    """Local Sentence Transformers provider - FASTEST"""
+
+    def __init__(self, config: AIProviderConfig):
+        self.config = config
+        self.model = None
         self.logger = logging.getLogger(__name__)
-        
-        if provider == "sentence_transformers":
-            # Fast local model - no API calls needed
-            self.model = SentenceTransformer('all-mpnet-base-v2')  # 768 dimensions
-            self.dimensions = 768
-        elif provider == "openai":
-            # OpenAI with batching optimization
-            self.client = openai.AsyncOpenAI()
-            self.dimensions = 1536
-        
-        self.executor = ThreadPoolExecutor(max_workers=4)
-    
-    async def generate_embeddings_batch(
-        self, 
-        texts: List[str], 
-        batch_size: int = 100
-    ) -> List[List[float]]:
-        """Generate embeddings for batch of texts with optimal performance"""
-        
-        if self.provider == "sentence_transformers":
-            return await self._generate_local_batch(texts, batch_size)
-        elif self.provider == "openai":
-            return await self._generate_openai_batch(texts, batch_size)
-    
-    async def _generate_local_batch(
-        self, 
-        texts: List[str], 
-        batch_size: int
-    ) -> List[List[float]]:
+
+    async def initialize(self):
+        """Initialize the model"""
+        from sentence_transformers import SentenceTransformer
+        model_name = self.config.model_config.get('model_name', 'all-mpnet-base-v2')
+        self.model = SentenceTransformer(model_name)
+
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Ultra-fast local embedding generation"""
-        
-        # Clean and prepare texts
-        cleaned_texts = [self._clean_text(text) for text in texts]
-        
-        # Process in batches to manage memory
+        if not self.model:
+            await self.initialize()
+
+        # Process in batches for memory efficiency
+        batch_size = self.config.performance_config.get('batch_size', 100)
         all_embeddings = []
-        
-        for i in range(0, len(cleaned_texts), batch_size):
-            batch = cleaned_texts[i:i + batch_size]
-            
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
             # Run in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             embeddings = await loop.run_in_executor(
-                self.executor,
-                self.model.encode,
-                batch
+                None, self.model.encode, batch
             )
-            
-            # Convert to list format
+
             batch_embeddings = [emb.tolist() for emb in embeddings]
             all_embeddings.extend(batch_embeddings)
-            
-            self.logger.info(f"Generated {len(batch_embeddings)} embeddings (batch {i//batch_size + 1})")
-        
+
         return all_embeddings
-    
-    async def _generate_openai_batch(
-        self, 
-        texts: List[str], 
-        batch_size: int = 50
-    ) -> List[List[float]]:
-        """Optimized OpenAI embedding generation with batching"""
-        
+
+class OpenAIProvider(AIProviderInterface):
+    """OpenAI provider with batching optimization"""
+
+    def __init__(self, config: AIProviderConfig):
+        self.config = config
+        self.client = None
+        self.logger = logging.getLogger(__name__)
+
+    async def initialize(self):
+        """Initialize OpenAI client"""
+        import openai
+        api_key = self.config.credentials.get('api_key')
+        self.client = openai.AsyncOpenAI(api_key=api_key)
+
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Optimized OpenAI embedding generation"""
+        if not self.client:
+            await self.initialize()
+
+        batch_size = self.config.performance_config.get('batch_size', 50)
+        model_name = self.config.model_config.get('model_name', 'text-embedding-3-small')
         all_embeddings = []
-        
+
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            cleaned_batch = [self._clean_text(text) for text in batch]
-            
+
             try:
                 response = await self.client.embeddings.create(
-                    model="text-embedding-3-small",
-                    input=cleaned_batch,
+                    model=model_name,
+                    input=batch,
                     encoding_format="float"
                 )
-                
+
                 batch_embeddings = [item.embedding for item in response.data]
                 all_embeddings.extend(batch_embeddings)
-                
-                self.logger.info(f"Generated {len(batch_embeddings)} OpenAI embeddings")
-                
-                # Rate limiting - OpenAI allows high throughput but be respectful
+
+                # Respect rate limits
                 await asyncio.sleep(0.1)
-                
+
             except Exception as e:
                 self.logger.error(f"OpenAI embedding error: {e}")
-                # Fallback to local model for this batch
-                fallback_embeddings = await self._generate_local_batch(batch, len(batch))
-                all_embeddings.extend(fallback_embeddings)
-        
+                raise
+
         return all_embeddings
-    
-    def _clean_text(self, text: str) -> str:
-        """Clean and prepare text for embedding generation"""
-        if not text:
-            return ""
-        
-        # Remove excessive whitespace
-        cleaned = " ".join(text.split())
-        
-        # Truncate to reasonable length (models have token limits)
-        if len(cleaned) > 8000:  # Conservative limit
-            cleaned = cleaned[:8000] + "..."
-        
-        return cleaned
-    
-    async def generate_single_embedding(self, text: str) -> List[float]:
-        """Generate embedding for single text"""
-        embeddings = await self.generate_embeddings_batch([text], batch_size=1)
-        return embeddings[0] if embeddings else []
+
+class CustomGatewayProvider(AIProviderInterface):
+    """Custom gateway provider for your hackathon models"""
+
+    def __init__(self, config: AIProviderConfig):
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings using custom gateway"""
+        import aiohttp
+
+        base_url = self.config.credentials.get('base_url')
+        api_key = self.config.credentials.get('api_key')
+        model_name = self.config.model_config.get('model_name')
+
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+
+        payload = {
+            'model': model_name,
+            'input': texts,
+            'encoding_format': 'float'
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{base_url}/embeddings",
+                json=payload,
+                headers=headers
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return [item['embedding'] for item in data['data']]
+                else:
+                    raise Exception(f"Gateway error: {response.status}")
+
+class AIProviderFactory:
+    """Factory for creating AI providers"""
+
+    @staticmethod
+    def create_provider(config: AIProviderConfig) -> AIProviderInterface:
+        """Create provider based on configuration"""
+
+        if config.provider_type == "sentence_transformers":
+            return SentenceTransformersProvider(config)
+        elif config.provider_type == "openai":
+            return OpenAIProvider(config)
+        elif config.provider_type == "custom_gateway":
+            return CustomGatewayProvider(config)
+        else:
+            raise ValueError(f"Unknown provider type: {config.provider_type}")
 ```
 
-### Task 3.2: Text Extraction Enhancement
-**Duration**: 1 day  
-**Priority**: HIGH  
+---
 
-#### Enhanced Text Extractors
+# Phase 3-3: Frontend AI Configuration Interface
+
+**Duration**: 2 days
+**Priority**: HIGH
+**Dependencies**: Phase 3-2 completion
+
+## 🎯 Objectives
+
+1. **AI Configuration Hub**: Central frontend interface for AI model management
+2. **User-Friendly Model Selection**: Business users can configure their AI experience
+3. **Real-Time Testing**: Test AI models and see immediate results
+4. **Performance Analytics**: Monitor AI usage, costs, and performance
+
+## 📋 Frontend Implementation Tasks
+
+### AI Configuration Menu (Frontend App)
+```typescript
+// services/frontend-app/src/components/AIConfiguration/
+
+interface AIConfigurationProps {
+  clientId: number;
+  userId: number;
+}
+
+// Main AI Configuration Hub
+const AIConfigurationHub: React.FC<AIConfigurationProps> = ({ clientId, userId }) => {
+  return (
+    <div className="ai-configuration-hub">
+      <AIConfigurationTabs>
+        <TabPanel label="AI Agents">
+          <AIAgentConfiguration />
+        </TabPanel>
+        <TabPanel label="Embedding Models">
+          <EmbeddingModelConfiguration />
+        </TabPanel>
+        <TabPanel label="Provider Management">
+          <AIProviderManagement />
+        </TabPanel>
+        <TabPanel label="Testing & Analytics">
+          <AITestingInterface />
+        </TabPanel>
+      </AIConfigurationTabs>
+    </div>
+  );
+};
+
+// AI Agent Configuration Component
+const AIAgentConfiguration: React.FC = () => {
+  const [agentConfig, setAgentConfig] = useState<AIAgentConfig>({
+    questionAnswering: {
+      primaryModel: null,
+      fallbackModel: null,
+      responseStyle: 'detailed',
+      confidenceThreshold: 0.8
+    },
+    insightGeneration: {
+      analysisDepth: 'advanced',
+      proactiveInsights: true,
+      customPrompts: []
+    },
+    dashboardAI: {
+      autoRefresh: true,
+      anomalyDetection: true,
+      predictiveAnalytics: true,
+      narrativeGeneration: true
+    }
+  });
+
+  return (
+    <div className="ai-agent-config">
+      <ConfigurationSection title="Question Answering">
+        <ModelSelector
+          label="Primary Model"
+          value={agentConfig.questionAnswering.primaryModel}
+          onChange={(model) => updateAgentConfig('questionAnswering.primaryModel', model)}
+          capabilities={['text_generation', 'analysis']}
+        />
+        <ModelSelector
+          label="Fallback Model"
+          value={agentConfig.questionAnswering.fallbackModel}
+          onChange={(model) => updateAgentConfig('questionAnswering.fallbackModel', model)}
+          capabilities={['text_generation']}
+        />
+        <ResponseStyleSelector
+          value={agentConfig.questionAnswering.responseStyle}
+          onChange={(style) => updateAgentConfig('questionAnswering.responseStyle', style)}
+        />
+      </ConfigurationSection>
+
+      <ConfigurationSection title="Dashboard AI">
+        <ToggleSwitch
+          label="Proactive Insights"
+          checked={agentConfig.insightGeneration.proactiveInsights}
+          onChange={(checked) => updateAgentConfig('insightGeneration.proactiveInsights', checked)}
+        />
+        <ToggleSwitch
+          label="Anomaly Detection"
+          checked={agentConfig.dashboardAI.anomalyDetection}
+          onChange={(checked) => updateAgentConfig('dashboardAI.anomalyDetection', checked)}
+        />
+      </ConfigurationSection>
+    </div>
+  );
+};
+
+// Model Selection Component
+const ModelSelector: React.FC<ModelSelectorProps> = ({
+  label,
+  value,
+  onChange,
+  capabilities
+}) => {
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadAvailableModels();
+  }, [capabilities]);
+
+  const loadAvailableModels = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/v1/ai/models/available', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capabilities })
+      });
+      const models = await response.json();
+      setAvailableModels(models);
+    } catch (error) {
+      console.error('Failed to load models:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="model-selector">
+      <label>{label}</label>
+      <Select
+        value={value}
+        onChange={onChange}
+        loading={loading}
+        options={availableModels.map(model => ({
+          value: model.name,
+          label: `${model.name} (${model.provider})`,
+          description: `${model.dimensions}d, $${model.cost_per_1k_tokens}/1K tokens`
+        }))}
+      />
+      {value && (
+        <ModelTestButton
+          modelName={value}
+          onTest={(result) => showTestResult(result)}
+        />
+      )}
+    </div>
+  );
+};
+```
+
+### AI Provider Management Interface
+```typescript
+// AI Provider Management Component
+const AIProviderManagement: React.FC = () => {
+  const [providers, setProviders] = useState<AIProvider[]>([]);
+  const [showAddProvider, setShowAddProvider] = useState(false);
+
+  return (
+    <div className="ai-provider-management">
+      <div className="provider-list">
+        {providers.map(provider => (
+          <ProviderCard
+            key={provider.id}
+            provider={provider}
+            onEdit={(provider) => editProvider(provider)}
+            onDelete={(id) => deleteProvider(id)}
+            onTest={(provider) => testProvider(provider)}
+          />
+        ))}
+      </div>
+
+      <Button onClick={() => setShowAddProvider(true)}>
+        Add AI Provider
+      </Button>
+
+      {showAddProvider && (
+        <AddProviderModal
+          onSave={(provider) => saveProvider(provider)}
+          onCancel={() => setShowAddProvider(false)}
+          supportedProviders={[
+            'sentence_transformers',
+            'openai',
+            'azure_openai',
+            'google_gemini',
+            'anthropic_claude',
+            'custom_gateway'
+          ]}
+        />
+      )}
+    </div>
+  );
+};
+
+// Add Provider Modal for Custom Gateway (Your Hackathon Models)
+const AddProviderModal: React.FC<AddProviderModalProps> = ({
+  onSave,
+  onCancel,
+  supportedProviders
+}) => {
+  const [providerType, setProviderType] = useState('');
+  const [config, setConfig] = useState<ProviderConfig>({});
+
+  const renderProviderSpecificFields = () => {
+    switch (providerType) {
+      case 'custom_gateway':
+        return (
+          <CustomGatewayFields
+            config={config}
+            onChange={setConfig}
+            hackathonModels={loadHackathonModels()} // Load from your docs/hackathon
+          />
+        );
+      case 'openai':
+        return (
+          <OpenAIFields
+            config={config}
+            onChange={setConfig}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Modal title="Add AI Provider">
+      <Form>
+        <Select
+          label="Provider Type"
+          value={providerType}
+          onChange={setProviderType}
+          options={supportedProviders.map(provider => ({
+            value: provider,
+            label: formatProviderName(provider)
+          }))}
+        />
+
+        {renderProviderSpecificFields()}
+
+        <div className="modal-actions">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button
+            onClick={() => onSave(config)}
+            disabled={!isConfigValid(config)}
+          >
+            Save & Test
+          </Button>
+        </div>
+      </Form>
+    </Modal>
+  );
+};
+```
+
+---
+
+# Phase 3-4: ETL AI Integration
+
+**Duration**: 2 days
+**Priority**: HIGH
+**Dependencies**: Phase 3-3 completion
+
+## 🎯 Objectives
+
+1. **ETL AI Configuration**: Load AI configuration from database in ETL jobs
+2. **Enhanced Text Extraction**: Smart text extraction from all data sources
+3. **Real-Time Embedding Generation**: Generate embeddings during data processing
+4. **Performance Optimization**: Batch processing for maximum efficiency
+
+## 📋 ETL Implementation Tasks
+
+### Enhanced Text Extractors
 ```python
 # services/etl-service/app/core/text_extractors.py
 
-class TextExtractor:
+class EnhancedTextExtractor:
     """Extract meaningful text content for embedding generation"""
-    
+
     @staticmethod
     def extract_jira_text(issue_data: Dict) -> str:
         """Extract comprehensive text from Jira issue"""
         text_parts = []
-        
-        # Core fields
+
+        # Core fields with semantic context
         if issue_data.get('summary'):
             text_parts.append(f"Title: {issue_data['summary']}")
-        
+
         if issue_data.get('description'):
-            text_parts.append(f"Description: {issue_data['description']}")
-        
+            # Clean HTML/markdown from description
+            clean_desc = EnhancedTextExtractor._clean_markup(issue_data['description'])
+            text_parts.append(f"Description: {clean_desc}")
+
+        # Issue type and priority context
+        if issue_data.get('issuetype'):
+            text_parts.append(f"Type: {issue_data['issuetype']}")
+
+        if issue_data.get('priority'):
+            text_parts.append(f"Priority: {issue_data['priority']}")
+
         # Custom fields with meaningful content
         for field_key, field_value in issue_data.items():
             if field_key.startswith('custom_field_') and field_value:
                 if isinstance(field_value, str) and len(field_value) > 10:
-                    text_parts.append(f"Field: {field_value}")
-        
-        # Comments (recent ones)
+                    clean_value = EnhancedTextExtractor._clean_markup(field_value)
+                    text_parts.append(f"Field: {clean_value}")
+
+        # Recent comments (most relevant)
         if issue_data.get('comments'):
-            recent_comments = issue_data['comments'][-5:]  # Last 5 comments
+            recent_comments = issue_data['comments'][-3:]  # Last 3 comments
             for comment in recent_comments:
                 if comment.get('body'):
-                    text_parts.append(f"Comment: {comment['body']}")
-        
-        # Labels and components
+                    clean_comment = EnhancedTextExtractor._clean_markup(comment['body'])
+                    text_parts.append(f"Comment: {clean_comment}")
+
+        # Labels and components for categorization
         if issue_data.get('labels'):
             text_parts.append(f"Labels: {', '.join(issue_data['labels'])}")
-        
+
+        if issue_data.get('components'):
+            components = [comp['name'] for comp in issue_data['components']]
+            text_parts.append(f"Components: {', '.join(components)}")
+
         return " | ".join(text_parts)
-    
+
     @staticmethod
     def extract_github_pr_text(pr_data: Dict) -> str:
         """Extract comprehensive text from GitHub PR"""
         text_parts = []
-        
+
         if pr_data.get('title'):
             text_parts.append(f"Title: {pr_data['title']}")
-        
+
         if pr_data.get('body'):
-            text_parts.append(f"Description: {pr_data['body']}")
-        
-        # Recent review comments
+            clean_body = EnhancedTextExtractor._clean_markup(pr_data['body'])
+            text_parts.append(f"Description: {clean_body}")
+
+        # PR metadata for context
+        if pr_data.get('state'):
+            text_parts.append(f"State: {pr_data['state']}")
+
+        # Recent review comments (most relevant)
         if pr_data.get('review_comments'):
-            recent_comments = pr_data['review_comments'][-3:]
+            recent_comments = pr_data['review_comments'][-2:]  # Last 2 comments
             for comment in recent_comments:
                 if comment.get('body'):
-                    text_parts.append(f"Review: {comment['body']}")
-        
+                    clean_comment = EnhancedTextExtractor._clean_markup(comment['body'])
+                    text_parts.append(f"Review: {clean_comment}")
+
+        # Labels for categorization
+        if pr_data.get('labels'):
+            labels = [label['name'] for label in pr_data['labels']]
+            text_parts.append(f"Labels: {', '.join(labels)}")
+
         return " | ".join(text_parts)
-    
+
     @staticmethod
     def extract_commit_text(commit_data: Dict) -> str:
         """Extract text from commit"""
         text_parts = []
-        
+
         if commit_data.get('message'):
-            text_parts.append(f"Message: {commit_data['message']}")
-        
-        # File changes context (limited)
+            # Extract meaningful commit message
+            message = commit_data['message']
+            # Take first line (summary) and first paragraph if available
+            lines = message.split('\n')
+            summary = lines[0]
+            text_parts.append(f"Message: {summary}")
+
+            # Add detailed description if available
+            if len(lines) > 2 and lines[2].strip():
+                description = lines[2].strip()[:200]  # Limit description
+                text_parts.append(f"Details: {description}")
+
+        # File changes context (limited but meaningful)
         if commit_data.get('files'):
-            file_names = [f['filename'] for f in commit_data['files'][:5]]
+            file_names = [f['filename'] for f in commit_data['files'][:3]]
             text_parts.append(f"Files: {', '.join(file_names)}")
-        
+
+            # Add change type context
+            additions = sum(f.get('additions', 0) for f in commit_data['files'])
+            deletions = sum(f.get('deletions', 0) for f in commit_data['files'])
+            text_parts.append(f"Changes: +{additions} -{deletions}")
+
         return " | ".join(text_parts)
+
+    @staticmethod
+    def _clean_markup(text: str) -> str:
+        """Clean HTML/Markdown markup from text"""
+        if not text:
+            return ""
+
+        import re
+
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        # Remove Markdown formatting
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Bold
+        text = re.sub(r'\*(.*?)\*', r'\1', text)      # Italic
+        text = re.sub(r'`(.*?)`', r'\1', text)        # Code
+        text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', text)  # Links
+
+        # Clean excessive whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # Limit length
+        if len(text) > 1000:
+            text = text[:1000] + "..."
+
+        return text
+```
+
+### AI-Enhanced ETL Jobs
+```python
+# services/etl-service/app/core/jobs/ai_enhanced_jira_job.py
+
+from app.ai.ai_provider_framework import AIProviderFactory, AIProviderConfig
+from app.core.text_extractors import EnhancedTextExtractor
+from app.models.unified_models import Integration
+
+class AIEnhancedJiraJob(JiraJob):
+    """Jira job enhanced with AI embedding generation"""
+
+    def __init__(self, client_id: int, config: dict):
+        super().__init__(client_id, config)
+        self.text_extractor = EnhancedTextExtractor()
+        self.embedding_provider = None
+        self.ai_config = None
+
+    async def initialize_ai_provider(self):
+        """Initialize AI provider based on client configuration"""
+
+        # Load client AI configuration
+        with self.database.get_read_session_context() as session:
+            # Get embedding configuration for this client
+            embedding_integration = session.query(Integration).filter(
+                Integration.client_id == self.client_id,
+                Integration.integration_type == 'ai_model',
+                Integration.integration_subtype == 'embedding',
+                Integration.active == True
+            ).first()
+
+            if embedding_integration:
+                self.ai_config = AIProviderConfig(
+                    provider_type=embedding_integration.configuration.get('provider'),
+                    model_name=embedding_integration.model_config.get('model_name'),
+                    credentials=embedding_integration.credentials,
+                    model_config=embedding_integration.model_config,
+                    performance_config=embedding_integration.performance_config
+                )
+
+                self.embedding_provider = AIProviderFactory.create_provider(self.ai_config)
+                await self.embedding_provider.initialize()
+
+                self.logger.info(f"Initialized AI provider: {self.ai_config.provider_type}")
+            else:
+                self.logger.warning(f"No embedding configuration found for client {self.client_id}")
+
+    async def process_issue_batch(self, issue_batch: List[Dict]) -> List[Issue]:
+        """Enhanced issue processing with embedding generation"""
+
+        # Initialize AI provider if not already done
+        if not self.embedding_provider:
+            await self.initialize_ai_provider()
+
+        # Extract text for all issues
+        texts = []
+        for issue_data in issue_batch:
+            text = self.text_extractor.extract_jira_text(issue_data)
+            texts.append(text)
+
+        # Generate embeddings in batch (FAST!)
+        embeddings = []
+        if self.embedding_provider and texts:
+            try:
+                embeddings = await self.embedding_provider.generate_embeddings(texts)
+                self.logger.info(f"Generated {len(embeddings)} embeddings for {len(texts)} issues")
+            except Exception as e:
+                self.logger.error(f"Embedding generation failed: {e}")
+                # Continue without embeddings - graceful degradation
+
+        # Process issues with embeddings
+        processed_issues = []
+        for i, issue_data in enumerate(issue_batch):
+            issue = await self.process_single_issue(issue_data)
+
+            # Add embedding to issue if available
+            if i < len(embeddings):
+                issue.embedding = embeddings[i]
+
+            processed_issues.append(issue)
+
+        return processed_issues
 ```
 
 ### Task 3.3: ETL Integration
@@ -528,5 +1195,319 @@ tiktoken>=0.5.0
 4. **Day 5**: Quality assurance and optimization
 5. **Day 6**: Performance testing and documentation
 
-This approach will be **10x faster** than the AI Gateway approach used in the hackathon while providing high-quality embeddings for semantic search capabilities! 🎯
+---
+
+# Phase 3-6: AI Agent Foundation
+
+**Duration**: 2 days
+**Priority**: MEDIUM
+**Dependencies**: Phase 3-5 completion
+
+## 🎯 Objectives
+
+1. **Dashboard AI Agents**: Foundation for proactive insights and anomaly detection
+2. **Q&A Agent Framework**: Prepare infrastructure for natural language queries
+3. **Agent Configuration**: User-configurable AI agent behavior
+4. **Integration Points**: Connect AI agents with frontend dashboards
+
+## 📋 AI Agent Implementation
+
+### Dashboard AI Agent Framework
+```python
+# services/backend-service/app/ai/dashboard_agents.py
+
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+@dataclass
+class InsightResult:
+    """Result from AI insight generation"""
+    insight_type: str  # 'anomaly', 'trend', 'recommendation', 'alert'
+    title: str
+    description: str
+    confidence: float
+    data_points: List[Dict[str, Any]]
+    suggested_actions: List[str]
+    priority: str  # 'low', 'medium', 'high', 'critical'
+
+class DashboardAIAgent:
+    """AI agent for generating dashboard insights"""
+
+    def __init__(self, client_id: int, user_config: Dict[str, Any]):
+        self.client_id = client_id
+        self.config = user_config
+        self.logger = logging.getLogger(__name__)
+
+    async def generate_proactive_insights(
+        self,
+        dashboard_data: Dict[str, Any]
+    ) -> List[InsightResult]:
+        """Generate proactive insights from dashboard data"""
+
+        insights = []
+
+        # Anomaly detection insights
+        if self.config.get('anomaly_detection', True):
+            anomaly_insights = await self._detect_anomalies(dashboard_data)
+            insights.extend(anomaly_insights)
+
+        # Trend analysis insights
+        if self.config.get('trend_analysis', True):
+            trend_insights = await self._analyze_trends(dashboard_data)
+            insights.extend(trend_insights)
+
+        # Performance recommendations
+        if self.config.get('recommendations', True):
+            recommendation_insights = await self._generate_recommendations(dashboard_data)
+            insights.extend(recommendation_insights)
+
+        return insights
+
+    async def _detect_anomalies(self, data: Dict[str, Any]) -> List[InsightResult]:
+        """Detect anomalies in dashboard metrics"""
+        insights = []
+
+        # Example: Deployment frequency anomaly
+        if 'deployment_frequency' in data:
+            current_freq = data['deployment_frequency']['current']
+            historical_avg = data['deployment_frequency']['historical_avg']
+
+            if current_freq < historical_avg * 0.7:  # 30% drop
+                insights.append(InsightResult(
+                    insight_type='anomaly',
+                    title='Deployment Frequency Drop Detected',
+                    description=f'Deployment frequency has dropped {((historical_avg - current_freq) / historical_avg * 100):.1f}% below historical average',
+                    confidence=0.85,
+                    data_points=[
+                        {'metric': 'current_frequency', 'value': current_freq},
+                        {'metric': 'historical_average', 'value': historical_avg}
+                    ],
+                    suggested_actions=[
+                        'Review recent changes to deployment pipeline',
+                        'Check for blockers in development process',
+                        'Analyze team capacity and workload'
+                    ],
+                    priority='medium'
+                ))
+
+        return insights
+
+    async def _analyze_trends(self, data: Dict[str, Any]) -> List[InsightResult]:
+        """Analyze trends in metrics"""
+        insights = []
+
+        # Example: Lead time trend analysis
+        if 'lead_time_trend' in data:
+            trend_data = data['lead_time_trend']
+
+            if len(trend_data) >= 4:  # Need at least 4 data points
+                recent_avg = sum(trend_data[-2:]) / 2
+                older_avg = sum(trend_data[:2]) / 2
+
+                if recent_avg > older_avg * 1.2:  # 20% increase
+                    insights.append(InsightResult(
+                        insight_type='trend',
+                        title='Lead Time Increasing Trend',
+                        description=f'Lead time has increased {((recent_avg - older_avg) / older_avg * 100):.1f}% over recent periods',
+                        confidence=0.75,
+                        data_points=[
+                            {'metric': 'recent_average', 'value': recent_avg},
+                            {'metric': 'baseline_average', 'value': older_avg}
+                        ],
+                        suggested_actions=[
+                            'Review code review process efficiency',
+                            'Analyze testing and CI/CD pipeline performance',
+                            'Consider team training or process improvements'
+                        ],
+                        priority='medium'
+                    ))
+
+        return insights
+
+class QAAgent:
+    """Q&A agent for natural language queries"""
+
+    def __init__(self, client_id: int, ai_provider_config: Dict[str, Any]):
+        self.client_id = client_id
+        self.ai_config = ai_provider_config
+        self.logger = logging.getLogger(__name__)
+
+    async def answer_question(
+        self,
+        question: str,
+        context_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Answer natural language questions about data"""
+
+        # This would integrate with the AI provider framework
+        # to generate natural language responses
+
+        response = {
+            'answer': 'Based on your data...',
+            'confidence': 0.85,
+            'data_sources': ['issues', 'pull_requests', 'deployments'],
+            'follow_up_questions': [
+                'Would you like to see a breakdown by team?',
+                'Should I analyze the trend over time?'
+            ]
+        }
+
+        return response
 ```
+
+### AI Agent API Endpoints
+```python
+# services/backend-service/app/api/ai_agents.py
+
+from fastapi import APIRouter, Depends, HTTPException
+from app.ai.dashboard_agents import DashboardAIAgent, QAAgent
+from app.auth.auth_service import require_authentication
+
+router = APIRouter()
+
+@router.post("/dashboard/insights")
+async def generate_dashboard_insights(
+    dashboard_data: Dict[str, Any],
+    user: User = Depends(require_authentication)
+):
+    """Generate AI insights for dashboard"""
+
+    # Load user AI preferences
+    user_config = await load_user_ai_preferences(user.id, 'dashboard_ai')
+
+    agent = DashboardAIAgent(user.client_id, user_config)
+    insights = await agent.generate_proactive_insights(dashboard_data)
+
+    return {
+        'insights': [insight.__dict__ for insight in insights],
+        'generated_at': datetime.now().isoformat(),
+        'agent_config': user_config
+    }
+
+@router.post("/qa/ask")
+async def ask_question(
+    question: str,
+    context: Optional[Dict[str, Any]] = None,
+    user: User = Depends(require_authentication)
+):
+    """Ask natural language question"""
+
+    # Load user AI preferences for Q&A
+    ai_config = await load_user_ai_preferences(user.id, 'qa_agent')
+
+    agent = QAAgent(user.client_id, ai_config)
+    response = await agent.answer_question(question, context)
+
+    return response
+```
+
+---
+
+# Phase 3-7: Testing & Documentation
+
+**Duration**: 1 day
+**Priority**: MEDIUM
+**Dependencies**: Phase 3-6 completion
+
+## 🎯 Objectives
+
+1. **Comprehensive Testing**: Unit tests, integration tests, performance tests
+2. **Documentation Updates**: Update all service documentation
+3. **Performance Validation**: Confirm 10x performance improvement
+4. **User Acceptance**: Validate frontend AI configuration interface
+
+## 📋 Testing Implementation
+
+### Performance Tests
+```python
+# tests/test_ai_performance.py
+
+import pytest
+import asyncio
+import time
+from app.ai.ai_provider_framework import SentenceTransformersProvider, AIProviderConfig
+
+@pytest.mark.asyncio
+async def test_embedding_performance():
+    """Test embedding generation performance"""
+
+    config = AIProviderConfig(
+        provider_type="sentence_transformers",
+        model_name="all-mpnet-base-v2",
+        credentials={},
+        model_config={"model_name": "all-mpnet-base-v2"},
+        performance_config={"batch_size": 100}
+    )
+
+    provider = SentenceTransformersProvider(config)
+    await provider.initialize()
+
+    # Test with 1000 sample texts
+    test_texts = [f"Sample text for embedding test {i}" for i in range(1000)]
+
+    start_time = time.time()
+    embeddings = await provider.generate_embeddings(test_texts)
+    end_time = time.time()
+
+    duration = end_time - start_time
+    embeddings_per_second = len(test_texts) / duration
+
+    # Assert performance target
+    assert embeddings_per_second > 500, f"Performance too slow: {embeddings_per_second:.1f} embeddings/second"
+    assert len(embeddings) == len(test_texts), "Missing embeddings"
+    assert all(len(emb) == 768 for emb in embeddings), "Incorrect embedding dimensions"
+
+    print(f"✅ Performance test passed: {embeddings_per_second:.1f} embeddings/second")
+
+@pytest.mark.asyncio
+async def test_ai_configuration_integration():
+    """Test AI configuration loading and usage"""
+
+    # Test configuration loading from database
+    # Test provider initialization
+    # Test fallback behavior
+    pass
+
+@pytest.mark.asyncio
+async def test_dashboard_ai_agents():
+    """Test dashboard AI agent functionality"""
+
+    # Test insight generation
+    # Test anomaly detection
+    # Test trend analysis
+    pass
+```
+
+## 📊 Final Success Metrics
+
+### Performance Metrics
+- ✅ **Embedding Speed**: >1000 embeddings/second (vs ~50 in hackathon)
+- ✅ **API Response Time**: <200ms for AI configuration endpoints
+- ✅ **Memory Usage**: <4GB for embedding service
+- ✅ **Quality Score**: >0.85 for generated embeddings
+
+### Business Metrics
+- ✅ **User Adoption**: Frontend AI configuration interface usage
+- ✅ **Cost Efficiency**: <$20/month per client for AI operations
+- ✅ **Search Quality**: Semantic search relevance improvement
+- ✅ **Agent Insights**: Dashboard AI generates actionable insights
+
+### Technical Metrics
+- ✅ **Database Coverage**: 100% of text content has embeddings
+- ✅ **Provider Flexibility**: Support for 5+ AI providers
+- ✅ **Configuration Options**: User-friendly model selection
+- ✅ **Fallback Reliability**: Graceful degradation when providers fail
+
+## 🎯 Phase 3 Completion Criteria
+
+1. **Database Schema**: All AI configuration tables created and indexed
+2. **Backend Services**: AI provider framework and embedding service implemented
+3. **Frontend Interface**: AI configuration hub fully functional
+4. **ETL Integration**: Real-time embedding generation in data pipelines
+5. **Vector Population**: All historical data has embeddings
+6. **AI Agents**: Foundation for dashboard insights and Q&A
+7. **Performance**: 10x improvement over hackathon approach achieved
+8. **Documentation**: All services updated with AI capabilities
+
+This comprehensive Phase 3 transforms the platform from basic analytics to intelligent, AI-powered insights with user-configurable AI models and high-performance vector generation! 🚀
