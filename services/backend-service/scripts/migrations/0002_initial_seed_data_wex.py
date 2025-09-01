@@ -176,19 +176,20 @@ def apply(connection):
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
 
-        # GitHub Integration - Using hardcoded credentials for migration
-        github_token = "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"
+        # GitHub Integration - Using pre-encrypted token for migration
+        github_token_raw = "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"
+        github_token_encrypted = "gAAAAABotKQjRst8VRIrrmhHjbz5u5OSZ1gbm6TAv7BiDR87QLuvg3TxGj4zXVGUS3KfDziln3axnU-LqXZm9ZadedDTDsXHA3Swlvur2phKLYjL-SgGFmdvQKpuIrHmpS-6CjPUf76h"
         github_password = None
         github_active = True
 
-        print(f"   📋 Using hardcoded GitHub token: {github_token[:10]}...")
+        print(f"   📋 Using pre-encrypted GitHub token: {github_token_raw[:10]}...")
         try:
             if encryption_available:
-                key = AppConfig.load_key()
-                github_password = AppConfig.encrypt_token(github_token, key)
-                print("   🔐 GitHub token encrypted successfully")
+                # Use the pre-encrypted token that we know works
+                github_password = github_token_encrypted
+                print("   🔐 Using pre-encrypted GitHub token")
             else:
-                github_password = github_token
+                github_password = github_token_raw
                 print("   ⚠️  GitHub token stored unencrypted (AppConfig not available)")
         except Exception as e:
             print(f"   ❌ Failed to process GitHub credentials: {e}")

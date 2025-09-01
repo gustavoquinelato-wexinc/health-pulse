@@ -22,3 +22,6 @@ python-multipart
 
 # WebSocket support for real-time updates
 websockets
+
+# AI Phase 2: SQL validation and parsing
+sqlglot>=20.0.0

@@ -19,7 +19,7 @@ Atlassian deprecated these endpoints:
 |--------------|--------------|---------|
 | `GET/POST /rest/api/2/search` | `POST /rest/api/3/search/jql` | ✅ UPDATED |
 | `POST /rest/api/2/search/id` | `POST /rest/api/3/search/jql` | ✅ UPDATED |
-| `POST /rest/api/2/expression/eval` | `POST /rest/api/3/expression/evaluate` | ⚠️ TODO |
+| `POST /rest/api/2/expression/eval` | `POST /rest/api/3/expression/evaluate` | ⚠️ FUTURE |
 
 ## 🔧 **Key Changes Made**
 

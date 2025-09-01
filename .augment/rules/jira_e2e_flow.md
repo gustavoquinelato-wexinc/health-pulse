@@ -103,12 +103,32 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
    - **Task list should already be complete** from the FIRST step before starting phases
 
 ### **Phase 3: Story Creation & Setup**
+
+#### **Story Title Format: ARO (Action, Result, Object)**
+Use the **ARO format** for concise, actionable story titles:
+```
+[Action] [Result] [Object/Context]
+```
+
+**Examples:**
+- "Implement advanced AI capabilities for Pulse Platform Phase 2"
+- "Create DORA metrics dashboard for team performance visibility"
+- "Enhance database schema with vector capabilities for ML support"
+- "Optimize authentication system for multi-tenant security"
+- "Deploy monitoring infrastructure for production environment"
+
+**ARO Benefits:**
+- **Concise**: Shorter than WWW format
+- **Actionable**: Starts with clear action verb
+- **Clear**: Describes what will be accomplished
+- **Professional**: Business-focused language
+
 10. **Create or Update Story**: Create new story or update existing story under the epic with proper formatting
 
     **Create New Story:**
     ```bash
     python scripts/augment_jira_integration/jira_agent_client.py create-story \
-      --title "[Story Title following WWW format]" \
+      --title "[Story Title following ARO format]" \
       --description "[Comprehensive story description with h2. headers]" \
       --parent [EPIC_KEY] \
       --acceptance-criteria "[BDD format acceptance criteria]" \
@@ -279,7 +299,7 @@ Phase 5: Documentation + Release
 ### **Integration with Existing Rules**
 This rule is a COMPLETE workflow that integrates:
 - **Epic Creation**: Quality assessment and creation with 8+ score
-- **Story Creation**: WWW/INVEST compliance with BDD acceptance criteria
+- **Story Creation**: ARO/INVEST compliance with BDD acceptance criteria
 - **Task Execution**: Your actual implementation work in Phase 4
 - **Quality Standards**: All coaching documents from `/docs/ai_agent_assets/jira_guidelines/`
 

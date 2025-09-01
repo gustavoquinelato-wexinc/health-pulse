@@ -24,7 +24,7 @@ from app.core.middleware import (
 from app.core.client_logging_middleware import ClientLoggingMiddleware
 # Import Backend Service API routers
 from app.api.health import router as health_router
-from app.api.debug import router as debug_router
+
 from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
 from app.api.user_routes import router as user_router
@@ -309,7 +309,7 @@ from app.api.dora_routes import router as dora_router
 
 # Include Backend Service API routes
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
-app.include_router(debug_router, prefix="/api/v1", tags=["Debug"])
+
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication API"])
 app.include_router(frontend_logs_router, prefix="/api/v1", tags=["Frontend Logs"])
@@ -511,107 +511,9 @@ async def clear_all_user_sessions():
         # Continue startup even if database session cleanup fails
 
 
-@app.get("/debug/token-info")
-async def debug_token_info(request: Request):
-    """Debug endpoint to show token information."""
-    token_cookie = request.cookies.get("pulse_token")
-    auth_header = request.headers.get("Authorization")
 
-    token_info = {
-        "cookie_token_present": bool(token_cookie),
-        "cookie_token_preview": token_cookie[:20] + "..." if token_cookie else None,
-        "header_token_present": bool(auth_header),
-        "header_token_preview": auth_header[:30] + "..." if auth_header else None
-    }
 
-    if token_cookie:
-        try:
-            import jwt
-            # Try to decode without verification to see the payload
-            payload = jwt.decode(token_cookie, options={"verify_signature": False})
-            token_info["token_payload"] = {
-                "user_id": payload.get("user_id"),
-                "email": payload.get("email"),
-                "exp": payload.get("exp"),
-                "iat": payload.get("iat")
-            }
 
-            # Also try to verify with current secret
-            from app.auth.auth_service import get_auth_service
-            auth_service = get_auth_service()
-            try:
-                verified_payload = jwt.decode(token_cookie, auth_service.jwt_secret, algorithms=[auth_service.jwt_algorithm])
-                token_info["token_verified_with_current_secret"] = True
-                token_info["verified_payload"] = verified_payload
-            except Exception as verify_error:
-                token_info["token_verified_with_current_secret"] = False
-                token_info["verification_error"] = str(verify_error)
-
-        except Exception as e:
-            token_info["token_decode_error"] = str(e)
-
-    # Check session in database
-    if token_cookie:
-        try:
-            from app.auth.auth_service import get_auth_service
-            auth_service = get_auth_service()
-            user = await auth_service.verify_token(token_cookie)
-            token_info["session_valid_in_database"] = user is not None
-            if user:
-                token_info["user_info"] = {
-                    "id": user.id,
-                    "email": user.email,
-                    "active": user.active
-                }
-        except Exception as e:
-            token_info["session_check_error"] = str(e)
-
-    return token_info
-
-@app.get("/debug/force-logout")
-async def debug_force_logout():
-    """Debug endpoint to force complete logout."""
-    response = JSONResponse(content={"message": "Force logout completed"})
-
-    # Clear all possible cookie variations
-    cookie_names = ["pulse_token", "token", "access_token", "auth_token", "session"]
-    for cookie_name in cookie_names:
-        response.set_cookie(
-            key=cookie_name,
-            value="",
-            max_age=0,
-            expires=0,
-            path="/",
-            httponly=True,
-            secure=False,
-            samesite="lax"
-        )
-        response.delete_cookie(key=cookie_name, path="/")
-        response.delete_cookie(key=cookie_name)
-
-    # Add headers to clear everything
-    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-
-    return response
-
-@app.get("/debug/jwt-info")
-async def debug_jwt_info():
-    """Debug endpoint to check JWT configuration."""
-    from app.auth.auth_service import get_auth_service
-    import os
-
-    auth_service = get_auth_service()
-
-    return {
-        "jwt_secret_preview": auth_service.jwt_secret[:10] + "..." if auth_service.jwt_secret else None,
-        "jwt_algorithm": auth_service.jwt_algorithm,
-        "env_jwt_secret_preview": os.environ.get('JWT_SECRET_KEY', '')[:10] + "..." if os.environ.get('JWT_SECRET_KEY') else None,
-        "auth_service_id": id(auth_service),
-        "token_expiry_hours": auth_service.token_expiry.total_seconds() / 3600 if auth_service.token_expiry else None
-    }
 
 
 if __name__ == "__main__":
