@@ -86,14 +86,7 @@ export default function ColorSchemaPanel() {
                 lightAAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'light' && c.accessibility_level === 'AAA')
                 darkAAA = allColors.find((c: any) => c.color_schema_mode === mode && c.theme_mode === 'dark' && c.accessibility_level === 'AAA')
 
-                console.log('🎨 ColorSchemaPanel loading colors for mode:', mode, {
-                  lightRegular: !!lightRegular,
-                  darkRegular: !!darkRegular,
-                  lightAA: !!lightAA,
-                  darkAA: !!darkAA,
-                  lightAAA: !!lightAAA,
-                  darkAAA: !!darkAAA
-                })
+
               } catch (e) {
                 console.warn('Failed to parse complete color data:', e)
               }

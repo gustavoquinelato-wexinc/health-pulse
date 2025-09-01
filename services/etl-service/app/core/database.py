@@ -18,17 +18,13 @@ from app.models.unified_models import Base
 # Import pgvector for PostgreSQL vector type support
 try:
     from pgvector.psycopg2 import register_vector
-    # Try to register vector type globally using None (for all connections)
-    try:
-        register_vector()
-        logger = logging.getLogger(__name__)
-        logger.info("pgvector type registered globally for all connections")
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to register pgvector globally: {e}")
-
+    # Note: register_vector() will be called per connection in the event listener
+    logger = logging.getLogger(__name__)
+    logger.info("pgvector module imported successfully")
 except ImportError:
     register_vector = None
+    logger = logging.getLogger(__name__)
+    logger.warning("pgvector module not available - vector operations may not work")
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
