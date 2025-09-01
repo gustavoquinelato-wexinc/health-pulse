@@ -20,19 +20,7 @@ export default defineConfig(({ mode }) => {
       watch: {
         usePolling: true,
       },
-      // Proxy disabled - using direct axios calls with CORS
-      // proxy: {
-      //   '/api': {
-      //     target: env.VITE_API_BASE_URL || 'http://localhost:3001',
-      //     changeOrigin: true,
-      //     secure: false,
-      //   },
-      //   '/auth': {
-      //     target: env.VITE_API_BASE_URL || 'http://localhost:3001',
-      //     changeOrigin: true,
-      //     secure: false,
-      //   },
-      // },
+      // Using direct axios calls with CORS
     },
     build: {
       outDir: 'dist',

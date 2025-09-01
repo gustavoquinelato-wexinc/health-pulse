@@ -1652,7 +1652,6 @@ def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], status
     last_status_category = None
 
     # Calculate time tracking in chronological order
-    # TODO: Consider using get_flow_step_category for more granular tracking
     for changelog in changelogs:
         from_category = get_status_category(changelog.from_status_id)
         to_category = get_status_category(changelog.to_status_id)
