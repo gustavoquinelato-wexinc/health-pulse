@@ -1,3 +1,7 @@
+---
+type: "manual"
+---
+
 # Jira Item Release Flow
 
 ## Purpose
@@ -5,7 +9,7 @@ This rule defines the process for completing Jira items (epics or stories) by tr
 
 ## When to Use
 - User has completed their validation/testing of implemented features
-- User requests to "release" or "complete" a specific Jira item
+- User requests to "release" or "complete" or set as "done" a specific Jira item
 - All technical work is done and user has verified functionality
 - Ready to mark work as officially complete in Jira
 
