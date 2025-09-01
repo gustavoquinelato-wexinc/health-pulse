@@ -29,6 +29,12 @@ from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
 from app.api.user_routes import router as user_router
 from app.api.frontend_logs import router as frontend_logs_router
+# Import new Core API routers with ML support
+from app.api.issues import router as issues_router
+from app.api.pull_requests import router as pull_requests_router
+from app.api.projects import router as projects_router
+from app.api.users import router as users_router
+from app.api.ml_monitoring import router as ml_monitoring_router
 
 # Suppress ALL noisy logs immediately to reduce terminal noise
 import logging
@@ -311,6 +317,13 @@ app.include_router(dora_router)
 
 app.include_router(user_router, tags=["User Preferences"])
 app.include_router(admin_router, tags=["Administration"])  # admin_router already has /api/v1/admin prefix
+
+# Include Core API routes with ML support
+app.include_router(issues_router, prefix="/api/v1", tags=["Issues"])
+app.include_router(pull_requests_router, prefix="/api/v1", tags=["Pull Requests"])
+app.include_router(projects_router, prefix="/api/v1", tags=["Projects"])
+app.include_router(users_router, prefix="/api/v1", tags=["Users"])
+app.include_router(ml_monitoring_router, prefix="/api/v1", tags=["ML Monitoring"])
 
 # Include Centralized Auth Integration routes
 from app.api.centralized_auth_routes import router as centralized_auth_router

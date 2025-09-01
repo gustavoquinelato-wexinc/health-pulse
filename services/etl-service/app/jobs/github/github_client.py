@@ -441,9 +441,9 @@ class GitHubClient:
 
         # Execute each batch
         for i, batch_patterns in enumerate(pattern_batches, 1):
-            # Combine patterns with OR
+            # Combine patterns with OR and wrap in parentheses for proper GitHub search syntax
             combined_patterns = " OR ".join(batch_patterns)
-            full_query = f"{base_query} {combined_patterns}"
+            full_query = f"{base_query} ({combined_patterns})"
 
             endpoint = "search/repositories"
             params = {

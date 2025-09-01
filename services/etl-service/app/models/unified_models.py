@@ -21,16 +21,20 @@ class VectorType(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        # Try to use native VECTOR type if available
+        # Try to use native pgvector VECTOR type if available
         try:
-            from sqlalchemy.dialects.postgresql import ARRAY
-            from sqlalchemy import Float
-            # For now, use ARRAY of FLOAT as a fallback
-            # In production with proper pgvector, this would be VECTOR(1536)
-            return dialect.type_descriptor(ARRAY(Float))
+            from pgvector.sqlalchemy import Vector
+            # Use pgvector's native Vector type with 1536 dimensions
+            return dialect.type_descriptor(Vector(1536))
         except ImportError:
-            # Fallback to text storage
-            return dialect.type_descriptor(SQLText())
+            try:
+                from sqlalchemy.dialects.postgresql import ARRAY
+                from sqlalchemy import Float
+                # Fallback to ARRAY of FLOAT
+                return dialect.type_descriptor(ARRAY(Float))
+            except ImportError:
+                # Final fallback to text storage
+                return dialect.type_descriptor(SQLText())
 
     def process_bind_param(self, value, dialect):
         if value is not None:
@@ -131,6 +135,7 @@ class Integration(Base, BaseEntity):
     url = Column(String, quote=False, name="url")
     username = Column(String, quote=False, name="username")
     password = Column(String, quote=False, name="password")
+    projects = Column(String, quote=False, name="projects")
     base_search = Column(String, quote=False, name="base_search")
     last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
 
@@ -139,7 +144,7 @@ class Integration(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="integrations")
-    projects = relationship("Project", back_populates="integration")
+    project_objects = relationship("Project", back_populates="integration")
     issuetypes = relationship("Issuetype", back_populates="integration")
     statuses = relationship("Status", back_populates="integration")
     issues = relationship("Issue", back_populates="integration")
@@ -172,7 +177,7 @@ class Project(Base, IntegrationBaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="projects")
-    integration = relationship("Integration", back_populates="projects")
+    integration = relationship("Integration", back_populates="project_objects")
     issuetypes = relationship("Issuetype", secondary="projects_issuetypes", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     issues = relationship("Issue", back_populates="project")

@@ -14,5 +14,11 @@ redis
 pandas
 numpy
 
+# System monitoring
+psutil
+
+# Web interface
+python-multipart
+
 # WebSocket support for real-time updates
 websockets

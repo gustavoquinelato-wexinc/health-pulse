@@ -4,7 +4,7 @@ Based on existing snowflake_db_manager.py model with additions for development d
 Enhanced with vector columns and ML monitoring for Pulse AI Evolution Plan Phase 1-2.
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY, JSON
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import TypeDecorator, Text as SQLText
 from typing import Dict, Any, Optional, List
@@ -21,16 +21,20 @@ class VectorType(TypeDecorator):
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        # Try to use native VECTOR type if available
+        # Try to use native pgvector VECTOR type if available
         try:
-            from sqlalchemy.dialects.postgresql import ARRAY
-            from sqlalchemy import Float
-            # For now, use ARRAY of FLOAT as a fallback
-            # In production with proper pgvector, this would be VECTOR(1536)
-            return dialect.type_descriptor(ARRAY(Float))
+            from pgvector.sqlalchemy import Vector
+            # Use pgvector's native Vector type with 1536 dimensions
+            return dialect.type_descriptor(Vector(1536))
         except ImportError:
-            # Fallback to text storage
-            return dialect.type_descriptor(SQLText())
+            try:
+                from sqlalchemy.dialects.postgresql import ARRAY
+                from sqlalchemy import Float
+                # Fallback to ARRAY of FLOAT
+                return dialect.type_descriptor(ARRAY(Float))
+            except ImportError:
+                # Final fallback to text storage
+                return dialect.type_descriptor(SQLText())
 
     def process_bind_param(self, value, dialect):
         if value is not None:
@@ -98,6 +102,7 @@ class Client(Base):
     ai_learning_memories = relationship("AILearningMemory", back_populates="client")
     ai_predictions = relationship("AIPrediction", back_populates="client")
     ai_performance_metrics = relationship("AIPerformanceMetric", back_populates="client")
+    ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="client")
 
 
 class BaseEntity:
@@ -157,6 +162,35 @@ class User(Base, BaseEntity):
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
 
+    def to_dict(self, include_ml_fields=False):
+        """Convert User object to dictionary for API responses."""
+        user_dict = {
+            "id": self.id,
+            "email": self.email,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "role": self.role,
+            "is_admin": self.is_admin,
+            "auth_provider": self.auth_provider,
+            "theme_mode": self.theme_mode,
+            "high_contrast_mode": self.high_contrast_mode,
+            "reduce_motion": self.reduce_motion,
+            "colorblind_safe_palette": self.colorblind_safe_palette,
+            "accessibility_level": self.accessibility_level,
+            "profile_image_filename": self.profile_image_filename,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+            "client_id": self.client_id,
+            "active": self.active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None
+        }
+
+        # Include ML fields if requested (Phase 1: embedding is always None)
+        if include_ml_fields:
+            user_dict["embedding"] = self.embedding
+
+        return user_dict
+
 
 class UserSession(Base, BaseEntity):
     """User sessions table for JWT management."""
@@ -207,6 +241,7 @@ class Integration(Base, BaseEntity):
     url = Column(String, quote=False, name="url")
     username = Column(String, quote=False, name="username")
     password = Column(String, quote=False, name="password")
+    projects = Column(String, quote=False, name="projects")
     base_search = Column(String, quote=False, name="base_search")
     last_sync_at = Column(DateTime, quote=False, name="last_sync_at")
 
@@ -215,7 +250,7 @@ class Integration(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="integrations")
-    projects = relationship("Project", back_populates="integration")
+    project_objects = relationship("Project", back_populates="integration")
     issuetypes = relationship("Issuetype", back_populates="integration")
     statuses = relationship("Status", back_populates="integration")
     issues = relationship("Issue", back_populates="integration")
@@ -248,7 +283,7 @@ class Project(Base, IntegrationBaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="projects")
-    integration = relationship("Integration", back_populates="projects")
+    integration = relationship("Integration", back_populates="project_objects")
     issuetypes = relationship("Issuetype", secondary="projects_issuetypes", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     issues = relationship("Issue", back_populates="project")
@@ -1136,3 +1171,23 @@ class AIPerformanceMetric(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="ai_performance_metrics")
+
+
+class MLAnomalyAlert(Base, BaseEntity):
+    """ML Anomaly Alert table - tracks anomalies detected by ML monitoring systems."""
+    __tablename__ = 'ml_anomaly_alert'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    model_name = Column(String(100), nullable=False, quote=False, name="model_name")
+    severity = Column(String(20), nullable=False, quote=False, name="severity")  # 'low', 'medium', 'high', 'critical'
+    alert_data = Column(JSON, nullable=False, quote=False, name="alert_data")
+    acknowledged = Column(Boolean, default=False, quote=False, name="acknowledged")
+    acknowledged_by = Column(Integer, quote=False, name="acknowledged_by")
+    acknowledged_at = Column(DateTime(timezone=True), quote=False, name="acknowledged_at")
+
+    # AI Enhancement: Vector column for embeddings (1536 dimensions for text-embedding-3-small)
+    embedding = Column(VectorType(), nullable=True, quote=False, name="embedding")
+
+    # Relationships
+    client = relationship("Client", back_populates="ml_anomaly_alerts")

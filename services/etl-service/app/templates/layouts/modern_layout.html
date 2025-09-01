@@ -32,7 +32,7 @@
                         localStorage.setItem('pulse_complete_color_data', decodedColorData);
                         if (urlTheme) localStorage.setItem('pulse_theme', urlTheme);
                         if (urlMode) localStorage.setItem('pulse_color_schema_mode', urlMode);
-                        console.log('🎨 Color data transferred from frontend via URL');
+
 
                         // Clean up URL to remove color data parameters
                         const cleanUrl = window.location.pathname;
@@ -49,21 +49,12 @@
 
                 let colorsApplied = false;
 
-                console.log('🔍 ETL Debug - localStorage check:', {
-                    hasCompleteColorData: !!completeColorData,
-                    savedTheme,
-                    savedColorSchemaMode
-                });
+
 
                 if (completeColorData) {
                     try {
                         const allColors = JSON.parse(completeColorData);
-                        console.log('🔍 ETL Debug - localStorage data:', {
-                            savedTheme,
-                            savedColorSchemaMode,
-                            totalColors: allColors.length,
-                            availableCombinations: allColors.map(c => `${c.color_schema_mode}/${c.theme_mode}/${c.accessibility_level}`)
-                        });
+
 
                         const targetColors = allColors.find(function(c) {
                             return c.color_schema_mode === savedColorSchemaMode &&
@@ -71,7 +62,7 @@
                                    c.accessibility_level === 'regular';
                         });
 
-                        console.log('🔍 ETL Debug - Target colors found:', !!targetColors, targetColors?.color1);
+
 
                         if (targetColors) {
                             document.documentElement.setAttribute('data-theme', savedTheme);
@@ -110,7 +101,7 @@
                             }
 
                             colorsApplied = true;
-                            console.log('🎨 Applied colors from localStorage:', savedColorSchemaMode, savedTheme);
+
                         }
                     } catch (e) {
                         console.warn('Failed to parse complete color data from localStorage');
@@ -119,7 +110,7 @@
 
                 // Fallback to server-side color schema data if localStorage didn't work
                 if (!colorsApplied) {
-                    console.log('🔍 ETL Debug - Falling back to server-side data');
+
                     const serverSchemaElement = document.getElementById('server-color-schema');
                     if (serverSchemaElement) {
                     const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
@@ -182,7 +173,7 @@
                     // No server-side data available, set basic theme attributes
                     document.documentElement.setAttribute('data-theme', savedTheme);
                     document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
-                    console.log('🎨 No server-side color data, using localStorage or defaults');
+
                 }
                 }
             } catch (error) {

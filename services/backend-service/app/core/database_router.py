@@ -7,10 +7,16 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import contextmanager
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from app.core.config import get_settings
+
+# Import pgvector for PostgreSQL vector type support
+try:
+    from pgvector.psycopg2 import register_vector
+except ImportError:
+    register_vector = None
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +35,24 @@ class DatabaseRouter:
         self.last_health_check = None
         self.max_lag_seconds = 30
         self._initialize_engines()
-    
+
+    def _setup_pgvector_event_listener(self, engine):
+        """Set up event listener to register pgvector on every new connection."""
+        if register_vector:
+            @event.listens_for(engine, "connect")
+            def register_vector_on_connect(dbapi_connection, connection_record):
+                try:
+                    register_vector(dbapi_connection)
+                    logger.debug("pgvector registered for new connection")
+                except Exception as e:
+                    logger.warning(f"Failed to register pgvector for connection: {e}")
+
+            logger.info("pgvector event listener registered for database router engine")
+            return True
+        else:
+            logger.warning("pgvector not available - vector operations may not work")
+            return False
+
     def _initialize_engines(self):
         """Initialize database engines for primary and replica."""
         # Primary database engine (writes)
@@ -43,6 +66,8 @@ class DatabaseRouter:
             echo=self.settings.DEBUG,
             pool_pre_ping=True
         )
+        # Set up pgvector event listener for primary engine
+        self._setup_pgvector_event_listener(self.primary_engine)
         
         # Replica database engine (reads) - only if replica is configured
         if self.settings.USE_READ_REPLICA and self.settings.POSTGRES_REPLICA_HOST:
@@ -56,6 +81,8 @@ class DatabaseRouter:
                 echo=self.settings.DEBUG,
                 pool_pre_ping=True
             )
+            # Set up pgvector event listener for replica engine
+            self._setup_pgvector_event_listener(self.replica_engine)
             logger.info("✅ Database router initialized with replica support")
         else:
             logger.info("✅ Database router initialized (primary only)")
@@ -118,7 +145,51 @@ class DatabaseRouter:
             raise
         finally:
             session.close()
-    
+
+    @contextmanager
+    def get_ml_session_context(self):
+        """Context manager for ML operations (replica-only, optimized)."""
+        session = self.get_read_session()  # Always routes to replica
+        try:
+            # Optimize for ML workloads
+            session.execute(text("SET statement_timeout = '300s'"))
+            session.execute(text("SET transaction_read_only = on"))
+            session.execute(text("SET work_mem = '256MB'"))  # Larger work memory for ML
+            session.execute(text("SET random_page_cost = 1.1"))  # Optimize for SSD
+
+            logger.debug("ML session context initialized")
+            yield session
+
+        except Exception as e:
+            logger.error(f"ML session error: {e}")
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_ml_session(self, read_only: bool = True) -> Session:
+        """Get session optimized for ML operations (typically read-only)."""
+        if read_only:
+            session = self.get_read_session()
+        else:
+            session = self.get_write_session()
+
+        return session
+
+    def test_vector_column_access(self) -> bool:
+        """Test if vector columns are accessible."""
+        try:
+            with self.get_read_session_context() as session:
+                # Test vector column access on a few key tables
+                session.execute(text("SELECT embedding FROM issues LIMIT 1"))
+                session.execute(text("SELECT embedding FROM pull_requests LIMIT 1"))
+                session.execute(text("SELECT embedding FROM projects LIMIT 1"))
+                logger.debug("Vector column access test passed")
+                return True
+        except Exception as e:
+            logger.warning(f"Vector column access test failed: {e}")
+            return False
+
     def _should_use_replica(self) -> bool:
         """Determine if replica should be used for reads."""
         if not self.settings.USE_READ_REPLICA or not self.replica_engine:
@@ -236,3 +307,18 @@ def get_read_session_context():
 def get_analytics_session_context():
     """Get an analytics session context manager."""
     return get_database_router().get_analytics_session_context()
+
+
+def get_ml_session_context():
+    """Get an ML session context manager."""
+    return get_database_router().get_ml_session_context()
+
+
+def get_ml_session(read_only: bool = True):
+    """Get an ML session."""
+    return get_database_router().get_ml_session(read_only)
+
+
+def test_vector_column_access():
+    """Test vector column access."""
+    return get_database_router().test_vector_column_access()

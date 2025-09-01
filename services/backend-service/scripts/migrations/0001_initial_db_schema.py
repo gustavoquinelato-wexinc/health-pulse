@@ -63,6 +63,21 @@ def apply(connection):
     cursor = connection.cursor()
 
     try:
+        # Check if migration is already applied
+        print("📋 Checking migration status...")
+        try:
+            cursor.execute("""
+                SELECT status FROM migration_history
+                WHERE migration_number = %s AND status = 'applied';
+            """, ('0001',))
+            result = cursor.fetchone()
+            if result:
+                print("⚠️ Migration 0001 is already applied. Use --rollback first if you want to reapply.")
+                return
+        except Exception:
+            # migration_history table doesn't exist yet, which is fine for first run
+            print("✅ First-time migration detected")
+
         # Start transaction
         print("📋 Creating extensions...")
 
@@ -177,6 +192,7 @@ def apply(connection):
                 url VARCHAR,
                 username VARCHAR,
                 password VARCHAR,
+                projects TEXT,
                 base_search VARCHAR,
                 last_sync_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
@@ -806,6 +822,26 @@ def apply(connection):
             );
         """)
 
+        # ML Anomaly Alert table - tracks anomalies detected by ML monitoring
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ml_anomaly_alert (
+                id SERIAL PRIMARY KEY,
+                model_name VARCHAR(100) NOT NULL,
+                severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
+                alert_data JSONB NOT NULL,
+                acknowledged BOOLEAN DEFAULT FALSE,
+                acknowledged_by INTEGER,
+                acknowledged_at TIMESTAMP,
+                client_id INTEGER NOT NULL,
+                embedding vector(1536), -- AI Enhancement: Vector column for embeddings
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                active BOOLEAN DEFAULT TRUE,
+
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+        """)
+
         print("✅ ML monitoring tables created")
 
         print("📋 Creating foreign key constraints...")
@@ -1042,6 +1078,11 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_client_id ON ai_performance_metrics(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_client_id ON ml_anomaly_alert(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_model ON ml_anomaly_alert(model_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 
@@ -1068,17 +1109,30 @@ def rollback(connection):
     cursor = connection.cursor()
 
     try:
+        # First, update migration history to mark as rolled back (before dropping the table)
+        print("📋 Updating migration history...")
+        try:
+            cursor.execute("""
+                UPDATE migration_history
+                SET status = 'rolled_back', rollback_at = NOW()
+                WHERE migration_number = %s;
+            """, ('0001',))
+            print("✅ Migration history updated")
+        except Exception as e:
+            print(f"⚠️ Could not update migration history (table may not exist): {e}")
+
         print("📋 Dropping all tables in reverse dependency order...")
 
         # Drop tables in reverse order to handle foreign key dependencies
+        # Note: migration_history is dropped last so we can track the rollback
         tables_to_drop = [
             'ai_performance_metrics',
             'ai_predictions',
             'ai_learning_memory',
+            'ml_anomaly_alert',
             'client_color_settings',
             'dora_metric_insights',
             'dora_market_benchmarks',
-            'migration_history',
             'jira_pull_request_links',
             'job_schedules',
             'system_settings',
@@ -1102,7 +1156,8 @@ def rollback(connection):
             'user_permissions',
             'user_sessions',
             'users',
-            'clients'
+            'clients',
+            'migration_history'  # Drop last
         ]
 
         for table in tables_to_drop:
@@ -1111,9 +1166,16 @@ def rollback(connection):
 
         print("✅ All tables dropped successfully")
 
-        # Note: Cannot update migration_history as it was dropped with all other tables
+        # Optionally drop extensions (commented out as they might be used by other databases)
+        print("📋 Extensions (vector, pgml) left intact - they may be used by other applications")
+        # Uncomment these lines if you want to completely clean the database:
+        # cursor.execute("DROP EXTENSION IF EXISTS pgml CASCADE;")
+        # cursor.execute("DROP EXTENSION IF EXISTS vector CASCADE;")
+        # print("✅ Extensions dropped")
+
         connection.commit()
         print("✅ Migration 0001 rolled back successfully")
+        print("⚠️ Note: You can now safely reapply this migration")
 
     except Exception as e:
         connection.rollback()

@@ -18,10 +18,30 @@ logger = get_logger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+class UserData:
+    """User data class to replace the User model for centralized auth."""
+
+    def __init__(self, user_data: dict):
+        self.id = user_data.get("id")
+        self.user_id = user_data.get("id")  # Alias for compatibility
+        self.email = user_data.get("email")
+        self.first_name = user_data.get("first_name")
+        self.last_name = user_data.get("last_name")
+        self.role = user_data.get("role")
+        self.is_admin = user_data.get("is_admin", False)
+        self.active = user_data.get("active", True)
+        self.client_id = user_data.get("client_id")
+        self.auth_provider = user_data.get("auth_provider", "centralized")
+        self.theme_mode = user_data.get("theme_mode", "light")
+
+    def __str__(self):
+        return f"UserData(id={self.id}, email={self.email}, role={self.role})"
+
+
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
-) -> Optional[User]:
+) -> Optional[UserData]:
     """
     Dependency to get the current authenticated user.
     Returns None if not authenticated (for optional authentication).
@@ -47,23 +67,12 @@ async def get_current_user(
             if response.status_code == 200:
                 token_data = response.json()
                 if token_data.get("valid"):
-                    user_data = token_data.get("user")
+                    user_data_dict = token_data.get("user")
                     logger.debug("User authenticated successfully (centralized)")
 
-                    # Create a User object from the centralized data (no local caching)
-                    user = User()
-                    user.id = user_data["id"]
-                    user.email = user_data["email"]
-                    user.first_name = user_data.get("first_name", "")
-                    user.last_name = user_data.get("last_name", "")
-                    user.role = user_data["role"]
-                    user.is_admin = user_data["is_admin"]
-                    user.client_id = user_data["client_id"]
-                    user.active = True
-                    user.auth_provider = "centralized"
-                    user.theme_mode = "light"  # Default
-
-                    return user
+                    # Create a UserData object from the centralized data
+                    user_data = UserData(user_data_dict)
+                    return user_data
 
         logger.debug("Centralized authentication failed")
 
@@ -76,7 +85,7 @@ async def get_current_user(
 async def require_authentication(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
-) -> User:
+) -> UserData:
     """
     Dependency that requires authentication.
     Raises HTTPException if not authenticated.
@@ -105,23 +114,12 @@ async def require_authentication(
         if response.status_code == 200:
                 token_data = response.json()
                 if token_data.get("valid"):
-                    user_data = token_data.get("user")
+                    user_data_dict = token_data.get("user")
 
-                    # Map to User model
-                    user = User()
-                    user.id = user_data["id"]
-                    user.email = user_data["email"]
-                    user.first_name = user_data.get("first_name", "")
-                    user.last_name = user_data.get("last_name", "")
-                    user.role = user_data["role"]
-                    user.is_admin = user_data["is_admin"]
-                    user.client_id = user_data["client_id"]
-                    user.active = True
-                    user.auth_provider = "centralized"
-                    user.theme_mode = "light"
-
+                    # Create UserData object
+                    user_data = UserData(user_data_dict)
                     logger.debug("User authenticated successfully (centralized)")
-                    return user
+                    return user_data
     except Exception as e:
         logger.warning(f"Centralized authentication error: {e}")
 
@@ -134,7 +132,7 @@ async def require_authentication(
 
 async def require_web_authentication(
     request: Request
-) -> User:
+) -> UserData:
     """
     Web-specific authentication dependency that redirects to login on failure.
     Used for web pages instead of API endpoints.
@@ -175,21 +173,10 @@ async def require_web_authentication(
         if response.status_code == 200:
                 token_data = response.json()
                 if token_data.get("valid"):
-                    user_data = token_data.get("user")
-                    user = User()
-                    user.id = user_data["id"]
-                    user.email = user_data["email"]
-                    user.first_name = user_data.get("first_name", "")
-                    user.last_name = user_data.get("last_name", "")
-                    user.role = user_data["role"]
-                    user.is_admin = user_data["is_admin"]
-                    user.client_id = user_data["client_id"]
-                    user.active = True
-                    user.auth_provider = "centralized"
-                    user.theme_mode = "light"
-
+                    user_data_dict = token_data.get("user")
+                    user_data = UserData(user_data_dict)
                     logger.debug("Web user authenticated successfully")
-                    return user
+                    return user_data
 
         logger.debug("Invalid token, redirecting to login")
         return RedirectResponse(url="/login?error=invalid_token", status_code=302)
@@ -200,8 +187,8 @@ async def require_web_authentication(
 
 
 async def require_admin(
-    user: User = Depends(require_authentication)
-) -> User:
+    user: UserData = Depends(require_authentication)
+) -> UserData:
     """
     Dependency that requires admin privileges.
     Raises HTTPException if user is not an admin.
@@ -222,7 +209,7 @@ async def require_role(required_role: str):
     Dependency factory that requires a specific role.
     Returns a dependency function that checks for the required role.
     """
-    async def role_checker(user: User = Depends(require_authentication)) -> User:
+    async def role_checker(user: UserData = Depends(require_authentication)) -> UserData:
         if user.role != required_role and not user.is_admin:
             logger.warning(f"Role access denied for user, required: {required_role}, has: {user.role}")
             raise HTTPException(
@@ -241,7 +228,7 @@ def require_permission(resource: str, action: str):
     Dependency factory that requires a specific permission.
     Returns a dependency function that checks for the required permission.
     """
-    async def permission_checker(request: Request, user: User = Depends(require_authentication)) -> User:
+    async def permission_checker(request: Request, user: UserData = Depends(require_authentication)) -> UserData:
         """Delegate permission check to auth-service RBAC."""
         import httpx
         from app.core.config import get_settings
@@ -289,7 +276,7 @@ def require_web_permission(resource: str, action: str):
     Web-specific permission dependency that redirects to login/error page on failure.
     Delegates permission checks to Auth Service.
     """
-    async def web_permission_checker(request: Request, user: User = Depends(require_web_authentication)) -> User:
+    async def web_permission_checker(request: Request, user: UserData = Depends(require_web_authentication)) -> UserData:
         # If require_web_authentication returned a redirect, pass it through
         if isinstance(user, RedirectResponse):
             return user

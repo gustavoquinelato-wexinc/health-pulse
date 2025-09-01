@@ -154,6 +154,7 @@ async def execute_jira_extraction_session_free(
             # Store integration details for jira_client creation if needed
             integration_username = integration.username
             integration_password = integration.password
+            integration_url = integration.url
 
         # Create jira_client if not provided
         if jira_client is None:
@@ -166,7 +167,7 @@ async def execute_jira_extraction_session_free(
             jira_client = JiraAPIClient(
                 username=integration_username,
                 token=jira_token,
-                base_url=get_settings().JIRA_URL
+                base_url=integration_url
             )
 
         # Execute the extraction mode without an open session
@@ -260,27 +261,51 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
         # Store original JQL query method and replace with custom query
         original_get_issues = jira_client.get_issues_updated_since
 
-        def custom_get_issues(start_date=None, max_results=50, start_at=0):
-            """Custom issues getter that uses the provided JQL query."""
+        def custom_get_issues(start_date=None, max_results=50, next_page_token=None):
+            """Custom issues getter that uses the provided JQL query with NEW enhanced API."""
             try:
-                # Use the custom query instead of the default date-based query
+                # Use the NEW enhanced JQL API instead of deprecated endpoint
                 import requests
-                response = requests.get(
-                    f"{jira_client.base_url}/rest/api/2/search",
+
+                request_body = {
+                    'jql': custom_query,
+                    'maxResults': min(max_results, 100),  # API limit is 100
+                    'fields': [
+                        # Standard fields
+                        'key', 'summary', 'description', 'status', 'assignee', 'reporter', 'creator',
+                        'priority', 'labels', 'components', 'versions', 'fixVersions', 'issuetype',
+                        'project', 'created', 'updated', 'resolutiondate', 'resolution', 'environment',
+                        'attachment', 'parent',
+                        # Custom fields used in the system
+                        'customfield_10000',  # Code changed indicator
+                        'customfield_10011',  # Epic Name field
+                        'customfield_10024',  # Story points
+                        'customfield_10110',  # aha_epic_url (custom_field_01)
+                        'customfield_10128',  # Team custom field
+                        'customfield_10150',  # aha_initiative (custom_field_02)
+                        'customfield_10218',  # Risk assessment
+                        'customfield_10222',  # Acceptance criteria
+                        'customfield_10359',  # aha_project_code (custom_field_03)
+                        'customfield_10414',  # project_code (custom_field_04)
+                        'customfield_12103'   # aha_milestone (custom_field_05)
+                    ],
+                    'expand': 'changelog'
+                }
+
+                if next_page_token:
+                    request_body['nextPageToken'] = next_page_token
+
+                response = requests.post(
+                    f"{jira_client.base_url}/rest/api/latest/search/jql",
                     auth=(jira_client.username, jira_client.token),
-                    params={
-                        'jql': custom_query,
-                        'maxResults': max_results,
-                        'startAt': start_at,
-                        'expand': 'changelog',
-                        'fields': 'key,summary,description,status,assignee,reporter,creator,priority,labels,components,versions,fixVersions,issuetype,project,created,updated,resolutiondate,resolution,environment,attachment,customfield_10020'
-                    },
+                    json=request_body,
+                    headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
                     timeout=30
                 )
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                logger.error(f"Error executing custom JQL query: {e}")
+                logger.error(f"Error executing custom JQL query with new API: {e}")
                 raise
 
         # Temporarily replace the method
@@ -371,6 +396,7 @@ async def run_jira_sync(
         integration_id = jira_integration.id
         integration_username = jira_integration.username
         integration_password = jira_integration.password
+        integration_url = jira_integration.url
         client_id = job_schedule.client_id
         job_schedule_id = job_schedule.id
 
@@ -382,7 +408,7 @@ async def run_jira_sync(
         jira_client = JiraAPIClient(
             username=integration_username,
             token=jira_token,
-            base_url=get_settings().JIRA_URL
+            base_url=integration_url
         )
 
         # Set job as running before closing session

@@ -10,29 +10,42 @@ The Backend Service serves as the primary interface between the frontend and dat
 - **Authentication**: JWT-based user authentication and authorization
 - **Performance Optimization**: Query caching, connection pooling, response optimization
 - **ETL Coordination**: Settings management and job coordination with ETL service
+- **ML Monitoring**: AI performance metrics, anomaly detection, and learning memory (Phase 1+)
+- **Vector Operations**: Semantic search and similarity analysis infrastructure (Phase 1+)
 
 ## 🏗️ Architecture
 
-### **Service Specialization**
+### **Service Specialization with AI Enhancement**
 ```
-Frontend ──► Analytics Backend ──► PostgreSQL Database
+Frontend ──► Analytics Backend ──► PostgreSQL Database (Enhanced)
     │              │                       │
     │              ├─ Complex Calculations │
     │              ├─ Data Aggregations    │
     │              ├─ Query Optimization   │
-    │              └─ Caching Layer        │
+    │              ├─ Caching Layer        │
+    │              ├─ ML Monitoring APIs   │ ← Phase 1
+    │              └─ Vector Operations    │ ← Phase 1
     │                       │
+    │                       ├─ pgvector (similarity search)
+    │                       ├─ postgresml (ML capabilities)
+    │                       └─ ML monitoring tables
+    │
     └─────────────────────► ETL Service (Job Coordination)
+                            │
+                            └─► AI Service (Phase 2+)
 ```
 
 ### **Technology Stack**
 - **FastAPI** - Modern, fast web framework with automatic API documentation
-- **SQLAlchemy** - Advanced ORM for complex analytical queries
+- **SQLAlchemy** - Advanced ORM for complex analytical queries with vector support
 - **Pydantic** - Data validation and serialization
 - **NumPy/Pandas** - Data processing and statistical analysis *(recently added)*
 - **WebSockets** - Real-time updates and notifications *(recently added)*
 - **Redis** - Caching and session management
 - **PostgreSQL** - Primary database with connection pooling
+- **pgvector** - Vector similarity search and storage *(Phase 1)*
+- **postgresml** - Machine learning capabilities *(Phase 1 - prepared)*
+- **Vector Operations** - Semantic search infrastructure *(Phase 1)*
 
 ### **Core Responsibilities**
 1. **Data Analytics**: Complex calculations, metrics, and statistical analysis
@@ -40,6 +53,9 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database
 3. **Authentication**: User management and JWT token handling
 4. **Performance**: Query optimization, caching, and response time optimization
 5. **ETL Integration**: Configuration management and job coordination
+6. **ML Monitoring**: AI performance metrics, anomaly detection, and learning memory *(Phase 1)*
+7. **Vector Operations**: Semantic search and similarity analysis infrastructure *(Phase 1)*
+8. **AI Integration**: Coordination with AI service for ML capabilities *(Phase 2+)*
 
 ## 🚀 Quick Start
 
@@ -185,7 +201,97 @@ CORS_ORIGINS=["http://localhost:5173"]
 - **GitHub Analytics**: `/api/v1/analytics/github/*`
 - **Portfolio Data**: `/api/v1/portfolio/*`
 - **ETL Management**: `/api/v1/etl/*`
+- **ML Monitoring**: `/api/v1/ml/*` *(Phase 1)*
+- **Health Checks**: `/health/database`, `/health/ml` *(Phase 1)*
+
+## 🤖 AI Enhancements (Phase 1)
+
+### **Enhanced Data Models**
+All unified models now include vector columns for AI capabilities:
+```python
+# Example: Enhanced Issue model with vector support
+class Issue(Base):
+    # ... existing fields ...
+    embedding: Optional[List[float]] = Column(VectorType(), nullable=True)
+
+    def to_dict(self, include_ml_fields: bool = False):
+        result = {
+            # ... existing fields ...
+        }
+        if include_ml_fields and self.embedding:
+            result['embedding'] = self.embedding
+        return result
+```
+
+### **ML Monitoring APIs**
+New endpoints for AI monitoring and management:
+- **AI Learning Memory**: `/api/v1/ml/learning-memory` - User feedback and corrections
+- **AI Predictions**: `/api/v1/ml/predictions` - ML model predictions and accuracy
+- **Performance Metrics**: `/api/v1/ml/performance` - AI system performance monitoring
+- **Anomaly Alerts**: `/api/v1/ml/anomalies` - ML-detected anomalies and alerts
+
+### **Vector Search Infrastructure**
+Prepared for semantic search capabilities:
+```python
+# Vector similarity search (Phase 2+)
+async def find_similar_issues(embedding: List[float], client_id: int, limit: int = 10):
+    query = """
+        SELECT id, summary, embedding <-> %s::vector AS distance
+        FROM issues
+        WHERE client_id = %s AND embedding IS NOT NULL
+        ORDER BY distance
+        LIMIT %s
+    """
+    return await execute_vector_query(query, [embedding, client_id, limit])
+```
+
+### **Health Check Enhancements**
+Enhanced health checks for AI infrastructure:
+```python
+# Database health with ML monitoring
+GET /health/database
+{
+    "status": "healthy",
+    "database_connection": "ok",
+    "ml_tables": {
+        "ai_learning_memory": "available",
+        "ai_predictions": "available",
+        "ai_performance_metrics": "available",
+        "ml_anomaly_alert": "available"
+    },
+    "vector_columns": {
+        "tables_with_embeddings": 24,
+        "total_embeddings": 0  // Phase 1: Not populated yet
+    }
+}
+
+# ML infrastructure health
+GET /health/ml
+{
+    "status": "healthy",
+    "pgvector": {"available": true},
+    "postgresml": {"available": false, "note": "Prepared for Phase 2+"},
+    "vector_indexes": {"created": true, "count": 24},
+    "ai_service_connection": {"status": "not_configured"}  // Phase 2+
+}
+```
+
+### **Phase Implementation Status**
+
+#### ✅ Phase 1 (Completed)
+- **Enhanced Database Schema**: Vector columns in all 24 business tables
+- **ML Monitoring Tables**: AI learning memory, predictions, performance metrics, anomaly alerts
+- **Updated Models**: All unified models support vector columns and ML entities
+- **Health Monitoring**: Database and ML infrastructure health checks
+- **API Framework**: ML monitoring endpoints structure prepared
+
+#### 🔄 Phase 2+ (Future)
+- **Embedding Generation**: Automatic text-to-vector conversion
+- **Semantic Search**: Content similarity and discovery APIs
+- **AI Service Integration**: Coordination with dedicated AI service
+- **Validation Layer**: ML-powered data validation and quality checks
+- **Predictive Analytics**: Story point estimation and timeline forecasting
 
 ---
 
-**Note**: This service is designed to be the primary backend for the React frontend, providing optimized analytics capabilities and serving as the main API gateway for the Pulse Platform.
+**Note**: This service is designed to be the primary backend for the React frontend, providing optimized analytics capabilities and serving as the main API gateway for the Pulse Platform. With Phase 1 AI enhancements, it now includes comprehensive ML monitoring infrastructure and vector search capabilities.
