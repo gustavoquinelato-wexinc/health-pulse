@@ -18,11 +18,13 @@ This migration creates the complete initial database schema including:
 
 This migration contains ONLY schema creation with integrated AI capabilities - no seed data.
 
-Phase 1 Requirements Implemented:
+Phase 1 + Phase 2 Requirements Implemented:
 ✅ pgvector and postgresml extensions
 ✅ Vector columns (embedding vector(1536)) in all 23 business tables
 ✅ ML monitoring tables (ai_learning_memory, ai_predictions, ai_performance_metrics)
+✅ AI validation tables (ai_validation_patterns) and enhanced ai_learning_memory
 ✅ Vector indexes for similarity search
+✅ Validation indexes for pattern recognition and learning
 ✅ Clean CREATE-only statements (no ALTER statements)
 """
 
@@ -766,7 +768,7 @@ def apply(connection):
 
         print("📋 Creating ML monitoring tables...")
 
-        # AI Learning Memory table - stores user feedback and corrections
+        # AI Learning Memory table - stores user feedback and corrections (Phase 1 + Phase 2)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ai_learning_memory (
                 id SERIAL PRIMARY KEY,
@@ -781,6 +783,34 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                -- Phase 2: Validation enhancement columns
+                validation_type VARCHAR(50) DEFAULT 'syntax',
+                confidence_score DECIMAL(3,2) DEFAULT 0.0,
+                retry_count INTEGER DEFAULT 0,
+                learning_context JSONB DEFAULT '{}',
+                pattern_hash VARCHAR(64),
+                resolution_time_ms INTEGER,
+                validation_passed BOOLEAN DEFAULT FALSE,
+
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+        """)
+
+        # AI Validation Patterns table - stores validation failure patterns for self-healing (Phase 2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_validation_patterns (
+                id SERIAL PRIMARY KEY,
+                pattern_hash VARCHAR(64) UNIQUE NOT NULL,
+                error_pattern TEXT NOT NULL,
+                failure_count INTEGER DEFAULT 1,
+                success_count INTEGER DEFAULT 0,
+                last_seen_at TIMESTAMP DEFAULT NOW(),
+                pattern_metadata JSONB DEFAULT '{}',
+                suggested_fix TEXT,
+                confidence_score DECIMAL(3,2) DEFAULT 0.0,
+                client_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
 
                 FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             );
@@ -1068,10 +1098,24 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_mode ON client_color_settings(client_id, color_schema_mode);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_unified ON client_color_settings(client_id, color_schema_mode, accessibility_level, theme_mode);")
 
-        # ML monitoring table indexes
+        # ML monitoring table indexes (Phase 1 + Phase 2)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_client_id ON ai_learning_memory(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_error_type ON ai_learning_memory(error_type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_message_id ON ai_learning_memory(message_id);")
+
+        # Phase 2: Validation-specific indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_type ON ai_learning_memory(validation_type);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_confidence ON ai_learning_memory(confidence_score);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_pattern_hash ON ai_learning_memory(pattern_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_passed ON ai_learning_memory(validation_passed);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_retry_count ON ai_learning_memory(retry_count);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_learning_context ON ai_learning_memory USING GIN(learning_context);")
+
+        # AI validation patterns indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_hash ON ai_validation_patterns(pattern_hash);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_client ON ai_validation_patterns(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_confidence ON ai_validation_patterns(confidence_score);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_metadata ON ai_validation_patterns USING GIN(pattern_metadata);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_client_id ON ai_predictions(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
@@ -1128,6 +1172,7 @@ def rollback(connection):
         tables_to_drop = [
             'ai_performance_metrics',
             'ai_predictions',
+            'ai_validation_patterns',
             'ai_learning_memory',
             'ml_anomaly_alert',
             'client_color_settings',
