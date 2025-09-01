@@ -102,7 +102,12 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
                 else:
                     # For all other columns (including foreign keys), use the actual values
                     value_placeholders.append(f":{param_prefix}{col}")
-                    params[f"{param_prefix}{col}"] = record[col]
+                    # Handle unicode encoding for string values
+                    value = record[col]
+                    if isinstance(value, str):
+                        # Ensure proper unicode handling
+                        value = value.encode('utf-8', errors='replace').decode('utf-8')
+                    params[f"{param_prefix}{col}"] = value
             
             values_list.append(f"({', '.join(value_placeholders)})")
         

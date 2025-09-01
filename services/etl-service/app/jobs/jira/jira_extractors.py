@@ -254,16 +254,15 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     try:
         # Extract project keys from integration projects column
         project_keys = None
-        logger.info(f"DEBUG: Integration projects: {repr(integration.projects)}")
 
         if integration.projects:
             # Parse project keys from projects column like "BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS"
             project_keys = [key.strip() for key in integration.projects.split(',') if key.strip()]
-            logger.info(f"DEBUG: Parsed project keys from projects column: {project_keys}")
+
         else:
             logger.warning("DEBUG: No projects found in integration.projects column")
 
-        logger.info(f"DEBUG: Final project_keys passed to jira_client: {project_keys}")
+
 
         # Get all projects from Jira
         jira_projects = jira_client.get_projects(expand="issueTypes", project_keys=project_keys)
@@ -344,13 +343,22 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in projects_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'key': obj.key,
-                    'name': obj.name,
-                    'project_type': getattr(obj, 'project_type', None),
+                    'key': safe_unicode_string(obj.key),
+                    'name': safe_unicode_string(obj.name),
+                    'project_type': safe_unicode_string(getattr(obj, 'project_type', None)),
                     'client_id': obj.client_id,
                     'active': obj.active,
                     'last_updated_at': obj.last_updated_at
@@ -476,13 +484,22 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in issuetypes_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'original_name': obj.original_name,
+                    'original_name': safe_unicode_string(obj.original_name),
                     'issuetype_mapping_id': getattr(obj, 'issuetype_mapping_id', None),
-                    'description': getattr(obj, 'description', None),
+                    'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'hierarchy_level': obj.hierarchy_level,
                     'client_id': obj.client_id,
                     'active': getattr(obj, 'active', True),
@@ -699,14 +716,23 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
             # Convert objects to dictionaries for bulk_update_mappings
             update_data = []
             for obj in statuses_to_update:
+                # Helper function to safely handle unicode strings
+                def safe_unicode_string(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, str):
+                        # Replace problematic unicode characters that might cause encoding issues
+                        return value.encode('utf-8', errors='replace').decode('utf-8')
+                    return str(value) if value is not None else None
+
                 update_data.append({
                     'id': obj.id,
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
-                    'original_name': obj.original_name,
+                    'original_name': safe_unicode_string(obj.original_name),
                     'status_mapping_id': getattr(obj, 'status_mapping_id', None),
-                    'category': obj.category,
-                    'description': getattr(obj, 'description', None),
+                    'category': safe_unicode_string(obj.category),
+                    'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'client_id': obj.client_id,
                     'active': getattr(obj, 'active', True),
                     'last_updated_at': obj.last_updated_at
@@ -824,8 +850,23 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             last_sync = integration.last_sync_at or datetime.now() - timedelta(days=30)
 
-        # Format datetime for Jira JQL (YYYY-MM-DD HH:mm format)
-        jira_datetime = last_sync.strftime('%Y-%m-%d %H:%M')
+        # Format datetime for Jira JQL (use relative date format for API v3 compatibility)
+        from datetime import datetime, timedelta, timezone
+
+        # Calculate days ago from last sync
+        now_utc = datetime.now(timezone.utc)
+
+        # Ensure last_sync is timezone-aware
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+
+        days_ago = (now_utc - last_sync).days
+
+        # Use relative date format which is more reliable with API v3
+        if days_ago <= 0:
+            jira_date_filter = "updated >= -1d"  # At least 1 day
+        else:
+            jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
 
         # Construct JQL query: PROJECT IN (projects) AND base_search AND updated timestamp
         jql_parts = []
@@ -839,8 +880,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if integration.base_search:
             jql_parts.append(f"({integration.base_search})")
 
-        # Add updated timestamp filter
-        jql_parts.append(f"updated >= '{jira_datetime}'")
+        # Add updated timestamp filter (use relative date format)
+        jql_parts.append(jira_date_filter)
 
         # Combine all parts with AND
         jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
@@ -1877,7 +1918,7 @@ async def extract_work_items_and_changelogs_session_free(
                 if jql_parts:
                     jql_query = " AND ".join(jql_parts) + " ORDER BY updated DESC"
                 else:
-                    jql_query = "updated >= '2000-01-01 00:00' ORDER BY updated DESC"
+                    jql_query = "updated >= -365d ORDER BY updated DESC"  # Use relative date format
 
                 job_logger.progress(f"[API] Fetching issues with JQL: {jql_query}")
 

@@ -177,7 +177,7 @@ def apply(connection):
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
 
         # GitHub Integration - Using hardcoded credentials for migration
-        github_token = "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"
+        github_token = "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"
         github_password = None
         github_active = True
 
@@ -199,7 +199,7 @@ def apply(connection):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (name, client_id) DO NOTHING
             RETURNING id;
-        """, ("GITHUB", "https://api.github.com", None, github_password, None, None, "2000-01-01 00:00:00", client_id, github_active))
+        """, ("GITHUB", "https://api.github.com", None, github_password, None, "health-", "2000-01-01 00:00:00", client_id, github_active))
 
         github_result = cursor.fetchone()
         if github_result:
@@ -211,15 +211,21 @@ def apply(connection):
         print(f"   ✅ GitHub integration created (ID: {github_integration_id}, active: {github_active})")
         print("✅ Integrations created")
 
-        # 4. Insert workflow steps
+        # 4. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
         print("📋 Creating workflow steps...")
         workflow_steps_data = [
             {"step_name": "Backlog", "step_number": 1, "category": "To Do", "is_commitment_point": False},
-            {"step_name": "Selected for Development", "step_number": 2, "category": "To Do", "is_commitment_point": False},
-            {"step_name": "In Progress", "step_number": 3, "category": "In Progress", "is_commitment_point": True},
-            {"step_name": "Code Review", "step_number": 4, "category": "In Progress", "is_commitment_point": False},
-            {"step_name": "Testing", "step_number": 5, "category": "In Progress", "is_commitment_point": False},
-            {"step_name": "Done", "step_number": 6, "category": "Done", "is_commitment_point": False}
+            {"step_name": "Refinement", "step_number": 2, "category": "To Do", "is_commitment_point": False},
+            {"step_name": "Ready to Work", "step_number": 3, "category": "To Do", "is_commitment_point": False},
+            {"step_name": "To Do", "step_number": 4, "category": "To Do", "is_commitment_point": True},  # Commitment point
+            {"step_name": "In Progress", "step_number": 5, "category": "In Progress", "is_commitment_point": False},
+            {"step_name": "Ready for Story Testing", "step_number": 6, "category": "Waiting", "is_commitment_point": False},
+            {"step_name": "Story Testing", "step_number": 7, "category": "In Progress", "is_commitment_point": False},
+            {"step_name": "Ready for Acceptance", "step_number": 8, "category": "Waiting", "is_commitment_point": False},
+            {"step_name": "Acceptance Testing", "step_number": 9, "category": "In Progress", "is_commitment_point": False},
+            {"step_name": "Ready for Prod", "step_number": 10, "category": "Waiting", "is_commitment_point": False},
+            {"step_name": "Done", "step_number": 11, "category": "Done", "is_commitment_point": False},
+            {"step_name": "Discarded", "step_number": None, "category": "Discarded", "is_commitment_point": False}  # No step number for Discarded
         ]
 
         workflow_ids = {}
@@ -250,6 +256,7 @@ def apply(connection):
 
         # 5. Insert status mappings (complete workflow configuration)
         print("📋 Creating status mappings...")
+        # Insert status mappings (complete workflow configuration - EXACT COPY from reset_database.py)
         status_mappings_data = [
             #BACKLOG
             {"status_from": "Backlog", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
@@ -257,43 +264,136 @@ def apply(connection):
             {"status_from": "Open", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
             {"status_from": "Created", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
 
-            #SELECTED FOR DEVELOPMENT
-            {"status_from": "Committed", "status_to": "Selected for Development", "status_category": "To Do", "workflow": "Selected for Development"},
-            {"status_from": "Planned", "status_to": "Selected for Development", "status_category": "To Do", "workflow": "Selected for Development"},
-            {"status_from": "Selected for development", "status_to": "Selected for Development", "status_category": "To Do", "workflow": "Selected for Development"},
-            {"status_from": "To Do", "status_to": "Selected for Development", "status_category": "To Do", "workflow": "Selected for Development"},
+            #REFINEMENT
+            {"status_from": "Analysis", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Design", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Prerefinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Ready to Refine", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Refinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Refining", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Tech Review", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Waiting for refinement", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "In Triage", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Pending Approval", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Discovery", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Composting", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Onboarding Templates", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Templates", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+            {"status_from": "Template Approval Pending", "status_to": "Refinement", "status_category": "To Do", "workflow": "Refinement"},
+
+            #READY TO WORK
+            {"status_from": "Approved", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready for Development", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready to Development", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Ready to Work", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Refined", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+            {"status_from": "Proposed", "status_to": "Ready to Work", "status_category": "To Do", "workflow": "Ready to Work"},
+
+            #TO DO
+            {"status_from": "Committed", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "Planned", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "Selected for development", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
+            {"status_from": "To Do", "status_to": "To Do", "status_category": "To Do", "workflow": "To Do"},
 
             #IN PROGRESS
             {"status_from": "Active", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Applied to TRN", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "Blocked", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "Building", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Code Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Codereview", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "Coding", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Coding Done", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Deployed to Dev", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "Development", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "In Development", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "In Progress", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
             {"status_from": "In Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Peer Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Pre-readiness", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Ready for Peer Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Ready to Dep to Dev", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Review", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Training", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Validated in TRN", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Waiting Partner", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "On Hold", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Pipeline Approval Pending", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
+            {"status_from": "Merging Branches", "status_to": "In Progress", "status_category": "In Progress", "workflow": "In Progress"},
 
-            #CODE REVIEW
-            {"status_from": "Code Review", "status_to": "Code Review", "status_category": "In Progress", "workflow": "Code Review"},
-            {"status_from": "Codereview", "status_to": "Code Review", "status_category": "In Progress", "workflow": "Code Review"},
-            {"status_from": "Peer Review", "status_to": "Code Review", "status_category": "In Progress", "workflow": "Code Review"},
-            {"status_from": "Ready for Peer Review", "status_to": "Code Review", "status_category": "In Progress", "workflow": "Code Review"},
-            {"status_from": "Review", "status_to": "Code Review", "status_category": "In Progress", "workflow": "Code Review"},
+            #READY FOR QA TESTING
+            {"status_from": "Ready for QA", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for QA build", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Test", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Ready for Story Testing", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
+            {"status_from": "Deploying Demo", "status_to": "Ready for Story Testing", "status_category": "Waiting", "workflow": "Ready for Story Testing"},
 
-            #TESTING
-            {"status_from": "In Test", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
-            {"status_from": "In Testing", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
-            {"status_from": "QA", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
-            {"status_from": "QA in Progress", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
-            {"status_from": "Test", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
-            {"status_from": "Testing", "status_to": "Testing", "status_category": "In Progress", "workflow": "Testing"},
+            #IN QA TEST
+            {"status_from": "Applied to QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "In Test", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "In Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Promoted to QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "QA", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "QA in Progress", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Test", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Story Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+            {"status_from": "Testing", "status_to": "Story Testing", "status_category": "In Progress", "workflow": "Story Testing"},
+
+            #READY FOR UAT TESTING
+            {"status_from": "Ready for Uat", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Stage", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Validated in QA", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Demo", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+            {"status_from": "Ready for Acceptance", "status_to": "Ready for Acceptance", "status_category": "Waiting", "workflow": "Ready for Acceptance"},
+
+            #IN UAT TEST
+            {"status_from": "Applied to STG", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Applied to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "In Stage Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Promoted to UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Regression Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Release Approval Pending", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "UAT", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Acceptance Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Pre Production Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Final Checks", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+            {"status_from": "Release Testing", "status_to": "Acceptance Testing", "status_category": "In Progress", "workflow": "Acceptance Testing"},
+
+            #READY FOR PROD
+            {"status_from": "Deploy", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for prod", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for prd", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for production", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready for Release", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready to Dep to Prod", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Ready to Launch", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Release Pending", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Resolved", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Validated in STG", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Validated in UAT", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deploying Database", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Deploying Applications", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
+            {"status_from": "Awaiting Deployment", "status_to": "Ready for Prod", "status_category": "Waiting", "workflow": "Ready for Prod"},
 
             #DONE
             {"status_from": "Applied to Prod", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Applied to Prod/TRN", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
             {"status_from": "Closed", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
             {"status_from": "Done", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Validated in Prod", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
             {"status_from": "Released", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
             {"status_from": "Deployed to Production", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Release Deployed", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+            {"status_from": "Closure", "status_to": "Done", "status_category": "Done", "workflow": "Done"},
+
+            #REMOVED
+            {"status_from": "Cancelled", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Rejected", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Removed", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
+            {"status_from": "Withdrawn", "status_to": "Discarded", "status_category": "Discarded", "workflow": "Discarded"},
         ]
 
         for mapping in status_mappings_data:
@@ -357,6 +457,11 @@ def apply(connection):
             {"issuetype_from": "Task", "issuetype_to": "Task", "hierarchy_level": 0},
             {"issuetype_from": "UAT", "issuetype_to": "Task", "hierarchy_level": 0},
             {"issuetype_from": "Unparented Tasks", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"issuetype_from": "Shared Steps", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"issuetype_from": "Educational Services", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"issuetype_from": "Impediment", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"issuetype_from": "Requirement", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"issuetype_from": "Shared Parameter", "issuetype_to": "Task", "hierarchy_level": 0},
 
             #BUG (PROD)
             {"issuetype_from": "Bug", "issuetype_to": "Bug", "hierarchy_level": 0},
@@ -370,7 +475,9 @@ def apply(connection):
 
             #DEFECT (NON-PROD)
             {"issuetype_from": "Defect", "issuetype_to": "Defect", "hierarchy_level": -1},
+            {"issuetype_from": "Sprint Issue", "issuetype_to": "Defect", "hierarchy_level": -1},
             {"issuetype_from": "Sub-task", "issuetype_to": "Sub-task", "hierarchy_level": -1},
+            {"issuetype_from": "Approval", "issuetype_to": "Approval", "hierarchy_level": -1},
         ]
 
         for mapping in issuetype_mappings_data:

@@ -821,8 +821,35 @@
             updateJobCardExceptions(jobCard, []);
         }
 
+        // Also clear recovery information and error messages from the UI immediately
+        clearJobRecoveryInfo(jobName);
+
         // Also trigger a data refresh to clear any error messages from the database
         setTimeout(refreshData, 500);
+    }
+
+    function clearJobRecoveryInfo(jobName) {
+        // Clear recovery information from the job card
+        const jobCard = document.querySelector(`[data-job="${jobName}"]`);
+        if (jobCard) {
+            // Remove recovery details section
+            const recoverySection = jobCard.querySelector('.recovery-details');
+            if (recoverySection) {
+                recoverySection.remove();
+            }
+
+            // Remove any error message sections
+            const errorSections = jobCard.querySelectorAll('.text-red-500, .text-orange-500, .bg-red-50, .bg-orange-50');
+            errorSections.forEach(section => {
+                if (section.textContent.includes('Error') || section.textContent.includes('Recovery') || section.textContent.includes('Checkpoint')) {
+                    section.remove();
+                }
+            });
+
+            // Remove exception log sections
+            const exceptionLogs = jobCard.querySelectorAll('.exception-log');
+            exceptionLogs.forEach(log => log.remove());
+        }
     }
 
     function updateJobStatus(jobName, status) {
@@ -1558,6 +1585,9 @@
         if (!confirm(`Are you sure you want to force start ${jobName}?`)) return;
 
         try {
+            // Clear any existing error messages when starting a job
+            clearJobExceptions(jobName);
+
             const token = getAuthToken();
             if (!token) {
                 throw new Error('No authentication token found');

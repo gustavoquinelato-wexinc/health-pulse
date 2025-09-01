@@ -250,7 +250,7 @@ class Integration(Base, BaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="integrations")
-    projects = relationship("Project", back_populates="integration")
+    project_objects = relationship("Project", back_populates="integration")
     issuetypes = relationship("Issuetype", back_populates="integration")
     statuses = relationship("Status", back_populates="integration")
     issues = relationship("Issue", back_populates="integration")
@@ -283,7 +283,7 @@ class Project(Base, IntegrationBaseEntity):
 
     # Relationships
     client = relationship("Client", back_populates="projects")
-    integration = relationship("Integration", back_populates="projects")
+    integration = relationship("Integration", back_populates="project_objects")
     issuetypes = relationship("Issuetype", secondary="projects_issuetypes", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     issues = relationship("Issue", back_populates="project")

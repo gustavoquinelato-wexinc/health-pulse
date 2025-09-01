@@ -76,7 +76,7 @@ class SchemaCompatibilityValidator:
             logger.error(f"❌ [{self.job_name}] {error_msg}")
             return False
     
-    def _validate_required_fields(self, model_class: Type[Base], data: Dict[str, Any], 
+    def _validate_required_fields(self, model_class: Type[Base], data: Dict[str, Any],
                                 context: str) -> bool:
         """Validate that required fields are present in data."""
         # Basic validation - ensure data is not empty
@@ -84,16 +84,28 @@ class SchemaCompatibilityValidator:
             error_msg = f"Empty data provided for {model_class.__name__} {context}"
             self.validation_errors.append(error_msg)
             return False
-        
-        # Check for basic required fields that all models should have
-        basic_required = ['client_id', 'integration_id', 'active']
-        missing_fields = [field for field in basic_required if field not in data]
-        
+
+        # Relationship tables have different required fields
+        model_name = model_class.__name__
+        if model_name in ['ProjectsIssuetypes', 'ProjectsStatuses']:
+            # Relationship tables only need their foreign key fields
+            if model_name == 'ProjectsIssuetypes':
+                required_fields = ['project_id', 'issuetype_id']
+            elif model_name == 'ProjectsStatuses':
+                required_fields = ['project_id', 'status_id']
+            else:
+                required_fields = []
+        else:
+            # Regular models need these basic fields
+            required_fields = ['client_id', 'integration_id', 'active']
+
+        missing_fields = [field for field in required_fields if field not in data]
+
         if missing_fields:
             error_msg = f"Missing required fields for {model_class.__name__} {context}: {missing_fields}"
             self.validation_errors.append(error_msg)
             return False
-        
+
         return True
     
     def _validate_embedding_compatibility(self, data: Dict[str, Any], model_name: str, 

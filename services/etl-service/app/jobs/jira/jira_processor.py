@@ -144,19 +144,28 @@ class JiraDataProcessor:
     def process_project_data(self, project_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process raw Jira project data into database format.
-        
+
         Args:
             project_data: Raw project data from Jira API
-            
+
         Returns:
             Processed project data ready for database insertion
         """
         try:
+            # Helper function to safely handle unicode strings
+            def safe_unicode_string(value):
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    # Replace problematic unicode characters that might cause encoding issues
+                    return value.encode('utf-8', errors='replace').decode('utf-8')
+                return str(value)
+
             processed_data = {
                 'external_id': project_data.get('id', None),
-                'key': project_data.get('key', None),
-                'name': project_data.get('name', None),
-                'project_type': project_data.get('projectTypeKey', None)
+                'key': safe_unicode_string(project_data.get('key', None)),
+                'name': safe_unicode_string(project_data.get('name', None)),
+                'project_type': safe_unicode_string(project_data.get('projectTypeKey', None))
                 # embedding field automatically defaults to None in model
             }
 
@@ -179,7 +188,16 @@ class JiraDataProcessor:
             Processed issue type data ready for database insertion
         """
         try:
-            original_name = issuetype_data.get('name', None)
+            # Helper function to safely handle unicode strings
+            def safe_unicode_string(value):
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    # Replace problematic unicode characters that might cause encoding issues
+                    return value.encode('utf-8', errors='replace').decode('utf-8')
+                return str(value)
+
+            original_name = safe_unicode_string(issuetype_data.get('name', None))
 
             # Find issuetype mapping for this issue type from database
             issuetype_mapping_id = None
@@ -214,7 +232,7 @@ class JiraDataProcessor:
                 'external_id': issuetype_data.get('id', None),
                 'original_name': original_name,
                 'issuetype_mapping_id': issuetype_mapping_id,  # Foreign key relationship to IssuetypeMapping
-                'description': issuetype_data.get('description', None),
+                'description': safe_unicode_string(issuetype_data.get('description', None)),
                 'hierarchy_level': hierarchy_level,
                 'active': True  # Default to active for new issue types
             }
@@ -233,8 +251,17 @@ class JiraDataProcessor:
             Processed status data ready for database insertion
         """
         try:
-            original_name = status_data.get('name', None)
-            category = status_data.get('statusCategory', {}).get('name', None)
+            # Helper function to safely handle unicode strings
+            def safe_unicode_string(value):
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    # Replace problematic unicode characters that might cause encoding issues
+                    return value.encode('utf-8', errors='replace').decode('utf-8')
+                return str(value)
+
+            original_name = safe_unicode_string(status_data.get('name', None))
+            category = safe_unicode_string(status_data.get('statusCategory', {}).get('name', None))
 
             # Find status mapping for this status from database
             status_mapping_id = None
@@ -267,7 +294,7 @@ class JiraDataProcessor:
                 'original_name': original_name,
                 'status_mapping_id': status_mapping_id,  # Foreign key relationship to StatusMapping
                 'category': category,
-                'description': status_data.get('description', None),
+                'description': safe_unicode_string(status_data.get('description', None)),
                 'active': True  # Default to active for new statuses
             }
         except Exception as e:

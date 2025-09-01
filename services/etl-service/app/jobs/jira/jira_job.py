@@ -154,6 +154,7 @@ async def execute_jira_extraction_session_free(
             # Store integration details for jira_client creation if needed
             integration_username = integration.username
             integration_password = integration.password
+            integration_url = integration.url
 
         # Create jira_client if not provided
         if jira_client is None:
@@ -269,18 +270,33 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
                 request_body = {
                     'jql': custom_query,
                     'maxResults': min(max_results, 100),  # API limit is 100
-                    'fields': ['key', 'summary', 'description', 'status', 'assignee', 'reporter', 'creator',
-                              'priority', 'labels', 'components', 'versions', 'fixVersions', 'issuetype',
-                              'project', 'created', 'updated', 'resolutiondate', 'resolution', 'environment',
-                              'attachment', 'customfield_10020'],
-                    'expand': ['changelog']
+                    'fields': [
+                        # Standard fields
+                        'key', 'summary', 'description', 'status', 'assignee', 'reporter', 'creator',
+                        'priority', 'labels', 'components', 'versions', 'fixVersions', 'issuetype',
+                        'project', 'created', 'updated', 'resolutiondate', 'resolution', 'environment',
+                        'attachment', 'parent',
+                        # Custom fields used in the system
+                        'customfield_10000',  # Code changed indicator
+                        'customfield_10011',  # Epic Name field
+                        'customfield_10024',  # Story points
+                        'customfield_10110',  # aha_epic_url (custom_field_01)
+                        'customfield_10128',  # Team custom field
+                        'customfield_10150',  # aha_initiative (custom_field_02)
+                        'customfield_10218',  # Risk assessment
+                        'customfield_10222',  # Acceptance criteria
+                        'customfield_10359',  # aha_project_code (custom_field_03)
+                        'customfield_10414',  # project_code (custom_field_04)
+                        'customfield_12103'   # aha_milestone (custom_field_05)
+                    ],
+                    'expand': 'changelog'
                 }
 
                 if next_page_token:
                     request_body['nextPageToken'] = next_page_token
 
                 response = requests.post(
-                    f"{jira_client.base_url}/rest/api/3/search/jql",
+                    f"{jira_client.base_url}/rest/api/latest/search/jql",
                     auth=(jira_client.username, jira_client.token),
                     json=request_body,
                     headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
@@ -380,6 +396,7 @@ async def run_jira_sync(
         integration_id = jira_integration.id
         integration_username = jira_integration.username
         integration_password = jira_integration.password
+        integration_url = jira_integration.url
         client_id = job_schedule.client_id
         job_schedule_id = job_schedule.id
 

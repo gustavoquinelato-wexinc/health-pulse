@@ -38,10 +38,8 @@ class JiraAPIClient:
         if project_keys is None:
             # No fallback to settings - project keys must be provided from database
             jira_projects = None
-            logger.info(f"DEBUG: No project_keys provided - will return all accessible projects")
         else:
             jira_projects = project_keys
-            logger.info(f"DEBUG: Using provided project_keys: {jira_projects}")
 
         all_projects = []
         start_at = 0
@@ -64,18 +62,11 @@ class JiraAPIClient:
                     if jira_projects:
                         for project_key in jira_projects:
                             params.append(('keys', str(project_key)))
-                        logger.info(f"DEBUG: Added {len(jira_projects)} project key filters")
-                    else:
-                        logger.info(f"DEBUG: No project filtering - will return all accessible projects")
 
                     if expand:
                         params.append(('expand', expand))
 
-                    logger.info(f"DEBUG: Making API call to {url}")
-                    logger.info(f"DEBUG: API params: {params}")
-                    logger.info(f"DEBUG: Number of project keys: {len(jira_projects) if jira_projects else 0}")
-                    logger.info(f"DEBUG: Username: {self.username}")
-                    logger.info(f"DEBUG: Token (masked): {self.token[:10]}...{self.token[-4:] if len(self.token) > 14 else 'SHORT'}")
+
 
                     # Add headers that Insomnia includes by default
                     headers = {
@@ -92,26 +83,14 @@ class JiraAPIClient:
                         timeout=30
                     )
 
-                    logger.info(f"DEBUG: API response status: {response.status_code}")
-                    if response.status_code != 200:
-                        logger.error(f"DEBUG: API response error: {response.text[:500]}")
+
 
                     response.raise_for_status()
 
                     # Handle the API 3 response structure
                     response_data = response.json()
 
-                    # Debug the actual response
-                    logger.info(f"DEBUG: API response keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
-                    logger.info(f"DEBUG: Response type: {type(response_data)}")
-                    if isinstance(response_data, dict):
-                        logger.info(f"DEBUG: Total projects in response: {response_data.get('total', 'N/A')}")
-                        logger.info(f"DEBUG: Max results: {response_data.get('maxResults', 'N/A')}")
-                        logger.info(f"DEBUG: Start at: {response_data.get('startAt', 'N/A')}")
-                        logger.info(f"DEBUG: Is last: {response_data.get('isLast', 'N/A')}")
-                        logger.info(f"DEBUG: Values length: {len(response_data.get('values', []))}")
-                        if response_data.get('total', 0) == 0:
-                            logger.warning(f"DEBUG: Empty response despite 200 status. Full response: {response.text[:1000]}")
+
 
                     # API 3 returns: {"values": [...], "total": 12, "maxResults": 50, ...}
                     if isinstance(response_data, dict) and 'values' in response_data:
@@ -276,15 +255,33 @@ class JiraAPIClient:
             # Try to fetch a page with retries
             for retry_count in range(max_retries):
                 try:
-                    # Use NEW enhanced JQL API endpoint
-                    url = f"{self.base_url}/rest/api/3/search/jql"
+                    # Use NEW enhanced JQL API endpoint (latest version)
+                    url = f"{self.base_url}/rest/api/latest/search/jql"
 
                     # Build request body for POST request (new API uses POST)
                     request_body = {
                         'jql': jql,
                         'maxResults': min(max_results, 100),  # API limit is 100
-                        'fields': ['*all'],  # Request all fields
-                        'expand': ['changelog']  # Include changelog data
+                        'fields': [
+                            # Standard fields
+                            'key', 'summary', 'description', 'status', 'assignee', 'reporter', 'creator',
+                            'priority', 'labels', 'components', 'versions', 'fixVersions', 'issuetype',
+                            'project', 'created', 'updated', 'resolutiondate', 'resolution', 'environment',
+                            'attachment', 'parent',
+                            # Custom fields used in the system
+                            'customfield_10000',  # Code changed indicator
+                            'customfield_10011',  # Epic Name field
+                            'customfield_10024',  # Story points
+                            'customfield_10110',  # aha_epic_url (custom_field_01)
+                            'customfield_10128',  # Team custom field
+                            'customfield_10150',  # aha_initiative (custom_field_02)
+                            'customfield_10218',  # Risk assessment
+                            'customfield_10222',  # Acceptance criteria
+                            'customfield_10359',  # aha_project_code (custom_field_03)
+                            'customfield_10414',  # project_code (custom_field_04)
+                            'customfield_12103'   # aha_milestone (custom_field_05)
+                        ],
+                        'expand': 'changelog'  # Include changelog data
                     }
 
                     # Add pagination token if available
@@ -368,7 +365,7 @@ class JiraAPIClient:
             Approximate count of matching issues
         """
         try:
-            url = f"{self.base_url}/rest/api/3/search/approximate-count"
+            url = f"{self.base_url}/rest/api/latest/search/approximate-count"
             request_body = {'jql': jql}
 
             response = requests.post(

@@ -78,7 +78,7 @@ class JiraAgentClient:
         # Validate required environment variables
         required_vars = ['JIRA_URL', 'JIRA_USERNAME', 'JIRA_TOKEN', 'JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT']
         missing_vars = [var for var in required_vars if not os.getenv(var)]
-        
+
         if missing_vars:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
         

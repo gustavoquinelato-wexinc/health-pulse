@@ -412,6 +412,146 @@ SETTING_VALIDATORS = {
 - Sensitive settings are encrypted automatically
 - All setting changes are logged for audit
 
+## 🤖 AI & ML Settings (Phase 1+)
+
+### AI Feature Configuration
+
+#### AI Feature Toggles
+```json
+{
+  "ai_features_enabled": "false",
+  "ml_predictions_enabled": "false",
+  "semantic_search_enabled": "false",
+  "embedding_generation_enabled": "false",
+  "anomaly_detection_enabled": "false",
+  "ai_validation_enabled": "false"
+}
+```
+
+#### ML Model Configuration
+```json
+{
+  "embedding_model": "text-embedding-3-small",
+  "embedding_dimensions": "1536",
+  "similarity_threshold": "0.8",
+  "prediction_confidence_threshold": "0.7",
+  "anomaly_detection_sensitivity": "medium"
+}
+```
+
+#### AI Service Configuration
+```json
+{
+  "ai_service_url": "http://localhost:5000",
+  "ai_service_timeout": "30",
+  "ai_batch_size": "100",
+  "ai_retry_attempts": "3",
+  "ai_cache_enabled": "true",
+  "ai_cache_ttl": "3600"
+}
+```
+
+### ML Monitoring Settings
+
+#### Performance Monitoring
+```json
+{
+  "ml_monitoring_enabled": "true",
+  "performance_metrics_retention_days": "90",
+  "anomaly_alert_threshold": "0.9",
+  "prediction_accuracy_threshold": "0.8",
+  "monitoring_sample_rate": "0.1"
+}
+```
+
+#### Learning Memory Configuration
+```json
+{
+  "learning_memory_enabled": "true",
+  "max_learning_entries": "10000",
+  "learning_confidence_threshold": "0.6",
+  "auto_correction_enabled": "false",
+  "feedback_collection_enabled": "true"
+}
+```
+
+#### Vector Search Configuration
+```json
+{
+  "vector_search_enabled": "false",
+  "hnsw_ef_construction": "200",
+  "hnsw_m": "16",
+  "vector_similarity_metric": "cosine",
+  "max_search_results": "50"
+}
+```
+
+### AI Data Processing
+
+#### Embedding Generation Settings
+```json
+{
+  "auto_embed_new_content": "false",
+  "embed_issue_summaries": "true",
+  "embed_issue_descriptions": "true",
+  "embed_pr_titles": "true",
+  "embed_pr_descriptions": "true",
+  "embed_comments": "false",
+  "embedding_batch_size": "50"
+}
+```
+
+#### ML Pipeline Configuration
+```json
+{
+  "ml_pipeline_enabled": "false",
+  "data_validation_enabled": "true",
+  "feature_extraction_enabled": "false",
+  "model_training_enabled": "false",
+  "prediction_pipeline_enabled": "false",
+  "pipeline_schedule": "daily"
+}
+```
+
+### AI Security & Privacy
+
+#### Data Privacy Settings
+```json
+{
+  "ai_data_anonymization": "true",
+  "pii_detection_enabled": "true",
+  "sensitive_data_masking": "true",
+  "ai_audit_logging": "true",
+  "data_retention_policy": "strict"
+}
+```
+
+#### AI Access Control
+```json
+{
+  "ai_admin_only": "true",
+  "ml_insights_role_required": "admin",
+  "ai_api_rate_limit": "100",
+  "ai_feature_permissions": "admin,power_user",
+  "ai_data_access_level": "restricted"
+}
+```
+
+### Phase Implementation Status
+
+#### Phase 1 (Completed ✅)
+- **Database Schema**: Vector columns and ML monitoring tables
+- **Model Updates**: Enhanced unified models with AI capabilities
+- **Infrastructure**: PostgresML and pgvector extensions
+- **Settings Framework**: AI configuration structure prepared
+
+#### Phase 2+ (Future)
+- **Validation Layer**: Smart data validation using ML models
+- **Embedding Generation**: Automatic text-to-vector conversion
+- **Similarity Search**: Content discovery and duplicate detection
+- **Predictive Analytics**: Story point estimation and forecasting
+- **Anomaly Detection**: Automated issue and performance monitoring
+
 ---
 
-This comprehensive settings system provides flexible, secure, and client-specific configuration management for the Pulse Platform.
+This comprehensive settings system provides flexible, secure, and client-specific configuration management for the Pulse Platform, including advanced AI and ML capabilities.

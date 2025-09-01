@@ -133,7 +133,7 @@ async def get_system_info():
                 "debug_mode": os.getenv("DEBUG", "false").lower() == "true",
                 "log_level": os.getenv("LOG_LEVEL", "INFO"),
                 "database_url_configured": bool(os.getenv("DATABASE_URL")),
-                "jira_configured": bool(os.getenv("JIRA_BASE_URL")),
+                "jira_configured": "Check database integrations table",
                 "github_configured": bool(os.getenv("GITHUB_TOKEN"))
             }
         }
@@ -196,9 +196,8 @@ async def get_debug_config():
                 "port": settings.PORT,
                 "database_url": "***MASKED***" if settings.DATABASE_URL else None,
                 "jira": {
-                    "base_url": settings.JIRA_BASE_URL,
-                    "email": settings.JIRA_EMAIL,
-                    "api_token": "***MASKED***" if settings.JIRA_API_TOKEN else None
+                    "note": "Jira credentials now stored in database (integrations table)",
+                    "configured_in_database": "Check /api/v1/debug/health for status"
                 },
                 "github": {
                     "token": "***MASKED***" if settings.GITHUB_TOKEN else None

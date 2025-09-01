@@ -64,6 +64,50 @@ Frontend → Backend Service ← ETL Service
     Auth Service → Database (Primary/Replica)
 ```
 
+## 🤖 AI Development Standards (Phase 1+)
+
+### AI Architecture Principles
+- **Phase-Based Implementation**: Follow AI Evolution Plan phases strictly
+- **Backward Compatibility**: All AI enhancements must preserve existing functionality
+- **Vector-First Design**: All business tables include vector columns for future AI capabilities
+- **ML Monitoring**: Comprehensive tracking of AI performance and anomalies
+- **Client Isolation**: AI features respect multi-tenant architecture
+
+### AI Database Patterns
+- **Vector Columns**: `embedding vector(1536)` in all 24 business tables
+- **ML Monitoring Tables**: `ai_learning_memory`, `ai_predictions`, `ai_performance_metrics`, `ml_anomaly_alert`
+- **Vector Indexes**: HNSW indexes for efficient similarity search
+- **Extensions**: pgvector and postgresml installed and configured
+- **Phase 1 State**: Vector columns exist but are NULL (populated in Phase 2+)
+
+### AI Model Enhancements
+```python
+# All models include vector support
+class Issue(Base):
+    # ... existing fields ...
+    embedding: Optional[List[float]] = Column(VectorType(), nullable=True)
+
+    def to_dict(self, include_ml_fields: bool = False):
+        result = {
+            # ... existing fields ...
+        }
+        if include_ml_fields and self.embedding:
+            result['embedding'] = self.embedding
+        return result
+```
+
+### ML Monitoring Integration
+- **Performance Metrics**: Track AI system performance across all services
+- **Learning Memory**: Capture user feedback and corrections for continuous improvement
+- **Anomaly Detection**: Automated detection and alerting for ML-related issues
+- **Prediction Logging**: Track ML model predictions and accuracy over time
+
+### AI Service Communication
+- **Phase 1**: Infrastructure prepared, AI service not yet implemented
+- **Phase 2+**: RESTful API communication with dedicated AI service
+- **Health Checks**: Monitor AI infrastructure and service availability
+- **Error Handling**: Graceful degradation when AI features are unavailable
+
 ## 🔧 Development Standards
 
 ### Database Patterns
@@ -72,6 +116,8 @@ Frontend → Backend Service ← ETL Service
 - **Migrations**: Update existing migration 0001_initial_db_schema.py instead of creating new migrations
 - **Deactivated Records**: Exclude data connected to deactivated records at ANY level
 - **Database Router**: Use primary for writes, replica for analytics reads
+- **Vector Columns**: All business tables include `embedding vector(1536)` for AI capabilities
+- **ML Monitoring**: Use dedicated ML monitoring tables for AI performance tracking
 
 
 
@@ -264,6 +310,10 @@ NOT_STARTED → PENDING → RUNNING → FINISHED
 - **Consolidated Security Documentation**: Single comprehensive security guide
 - **Centralized Requirements**: Complete dependency management system with virtual environments
 - **WebSocket Integration**: Real-time job progress monitoring across frontend and ETL services
+- **AI Phase 1 Complete**: Database schema enhanced with vector columns and ML monitoring (2025-01-08)
+- **ML Infrastructure**: PostgresML and pgvector extensions installed with vector indexes
+- **Enhanced Models**: All unified models support vector columns and ML monitoring entities
+- **AI Monitoring**: Comprehensive ML performance tracking and anomaly detection infrastructure
 
 ---
 
