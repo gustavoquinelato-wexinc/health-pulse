@@ -12,6 +12,7 @@ The Backend Service serves as the primary interface between the frontend and dat
 - **ETL Coordination**: Settings management and job coordination with ETL service
 - **ML Monitoring**: AI performance metrics, anomaly detection, and learning memory (Phase 1+)
 - **Vector Operations**: Semantic search and similarity analysis infrastructure (Phase 1+)
+- **AI Validation**: SQL syntax/semantic validation with self-healing capabilities (Phase 2)
 
 ## 🏗️ Architecture
 
@@ -38,7 +39,8 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database (Enhanced)
 ### **Technology Stack**
 - **FastAPI** - Modern, fast web framework with automatic API documentation
 - **SQLAlchemy** - Advanced ORM for complex analytical queries with vector support
-- **Pydantic** - Data validation and serialization
+- **Pydantic** - Data validation and serialization (enhanced for AI validation schemas)
+- **sqlglot** - SQL parsing and syntax validation for AI-generated queries
 - **NumPy/Pandas** - Data processing and statistical analysis *(recently added)*
 - **WebSockets** - Real-time updates and notifications *(recently added)*
 - **Redis** - Caching and session management
@@ -230,6 +232,13 @@ New endpoints for AI monitoring and management:
 - **Performance Metrics**: `/api/v1/ml/performance` - AI system performance monitoring
 - **Anomaly Alerts**: `/api/v1/ml/anomalies` - ML-detected anomalies and alerts
 
+### **AI Validation Endpoints (Phase 2)**
+- **SQL Syntax Validation**: `/api/v1/ai/validate/sql-syntax` - PostgreSQL syntax checking with security validation
+- **Semantic Validation**: `/api/v1/ai/validate/sql-semantics` - Intent matching and confidence scoring
+- **Data Structure Validation**: `/api/v1/ai/validate/data-structure` - Schema validation for query results
+- **Learning Memory**: `/api/v1/ai/learning/record-feedback` - Record validation failures for learning
+- **Healing Suggestions**: `/api/v1/ai/learning/healing-suggestions` - Pattern-based query improvement suggestions
+
 ### **Vector Search Infrastructure**
 Prepared for semantic search capabilities:
 ```python
@@ -285,11 +294,18 @@ GET /health/ml
 - **Health Monitoring**: Database and ML infrastructure health checks
 - **API Framework**: ML monitoring endpoints structure prepared
 
-#### 🔄 Phase 2+ (Future)
+#### ✅ Phase 2 (Implemented)
+- **AI Validation Layer**: SQL syntax validation using sqlglot with PostgreSQL compatibility
+- **Semantic Validation**: Intent matching and confidence scoring for AI-generated queries
+- **Self-Healing Memory**: Pattern recognition and learning from validation failures
+- **Data Structure Validation**: Pydantic schemas for TeamAnalysis, DORA metrics, and Rework analysis
+- **Validation API Endpoints**: REST APIs for syntax, semantic, and data structure validation
+- **Enhanced Learning Memory**: Validation-specific columns and pattern tracking tables
+
+#### 🔄 Phase 3+ (Future)
 - **Embedding Generation**: Automatic text-to-vector conversion
 - **Semantic Search**: Content similarity and discovery APIs
 - **AI Service Integration**: Coordination with dedicated AI service
-- **Validation Layer**: ML-powered data validation and quality checks
 - **Predictive Analytics**: Story point estimation and timeline forecasting
 
 ---
