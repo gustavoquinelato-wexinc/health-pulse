@@ -38,7 +38,7 @@ Transform the platform from basic data analytics to intelligent, AI-powered insi
 ## 🎯 Objectives
 
 1. **Enhance Integration Table**: Add AI-specific columns for model configuration
-2. **User AI Preferences**: Store per-user AI configuration preferences
+2. **Client AI Preferences**: Store per-client AI configuration preferences
 3. **Client AI Configuration**: Store organization-level AI policies and settings
 4. **Migration Updates**: Update migrations 0001/0002 with CREATE statements (no ALTER)
 
@@ -70,19 +70,19 @@ CREATE TABLE IF NOT EXISTS integrations (
 );
 ```
 
-### User AI Preferences Table (Migration 0001 Update)
+### Client AI Preferences Table (Migration 0001 Update)
 ```sql
 -- Add to 0001_initial_db_schema.py
-CREATE TABLE IF NOT EXISTS user_ai_preferences (
+CREATE TABLE IF NOT EXISTS client_ai_preferences (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
+    client_id INTEGER NOT NULL,
     preference_type VARCHAR(50) NOT NULL, -- 'agent_config', 'dashboard_ai', 'embedding_config'
     configuration JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW(),
     last_updated_at TIMESTAMP DEFAULT NOW(),
 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE(user_id, preference_type)
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+    UNIQUE(client_id, preference_type)
 );
 ```
 
@@ -107,12 +107,12 @@ CREATE TABLE IF NOT EXISTS client_ai_configuration (
 -- Add to index creation section in 0001_initial_db_schema.py
 CREATE INDEX IF NOT EXISTS idx_integrations_ai_type ON integrations(integration_type, integration_subtype);
 CREATE INDEX IF NOT EXISTS idx_integrations_client_ai ON integrations(client_id, integration_type);
-CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_user ON user_ai_preferences(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_type ON user_ai_preferences(preference_type);
+CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_client ON client_ai_preferences(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_type ON client_ai_preferences(preference_type);
 CREATE INDEX IF NOT EXISTS idx_client_ai_config_client ON client_ai_configuration(client_id);
 CREATE INDEX IF NOT EXISTS idx_client_ai_config_category ON client_ai_configuration(config_category);
 CREATE INDEX IF NOT EXISTS idx_integrations_model_config ON integrations USING GIN(model_config);
-CREATE INDEX IF NOT EXISTS idx_user_ai_preferences_config ON user_ai_preferences USING GIN(configuration);
+CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_config ON client_ai_preferences USING GIN(configuration);
 ```
 
 ---
@@ -177,19 +177,19 @@ class Integration(Base):
     client = relationship("Client", back_populates="integrations")
     fallback_integration = relationship("Integration", remote_side=[id])
 
-class UserAIPreferences(Base):
-    """User AI configuration preferences"""
-    __tablename__ = 'user_ai_preferences'
+class ClientAIPreferences(Base):
+    """Client AI configuration preferences"""
+    __tablename__ = 'client_ai_preferences'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
     preference_type = Column(String(50), nullable=False)
     configuration = Column(JSONB, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = relationship("User", back_populates="ai_preferences")
+    client = relationship("Client", back_populates="ai_preferences")
 
 class ClientAIConfiguration(Base):
     """Client-level AI configuration"""
@@ -206,12 +206,9 @@ class ClientAIConfiguration(Base):
     client = relationship("Client", back_populates="ai_configuration")
 
 # Update existing models with new relationships
-class User(Base):
-    # ... existing fields ...
-    ai_preferences = relationship("UserAIPreferences", back_populates="user")
-
 class Client(Base):
     # ... existing fields ...
+    ai_preferences = relationship("ClientAIPreferences", back_populates="client")
     ai_configuration = relationship("ClientAIConfiguration", back_populates="client")
 ```
 
@@ -219,6 +216,7 @@ class Client(Base):
 ```python
 # Copy same models to ETL service unified_models.py
 # ETL needs access to AI configuration for embedding generation
+# Note: All AI configuration is per-client, not per-user
 ```
 
 ### AI Provider Framework Implementation
@@ -433,11 +431,10 @@ class AIProviderFactory:
 
 interface AIConfigurationProps {
   clientId: number;
-  userId: number;
 }
 
 // Main AI Configuration Hub
-const AIConfigurationHub: React.FC<AIConfigurationProps> = ({ clientId, userId }) => {
+const AIConfigurationHub: React.FC<AIConfigurationProps> = ({ clientId }) => {
   return (
     <div className="ai-configuration-hub">
       <AIConfigurationTabs>
@@ -1373,16 +1370,16 @@ async def generate_dashboard_insights(
 ):
     """Generate AI insights for dashboard"""
 
-    # Load user AI preferences
-    user_config = await load_user_ai_preferences(user.id, 'dashboard_ai')
+    # Load client AI preferences
+    client_config = await load_client_ai_preferences(user.client_id, 'dashboard_ai')
 
-    agent = DashboardAIAgent(user.client_id, user_config)
+    agent = DashboardAIAgent(user.client_id, client_config)
     insights = await agent.generate_proactive_insights(dashboard_data)
 
     return {
         'insights': [insight.__dict__ for insight in insights],
         'generated_at': datetime.now().isoformat(),
-        'agent_config': user_config
+        'agent_config': client_config
     }
 
 @router.post("/qa/ask")
@@ -1393,8 +1390,8 @@ async def ask_question(
 ):
     """Ask natural language question"""
 
-    # Load user AI preferences for Q&A
-    ai_config = await load_user_ai_preferences(user.id, 'qa_agent')
+    # Load client AI preferences for Q&A
+    ai_config = await load_client_ai_preferences(user.client_id, 'qa_agent')
 
     agent = QAAgent(user.client_id, ai_config)
     response = await agent.answer_question(question, context)
