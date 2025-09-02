@@ -180,6 +180,17 @@ class OrchestratorScheduler:
     
     def get_all_retry_status(self) -> dict:
         """Get retry status for all jobs."""
+        if not self.scheduler:
+            logger.debug("Scheduler not available for retry status")
+            return {
+                'retry_enabled': is_orchestrator_retry_enabled(),
+                'retry_interval_minutes': get_orchestrator_retry_interval(),
+                'max_attempts': get_orchestrator_max_retry_attempts(),
+                'jobs': {}
+            }
+
+        logger.debug(f"Scheduler type: {type(self.scheduler)}, has get_job: {hasattr(self.scheduler, 'get_job')}")
+
         return {
             'retry_enabled': is_orchestrator_retry_enabled(),
             'retry_interval_minutes': get_orchestrator_retry_interval(),
@@ -202,12 +213,18 @@ class OrchestratorScheduler:
             bool: True if fast retry is active (next run is sooner than normal interval)
         """
         if not self.scheduler:
+            logger.debug("Scheduler not available for fast retry check")
             return False
 
         try:
             # Get the orchestrator job
+            logger.debug("Attempting to get orchestrator job from scheduler")
             orchestrator_job = self.scheduler.get_job('etl_orchestrator')
-            if not orchestrator_job or not orchestrator_job.next_run_time:
+            if not orchestrator_job:
+                logger.debug("Orchestrator job not found - fast retry not active")
+                return False
+            if not orchestrator_job.next_run_time:
+                logger.debug("Orchestrator job has no next run time - fast retry not active")
                 return False
 
             # Calculate when the next run would be with normal interval
@@ -237,11 +254,16 @@ class OrchestratorScheduler:
             float: Minutes until next run, or None if no job scheduled
         """
         if not self.scheduler:
+            logger.debug("Scheduler not available for countdown check")
             return None
 
         try:
             orchestrator_job = self.scheduler.get_job('etl_orchestrator')
-            if not orchestrator_job or not orchestrator_job.next_run_time:
+            if not orchestrator_job:
+                logger.debug("Orchestrator job not found - no countdown available")
+                return None
+            if not orchestrator_job.next_run_time:
+                logger.debug("Orchestrator job has no next run time - no countdown available")
                 return None
 
             from datetime import timezone

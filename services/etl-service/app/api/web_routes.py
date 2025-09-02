@@ -2427,31 +2427,96 @@ async def set_job_active(job_name: str, user: UserData = Depends(require_admin_a
 async def get_orchestrator_status(user: UserData = Depends(require_admin_authentication)):
     """Get orchestrator status"""
     try:
+        logger.info("Starting orchestrator status check")
+
         from app.main import scheduler
+        logger.info(f"Scheduler imported: {scheduler}, type: {type(scheduler)}")
+
         from app.core.settings_manager import (
             get_orchestrator_interval, is_orchestrator_enabled,
             is_orchestrator_retry_enabled, get_orchestrator_retry_interval,
             get_orchestrator_max_retry_attempts
         )
+        logger.info("Settings manager functions imported")
+
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        logger.info("Orchestrator scheduler function imported")
 
         # Get orchestrator job status (simple single-client approach)
+        logger.info("Attempting to get orchestrator job from scheduler")
+        if scheduler is None:
+            logger.error("Scheduler is None!")
+            return {
+                "status": "scheduler_not_available",
+                "next_run": None,
+                "message": "Scheduler is not initialized",
+                "interval_minutes": get_orchestrator_interval(),
+                "enabled": is_orchestrator_enabled(),
+                "fast_retry_active": False,
+                "retry_config": {
+                    "enabled": is_orchestrator_retry_enabled(),
+                    "interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts()
+                },
+                "retry_status": {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
+            }
+
         job = scheduler.get_job("etl_orchestrator")
+        logger.info(f"Got job: {job}")
 
         if not job:
             return {
                 "status": "not_scheduled",
                 "next_run": None,
-                "message": "Orchestrator is not scheduled"
+                "message": "Orchestrator is not scheduled",
+                "interval_minutes": get_orchestrator_interval(),
+                "enabled": is_orchestrator_enabled(),
+                "fast_retry_active": False,
+                "retry_config": {
+                    "enabled": is_orchestrator_retry_enabled(),
+                    "interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts()
+                },
+                "retry_status": {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
             }
 
         # Check if job is paused
         is_paused = job.next_run_time is None
 
         # Get retry status (system-wide for now)
-        orchestrator_scheduler = get_orchestrator_scheduler()
-        retry_status = orchestrator_scheduler.get_all_retry_status()
-        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+        try:
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            if orchestrator_scheduler:
+                retry_status = orchestrator_scheduler.get_all_retry_status()
+                fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+            else:
+                logger.warning("Orchestrator scheduler is None")
+                retry_status = {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
+                fast_retry_active = False
+        except Exception as e:
+            logger.error(f"Error getting orchestrator scheduler status: {e}")
+            retry_status = {
+                "retry_enabled": is_orchestrator_retry_enabled(),
+                "retry_interval_minutes": get_orchestrator_retry_interval(),
+                "max_attempts": get_orchestrator_max_retry_attempts(),
+                "jobs": {}
+            }
+            fast_retry_active = False
 
         # Determine orchestrator status more accurately
         if is_paused:
@@ -2491,6 +2556,8 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
 
     except Exception as e:
         logger.error(f"Error getting orchestrator status: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get orchestrator status"
@@ -2572,8 +2639,12 @@ async def update_orchestrator_retry_config(
 
         # Check if fast retry is currently active
         orchestrator_scheduler = get_orchestrator_scheduler()
-        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
-        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+        if orchestrator_scheduler:
+            fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+            current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+        else:
+            fast_retry_active = False
+            current_countdown = None
 
         # Update settings
         updates = {}
@@ -2588,7 +2659,7 @@ async def update_orchestrator_retry_config(
             updates['interval_minutes'] = retry_interval
 
             # Check if we should apply the new retry interval immediately
-            if fast_retry_active:
+            if fast_retry_active and orchestrator_scheduler:
                 schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(retry_interval)
 
         if max_attempts is not None:
@@ -2681,7 +2752,7 @@ async def update_system_setting(
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
 
-                if orchestrator_scheduler.is_fast_retry_active():
+                if orchestrator_scheduler and orchestrator_scheduler.is_fast_retry_active():
                     schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(int(setting_value))
                     if schedule_updated:
                         logger.info(f"Retry interval updated to {setting_value} minutes and applied immediately (was smaller than current countdown)")

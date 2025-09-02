@@ -112,23 +112,16 @@ def install_all_requirements_root():
     if not run_command(f"{python_cmd} -m pip install --upgrade pip", cwd=root_dir):
         print(f"⚠️  Failed to upgrade pip, continuing with installation...")
 
-    # Install all requirements files
-    requirements_files = ["common.txt", "auth-service.txt", "backend-service.txt", "etl-service.txt"]
-    success_count = 0
+    # Install all requirements using the all-services.txt file
+    all_services_file = requirements_dir / "all-services.txt"
 
-    for req_file in requirements_files:
-        req_path = requirements_dir / req_file
-        if req_path.exists():
-            print(f"📦 Installing {req_file}...")
-            command = f"{pip_cmd} install -r {req_path}"
-            if run_command(command, cwd=root_dir):
-                success_count += 1
-            else:
-                print(f"❌ Failed to install {req_file}")
-        else:
-            print(f"⚠️  Requirements file not found: {req_file}")
+    if not all_services_file.exists():
+        print(f"❌ All-services requirements file not found: {all_services_file}")
+        return False
 
-    return success_count == len([f for f in requirements_files if (requirements_dir / f).exists()])
+    print(f"📦 Installing all dependencies from {all_services_file}...")
+    command = f"{pip_cmd} install -r {all_services_file}"
+    return run_command(command, cwd=root_dir)
 
 def main():
     """Main installation function."""

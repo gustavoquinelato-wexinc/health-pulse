@@ -849,6 +849,13 @@ async def discover_all_repositories(session: Session, integration: Integration, 
                     non_health_repo_names.append(repo_name)  # Store just the repo name for search
 
         logger.info(f"Non-{clean_health_pattern or 'filtered'} repositories from Jira: {len(non_health_repo_names)}")
+
+        # Limit additional repositories to prevent GitHub API query complexity issues
+        max_additional_repos = 10  # Limit to prevent 422 errors
+        if len(non_health_repo_names) > max_additional_repos:
+            logger.warning(f"Too many additional repositories ({len(non_health_repo_names)}), limiting to {max_additional_repos} to prevent GitHub API errors")
+            non_health_repo_names = sorted(non_health_repo_names)[:max_additional_repos]
+
         if non_health_repo_names and len(non_health_repo_names) <= 5:
             logger.info(f"Non-health repos: {', '.join(sorted(non_health_repo_names))}")
         elif non_health_repo_names:

@@ -67,12 +67,14 @@ python services/backend-service/scripts/migration_runner.py --apply-all
 - ✅ Copies `.env.example` to `.env` for all services (root + individual services)
 - ✅ Cross-platform support (Windows, Linux, macOS)
 
-**Alternative: Root Virtual Environment Setup**
-For simplified dependency management, use the root venv approach instead:
+**Recommended: Root Virtual Environment Setup**
+For simplified dependency management and to avoid APScheduler import issues, use the root venv approach:
 ```bash
-# Create and use single root virtual environment
+# Create and use single root virtual environment (RECOMMENDED)
 python scripts/install_requirements.py all
 ```
+
+**Note**: The root venv approach is now recommended as it resolves dependency conflicts and APScheduler import issues that can occur with individual service virtual environments.
 
 ### 🐳 Docker-Only Setup (Alternative)
 
@@ -188,6 +190,7 @@ The following dependencies were added to fix missing imports:
 python scripts/setup_development.py
 
 # Option 2: Install all dependencies in root virtual environment (RECOMMENDED)
+# This approach uses all-services.txt for consistent dependency management
 python scripts/install_requirements.py all
 
 # Option 3: Install specific service (creates individual service venv)
@@ -234,7 +237,7 @@ The platform uses both centralized and service-specific configuration:
 
 ```bash
 # Root configuration (shared settings)
-.env                              # Main configuration file
+.env                              # Main configuration file (includes integration credentials)
 
 # Service-specific configuration
 services/backend-service/.env     # Backend-specific settings
@@ -245,8 +248,10 @@ services/frontend-app/.env        # Frontend-specific settings
 #### Configuration Priority
 
 1. **Service-specific `.env`** - Takes priority for that service
-2. **Root `.env`** - Fallback for shared settings
+2. **Root `.env`** - Fallback for shared settings (includes database, AI providers, integration credentials)
 3. **Environment variables** - Override both files
+
+**Important**: The root `.env` file now contains integration credentials (GitHub/Jira tokens) that are **only used during migration 0002** to encrypt and store them in the database. After migration, credentials are managed through the database integrations table.
 
 #### Manual Setup (if not using setup script)
 ```bash
@@ -352,9 +357,11 @@ VITE_ENABLE_DARK_MODE=true
 
 #### Configure GitHub Settings
 ```bash
-# Add to ETL service .env file
+# Add to ROOT .env file (used during migration 0002 only)
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-GITHUB_ORG=your-organization-name
+
+# Organization is configured in the GitHub integration base_search field
+# Example: "health-" for repositories containing "health"
 ```
 
 ### Jira Integration
@@ -367,10 +374,13 @@ GITHUB_ORG=your-organization-name
 
 #### Configure Jira Settings
 ```bash
-# Add to ETL service .env file
-JIRA_BASE_URL=https://yourcompany.atlassian.net
-JIRA_EMAIL=your-email@yourcompany.com
-JIRA_API_TOKEN=ATATT3xFfGF0...
+# Add to ROOT .env file (used during migration 0002 only)
+JIRA_URL=https://yourcompany.atlassian.net
+JIRA_USERNAME=your-email@yourcompany.com
+JIRA_TOKEN=ATATT3xFfGF0...
+
+# Project filtering is configured in the Jira integration base_search field
+# Example: "project in (PROJ1,PROJ2,PROJ3) AND labels = 'urgent'"
 ```
 
 #### Test API Connections
