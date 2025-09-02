@@ -15,12 +15,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy and install Python dependencies from centralized requirements
-COPY ../../requirements/backend-service.txt requirements.txt
-COPY ../../requirements/common.txt common.txt
+COPY requirements/backend-service.txt requirements.txt
+COPY requirements/common.txt common.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY services/backend-service/ .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app \

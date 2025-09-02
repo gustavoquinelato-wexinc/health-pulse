@@ -1001,7 +1001,6 @@
 
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
-            ${createWebSocketProgress(jobName)}
 
             <!-- Action Buttons - Right Aligned with Better Grouping -->
             <div class="mt-6 flex justify-end">
@@ -1010,7 +1009,10 @@
                 </div>
             </div>
 
-            <!-- Messages Section - Below Buttons for Consistent Layout -->
+            <!-- Progress Bar - Below Buttons, Above Messages -->
+            ${createWebSocketProgress(jobName)}
+
+            <!-- Messages Section - Below Progress Bar for Consistent Layout -->
             ${createMessagesSection(jobName, jobData)}
             ${createExceptionLog(jobName)}
         `;
@@ -1525,10 +1527,11 @@
     function updateJobCardProgress(jobCard, percentage, step) {
         let progressSection = jobCard.querySelector('.ws-progress-container');
         if (!progressSection) {
-            const detailsSection = jobCard.querySelector('.space-y-3');
-            if (detailsSection) {
+            // Insert progress bar after the action buttons section
+            const buttonsSection = jobCard.querySelector('.mt-6.flex.justify-end');
+            if (buttonsSection) {
                 const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
-                detailsSection.insertAdjacentHTML('afterend', progressHtml);
+                buttonsSection.insertAdjacentHTML('afterend', progressHtml);
                 progressSection = jobCard.querySelector('.ws-progress-container');
             }
         }

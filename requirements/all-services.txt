@@ -1,0 +1,11 @@
+# Common specific dependencies
+-r common.txt
+
+# Auth Service specific dependencies
+-r auth-service.txt
+
+# Backend Service specific dependencies
+-r backend-service.txt
+
+# ETL Service specific dependencies
+-r etl-service.txt

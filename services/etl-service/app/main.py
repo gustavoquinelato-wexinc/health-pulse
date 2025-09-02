@@ -20,10 +20,12 @@ try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
     SCHEDULER_AVAILABLE = True
-except ImportError:
+    print(f"✅ APScheduler imported successfully")
+except ImportError as e:
     SCHEDULER_AVAILABLE = False
     AsyncIOScheduler = None
     IntervalTrigger = None
+    print(f"❌ APScheduler import failed: {e}")
 
 from app.core.config import get_settings
 from app.core.database import get_database, get_db_session
@@ -72,7 +74,11 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 # Scheduler global
+print(f"Creating scheduler: SCHEDULER_AVAILABLE={SCHEDULER_AVAILABLE}")
 scheduler = AsyncIOScheduler() if SCHEDULER_AVAILABLE else None
+print(f"Scheduler created: {scheduler}, type: {type(scheduler)}")
+logger = get_logger(__name__)
+logger.info(f"Scheduler initialization: SCHEDULER_AVAILABLE={SCHEDULER_AVAILABLE}, scheduler={scheduler}")
 
 # Global shutdown flag to prevent multiple cleanup attempts
 _shutdown_initiated = False
@@ -668,6 +674,8 @@ async def initialize_database():
 
 async def initialize_scheduler():
     """Initializes the job scheduler with database-driven configuration."""
+    logger.info(f"🔧 Starting scheduler initialization: SCHEDULER_AVAILABLE={SCHEDULER_AVAILABLE}, scheduler={scheduler}")
+
     if not SCHEDULER_AVAILABLE:
         logger.warning("APScheduler not available, jobs will not be scheduled automatically")
         return

@@ -252,17 +252,20 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     logger.info("Starting combined projects and issue types extraction")
 
     try:
-        # Extract project keys from integration projects column
+        # Extract project keys from integration base_search column
         project_keys = None
 
-        if integration.projects:
-            # Parse project keys from projects column like "BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS"
-            project_keys = [key.strip() for key in integration.projects.split(',') if key.strip()]
-
+        if integration.base_search:
+            # Try to extract project keys from base_search like "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"
+            import re
+            match = re.search(r'project\s+in\s*\(([^)]+)\)', integration.base_search, re.IGNORECASE)
+            if match:
+                project_list = match.group(1)
+                project_keys = [key.strip() for key in project_list.split(',') if key.strip()]
+            else:
+                logger.warning("DEBUG: No project filtering found in base_search")
         else:
-            logger.warning("DEBUG: No projects found in integration.projects column")
-
-
+            logger.warning("DEBUG: No base_search found in integration")
 
         # Get all projects from Jira
         jira_projects = jira_client.get_projects(expand="issueTypes", project_keys=project_keys)
@@ -868,15 +871,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
 
-        # Construct JQL query: PROJECT IN (projects) AND base_search AND updated timestamp
+        # Construct JQL query: base_search AND updated timestamp
         jql_parts = []
 
-        # Add project filtering if projects are specified
-        if integration.projects:
-            project_list = integration.projects.replace(' ', '')  # Remove spaces
-            jql_parts.append(f"PROJECT IN ({project_list})")
-
-        # Add base_search if specified
+        # Add base_search if specified (now includes project filtering)
         if integration.base_search:
             jql_parts.append(f"({integration.base_search})")
 
@@ -1891,7 +1889,6 @@ async def extract_work_items_and_changelogs_session_free(
                 return {'success': False, 'error': 'Integration not found'}
 
             # Store integration details for session-free operations
-            integration_projects = integration.projects
             integration_base_search = integration.base_search
             integration_name = integration.name
 
@@ -1901,21 +1898,9 @@ async def extract_work_items_and_changelogs_session_free(
         def get_issues_sync():
             """Synchronous function to fetch issues from Jira API."""
             try:
-                # Build JQL query: PROJECT IN (projects) AND base_search
-                jql_parts = []
-
-                # Add project filtering if projects are specified
-                if integration_projects:
-                    project_list = integration_projects.replace(' ', '')  # Remove spaces
-                    jql_parts.append(f"PROJECT IN ({project_list})")
-
-                # Add base_search if specified
+                # Build JQL query: base_search (now includes project filtering)
                 if integration_base_search:
-                    jql_parts.append(f"({integration_base_search})")
-
-                # Combine all parts with AND or use default
-                if jql_parts:
-                    jql_query = " AND ".join(jql_parts) + " ORDER BY updated DESC"
+                    jql_query = f"({integration_base_search}) ORDER BY updated DESC"
                 else:
                     jql_query = "updated >= -365d ORDER BY updated DESC"  # Use relative date format
 

@@ -70,8 +70,14 @@ def apply(connection):
             # Try to find .env file in multiple locations
             env_paths = [
                 os.path.join(os.path.dirname(__file__), '..', '.env'),  # services/backend-service/.env
-                os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env'),  # project root/.env
+                os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '.env'),  # project root/.env
             ]
+
+            print(f"   🔍 DEBUG - Looking for .env files:")
+            for i, env_path in enumerate(env_paths):
+                abs_path = os.path.abspath(env_path)
+                exists = os.path.exists(env_path)
+                print(f"   🔍 Path {i+1}: {abs_path} - Exists: {exists}")
 
             env_loaded = False
             for env_path in env_paths:
@@ -102,32 +108,40 @@ def apply(connection):
             settings = None
             encryption_available = False
 
-        # JIRA Integration
-        jira_url = "https://wexinc.atlassian.net"
-        jira_username = "gustavo.quinelato@wexinc.com"
+        # JIRA Integration - Reading credentials from .env file
+        jira_url = os.getenv('JIRA_URL')
+        jira_username = os.getenv('JIRA_USERNAME')
+        jira_token = os.getenv('JIRA_TOKEN')
         jira_password = None
         jira_active = False
 
-        # NOTE: JIRA credentials now stored in database only
-        # Legacy environment variable support removed for security
-        print("   📋 JIRA credentials now managed through database only")
-
-        # Use default values for migration
-        if False:  # Disabled legacy environment variable loading
+        if jira_url and jira_username and jira_token:
+            print(f"   📋 Found JIRA credentials in .env: {jira_url}, {jira_username}")
             try:
-                jira_username = settings.JIRA_USERNAME
-                jira_active = True
+                if encryption_available:
+                    key = AppConfig.load_key()
+                    jira_password = AppConfig.encrypt_token(jira_token, key)
+                    print("   🔐 JIRA token encrypted successfully")
+                    jira_active = True
+                else:
+                    jira_password = jira_token
+                    print("   ⚠️  JIRA token stored unencrypted (AppConfig not available)")
+                    jira_active = True
             except Exception as e:
                 print(f"   ❌ Failed to process JIRA credentials: {e}")
+                jira_active = False
         else:
-            print("   💡 JIRA credentials not found in environment")
+            print("   ⚠️  JIRA credentials not found in .env file")
+            # Use default values for inactive integration
+            jira_url = "https://wexinc.atlassian.net"
+            jira_username = "gustavo.quinelato@wexinc.com"
 
         cursor.execute("""
             INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (name, client_id) DO NOTHING
             RETURNING id;
-        """, ("JIRA", jira_url, jira_username, jira_password, "PROJECT IN (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id, jira_active))
+        """, ("JIRA", jira_url, jira_username, jira_password, "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id, jira_active))
 
         jira_result = cursor.fetchone()
         if jira_result:
@@ -138,29 +152,28 @@ def apply(connection):
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
 
-        # GitHub Integration
+        # GitHub Integration - Reading credentials from .env file
+        github_token = os.getenv('GITHUB_TOKEN')
         github_password = None
         github_active = False
 
-        if settings and hasattr(settings, 'GITHUB_TOKEN'):
-            if settings.GITHUB_TOKEN:
-                print(f"   📋 Found GitHub token: {settings.GITHUB_TOKEN[:10]}...")
-                try:
-                    if encryption_available:
-                        key = AppConfig.load_key()
-                        github_password = AppConfig.encrypt_token(settings.GITHUB_TOKEN, key)
-                        print("   🔐 GitHub token encrypted successfully")
-                    else:
-                        github_password = settings.GITHUB_TOKEN
-                        print("   ⚠️  GitHub token stored unencrypted (AppConfig not available)")
-
+        if github_token:
+            print(f"   📋 Found GitHub token in .env: {github_token[:10]}...")
+            try:
+                if encryption_available:
+                    key = AppConfig.load_key()
+                    github_password = AppConfig.encrypt_token(github_token, key)
+                    print("   🔐 GitHub token encrypted successfully")
                     github_active = True
-                except Exception as e:
-                    print(f"   ❌ Failed to process GitHub credentials: {e}")
-            else:
-                print("   💡 GitHub token not found in environment")
+                else:
+                    github_password = github_token
+                    print("   ⚠️  GitHub token stored unencrypted (AppConfig not available)")
+                    github_active = True
+            except Exception as e:
+                print(f"   ❌ Failed to process GitHub credentials: {e}")
+                github_active = False
         else:
-            print("   💡 GitHub token not available in settings")
+            print("   ⚠️  GitHub token not found in .env file")
 
         cursor.execute("""
             INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
