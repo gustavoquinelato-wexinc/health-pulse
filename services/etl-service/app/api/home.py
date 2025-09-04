@@ -406,7 +406,7 @@ async def toggle_job_active_status(
 
             session.commit()
 
-            logger.info(f"[JOB] Toggled job {job.job_name} (ID: {job_id}) active status: {old_status} → {job.active}")
+            logger.info(f"[JOB] Toggled job {job.job_name} (ID: {job_id}) active status: {old_status} -> {job.active}")
 
             return {
                 "success": True,
