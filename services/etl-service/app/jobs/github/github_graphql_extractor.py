@@ -26,7 +26,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
     """
     Process pull requests for a repository using GraphQL with bulk inserts and early termination.
 
-    Uses DESC ordering by updatedAt and stops when encountering PRs older than integration.last_sync_at
+    Uses DESC ordering by updatedAt and stops when encountering PRs older than job_schedule.last_success_at
     for optimal efficiency. Only processes new/updated PRs since last sync.
 
     Args:
@@ -35,7 +35,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         repository: Repository object
         owner: Repository owner
         repo_name: Repository name
-        integration: GitHub integration (last_sync_at used for early termination)
+        integration: GitHub integration (for configuration)
         job_schedule: Job schedule for checkpoint management
 
     Returns:
@@ -52,9 +52,10 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         prs_processed = 0
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
-        last_sync_at = integration.last_sync_at
+        # Use job_schedule.last_success_at instead of integration.last_sync_at
+        last_sync_at = job_schedule.last_success_at
         if last_sync_at:
-            logger.info(f"Using last_sync_at for early termination: {last_sync_at}")
+            logger.info(f"Using job_schedule.last_success_at for early termination: {last_sync_at}")
         else:
             logger.info("No last_sync_at found - will process all PRs")
 
@@ -352,11 +353,12 @@ async def process_repository_prs_with_graphql_recovery(session: Session, graphql
         checkpoint_state = job_schedule.get_checkpoint_state()
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
-        last_sync_at = integration.last_sync_at
+        # Use job_schedule.last_success_at instead of integration.last_sync_at
+        last_sync_at = job_schedule.last_success_at
         if last_sync_at:
-            logger.info(f"Using last_sync_at for early termination in recovery: {last_sync_at}")
+            logger.info(f"Using job_schedule.last_success_at for early termination in recovery: {last_sync_at}")
         else:
-            logger.info("No last_sync_at found - will process all PRs in recovery")
+            logger.info("No last_success_at found - will process all PRs in recovery")
 
         prs_processed = 0
         pr_cursor = checkpoint_state['last_pr_cursor']

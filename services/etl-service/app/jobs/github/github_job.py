@@ -376,7 +376,7 @@ async def run_github_sync(
         execution_mode: Execution mode (repositories, pull_requests, single_repo, all)
         target_repository: Specific repository for single_repo mode (format: "owner/repo")
         target_repositories: Specific repositories for repositories/pull_requests modes
-        update_sync_timestamp: Whether to update integration.last_sync_at (default: True)
+        update_sync_timestamp: Whether to update job_schedule.last_success_at (default: True)
         update_job_schedule: Whether to update job_schedule.status (default: True)
     """
     try:
