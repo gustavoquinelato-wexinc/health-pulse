@@ -348,6 +348,30 @@
         background-color: rgba(255, 255, 255, 0.15) !important; /* Dark mode: white with opacity */
     }
 
+    /* Inactive Job Card Styles */
+    .job-card-inactive {
+        opacity: 0.7;
+    }
+
+    /* Apply grayscale to job content but NOT to action buttons */
+    .job-card-inactive > div:not(.mt-6) {
+        filter: grayscale(50%);
+    }
+
+    /* Ensure action buttons remain fully colored and clickable */
+    .job-card-inactive .mt-6 {
+        filter: none !important;
+        opacity: 1 !important;
+    }
+
+    /* Make sure toggle button stands out on inactive cards */
+    .job-card-inactive .btn-status-success-sm,
+    .job-card-inactive .btn-status-warning-sm {
+        filter: none !important;
+        opacity: 1 !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
     /* Jira icon background - lighter blue for both themes */
     .jira-icon-bg {
         background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
@@ -1020,10 +1044,10 @@
         card.style.border = '1px solid var(--border-color)';
         card.setAttribute('data-job', jobName);
 
-        // Add inactive styling (but keep toggle button clickable)
+        // Add inactive styling class instead of direct filter
+        // This allows us to selectively apply grayscale to content but not buttons
         if (isInactive) {
-            card.style.filter = 'grayscale(50%)';
-            // Don't disable all pointer events - we need the toggle button to work
+            card.classList.add('job-card-inactive');
         }
 
         // Use integration_type from API response to determine icon and styling
