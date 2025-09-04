@@ -2224,7 +2224,12 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
                 logger.error(f"[PAUSE] Job {job_name} not found or not active")
                 raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
 
-            logger.info(f"[PAUSE] Job {job_name} current status: {job_to_pause.status}")
+            logger.info(f"[PAUSE] Job {job_name} found - ID: {job_to_pause.id}, Status: {job_to_pause.status}, Active: {job_to_pause.active}")
+
+            # Also check all jobs to see the current state
+            all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
+            for job in all_jobs:
+                logger.info(f"[PAUSE] All active jobs - {job.job_name}: Status={job.status}, ID={job.id}")
 
             if job_to_pause.status == 'PAUSED':
                 logger.info(f"[PAUSE] Job {job_name} is already paused")

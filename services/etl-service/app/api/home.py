@@ -254,7 +254,7 @@ async def get_job_cards(
         database = get_database()
         job_cards = []
 
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             # Get all job schedules for this client (including inactive), ordered by execution_order
             job_schedules = session.query(JobSchedule).filter(
                 JobSchedule.client_id == user.client_id
@@ -276,6 +276,7 @@ async def get_job_cards(
 
                     # Always use actual database status values
                     status_value = job.status
+                    logger.debug(f"[HOME] Job {job.job_name} - ID: {job.id}, Status: {status_value}, Active: {job.active}")
                     last_sync = None
 
                     # Set last_sync if job has completed successfully
