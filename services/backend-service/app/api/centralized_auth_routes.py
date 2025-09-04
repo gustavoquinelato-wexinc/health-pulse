@@ -52,7 +52,7 @@ async def validate_user_credentials(request: CredentialValidationRequest):
     This endpoint is called by auth service during login process.
     """
     try:
-        logger.info(f"Validating credentials for user: {request.email}")
+        logger.info(f"[AUTH] Validating credentials for user (email length: {len(request.email)})")
 
         database = get_database()
         with database.get_session_context() as session:
@@ -74,7 +74,7 @@ async def validate_user_credentials(request: CredentialValidationRequest):
             # Return user data for token generation with optional ML fields
             user_data = user.to_dict(include_ml_fields=request.include_ml_fields)
 
-            logger.info(f"Credentials validated successfully for user: {request.email}")
+            logger.info(f"[AUTH] Credentials validated successfully for user_id: {user.id}")
             return CredentialValidationResponse(valid=True, user=user_data)
 
     except Exception as e:
@@ -165,14 +165,14 @@ async def validate_centralized_token(request: TokenValidationRequest):
     """
     try:
         token = request.token
-        logger.debug(f"Validating centralized token: {token[:20]}...")
+        logger.debug(f"[AUTH] Validating centralized token (length: {len(token)})")
 
         # First check if token is valid locally (Redis/database cache)
         auth_service = get_auth_service()
         user = await auth_service.verify_token(token)
         
         if user:
-            logger.debug(f"Token valid locally for user: {user.email}")
+            logger.debug(f"[AUTH] Token valid locally for user_id: {user.id}")
             return TokenValidationResponse(
                 valid=True,
                 user=user.to_dict(include_ml_fields=request.include_ml_fields)
@@ -192,8 +192,8 @@ async def validate_centralized_token(request: TokenValidationRequest):
                 token_data = response.json()
                 if token_data.get("valid"):
                     user_data = token_data.get("user")
-                    logger.debug(f"Token valid via auth service for user: {user_data['email']}")
-                    
+                    logger.debug(f"[AUTH] Token valid via auth service for user_id: {user_data.get('id')}")
+
                     # Cache the token locally for future requests
                     await auth_service.store_session_from_token(token, user_data)
                     

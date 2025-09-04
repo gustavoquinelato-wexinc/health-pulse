@@ -43,13 +43,22 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
             
             # Log successful response
             process_time = time.time() - start_time
+
+            # Determine client identifier for logging (avoid "anonymous" for security)
+            if client_context and client_context.get('client_name'):
+                client_identifier = client_context['client_name']
+            elif client_context:
+                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+            else:
+                client_identifier = 'unauthenticated'  # No authentication context
+
             logger.info(
                 "Request completed",
                 method=request.method,
                 url=str(request.url),
                 status_code=response.status_code,
                 process_time=process_time,
-                client=client_context.get('client_name', 'unknown') if client_context else 'anonymous'
+                client=client_identifier
             )
             
             return response
@@ -57,6 +66,15 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
         except Exception as exc:
             # Log error
             process_time = time.time() - start_time
+
+            # Determine client identifier for logging (avoid "anonymous" for security)
+            if client_context and client_context.get('client_name'):
+                client_identifier = client_context['client_name']
+            elif client_context:
+                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+            else:
+                client_identifier = 'unauthenticated'  # No authentication context
+
             logger.error(
                 "Request failed",
                 method=request.method,
@@ -64,7 +82,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                 error=str(exc),
                 error_type=type(exc).__name__,
                 process_time=process_time,
-                client=client_context.get('client_name', 'unknown') if client_context else 'anonymous'
+                client=client_identifier
             )
             raise
     
@@ -111,7 +129,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                     'client_id': client.id,
                     'client_name': client.name,
                     'user_id': user.id,
-                    'user_email': user.email,
+                    # Don't include email in context to avoid PII in logs
                     'user_role': user.role
                 }
         
