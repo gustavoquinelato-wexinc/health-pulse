@@ -2272,35 +2272,25 @@ async def unpause_job(job_id: int, user: UserData = Depends(require_admin_authen
 
             job_name = job_to_unpause.job_name
 
-            # Get other jobs for the same client to determine unpause logic
-            other_jobs = session.query(JobSchedule).filter(
-                JobSchedule.client_id == user.client_id,
-                JobSchedule.active == True,
-                JobSchedule.id != job_id
-            ).all()
-
-            # Find the other job (assuming 2-job system)
-            other_job = other_jobs[0] if other_jobs else None
-
             logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) current status: {job_to_unpause.status}")
 
             if job_to_unpause.status != 'PAUSED':
                 logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) is not paused (status: {job_to_unpause.status})")
                 return {"message": f"Job {job_name} is not paused", "status": job_to_unpause.status.lower()}
 
-            # Determine new status based on other job status
-            other_job_status = other_job.status if other_job else 'FINISHED'
+            # Simplified unpause: Set job to NOT_STARTED (ready to run)
             old_status = job_to_unpause.status
-            job_to_unpause.set_unpaused(other_job_status)
+            job_to_unpause.status = 'NOT_STARTED'
             session.commit()
 
-            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> {job_to_unpause.status} (other job: {other_job_status})")
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> NOT_STARTED")
 
             return {
                 "message": f"Job {job_name} unpaused successfully",
-                "status": job_to_unpause.status.lower(),
+                "status": "not_started",
                 "job_id": job_id,
-                "other_job_status": other_job_status.lower() if other_job else "none"
+                "old_status": old_status,
+                "new_status": "NOT_STARTED"
             }
 
     except HTTPException:
