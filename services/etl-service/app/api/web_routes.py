@@ -2208,35 +2208,32 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/pause")
-async def pause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Pause a specific job"""
+@router.post("/api/v1/jobs/{job_id}/pause")
+async def pause_job(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Pause a specific job by ID"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get the job to pause
+            # Get the specific job to pause by ID and client
             job_to_pause = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id,
                 JobSchedule.active == True
             ).first()
 
             if not job_to_pause:
-                logger.error(f"[PAUSE] Job {job_name} not found or not active")
-                raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
+                logger.error(f"[PAUSE] Job ID {job_id} not found or not active for client {user.client_id}")
+                raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
 
-            logger.info(f"[PAUSE] Job {job_name} found - ID: {job_to_pause.id}, Status: {job_to_pause.status}, Active: {job_to_pause.active}")
-
-            # Also check all jobs to see the current state
-            all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
-            for job in all_jobs:
-                logger.info(f"[PAUSE] All active jobs - {job.job_name}: Status={job.status}, ID={job.id}")
+            job_name = job_to_pause.job_name
+            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) found - Status: {job_to_pause.status}, Active: {job_to_pause.active}, Client: {job_to_pause.client_id}")
 
             if job_to_pause.status == 'PAUSED':
-                logger.info(f"[PAUSE] Job {job_name} is already paused")
+                logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) is already paused")
                 return {"message": f"Job {job_name} is already paused", "status": "paused"}
 
             if job_to_pause.status == 'RUNNING':
-                logger.warning(f"[PAUSE] Cannot pause job {job_name} while it's running")
+                logger.warning(f"[PAUSE] Cannot pause job {job_name} (ID: {job_id}) while it's running")
                 raise HTTPException(status_code=400, detail=f"Cannot pause job {job_name} while it's running")
 
             # Pause the job
@@ -2244,11 +2241,12 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
             job_to_pause.set_paused()
             session.commit()
 
-            logger.info(f"[PAUSE] Job {job_name} paused successfully: {old_status} -> PAUSED")
+            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) paused successfully: {old_status} -> PAUSED")
 
             return {
                 "message": f"Job {job_name} paused successfully",
-                "status": "paused"
+                "status": "paused",
+                "job_id": job_id
             }
 
     except HTTPException:
@@ -2261,32 +2259,39 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/unpause")
-async def unpause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Unpause a specific job"""
+@router.post("/api/v1/jobs/{job_id}/unpause")
+async def unpause_job(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Unpause a specific job by ID"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get both jobs to determine unpause logic
-            all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
-
-            job_to_unpause = None
-            other_job = None
-
-            for job in all_jobs:
-                if job.job_name == job_name:
-                    job_to_unpause = job
-                else:
-                    other_job = job
+            # Get the specific job to unpause by ID and client
+            job_to_unpause = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True
+            ).first()
 
             if not job_to_unpause:
-                logger.error(f"[UNPAUSE] Job {job_name} not found")
-                raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
+                logger.error(f"[UNPAUSE] Job ID {job_id} not found for client {user.client_id}")
+                raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
 
-            logger.info(f"[UNPAUSE] Job {job_name} current status: {job_to_unpause.status}")
+            job_name = job_to_unpause.job_name
+
+            # Get other jobs for the same client to determine unpause logic
+            other_jobs = session.query(JobSchedule).filter(
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True,
+                JobSchedule.id != job_id
+            ).all()
+
+            # Find the other job (assuming 2-job system)
+            other_job = other_jobs[0] if other_jobs else None
+
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) current status: {job_to_unpause.status}")
 
             if job_to_unpause.status != 'PAUSED':
-                logger.info(f"[UNPAUSE] Job {job_name} is not paused (status: {job_to_unpause.status})")
+                logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) is not paused (status: {job_to_unpause.status})")
                 return {"message": f"Job {job_name} is not paused", "status": job_to_unpause.status.lower()}
 
             # Determine new status based on other job status
@@ -2295,11 +2300,12 @@ async def unpause_job(job_name: str, user: UserData = Depends(require_admin_auth
             job_to_unpause.set_unpaused(other_job_status)
             session.commit()
 
-            logger.info(f"[UNPAUSE] Job {job_name} unpaused successfully: {old_status} -> {job_to_unpause.status} (other job: {other_job_status})")
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> {job_to_unpause.status} (other job: {other_job_status})")
 
             return {
                 "message": f"Job {job_name} unpaused successfully",
                 "status": job_to_unpause.status.lower(),
+                "job_id": job_id,
                 "other_job_status": other_job_status.lower() if other_job else "none"
             }
 

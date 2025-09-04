@@ -1342,7 +1342,7 @@
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
                 <i class="fas fa-play"></i>
             </button>
-            <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
+            <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}', ${jobData.id})"
                     ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canUnpause && !isInactive ? 'resume' : (canPauseSafe && !isInactive ? 'pause-resume' : 'disabled')}"
                     title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
@@ -1900,10 +1900,10 @@
         }
     }
 
-    async function pauseJob(jobName) {
+    async function pauseJob(jobName, jobId) {
         try {
             const token = getAuthToken();
-            const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/pause`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -1924,10 +1924,10 @@
         }
     }
 
-    async function unpauseJob(jobName) {
+    async function unpauseJob(jobName, jobId) {
         try {
             const token = getAuthToken();
-            const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/unpause`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
