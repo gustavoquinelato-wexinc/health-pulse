@@ -372,6 +372,28 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
 
+    /* Force toggle button colors to override any grayscale effects */
+    .job-card-inactive button.btn-status-success-sm {
+        background-color: var(--status-success) !important;
+        color: white !important;
+        filter: none !important;
+        opacity: 1 !important;
+    }
+
+    .job-card-inactive button.btn-status-warning-sm {
+        background-color: var(--status-warning) !important;
+        color: white !important;
+        filter: none !important;
+        opacity: 1 !important;
+    }
+
+    /* Ensure toggle button icons are also not affected by grayscale */
+    .job-card-inactive .btn-status-success-sm i,
+    .job-card-inactive .btn-status-warning-sm i {
+        filter: none !important;
+        opacity: 1 !important;
+    }
+
     /* Jira icon background - lighter blue for both themes */
     .jira-icon-bg {
         background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
