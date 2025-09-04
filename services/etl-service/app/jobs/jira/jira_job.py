@@ -444,32 +444,39 @@ async def run_jira_sync(
                 job_schedule.set_finished()
                 logger.info(f"Jira sync job completed successfully")
 
-                # Find next job in execution order
-                next_job = fresh_session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True,
-                    JobSchedule.execution_order > current_order
-                ).order_by(JobSchedule.execution_order.asc()).first()
+                # Find next ready job (skips paused jobs)
+                from app.jobs.orchestrator import find_next_ready_job
+                next_job = find_next_ready_job(fresh_session, client_id, current_order)
 
-                if next_job:
-                    next_job.status = 'PENDING'
-                    logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-                else:
-                    # No next job, cycle back to first job
-                    first_job = fresh_session.query(JobSchedule).filter(
-                        JobSchedule.client_id == client_id,
-                        JobSchedule.active == True
-                    ).order_by(JobSchedule.execution_order.asc()).first()
-
-                    if first_job and first_job.id != job_schedule_id:
-                        first_job.status = 'PENDING'
-                        logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
-
-                # Reset retry attempts and restore normal schedule on success
+                # Reset retry attempts first
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
                 orchestrator_scheduler.reset_retry_attempts('Jira')
-                orchestrator_scheduler.restore_normal_schedule()
+
+                if next_job:
+                    next_job.status = 'PENDING'
+                    logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+
+                    # Check if this is cycling back to the first job (restart)
+                    first_job = fresh_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('Jira')
+                else:
+                    # No next job - restore normal schedule
+                    orchestrator_scheduler.restore_normal_schedule()
 
                 # Send status update that job is finished
                 from app.core.websocket_manager import get_websocket_manager

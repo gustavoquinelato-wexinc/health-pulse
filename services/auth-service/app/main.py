@@ -74,8 +74,30 @@ class SessionInfoRequest(BaseModel):
 
 def generate_jwt_token(user_data: Dict[str, Any]) -> str:
     """Generate JWT token for authenticated user"""
-    # CRITICAL: Use timezone-naive UTC for consistency with database
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    # CRITICAL: Use configured timezone for consistency with backend service
+    try:
+        import pytz
+        tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+        # Get current time in the configured timezone
+        utc_now = datetime.now(timezone.utc)
+        local_now = utc_now.astimezone(tz)
+        # Convert to timezone-naive for consistency with backend
+        now_default = local_now.replace(tzinfo=None)
+        exp_default = now_default + timedelta(hours=settings.JWT_EXPIRY_HOURS)
+
+        # For JWT timestamps, convert timezone-naive times to UTC epoch
+        # Treat the timezone-naive datetime as if it's in the configured timezone
+        local_aware = tz.localize(now_default)
+        exp_aware = tz.localize(exp_default)
+
+        iat_timestamp = int(local_aware.timestamp())
+        exp_timestamp = int(exp_aware.timestamp())
+    except Exception as e:
+        logger.warning(f"Timezone conversion failed: {e}, falling back to UTC")
+        utc_now = datetime.now(timezone.utc)
+        iat_timestamp = int(utc_now.timestamp())
+        exp_timestamp = int((utc_now + timedelta(hours=settings.JWT_EXPIRY_HOURS)).timestamp())
+        now_default = utc_now.replace(tzinfo=None)
 
     payload = {
         "user_id": user_data["id"],
@@ -83,10 +105,12 @@ def generate_jwt_token(user_data: Dict[str, Any]) -> str:
         "role": user_data["role"],
         "is_admin": user_data["is_admin"],
         "client_id": user_data["client_id"],
-        "exp": now_utc + timedelta(hours=settings.JWT_EXPIRY_HOURS),
-        "iat": now_utc,
+        "exp": exp_timestamp,
+        "iat": iat_timestamp,
         "iss": "pulse-auth-service"
     }
+
+    logger.info(f"[AUTH] JWT token created: iat={now_default}, timezone={settings.DEFAULT_TIMEZONE}")
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 # RBAC imports
@@ -222,8 +246,24 @@ async def validate_token(request: Request):
         try:
             payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
-            # Check if token is expired
-            if datetime.utcnow() > datetime.fromtimestamp(payload["exp"]):
+            # Check if token is expired using configured timezone
+            try:
+                import pytz
+                tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+                utc_now = datetime.now(timezone.utc)
+                local_now = utc_now.astimezone(tz)
+                now_default = local_now.replace(tzinfo=None)
+
+                # Convert JWT timestamp back to local timezone for comparison
+                exp_utc = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+                exp_local = exp_utc.astimezone(tz)
+                exp_default = exp_local.replace(tzinfo=None)
+            except Exception:
+                # Fallback to UTC if timezone configuration fails
+                now_default = datetime.now(timezone.utc).replace(tzinfo=None)
+                exp_default = datetime.fromtimestamp(payload["exp"], tz=timezone.utc).replace(tzinfo=None)
+
+            if now_default > exp_default:
                 return TokenValidationResponse(valid=False, user=None)
 
             # Return user data from token

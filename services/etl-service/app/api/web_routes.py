@@ -2400,15 +2400,9 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
 
             job_name = target_job.job_name
 
-            # Check if target job is already PENDING
+            # Log if target job is already PENDING (but continue to reset other jobs)
             if target_job.status == 'PENDING':
-                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING")
-                return {
-                    "success": True,
-                    "message": f"Job {job_name} is already active and ready to run",
-                    "job_id": job_id,
-                    "job_name": job_name
-                }
+                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING, but will still reset other active jobs")
 
             # Check if target job is currently RUNNING
             if target_job.status == 'RUNNING':
@@ -2418,21 +2412,56 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
                     detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
                 )
 
-            # Set target job to PENDING (simplified - don't affect other jobs)
+            # Set other active, non-paused jobs to NOT_STARTED
+            other_jobs = session.query(JobSchedule).filter(
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True,
+                JobSchedule.id != job_id,  # Exclude the target job
+                JobSchedule.status.notin_(['PAUSED'])  # Don't affect paused jobs
+            ).all()
+
+            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other active, non-paused jobs to potentially reset")
+
+            jobs_reset = []
+            for other_job in other_jobs:
+                if other_job.status != 'NOT_STARTED':
+                    old_other_status = other_job.status
+                    other_job.status = 'NOT_STARTED'
+                    other_job.error_message = None  # Clear any previous errors
+                    jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> NOT_STARTED)")
+                    logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> NOT_STARTED")
+
+            # Set target job to PENDING
             old_status = target_job.status
             target_job.status = 'PENDING'
             target_job.error_message = None  # Clear any previous errors
+
+            # Commit all changes
             session.commit()
 
             logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) set to PENDING: {old_status} -> PENDING")
+            if jobs_reset:
+                logger.info(f"[FORCE_PENDING] Reset {len(jobs_reset)} other jobs: {', '.join(jobs_reset)}")
+            else:
+                logger.info(f"[FORCE_PENDING] No other jobs were reset")
+
+            # Create success message
+            if old_status == 'PENDING':
+                message = f"Job {job_name} was already active and ready to run"
+            else:
+                message = f"Job {job_name} is now active and ready to run"
+
+            if jobs_reset:
+                message += f" (reset {len(jobs_reset)} other jobs to NOT_STARTED)"
 
             return {
                 "success": True,
-                "message": f"Job {job_name} is now active and ready to run",
+                "message": message,
                 "job_id": job_id,
                 "job_name": job_name,
                 "old_status": old_status,
-                "new_status": "PENDING"
+                "new_status": "PENDING",
+                "jobs_reset": len(jobs_reset)
             }
 
     except HTTPException:

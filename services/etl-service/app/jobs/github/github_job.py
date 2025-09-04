@@ -600,11 +600,34 @@ async def run_github_sync(
                     }
                 )
 
-                # Reset retry attempts and restore normal schedule on success
+                # Reset retry attempts and determine scheduling based on next job
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
                 orchestrator_scheduler.reset_retry_attempts('GitHub')
-                orchestrator_scheduler.restore_normal_schedule()
+
+                # Check if we set a next job and if it's a cycle restart
+                if update_job_schedule and jira_job:
+                    # Re-query to check if next job is the first job (cycle restart)
+                    with database.get_read_session_context() as check_session:
+                        first_job = check_session.query(JobSchedule).filter(
+                            JobSchedule.client_id == job_schedule.client_id,
+                            JobSchedule.active == True,
+                            JobSchedule.status != 'PAUSED'
+                        ).order_by(JobSchedule.execution_order.asc()).first()
+
+                        is_cycle_restart = (first_job and jira_job.id == first_job.id)
+
+                        if is_cycle_restart:
+                            # Cycle restart - use regular countdown
+                            logger.info(f"Next job is cycle restart ({jira_job.job_name}) - using regular countdown")
+                            orchestrator_scheduler.restore_normal_schedule()
+                        else:
+                            # Normal sequence - use fast retry for quick transition
+                            logger.info(f"Next job is in sequence ({jira_job.job_name}) - using fast retry for quick transition")
+                            orchestrator_scheduler.schedule_fast_retry('GitHub')
+                else:
+                    # No next job set - restore normal schedule
+                    orchestrator_scheduler.restore_normal_schedule()
 
                 logger.info("GitHub sync completed successfully")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")

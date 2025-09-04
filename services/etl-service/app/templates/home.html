@@ -1178,7 +1178,7 @@
                     </div>
                     <!-- Status Badge -->
                     <div class="flex items-center space-x-2">
-                        <span class="text-sm ${getStatusClass(jobData.status)}">
+                        <span class="text-sm ${getStatusClass(jobData.status, isInactive)}">
                             <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
                         </span>
                     </div>
@@ -1677,18 +1677,24 @@
 
 
 
-    function getStatusClass(status) {
+    function getStatusClass(status, isInactive = false) {
+        // If job is inactive, use disabled styling regardless of status
+        if (isInactive) {
+            return 'status-badge status-badge-disabled';
+        }
+
+        // Use dedicated status badge classes (non-interactive)
         switch (status) {
-            // Database status values (uppercase)
-            case 'RUNNING': return 'btn-status-info'; // Blue
-            case 'PENDING': return 'btn-color-1'; // Color #1
-            case 'FINISHED': return 'btn-status-success'; // Green
-            case 'PAUSED': return 'btn-status-warning'; // Yellow/Amber
-            case 'NOT_STARTED': return 'btn-neutral-primary'; // Enterprise dark
-            case 'ERROR': return 'status-error'; // Red
+            // Database status values (uppercase) - use status badge classes
+            case 'RUNNING': return 'status-badge status-badge-running'; // Blue
+            case 'PENDING': return 'status-badge status-badge-pending'; // Blue (color-1)
+            case 'FINISHED': return 'status-badge status-badge-finished'; // Green
+            case 'PAUSED': return 'status-badge status-badge-paused'; // Yellow/Amber
+            case 'NOT_STARTED': return 'status-badge status-badge-not-started'; // Gray
+            case 'ERROR': return 'status-badge status-badge-error'; // Red
             // Special API status values
-            case 'inactive': return 'btn-neutral-primary'; // Enterprise dark (for inactive integrations)
-            default: return 'status-error';
+            case 'inactive': return 'status-badge status-badge-disabled'; // Gray (for inactive integrations)
+            default: return 'status-badge status-badge-error';
         }
     }
 
@@ -1836,7 +1842,11 @@
     function updateJobCardStatus(jobCard, status) {
         const statusSpan = jobCard.querySelector('.text-sm');
         if (statusSpan) {
-            const statusClass = getStatusClass(status);
+            // Check if the job is inactive by looking at the toggle switch
+            const toggleSwitch = jobCard.querySelector('.toggle-switch');
+            const isInactive = toggleSwitch && !toggleSwitch.classList.contains('active');
+
+            const statusClass = getStatusClass(status, isInactive);
             const statusIcon = getStatusIcon(status);
             statusSpan.className = `text-sm ${statusClass}`;
             statusSpan.innerHTML = `<i class="fas fa-${statusIcon} mr-1"></i>${status}`;

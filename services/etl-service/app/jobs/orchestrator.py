@@ -734,28 +734,41 @@ async def run_fabric_sync_async(job_schedule_id: int):
             job_schedule.set_finished()
             logger.info(f"WEX Fabric sync job completed successfully")
 
-            # Find next job in execution order
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > current_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, client_id, current_order)
 
             if next_job:
                 next_job.status = 'PENDING'
-                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule_id:
-                    first_job.status = 'PENDING'
-                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
 
             session.commit()
+
+            # Handle orchestrator scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('WEX Fabric')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
 
     except Exception as e:
         logger.error(f"WEX Fabric sync job error: {e}")
@@ -839,28 +852,41 @@ async def run_ad_sync_async(job_schedule_id: int):
             job_schedule.set_finished()
             logger.info(f"Active Directory sync job completed successfully")
 
-            # Find next job in execution order
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > current_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, client_id, current_order)
 
             if next_job:
                 next_job.status = 'PENDING'
-                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule_id:
-                    first_job.status = 'PENDING'
-                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
 
             session.commit()
+
+            # Handle orchestrator scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('Active Directory')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
 
     except Exception as e:
         logger.error(f"Active Directory sync job error: {e}")

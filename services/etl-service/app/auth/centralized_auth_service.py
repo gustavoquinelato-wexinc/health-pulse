@@ -128,7 +128,7 @@ class CentralizedAuthService:
                     await self.cache.invalidate(token_hash)
 
             # Cache miss - call backend service
-            logger.info(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
+            logger.debug(f"Attempting to validate token with backend service at: {self.backend_service_url}/api/v1/auth/validate")
             logger.debug(f"Token being validated: {token[:30]}... (length: {len(token)})")
 
             # Create client with explicit configuration for local connections
@@ -147,16 +147,16 @@ class CentralizedAuthService:
 
             if response.status_code == 200:
                 data = response.json()
-                # Log response without exposing user data (PII)
-                logger.info(f"[AUTH] Backend service response: valid={data.get('valid')}, user_present={bool(data.get('user'))}")
+                # Only log successful auth for debugging, not every request
+                logger.debug(f"[AUTH] Backend service response: valid={data.get('valid')}, user_present={bool(data.get('user'))}")
                 if data.get("valid") and data.get("user"):
                     user_data = data["user"]
                     # Only cache tokens for admin users since ETL service is admin-only
                     if user_data.get("is_admin", False) or user_data.get("role") == "admin":
                         await self.cache.set(token_hash, user_data)
-                        logger.info(f"[AUTH] Token validation successful for admin user_id: {user_data.get('id')}")
+                        logger.debug(f"[AUTH] Token validation successful for admin user_id: {user_data.get('id')}")
                     else:
-                        logger.info(f"[AUTH] Token validation successful but user_id {user_data.get('id')} is not admin - not caching")
+                        logger.warning(f"[AUTH] Token validation successful but user_id {user_data.get('id')} is not admin - not caching")
                     return user_data
                 else:
                     logger.warning(f"Invalid response format from backend service. Response: {data}")
