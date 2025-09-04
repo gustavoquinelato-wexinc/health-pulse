@@ -55,7 +55,7 @@ async def get_users(
         total_count = query.count()
         
         # Apply pagination and ordering
-        users = query.order_by(User.name.asc()).offset(offset).limit(limit).all()
+        users = query.order_by(User.email.asc()).offset(offset).limit(limit).all()
         
         # Enhanced response with optional ML fields
         result = []

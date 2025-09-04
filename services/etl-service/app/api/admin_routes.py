@@ -47,6 +47,7 @@ class IntegrationResponse(BaseModel):
     integration_type: str
     base_url: Optional[str] = None
     username: Optional[str] = None
+    model: Optional[str] = None  # AI model name
     active: bool
     last_sync_at: Optional[str] = None
 
@@ -54,12 +55,14 @@ class IntegrationUpdateRequest(BaseModel):
     base_url: str
     username: Optional[str] = None
     password: Optional[str] = None
+    model: Optional[str] = None  # AI model name
 
 class IntegrationDetailResponse(BaseModel):
     id: int
     name: str
     base_url: Optional[str] = None
     username: Optional[str] = None
+    model: Optional[str] = None  # AI model name
     password_masked: Optional[str] = None  # Masked version for display
 
 class PermissionMatrixResponse(BaseModel):
@@ -282,18 +285,29 @@ async def get_integrations(
                 Integration.client_id == user.client_id
             ).order_by(Integration.name).all()
 
-            return [
-                IntegrationResponse(
+            # Get last sync info from job_schedules for each integration
+            integration_responses = []
+            for integration in integrations:
+                # Find the most recent successful job for this integration
+                latest_job = session.query(JobSchedule).filter(
+                    JobSchedule.integration_id == integration.id,
+                    JobSchedule.last_success_at.isnot(None)
+                ).order_by(JobSchedule.last_success_at.desc()).first()
+
+                last_sync_at = latest_job.last_success_at.isoformat() if latest_job and latest_job.last_success_at else None
+
+                integration_responses.append(IntegrationResponse(
                     id=integration.id,
-                    name=integration.name or "Unknown",
-                    integration_type=integration.name or "Unknown",  # Using name as type for now
-                    base_url=integration.url,
+                    name=integration.provider or "Unknown",
+                    integration_type=integration.provider or "Unknown",  # Using provider as type
+                    base_url=integration.base_url,
                     username=integration.username,
+                    model=integration.model,  # Include AI model name
                     active=integration.active,  # BaseEntity provides this field
-                    last_sync_at=integration.last_sync_at.isoformat() if integration.last_sync_at else None
-                )
-                for integration in integrations
-            ]
+                    last_sync_at=last_sync_at  # Get from job_schedules.last_success_at
+                ))
+
+            return integration_responses
     except Exception as e:
         logger.error(f"Error fetching integrations: {e}")
         raise HTTPException(
@@ -330,9 +344,10 @@ async def get_integration_details(
 
             return IntegrationDetailResponse(
                 id=integration.id,
-                name=integration.name,
-                base_url=integration.url,
+                name=integration.provider,
+                base_url=integration.base_url,
                 username=integration.username,
+                model=integration.model,  # Include AI model name
                 password_masked=password_masked
             )
 
@@ -369,8 +384,9 @@ async def update_integration(
                 )
 
             # Update fields
-            integration.url = update_data.base_url
+            integration.base_url = update_data.base_url
             integration.username = update_data.username
+            integration.model = update_data.model  # Update AI model name
 
             # Only update password if provided
             if update_data.password:
@@ -385,7 +401,7 @@ async def update_integration(
 
             session.commit()
 
-            logger.info(f"Admin {user.email} updated integration {integration.name}")
+            logger.info(f"Admin {user.email} updated integration {integration.provider}")
 
             return {"message": "Integration updated successfully"}
 

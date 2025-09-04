@@ -1,6 +1,7 @@
 """
-AI Utilities for Backend Service - Pulse AI Evolution Plan Phase 1-2
-Provides helper functions for AI operations, embeddings, and ML monitoring.
+AI Utilities for Backend Service - Phase 3-1 Clean Architecture
+Provides helper functions for AI operations, Qdrant vector management, and ML monitoring.
+Updated for Phase 3-1: No direct embedding column updates, uses Qdrant for vector storage.
 """
 
 import json
@@ -10,79 +11,86 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.models.unified_models import AILearningMemory, AIPrediction, AIPerformanceMetric
+from app.models.unified_models import AILearningMemory, AIPrediction, AIPerformanceMetric, QdrantVector
 
 logger = logging.getLogger(__name__)
 
 
-class AIEmbeddingManager:
-    """Manages vector embeddings for database entities."""
-    
+class QdrantVectorManager:
+    """Manages vector operations with Qdrant for Phase 3-1 clean architecture."""
+
     @staticmethod
     def create_embedding_vector(dimensions: int = 1536) -> List[float]:
         """
         Create a placeholder embedding vector.
-        In production, this would call OpenAI's text-embedding-3-small API.
-        
+        In Phase 3-2, this will call configured AI providers (OpenAI, Azure, etc.).
+
         Args:
             dimensions: Vector dimensions (default 1536 for text-embedding-3-small)
-            
+
         Returns:
             List of floats representing the embedding vector
         """
-        # Placeholder implementation - in production, integrate with OpenAI API
+        # Placeholder implementation - Phase 3-2 will integrate with AI providers
         import random
         return [random.uniform(-1.0, 1.0) for _ in range(dimensions)]
-    
+
     @staticmethod
-    def update_entity_embedding(
+    def store_entity_vector_in_qdrant(
         db: Session,
         table_name: str,
         entity_id: int,
         text_content: str,
-        client_id: int
+        client_id: int,
+        vector_type: str = "content"
     ) -> bool:
         """
-        Update an entity's embedding vector based on its text content.
-        
+        Store an entity's vector in Qdrant and track reference in PostgreSQL.
+        Phase 3-1: Creates tracking record, Phase 3-2 will add actual Qdrant storage.
+
         Args:
             db: Database session
-            table_name: Name of the table to update
-            entity_id: ID of the entity to update
+            table_name: Name of the source table
+            entity_id: ID of the entity
             text_content: Text content to generate embedding from
             client_id: Client ID for multi-tenancy
-            
+            vector_type: Type of vector ('content', 'summary', 'metadata')
+
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Generate embedding (placeholder - integrate with OpenAI in production)
-            embedding = AIEmbeddingManager.create_embedding_vector()
-            
-            # Update the entity's embedding column
-            query = text(f"""
-                UPDATE {table_name} 
-                SET embedding = :embedding 
-                WHERE id = :entity_id AND client_id = :client_id
-            """)
-            
-            db.execute(query, {
-                'embedding': embedding,
-                'entity_id': entity_id,
-                'client_id': client_id
-            })
+            # Phase 3-1: Create tracking record only (no actual Qdrant storage yet)
+            import uuid
+
+            # Generate placeholder embedding for Phase 3-2
+            embedding = QdrantVectorManager.create_embedding_vector()
+
+            # Create Qdrant vector tracking record
+            qdrant_vector = QdrantVector(
+                client_id=client_id,
+                table_name=table_name,
+                record_id=entity_id,
+                qdrant_collection=f"client_{client_id}_{table_name}",
+                qdrant_point_id=str(uuid.uuid4()),
+                vector_type=vector_type,
+                embedding_model="text-embedding-3-small",  # Phase 3-2 will make this configurable
+                embedding_provider="openai"  # Phase 3-2 will make this configurable
+            )
+
+            db.add(qdrant_vector)
             db.commit()
-            
-            logger.info(f"Updated embedding for {table_name} ID {entity_id}")
+
+            logger.info(f"Created Qdrant vector tracking for {table_name} ID {entity_id}")
             return True
-            
+
         except Exception as e:
-            logger.error(f"Failed to update embedding for {table_name} ID {entity_id}: {e}")
+            logger.error(f"Failed to store vector for {table_name} ID {entity_id}: {e}")
             db.rollback()
             return False
-    
+
     @staticmethod
-    def similarity_search(
+    def similarity_search_via_qdrant(
         db: Session,
         table_name: str,
         query_embedding: List[float],
@@ -91,8 +99,9 @@ class AIEmbeddingManager:
         similarity_threshold: float = 0.7
     ) -> List[Dict[str, Any]]:
         """
-        Perform similarity search using vector embeddings.
-        
+        Perform similarity search using Qdrant vector database.
+        Phase 3-1: Returns placeholder results, Phase 3-2 will implement actual Qdrant search.
+
         Args:
             db: Database session
             table_name: Name of the table to search
@@ -100,33 +109,41 @@ class AIEmbeddingManager:
             client_id: Client ID for multi-tenancy
             limit: Maximum number of results
             similarity_threshold: Minimum similarity score
-            
+
         Returns:
             List of similar entities with similarity scores
         """
         try:
-            # Use cosine similarity for vector search
-            query = text(f"""
-                SELECT id, 1 - (embedding <=> :query_embedding) as similarity_score
-                FROM {table_name}
-                WHERE client_id = :client_id 
-                AND embedding IS NOT NULL
-                AND 1 - (embedding <=> :query_embedding) >= :threshold
-                ORDER BY embedding <=> :query_embedding
+            # Phase 3-1: Get available vector references from tracking table
+            query = text("""
+                SELECT record_id, qdrant_point_id, vector_type
+                FROM qdrant_vectors
+                WHERE client_id = :client_id
+                AND table_name = :table_name
+                ORDER BY last_updated_at DESC
                 LIMIT :limit
             """)
-            
+
             result = db.execute(query, {
-                'query_embedding': query_embedding,
                 'client_id': client_id,
-                'threshold': similarity_threshold,
+                'table_name': table_name,
                 'limit': limit
             })
-            
-            return [{'id': row.id, 'similarity_score': row.similarity_score} for row in result]
-            
+
+            # Phase 3-1: Return placeholder similarity scores
+            # Phase 3-2: Will perform actual Qdrant similarity search
+            return [
+                {
+                    'id': row.record_id,
+                    'similarity_score': 0.85,  # Placeholder score
+                    'qdrant_point_id': row.qdrant_point_id,
+                    'vector_type': row.vector_type
+                }
+                for row in result
+            ]
+
         except Exception as e:
-            logger.error(f"Similarity search failed for {table_name}: {e}")
+            logger.error(f"Qdrant similarity search failed for {table_name}: {e}")
             return []
 
 

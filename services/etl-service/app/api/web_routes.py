@@ -111,11 +111,11 @@ async def verify_token(user: UserData = Depends(require_authentication)):
 @router.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Redirect to home if authenticated, otherwise to login"""
-    logger.info("🏠 Root route accessed - checking authentication")
+    logger.info("[AUTH] Root route accessed - checking authentication")
 
     # Check if user has a valid token
     token = request.cookies.get("pulse_token")
-    logger.info(f"🍪 Cookie token found: {'Yes' if token else 'No'}")
+    logger.info("[AUTH] Cookie token found", has_token=bool(token))
 
     if token:
         logger.info(f"🔍 Validating token: {token[:20]}...")
@@ -128,12 +128,12 @@ async def root(request: Request):
                 # User is authenticated, redirect to home
                 return RedirectResponse(url="/home")
             else:
-                logger.info("❌ Token validation returned no user data")
+                logger.info("[AUTH] Token validation returned no user data")
         except Exception as e:
-            logger.error(f"❌ Token validation failed for root route: {e}")
+            logger.error(f"[AUTH] Token validation failed for root route: {e}")
 
     # No valid token, redirect to login
-    logger.info("🔐 No valid authentication - redirecting to /login")
+    logger.info("[AUTH] No valid authentication - redirecting to /login")
     return RedirectResponse(url="/login")
 
 # Auth callback endpoint removed - no longer needed with subdomain cookies
@@ -142,7 +142,7 @@ async def root(request: Request):
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Serve login page - redirect to home if already authenticated"""
-    logger.info("🔐 Login page accessed - checking if user is already authenticated")
+    logger.info("[AUTH] Login page accessed - checking if user is already authenticated")
 
     # Check if user is already authenticated via subdomain-shared cookie
     token = request.cookies.get("pulse_token")
@@ -177,7 +177,7 @@ async def login_page(request: Request):
                     )
                 else:
                     # User is authenticated but not admin - show permission denied
-                    logger.info(f"❌ Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
+                    logger.info(f"[AUTH] Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
 
                     # Clear the token cookie since user doesn't have permission
                     from app.core.config import get_settings
@@ -254,9 +254,9 @@ async def home_page(request: Request, token: Optional[str] = None):
                 logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
-                logger.warning("❌ Portal embedding: Invalid token provided")
+                logger.warning("[AUTH] Portal embedding: Invalid token provided")
         except Exception as e:
-            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+            logger.error(f"[AUTH] Portal embedding: Token validation error: {e}")
 
     # 🚀 EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
     from app.core.color_schema_manager import get_color_schema_manager
@@ -432,9 +432,9 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
                 logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
-                logger.warning("❌ Portal embedding: Invalid token provided")
+                logger.warning("[AUTH] Portal embedding: Invalid token provided")
         except Exception as e:
-            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+            logger.error(f"[AUTH] Portal embedding: Token validation error: {e}")
 
     # Check for authentication via cookie or header
     auth_token = request.cookies.get("pulse_token")
@@ -458,17 +458,11 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
     # Fallback if no token (shouldn't happen due to middleware)
     return templates.TemplateResponse("old_admin.html", {"request": request, "user": {"email": "Unknown"}})
 
-@router.get("/api/v1/jobs/{job_name}/details")
-async def get_job_details(job_name: str, user: UserData = Depends(require_admin_authentication)):
+@router.get("/api/v1/jobs/{job_id}/details")
+async def get_job_details(job_id: int, user: UserData = Depends(require_admin_authentication)):
     """Get detailed job information for the job details modal"""
     try:
-        logger.info(f"Getting job details for {job_name}, user: {user.email}, client_id: {user.client_id}")
-
-        if job_name not in ['jira_sync', 'github_sync']:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job name"
-            )
+        logger.info(f"Getting job details for job ID {job_id}, client_id: {user.client_id}")
 
         from app.core.database import get_database
         from app.models.unified_models import JobSchedule
@@ -476,17 +470,17 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
         database = get_database()
         logger.info(f"Database connection established for job details")
 
-        with database.get_read_session_context() as session:
-            # Get job schedule details
-            logger.info(f"Querying JobSchedule for job_name={job_name}, client_id={user.client_id}")
+        with database.get_write_session_context() as session:
+            # Get job schedule details by ID and client
+            logger.info(f"Querying JobSchedule for job_id={job_id}, client_id={user.client_id}")
 
             job_schedule = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
+                JobSchedule.id == job_id,
                 JobSchedule.client_id == user.client_id
             ).first()
 
             if not job_schedule:
-                logger.warning(f"No job schedule found for {job_name} and client_id {user.client_id}")
+                logger.warning(f"No job schedule found for job_id {job_id} and client_id {user.client_id}")
                 # Return default values instead of 404 to prevent modal errors
                 return {
                     "status": "NOT_CONFIGURED",
@@ -529,13 +523,13 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting job details for {job_name}: {e}", exc_info=True)
+        logger.error(f"Error getting job details for job_id {job_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get job details for {job_name}: {str(e)}"
+            detail=f"Failed to get job details for job_id {job_id}: {str(e)}"
         )
 
-@router.get("/api/v1/jobs/jira_sync/summary")
+@router.get("/api/v1/jobs/Jira/summary")
 async def get_jira_summary(user: UserData = Depends(require_admin_authentication)):
     """Get Jira data summary for the Jira details modal"""
     try:
@@ -1357,11 +1351,11 @@ async def api_logout(request: Request):
                 auth_service = get_centralized_auth_service()
                 success = await auth_service.invalidate_session(token)
                 if success:
-                    logger.info("✅ Session invalidated successfully in Backend Service")
+                    logger.info("[AUTH] Session invalidated successfully in Backend Service")
                 else:
-                    logger.warning("❌ Failed to invalidate session in Backend Service")
+                    logger.warning("[AUTH] Failed to invalidate session in Backend Service")
             except Exception as e:
-                logger.error(f"❌ Error invalidating session: {e}")
+                logger.error(f"[AUTH] Error invalidating session: {e}")
         else:
             logger.info("No token found in cookies during API logout")
     except Exception as e:
@@ -1706,10 +1700,9 @@ async def get_jobs_status(user: UserData = Depends(verify_token)):
         # Enhance with checkpoint data using optimized query
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Get job objects filtered by client_id
+            # ✅ SECURITY: Get job objects filtered by client_id (include all jobs)
             jobs = session.query(JobSchedule).filter(
-                JobSchedule.client_id == user.client_id,
-                JobSchedule.active == True
+                JobSchedule.client_id == user.client_id
             ).all()
 
             for job in jobs:
@@ -1837,7 +1830,7 @@ async def handle_color_schema_change(request: Request):
         colors = data.get("colors", {})
         event_type = data.get("event_type", "color_update")
 
-        logger.info(f"🎨 Received color schema change notification for client {client_id}")
+        logger.info(f"[COLOR] Received color schema change notification for client {client_id}")
         logger.debug(f"Colors: {colors}")
 
         # Invalidate color schema cache to force refresh
@@ -1867,7 +1860,7 @@ async def handle_color_schema_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing color schema change: {e}")
+        logger.error(f"[COLOR] Error processing color schema change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -1899,7 +1892,7 @@ async def handle_color_schema_mode_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing color schema mode change: {e}")
+        logger.error(f"[COLOR] Error processing color schema mode change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -1931,7 +1924,7 @@ async def handle_user_theme_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing user theme change: {e}")
+        logger.error(f"[COLOR] Error processing user theme change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -1946,10 +1939,11 @@ async def start_job(
 ):
     """Force start a specific job with optional execution parameters"""
     try:
-        if job_name not in ['jira_sync', 'github_sync']:
+        valid_jobs = ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD']
+        if job_name not in valid_jobs:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job name"
+                detail=f"Invalid job name. Must be one of: {', '.join(valid_jobs)}"
             )
         
         # Log execution parameters
@@ -1961,7 +1955,8 @@ async def start_job(
         # ✅ SECURITY: Use client-aware trigger functions with user's client_id
         # Run in background to avoid blocking the web request
         import asyncio
-        if job_name == 'jira_sync':
+        job_name_lower = job_name.lower()
+        if job_name_lower == 'jira':
             asyncio.create_task(trigger_jira_sync(
                 force_manual=True,
                 execution_params=execution_params,
@@ -1972,7 +1967,7 @@ async def start_job(
                 'message': f'Jira sync job triggered successfully for client {user.client_id}',
                 'job_name': job_name
             }
-        elif job_name == 'github_sync':
+        elif job_name_lower == 'github':
             asyncio.create_task(trigger_github_sync(
                 force_manual=True,
                 execution_params=execution_params,
@@ -1981,6 +1976,30 @@ async def start_job(
             result = {
                 'status': 'triggered',
                 'message': f'GitHub sync job triggered successfully for client {user.client_id}',
+                'job_name': job_name
+            }
+        elif job_name_lower == 'wex fabric':
+            from app.jobs.orchestrator import trigger_fabric_sync
+            asyncio.create_task(trigger_fabric_sync(
+                force_manual=True,
+                execution_params=execution_params,
+                client_id=user.client_id
+            ))
+            result = {
+                'status': 'triggered',
+                'message': f'WEX Fabric sync job triggered successfully for client {user.client_id}',
+                'job_name': job_name
+            }
+        elif job_name_lower == 'wex ad':
+            from app.jobs.orchestrator import trigger_ad_sync
+            asyncio.create_task(trigger_ad_sync(
+                force_manual=True,
+                execution_params=execution_params,
+                client_id=user.client_id
+            ))
+            result = {
+                'status': 'triggered',
+                'message': f'WEX AD sync job triggered successfully for client {user.client_id}',
                 'job_name': job_name
             }
         else:
@@ -2018,7 +2037,7 @@ async def start_job(
 async def stop_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Force stop a specific job - requires admin privileges"""
     try:
-        if job_name not in ['jira_sync', 'github_sync']:
+        if job_name not in ['Jira', 'GitHub']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid job name"
@@ -2094,7 +2113,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
                 JobSchedule.error_message,
                 JobSchedule.retry_count
             ).filter(
-                JobSchedule.job_name.in_(['jira_sync', 'github_sync']),
+                JobSchedule.job_name.in_(['Jira', 'GitHub']),
                 JobSchedule.active == True
             ).all()
 
@@ -2102,7 +2121,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
             job_lookup = {job.job_name: job for job in jobs}
             jobs_status = {}
 
-            for job_name in ['jira_sync', 'github_sync']:
+            for job_name in ['Jira', 'GitHub']:
                 if job_name in job_lookup:
                     job = job_lookup[job_name]
                     is_running = job.status == 'RUNNING'
@@ -2145,7 +2164,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
 async def toggle_job_active(job_name: str, request: JobToggleRequest, user: UserData = Depends(require_admin_authentication)):
     """Toggle job active/inactive status - requires admin privileges"""
     try:
-        if job_name not in ['jira_sync', 'github_sync']:
+        if job_name not in ['Jira', 'GitHub']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid job name"
@@ -2183,36 +2202,45 @@ async def toggle_job_active(job_name: str, request: JobToggleRequest, user: User
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/pause")
-async def pause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Pause a specific job"""
+@router.post("/api/v1/jobs/{job_id}/pause")
+async def pause_job(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Pause a specific job by ID"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get the job to pause
+            # Get the specific job to pause by ID and client
             job_to_pause = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id,
                 JobSchedule.active == True
             ).first()
 
             if not job_to_pause:
-                raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
+                logger.error(f"[PAUSE] Job ID {job_id} not found or not active for client {user.client_id}")
+                raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
+
+            job_name = job_to_pause.job_name
+            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) found - Status: {job_to_pause.status}, Active: {job_to_pause.active}, Client: {job_to_pause.client_id}")
 
             if job_to_pause.status == 'PAUSED':
+                logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) is already paused")
                 return {"message": f"Job {job_name} is already paused", "status": "paused"}
 
             if job_to_pause.status == 'RUNNING':
+                logger.warning(f"[PAUSE] Cannot pause job {job_name} (ID: {job_id}) while it's running")
                 raise HTTPException(status_code=400, detail=f"Cannot pause job {job_name} while it's running")
 
             # Pause the job
+            old_status = job_to_pause.status
             job_to_pause.set_paused()
             session.commit()
 
-            logger.info(f"Job {job_name} paused successfully")
+            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) paused successfully: {old_status} -> PAUSED")
 
             return {
                 "message": f"Job {job_name} paused successfully",
-                "status": "paused"
+                "status": "paused",
+                "job_id": job_id
             }
 
     except HTTPException:
@@ -2225,41 +2253,44 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/unpause")
-async def unpause_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Unpause a specific job"""
+@router.post("/api/v1/jobs/{job_id}/unpause")
+async def unpause_job(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Unpause a specific job by ID"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get both jobs to determine unpause logic
-            all_jobs = session.query(JobSchedule).filter(JobSchedule.active == True).all()
-
-            job_to_unpause = None
-            other_job = None
-
-            for job in all_jobs:
-                if job.job_name == job_name:
-                    job_to_unpause = job
-                else:
-                    other_job = job
+            # Get the specific job to unpause by ID and client
+            job_to_unpause = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True
+            ).first()
 
             if not job_to_unpause:
-                raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
+                logger.error(f"[UNPAUSE] Job ID {job_id} not found for client {user.client_id}")
+                raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
+
+            job_name = job_to_unpause.job_name
+
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) current status: {job_to_unpause.status}")
 
             if job_to_unpause.status != 'PAUSED':
+                logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) is not paused (status: {job_to_unpause.status})")
                 return {"message": f"Job {job_name} is not paused", "status": job_to_unpause.status.lower()}
 
-            # Determine new status based on other job status
-            other_job_status = other_job.status if other_job else 'FINISHED'
-            job_to_unpause.set_unpaused(other_job_status)
+            # Simplified unpause: Set job to NOT_STARTED (ready to run)
+            old_status = job_to_unpause.status
+            job_to_unpause.status = 'NOT_STARTED'
             session.commit()
 
-            logger.info(f"Job {job_name} unpaused successfully, new status: {job_to_unpause.status}")
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> NOT_STARTED")
 
             return {
                 "message": f"Job {job_name} unpaused successfully",
-                "status": job_to_unpause.status.lower(),
-                "other_job_status": other_job_status.lower() if other_job else "none"
+                "status": "not_started",
+                "job_id": job_id,
+                "old_status": old_status,
+                "new_status": "NOT_STARTED"
             }
 
     except HTTPException:
@@ -2347,79 +2378,70 @@ async def resume_orchestrator(user: UserData = Depends(require_admin_authenticat
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/set-active")
-async def set_job_active(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Set a specific job as active (PENDING) and set the other job as FINISHED"""
+@router.post("/api/v1/jobs/{job_id}/set-active")
+async def set_job_active(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Set a specific job as active (PENDING) - simplified to only affect target job"""
     try:
-        if job_name not in ['jira_sync', 'github_sync']:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job name. Must be 'jira_sync' or 'github_sync'"
-            )
 
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get both jobs
-            jira_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'jira_sync',
+            # Get the specific job by ID and client
+            target_job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id,
                 JobSchedule.active == True
             ).first()
 
-            github_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'github_sync',
-                JobSchedule.active == True
-            ).first()
-
-            if not jira_job or not github_job:
+            if not target_job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="One or both jobs not found"
+                    detail=f"Job ID {job_id} not found for client {user.client_id}"
                 )
 
-            # Check if any job is currently running
-            if jira_job.status == 'RUNNING' or github_job.status == 'RUNNING':
+            job_name = target_job.job_name
+
+            # Check if target job is already PENDING
+            if target_job.status == 'PENDING':
+                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING")
+                return {
+                    "success": True,
+                    "message": f"Job {job_name} is already active and ready to run",
+                    "job_id": job_id,
+                    "job_name": job_name
+                }
+
+            # Check if target job is currently RUNNING
+            if target_job.status == 'RUNNING':
+                logger.warning(f"[FORCE_PENDING] Cannot set {job_name} (ID: {job_id}) to PENDING while it's RUNNING")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot set active while a job is currently running"
+                    detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
                 )
 
-            # Set the requested job as PENDING and handle the other job based on its current status
-            if job_name == 'jira_sync':
-                jira_job.status = 'PENDING'
-                jira_job.error_message = None  # Clear any previous errors
-                other_job_name = 'github_sync'
-                other_job = github_job
-            else:  # github_sync
-                github_job.status = 'PENDING'
-                github_job.error_message = None  # Clear any previous errors
-                other_job_name = 'jira_sync'
-                other_job = jira_job
-
-            # Only set other job to FINISHED if it's not PAUSED
-            other_job_action = "unchanged (PAUSED)"
-            if other_job.status != 'PAUSED':
-                other_job.status = 'FINISHED'
-                other_job_action = "set to FINISHED"
-
+            # Set target job to PENDING (simplified - don't affect other jobs)
+            old_status = target_job.status
+            target_job.status = 'PENDING'
+            target_job.error_message = None  # Clear any previous errors
             session.commit()
 
-            logger.info(f"Job {job_name} set as active (PENDING) by user {user.email}. {other_job_name} {other_job_action}.")
+            logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) set to PENDING: {old_status} -> PENDING")
 
             return {
                 "success": True,
                 "message": f"Job {job_name} is now active and ready to run",
-                "active_job": job_name,
-                "other_job": other_job_name,
-                "note": f"{job_name} set to PENDING, {other_job_name} {other_job_action}"
+                "job_id": job_id,
+                "job_name": job_name,
+                "old_status": old_status,
+                "new_status": "PENDING"
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error setting job {job_name} as active: {e}")
+        logger.error(f"Error setting job ID {job_id} as active: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to set job {job_name} as active"
+            detail=f"Failed to set job ID {job_id} as active"
         )
 
 
@@ -2427,6 +2449,7 @@ async def set_job_active(job_name: str, user: UserData = Depends(require_admin_a
 async def get_orchestrator_status(user: UserData = Depends(require_admin_authentication)):
     """Get orchestrator status"""
     try:
+        # Import required modules (reduced logging for frequent calls)
         from app.main import scheduler
         from app.core.settings_manager import (
             get_orchestrator_interval, is_orchestrator_enabled,
@@ -2436,22 +2459,79 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 
         # Get orchestrator job status (simple single-client approach)
+        if scheduler is None:
+            logger.error("Scheduler is None!")
+            return {
+                "status": "scheduler_not_available",
+                "next_run": None,
+                "message": "Scheduler is not initialized",
+                "interval_minutes": get_orchestrator_interval(),
+                "enabled": is_orchestrator_enabled(),
+                "fast_retry_active": False,
+                "retry_config": {
+                    "enabled": is_orchestrator_retry_enabled(),
+                    "interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts()
+                },
+                "retry_status": {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
+            }
+
         job = scheduler.get_job("etl_orchestrator")
+        logger.info(f"Got job: {job}")
 
         if not job:
             return {
                 "status": "not_scheduled",
                 "next_run": None,
-                "message": "Orchestrator is not scheduled"
+                "message": "Orchestrator is not scheduled",
+                "interval_minutes": get_orchestrator_interval(),
+                "enabled": is_orchestrator_enabled(),
+                "fast_retry_active": False,
+                "retry_config": {
+                    "enabled": is_orchestrator_retry_enabled(),
+                    "interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts()
+                },
+                "retry_status": {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
             }
 
         # Check if job is paused
         is_paused = job.next_run_time is None
 
         # Get retry status (system-wide for now)
-        orchestrator_scheduler = get_orchestrator_scheduler()
-        retry_status = orchestrator_scheduler.get_all_retry_status()
-        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+        try:
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            if orchestrator_scheduler:
+                retry_status = orchestrator_scheduler.get_all_retry_status()
+                fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+            else:
+                logger.warning("Orchestrator scheduler is None")
+                retry_status = {
+                    "retry_enabled": is_orchestrator_retry_enabled(),
+                    "retry_interval_minutes": get_orchestrator_retry_interval(),
+                    "max_attempts": get_orchestrator_max_retry_attempts(),
+                    "jobs": {}
+                }
+                fast_retry_active = False
+        except Exception as e:
+            logger.error(f"Error getting orchestrator scheduler status: {e}")
+            retry_status = {
+                "retry_enabled": is_orchestrator_retry_enabled(),
+                "retry_interval_minutes": get_orchestrator_retry_interval(),
+                "max_attempts": get_orchestrator_max_retry_attempts(),
+                "jobs": {}
+            }
+            fast_retry_active = False
 
         # Determine orchestrator status more accurately
         if is_paused:
@@ -2491,9 +2571,50 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
 
     except Exception as e:
         logger.error(f"Error getting orchestrator status: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get orchestrator status"
+        )
+
+
+@router.post("/api/v1/orchestrator/reinitialize")
+async def reinitialize_orchestrator(user: UserData = Depends(require_admin_authentication)):
+    """Reinitialize orchestrator schedule (useful after database reset) - requires admin privileges"""
+    try:
+        logger.info("Reinitializing orchestrator schedule...")
+
+        from app.main import update_orchestrator_schedule
+        from app.core.settings_manager import get_orchestrator_interval, is_orchestrator_enabled
+
+        # Get current settings from database
+        interval_minutes = get_orchestrator_interval(user.client_id)
+        enabled = is_orchestrator_enabled(user.client_id)
+
+        # Force update the orchestrator schedule
+        success = update_orchestrator_schedule(interval_minutes, enabled)
+
+        if success:
+            logger.info(f"Orchestrator reinitialized successfully: interval={interval_minutes}min, enabled={enabled}")
+            return {
+                "success": True,
+                "message": f"Orchestrator reinitialized with {interval_minutes} minute interval",
+                "interval_minutes": interval_minutes,
+                "enabled": enabled
+            }
+        else:
+            logger.error("Failed to reinitialize orchestrator")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to reinitialize orchestrator"
+            )
+
+    except Exception as e:
+        logger.error(f"Error reinitializing orchestrator: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reinitialize orchestrator: {str(e)}"
         )
 
 
@@ -2572,8 +2693,12 @@ async def update_orchestrator_retry_config(
 
         # Check if fast retry is currently active
         orchestrator_scheduler = get_orchestrator_scheduler()
-        fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
-        current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+        if orchestrator_scheduler:
+            fast_retry_active = orchestrator_scheduler.is_fast_retry_active()
+            current_countdown = orchestrator_scheduler.get_current_countdown_minutes()
+        else:
+            fast_retry_active = False
+            current_countdown = None
 
         # Update settings
         updates = {}
@@ -2588,7 +2713,7 @@ async def update_orchestrator_retry_config(
             updates['interval_minutes'] = retry_interval
 
             # Check if we should apply the new retry interval immediately
-            if fast_retry_active:
+            if fast_retry_active and orchestrator_scheduler:
                 schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(retry_interval)
 
         if max_attempts is not None:
@@ -2681,7 +2806,7 @@ async def update_system_setting(
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
 
-                if orchestrator_scheduler.is_fast_retry_active():
+                if orchestrator_scheduler and orchestrator_scheduler.is_fast_retry_active():
                     schedule_updated = orchestrator_scheduler.apply_new_retry_interval_if_smaller(int(setting_value))
                     if schedule_updated:
                         logger.info(f"Retry interval updated to {setting_value} minutes and applied immediately (was smaller than current countdown)")
@@ -2905,11 +3030,11 @@ async def websocket_test():
 
     <div class="container">
         <h2>Connection Status</h2>
-        <div id="jira-sync-status" class="status disconnected">
-            🔴 Jira Sync: Disconnected
+        <div id="jira-status" class="status disconnected">
+            🔴 Jira: Disconnected
         </div>
-        <div id="github-sync-status" class="status disconnected">
-            🔴 GitHub Sync: Disconnected
+        <div id="github-status" class="status disconnected">
+            🔴 GitHub: Disconnected
         </div>
 
         <button onclick="connectAll()">Connect All</button>
@@ -2950,15 +3075,15 @@ async def websocket_test():
         function updateStatus(jobName, connected) {
             const statusElement = document.getElementById(`${jobName.replace('_', '-')}-status`);
             if (!statusElement) {
-                log(`❌ Status element not found for ${jobName}`);
+                log(`[ERROR] Status element not found for ${jobName}`);
                 return;
             }
             if (connected) {
                 statusElement.className = 'status connected';
-                statusElement.innerHTML = `🟢 ${jobName.replace('_', ' ').toUpperCase()}: Connected`;
+                statusElement.innerHTML = `[CONNECTED] ${jobName.replace('_', ' ').toUpperCase()}: Connected`;
             } else {
                 statusElement.className = 'status disconnected';
-                statusElement.innerHTML = `🔴 ${jobName.replace('_', ' ').toUpperCase()}: Disconnected`;
+                statusElement.innerHTML = `[DISCONNECTED] ${jobName.replace('_', ' ').toUpperCase()}: Disconnected`;
             }
         }
 
@@ -2991,7 +3116,7 @@ async def websocket_test():
                 ws.onmessage = function (event) {
                     try {
                         const data = JSON.parse(event.data);
-                        log(`📨 Message from ${jobName}: ${JSON.stringify(data)}`);
+                        log(`[WS] Message from ${jobName}: ${JSON.stringify(data)}`);
 
                         if (data.type === 'progress') {
                             updateProgress(data.percentage, data.step);
@@ -3020,8 +3145,8 @@ async def websocket_test():
 
         function connectAll() {
             log('🚀 Connecting to all WebSocket endpoints...');
-            connectWebSocket('jira_sync');
-            connectWebSocket('github_sync');
+            connectWebSocket('Jira');
+            connectWebSocket('GitHub');
         }
 
         function disconnectAll() {
@@ -3040,7 +3165,7 @@ async def websocket_test():
         }
 
         function sendTestMessage() {
-            log('📤 Requesting test message via API...');
+            log('[TEST] Requesting test message via API...');
             fetch('/api/test_websocket', {
                 method: 'POST',
                 headers: {
@@ -3054,7 +3179,7 @@ async def websocket_test():
             })
             .then(response => response.json())
             .then(data => {
-                log(`📨 API Response: ${JSON.stringify(data)}`);
+                log(`[API] Response: ${JSON.stringify(data)}`);
             })
             .catch(error => {
                 log(`❌ API Error: ${error}`);
@@ -3085,7 +3210,7 @@ async def test_websocket_message(request: Request):
         from app.core.websocket_manager import get_websocket_manager
 
         data = await request.json()
-        job_name = data.get('job_name', 'jira_sync')
+        job_name = data.get('job_name', 'Jira')
         percentage = data.get('percentage', 50.0)
         message = data.get('message', 'Test message')
 

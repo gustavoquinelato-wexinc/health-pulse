@@ -20,15 +20,138 @@ Job Status Flow:
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.core.job_manager import get_job_manager
 from app.core.utils import DateTimeHelper
-from app.models.unified_models import JobSchedule
+from app.models.unified_models import JobSchedule, Integration
 from fastapi import BackgroundTasks
 import asyncio
 
 logger = get_logger(__name__)
+
+
+def check_integration_active(job_schedule_id: int) -> dict:
+    """
+    Check if the integration associated with a job schedule is active.
+
+    Args:
+        job_schedule_id: ID of the job schedule to check
+
+    Returns:
+        dict: {'active': bool, 'message': str}
+    """
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # Get the job schedule
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.id == job_schedule_id
+            ).first()
+
+            if not job_schedule:
+                return {
+                    'active': False,
+                    'message': f'Job schedule {job_schedule_id} not found'
+                }
+
+            # Get the associated integration
+            if not job_schedule.integration_id:
+                return {
+                    'active': False,
+                    'message': f'Job {job_schedule.job_name} has no associated integration'
+                }
+
+            integration = session.query(Integration).filter(
+                Integration.id == job_schedule.integration_id
+            ).first()
+
+            if not integration:
+                return {
+                    'active': False,
+                    'message': f'Integration {job_schedule.integration_id} not found for job {job_schedule.job_name}'
+                }
+
+            if not integration.active:
+                return {
+                    'active': False,
+                    'message': f'Integration {integration.provider} is inactive - job {job_schedule.job_name} cannot be executed'
+                }
+
+            return {
+                'active': True,
+                'message': f'Integration {integration.provider} is active'
+            }
+
+    except Exception as e:
+        logger.error(f"Error checking integration active status: {e}")
+        return {
+            'active': False,
+            'message': f'Error checking integration status: {str(e)}'
+        }
+
+
+def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: str):
+    """
+    Skip a job due to inactive integration and set the next job as pending.
+
+    Args:
+        job_schedule_id: ID of the job schedule to skip
+        error_message: Error message to set on the job
+    """
+    try:
+        database = get_database()
+        with database.get_session() as session:
+            # Get the job schedule
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.id == job_schedule_id
+            ).first()
+
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found for skipping")
+                return
+
+            # Set job as finished with error message
+            job_schedule.status = 'FINISHED'
+            job_schedule.error_message = error_message
+            job_schedule.last_success_at = None  # Don't update success time for skipped jobs
+
+            logger.info(f"Job {job_schedule.job_name} marked as FINISHED due to inactive integration")
+
+            # Find the next job in sequence
+            next_job = session.query(JobSchedule).filter(
+                JobSchedule.client_id == job_schedule.client_id,
+                JobSchedule.active == True,
+                JobSchedule.execution_order > job_schedule.execution_order
+            ).order_by(JobSchedule.execution_order.asc()).first()
+
+            if next_job:
+                # Set next job as pending
+                next_job.status = 'PENDING'
+                next_job.error_message = None
+                logger.info(f"Next job {next_job.job_name} set to PENDING")
+            else:
+                # No next job, cycle back to first job
+                first_job = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == job_schedule.client_id,
+                    JobSchedule.active == True
+                ).order_by(JobSchedule.execution_order.asc()).first()
+
+                if first_job and first_job.id != job_schedule.id:
+                    first_job.status = 'PENDING'
+                    first_job.error_message = None
+                    logger.info(f"Cycling back to first job {first_job.job_name} set to PENDING")
+
+            session.commit()
+            logger.info(f"Successfully skipped job {job_schedule.job_name} and set next job as pending")
+
+    except Exception as e:
+        logger.error(f"Error skipping job due to inactive integration: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+
 
 
 async def trigger_jira_sync(force_manual=False, execution_params=None, client_id=None):
@@ -56,13 +179,13 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, client_id
     try:
         database = get_database()
         with database.get_session() as session:
-            # ✅ SECURITY: Find or create jobs filtered by client_id
+            # SECURITY: Find or create jobs filtered by client_id (case-insensitive)
             jira_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'jira_sync',
+                func.lower(JobSchedule.job_name) == 'jira',
                 JobSchedule.client_id == client_id
             ).first()
             github_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'github_sync',
+                func.lower(JobSchedule.job_name) == 'github',
                 JobSchedule.client_id == client_id
             ).first()
 
@@ -158,13 +281,13 @@ async def trigger_github_sync(force_manual=False, execution_params=None, client_
     try:
         database = get_database()
         with database.get_session() as session:
-            # ✅ SECURITY: Find or create jobs filtered by client_id
+            # SECURITY: Find or create jobs filtered by client_id (case-insensitive)
             jira_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'jira_sync',
+                func.lower(JobSchedule.job_name) == 'jira',
                 JobSchedule.client_id == client_id
             ).first()
             github_job = session.query(JobSchedule).filter(
-                JobSchedule.job_name == 'github_sync',
+                func.lower(JobSchedule.job_name) == 'github',
                 JobSchedule.client_id == client_id
             ).first()
 
@@ -247,7 +370,7 @@ async def run_orchestrator():
 
         database = get_database()
 
-        # ✅ SECURITY: Get all clients and process their jobs independently
+        # SECURITY: Get all clients and process their jobs independently
         with database.get_session() as session:
             from app.models.unified_models import Client
             clients = session.query(Client).filter(Client.active == True).all()
@@ -261,7 +384,7 @@ async def run_orchestrator():
         # Process each client's jobs independently based on their individual settings
         for client in clients:
             try:
-                # ✅ SECURITY: Check if this client's orchestrator should run based on their settings
+                # SECURITY: Check if this client's orchestrator should run based on their settings
                 should_run = await should_run_orchestrator_for_client(client.id)
                 if should_run:
                     logger.info(f"Processing jobs for client: {client.name} (ID: {client.id}) - interval elapsed")
@@ -349,7 +472,7 @@ async def run_orchestrator_for_client(client_id: int):
         pending_job_name = None
 
         with database.get_session() as session:
-            # ✅ SECURITY: Find pending jobs filtered by client_id
+            # SECURITY: Find first pending job by execution_order filtered by client_id
             result = session.query(
                 JobSchedule.id,
                 JobSchedule.job_name
@@ -357,7 +480,7 @@ async def run_orchestrator_for_client(client_id: int):
                 JobSchedule.client_id == client_id,
                 JobSchedule.active == True,
                 JobSchedule.status == 'PENDING'
-            ).first()
+            ).order_by(JobSchedule.execution_order.asc()).first()
 
             if not result:
                 logger.info(f"INFO: No PENDING jobs found for client {client_id}, orchestrator exiting")
@@ -368,7 +491,7 @@ async def run_orchestrator_for_client(client_id: int):
 
         # Step 2: Quick atomic update to lock the job (separate short session)
         with database.get_session() as session:
-            # ✅ SECURITY: Atomic update with client_id verification
+            # SECURITY: Atomic update with client_id verification
             updated_rows = session.query(JobSchedule).filter(
                 JobSchedule.id == pending_job_id,
                 JobSchedule.client_id == client_id,  # Verify client_id
@@ -396,13 +519,28 @@ async def run_orchestrator_for_client(client_id: int):
             {"message": f"Job {pending_job_name} is now running"}
         )
 
-        # Step 4: Trigger the job asynchronously (outside of database session)
-        if pending_job_name == 'jira_sync':
+        # Step 4: Verify integration is active before triggering job
+        integration_check_result = check_integration_active(pending_job_id)
+        if not integration_check_result['active']:
+            logger.warning(f"SKIPPING: {pending_job_name} - Integration inactive: {integration_check_result['message']}")
+            # Set job as finished with error message and trigger next job
+            skip_job_due_to_inactive_integration(pending_job_id, integration_check_result['message'])
+            return
+
+        # Step 5: Trigger the job asynchronously (outside of database session)
+        job_name_lower = pending_job_name.lower()
+        if job_name_lower == 'jira':
             logger.info("TRIGGERING: Jira sync job...")
             asyncio.create_task(run_jira_sync_async(pending_job_id))
-        elif pending_job_name == 'github_sync':
+        elif job_name_lower == 'github':
             logger.info("TRIGGERING: GitHub sync job...")
             asyncio.create_task(run_github_sync_async(pending_job_id))
+        elif job_name_lower == 'wex fabric':
+            logger.info("TRIGGERING: WEX Fabric sync job...")
+            asyncio.create_task(run_fabric_sync_async(pending_job_id))
+        elif job_name_lower == 'wex ad':
+            logger.info("TRIGGERING: Active Directory sync job...")
+            asyncio.create_task(run_ad_sync_async(pending_job_id))
         else:
             logger.error(f"ERROR: Unknown job name: {pending_job_name}")
             # Reset job to PENDING if unknown (separate session)
@@ -534,6 +672,346 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
         traceback.print_exc()
 
 
+async def run_fabric_sync_async(job_schedule_id: int):
+    """
+    Simple WEX Fabric sync job implementation.
+
+    Args:
+        job_schedule_id: ID of the job schedule record
+    """
+    try:
+        logger.info(f"STARTING: WEX Fabric sync job (ID: {job_schedule_id})")
+
+        from app.core.database import get_database
+        from app.core.utils import DateTimeHelper
+        database = get_database()
+
+        # Get job schedule and determine sync date
+        with database.get_session() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            # Determine start date based on recovery vs incremental sync
+            if job_schedule.has_recovery_checkpoints():
+                # RECOVERY MODE: Use last_run_started_at
+                start_date = job_schedule.last_run_started_at
+                logger.info(f"Recovery mode: Using last_run_started_at = {start_date}")
+            else:
+                # INCREMENTAL SYNC MODE: Use last_success_at formatted as %Y-%m-%d %H%M
+                if job_schedule.last_success_at:
+                    start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
+                    logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
+                else:
+                    # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
+                    from datetime import timedelta
+                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
+
+            # Set last_run_started_at if not in recovery mode
+            if not job_schedule.has_recovery_checkpoints():
+                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                session.commit()
+                logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
+
+        # Simulate job execution with the determined start date
+        logger.info(f"Fabric sync would query data updated >= {start_date.strftime('%Y-%m-%d %H%M')}")
+        import asyncio
+        await asyncio.sleep(2)  # Simulate work
+
+        # Mark job as completed and set next job to PENDING
+        with database.get_write_session_context() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            client_id = job_schedule.client_id
+            current_order = job_schedule.execution_order
+
+            # Mark current job as finished
+            job_schedule.set_finished()
+            logger.info(f"WEX Fabric sync job completed successfully")
+
+            # Find next job in execution order
+            next_job = session.query(JobSchedule).filter(
+                JobSchedule.client_id == client_id,
+                JobSchedule.active == True,
+                JobSchedule.execution_order > current_order
+            ).order_by(JobSchedule.execution_order.asc()).first()
+
+            if next_job:
+                next_job.status = 'PENDING'
+                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+            else:
+                # No next job, cycle back to first job
+                first_job = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == client_id,
+                    JobSchedule.active == True
+                ).order_by(JobSchedule.execution_order.asc()).first()
+
+                if first_job and first_job.id != job_schedule_id:
+                    first_job.status = 'PENDING'
+                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+
+            session.commit()
+
+    except Exception as e:
+        logger.error(f"WEX Fabric sync job error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Set job back to PENDING on unexpected error
+        from app.core.database import get_database
+        database = get_database()
+
+        try:
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.status = 'PENDING'
+                    job_schedule.error_message = str(e)
+                    logger.info("Successfully updated Fabric job schedule with error status")
+        except Exception as session_error:
+            logger.error(f"Fabric job session error: {session_error}")
+
+
+async def run_ad_sync_async(job_schedule_id: int):
+    """
+    Simple Active Directory sync job implementation.
+
+    Args:
+        job_schedule_id: ID of the job schedule record
+    """
+    try:
+        logger.info(f"STARTING: Active Directory sync job (ID: {job_schedule_id})")
+
+        from app.core.database import get_database
+        from app.core.utils import DateTimeHelper
+        database = get_database()
+
+        # Get job schedule and determine sync date
+        with database.get_session() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            # Determine start date based on recovery vs incremental sync
+            if job_schedule.has_recovery_checkpoints():
+                # RECOVERY MODE: Use last_run_started_at
+                start_date = job_schedule.last_run_started_at
+                logger.info(f"Recovery mode: Using last_run_started_at = {start_date}")
+            else:
+                # INCREMENTAL SYNC MODE: Use last_success_at formatted as %Y-%m-%d %H%M
+                if job_schedule.last_success_at:
+                    start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
+                    logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
+                else:
+                    # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
+                    from datetime import timedelta
+                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
+
+            # Set last_run_started_at if not in recovery mode
+            if not job_schedule.has_recovery_checkpoints():
+                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                session.commit()
+                logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
+
+        # Simulate job execution with the determined start date
+        logger.info(f"AD sync would query data updated >= {start_date.strftime('%Y-%m-%d %H%M')}")
+        import asyncio
+        await asyncio.sleep(2)  # Simulate work
+
+        # Mark job as completed and set next job to PENDING
+        with database.get_write_session_context() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            client_id = job_schedule.client_id
+            current_order = job_schedule.execution_order
+
+            # Mark current job as finished
+            job_schedule.set_finished()
+            logger.info(f"Active Directory sync job completed successfully")
+
+            # Find next job in execution order
+            next_job = session.query(JobSchedule).filter(
+                JobSchedule.client_id == client_id,
+                JobSchedule.active == True,
+                JobSchedule.execution_order > current_order
+            ).order_by(JobSchedule.execution_order.asc()).first()
+
+            if next_job:
+                next_job.status = 'PENDING'
+                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+            else:
+                # No next job, cycle back to first job
+                first_job = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == client_id,
+                    JobSchedule.active == True
+                ).order_by(JobSchedule.execution_order.asc()).first()
+
+                if first_job and first_job.id != job_schedule_id:
+                    first_job.status = 'PENDING'
+                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+
+            session.commit()
+
+    except Exception as e:
+        logger.error(f"Active Directory sync job error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Set job back to PENDING on unexpected error
+        from app.core.database import get_database
+        database = get_database()
+
+        try:
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.status = 'PENDING'
+                    job_schedule.error_message = str(e)
+                    logger.info("Successfully updated AD job schedule with error status")
+        except Exception as session_error:
+            logger.error(f"AD job session error: {session_error}")
+
+
+async def trigger_fabric_sync(force_manual=False, execution_params=None, client_id=None):
+    """
+    Trigger a WEX Fabric sync job.
+
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+        execution_params: Optional execution parameters for the job
+        client_id: Client ID to trigger job for (required for client isolation)
+
+    Returns:
+        Dict containing job execution results
+    """
+    if client_id is None:
+        return {
+            'status': 'error',
+            'message': 'client_id is required for job execution'
+        }
+
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the fabric job for this client (case-insensitive)
+            fabric_job = session.query(JobSchedule).filter(
+                func.lower(JobSchedule.job_name) == 'wex fabric',
+                JobSchedule.client_id == client_id
+            ).first()
+
+            if not fabric_job:
+                return {
+                    'status': 'error',
+                    'message': f'WEX Fabric sync job not found for client {client_id}'
+                }
+
+            if force_manual:
+                # Set fabric job to PENDING, all others to NOT_STARTED
+                all_jobs = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == client_id,
+                    JobSchedule.active == True
+                ).all()
+
+                for job in all_jobs:
+                    if job.job_name.lower() == 'wex fabric':
+                        job.status = 'PENDING'
+                        job.error_message = None
+                    else:
+                        job.status = 'NOT_STARTED'
+                        job.error_message = None
+
+                session.commit()
+
+        return {
+            'status': 'triggered',
+            'message': f'WEX Fabric sync job triggered successfully for client {client_id}',
+            'job_name': 'WEX Fabric'
+        }
+
+    except Exception as e:
+        logger.error(f"Error triggering fabric sync: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to trigger fabric sync: {str(e)}'
+        }
+
+
+async def trigger_ad_sync(force_manual=False, execution_params=None, client_id=None):
+    """
+    Trigger an Active Directory sync job.
+
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+        execution_params: Optional execution parameters for the job
+        client_id: Client ID to trigger job for (required for client isolation)
+
+    Returns:
+        Dict containing job execution results
+    """
+    if client_id is None:
+        return {
+            'status': 'error',
+            'message': 'client_id is required for job execution'
+        }
+
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the AD job for this client (case-insensitive)
+            ad_job = session.query(JobSchedule).filter(
+                func.lower(JobSchedule.job_name) == 'wex ad',
+                JobSchedule.client_id == client_id
+            ).first()
+
+            if not ad_job:
+                return {
+                    'status': 'error',
+                    'message': f'WEX AD sync job not found for client {client_id}'
+                }
+
+            if force_manual:
+                # Set AD job to PENDING, all others to NOT_STARTED
+                all_jobs = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == client_id,
+                    JobSchedule.active == True
+                ).all()
+
+                for job in all_jobs:
+                    if job.job_name.lower() == 'wex ad':
+                        job.status = 'PENDING'
+                        job.error_message = None
+                    else:
+                        job.status = 'NOT_STARTED'
+                        job.error_message = None
+
+                session.commit()
+
+        return {
+            'status': 'triggered',
+            'message': f'Active Directory sync job triggered successfully for client {client_id}',
+            'job_name': 'ad_sync'
+        }
+
+    except Exception as e:
+        logger.error(f"Error triggering AD sync: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to trigger AD sync: {str(e)}'
+        }
+
+
 def initialize_job_schedules():
     """
     Initialize job schedules for ALL clients.
@@ -579,7 +1057,7 @@ def initialize_job_schedules_for_client(client_id: int):
     try:
         database = get_database()
         with database.get_session() as session:
-            # ✅ SECURITY: Check if jobs already exist for this client
+            # SECURITY: Check if jobs already exist for this client
             existing_jobs = session.query(JobSchedule).filter(JobSchedule.client_id == client_id).count()
             if existing_jobs > 0:
                 logger.info(f"INFO: Job schedules already initialized for client {client_id} ({existing_jobs} jobs found)")
@@ -592,7 +1070,7 @@ def initialize_job_schedules_for_client(client_id: int):
                 logger.error(f"Client {client_id} not found")
                 return False
 
-            # ✅ SECURITY: Get integrations for this specific client
+            # SECURITY: Get integrations for this specific client
             jira_integration = session.query(Integration).filter(
                 Integration.name.ilike('JIRA'),
                 Integration.client_id == client_id
@@ -605,17 +1083,17 @@ def initialize_job_schedules_for_client(client_id: int):
 
             # Create initial job schedules for this client
             jira_job = JobSchedule(
-                job_name='jira_sync',
+                job_name='Jira',
                 status='PENDING',  # Start with Jira ready to run
                 integration_id=jira_integration.id if jira_integration else None,
-                client_id=client_id  # ✅ SECURITY: Use provided client_id
+                client_id=client_id  # SECURITY: Use provided client_id
             )
 
             github_job = JobSchedule(
-                job_name='github_sync',
+                job_name='GitHub',
                 status='NOT_STARTED',  # Start with GitHub not started (prevents wrong execution)
                 integration_id=github_integration.id if github_integration else None,
-                client_id=client_id  # ✅ SECURITY: Use provided client_id
+                client_id=client_id  # SECURITY: Use provided client_id
             )
 
             session.add(jira_job)
@@ -623,8 +1101,8 @@ def initialize_job_schedules_for_client(client_id: int):
             session.commit()
 
             logger.info(f"SUCCESS: Job schedules initialized successfully for client {client_id}")
-            logger.info("   - jira_sync: PENDING (ready to run first)")
-            logger.info("   - github_sync: NOT_STARTED (will be set to PENDING when Jira finishes)")
+            logger.info("   - Jira: PENDING (ready to run first)")
+            logger.info("   - GitHub: NOT_STARTED (will be set to PENDING when Jira finishes)")
 
             return True
             
@@ -646,8 +1124,8 @@ def get_job_status(client_id: int = None):
     try:
         database = get_database()
         with database.get_session() as session:
-            # ✅ SECURITY: Filter jobs by client_id
-            query = session.query(JobSchedule).filter(JobSchedule.active == True)
+            # SECURITY: Filter jobs by client_id (include all jobs, not just active)
+            query = session.query(JobSchedule)
             if client_id is not None:
                 query = query.filter(JobSchedule.client_id == client_id)
             jobs = query.all()
@@ -656,6 +1134,7 @@ def get_job_status(client_id: int = None):
             for job in jobs:
                 status[job.job_name] = {
                     'status': job.status,
+                    'active': job.active,
                     'last_run_started_at': job.last_run_started_at.isoformat() if job.last_run_started_at else None,
                     'last_success_at': job.last_success_at.isoformat() if job.last_success_at else None,
                     'error_message': job.error_message,

@@ -462,10 +462,18 @@ class GitHubClient:
             actual_url = f"{self.base_url}/{endpoint}?{query_params}"
             logger.info(f"Full Search URL: {actual_url}")
 
-            batch_results = self._paginate_search_request(endpoint, params)
-            all_repos.extend(batch_results)
-
-            logger.info(f"Batch {i}/{len(pattern_batches)}: {len(batch_results)} repositories")
+            try:
+                batch_results = self._paginate_search_request(endpoint, params)
+                all_repos.extend(batch_results)
+                logger.info(f"Batch {i}/{len(pattern_batches)}: {len(batch_results)} repositories")
+            except Exception as e:
+                logger.error(f"Batch {i}/{len(pattern_batches)} failed: {e}")
+                logger.error(f"Failed query: {full_query}")
+                if "422" in str(e) or "Unprocessable Entity" in str(e):
+                    logger.error("GitHub API rejected the query - it may be too complex or contain invalid syntax")
+                    logger.error("Consider reducing the number of repository names or simplifying the search pattern")
+                # Continue with other batches instead of failing completely
+                continue
 
         # Remove duplicates (same repo might match multiple patterns)
         unique_repos = {}

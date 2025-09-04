@@ -1,31 +1,32 @@
 #!/usr/bin/env python3
 """
-Migration 0001: Initial Database Schema with AI Enhancements (Phase 1 Complete)
-Description: Creates all initial tables with integrated vector columns and ML monitoring infrastructure
+Migration 0001: Initial Database Schema - Clean 3-Database Architecture (Phase 3-1)
+Description: Creates clean PostgreSQL schema without vector columns for 3-database architecture
 Author: Pulse Platform Team
-Date: 2025-08-27 (Updated for Phase 1)
+Date: 2025-09-02 (Updated for Phase 3-1)
 
 This migration creates the complete initial database schema including:
-- Client management tables with multi-client support and vector columns
-- Authentication and user management for multiple clients with AI preferences
-- Integration tables with base_search configuration and embeddings
-- Issue tracking and workflow tables with vector support
-- Development data tables (PRs, commits, etc.) with embeddings
+- Client management tables with multi-client support (NO vector columns)
+- Authentication and user management for multiple clients
+- Integration tables with AI provider support and configuration
+- Issue tracking and workflow tables (business data only)
+- Development data tables (PRs, commits, etc.) without embeddings
 - Job scheduling and system settings with theme/color customization
 - ML monitoring tables for AI learning and prediction logging
-- Vector indexes (HNSW) for similarity search
+- Qdrant reference tracking for vector operations
 - All primary keys, foreign keys, unique constraints, and performance indexes
 
-This migration contains ONLY schema creation with integrated AI capabilities - no seed data.
+This migration contains ONLY schema creation for clean 3-database architecture - no seed data.
 
-Phase 1 + Phase 2 Requirements Implemented:
-✅ pgvector and postgresml extensions
-✅ Vector columns (embedding vector(1536)) in all 23 business tables
-✅ ML monitoring tables (ai_learning_memory, ai_predictions, ai_performance_metrics)
-✅ AI validation tables (ai_validation_patterns) and enhanced ai_learning_memory
-✅ Vector indexes for similarity search
-✅ Validation indexes for pattern recognition and learning
+Phase 3-1 Clean Architecture Implemented:
+✅ PostgreSQL extensions (vector extension kept for compatibility)
+✅ NO vector columns in business tables (vectors moved to Qdrant)
+✅ Qdrant reference tracking table for vector management
+✅ Enhanced integrations table with AI provider support
+✅ AI configuration tables (client preferences, usage tracking)
+✅ ML monitoring tables for AI learning and prediction logging
 ✅ Clean CREATE-only statements (no ALTER statements)
+✅ 3-Database architecture: PostgreSQL Primary + Replica + Qdrant
 """
 
 import os
@@ -104,7 +105,7 @@ def apply(connection):
 
         print("📋 Creating core tables...")
 
-        # 1. Clients table (foundation) with vector column
+        # 1. Clients table (foundation) - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS clients (
                 id SERIAL,
@@ -115,12 +116,11 @@ def apply(connection):
                 color_schema_mode VARCHAR(10) DEFAULT 'default' CHECK (color_schema_mode IN ('default', 'custom')),
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
         
-        # 2. Users table with vector column
+        # 2. Users table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL,
@@ -145,12 +145,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
         
-        # 3. User sessions table with vector column
+        # 3. User sessions table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 id SERIAL,
@@ -162,12 +161,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
-        
-        # 4. User permissions table with vector column
+
+        # 4. User permissions table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_permissions (
                 id SERIAL,
@@ -178,34 +176,43 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
         
         print("✅ Core tables created")
         print("📋 Creating integration and project tables...")
         
-        # 5. Integrations table with vector column
+        # 5. Clean integrations table (Phase 3-1)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS integrations (
                 id SERIAL,
-                name VARCHAR,
-                url VARCHAR,
+                provider VARCHAR(50) NOT NULL, -- 'jira', 'github', 'openai', 'wex_ai_gateway'
+                type VARCHAR(50) NOT NULL, -- 'data_source', 'ai_provider', 'notification'
                 username VARCHAR,
                 password VARCHAR,
-                projects TEXT,
+                base_url TEXT,
                 base_search VARCHAR,
-                last_sync_at TIMESTAMP,
+                model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
+                last_sync_at TIMESTAMP WITH TIME ZONE, -- Last successful sync timestamp
+
+                -- JSON configuration columns for complex settings
+                model_config JSONB DEFAULT '{}', -- AI model configuration
+                performance_config JSONB DEFAULT '{}', -- Rate limits, timeouts, etc.
+                configuration JSONB DEFAULT '{}', -- General configuration
+                provider_metadata JSONB DEFAULT '{}', -- Provider-specific metadata
+                cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
+                fallback_integration_id INTEGER, -- FK to another integration for fallback
+
+                -- BaseEntity fields
                 client_id INTEGER NOT NULL,
-                active BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
         """)
-        
-        # 6. Projects table with vector column
+
+        # 6. Projects table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS projects (
                 id SERIAL,
@@ -217,15 +224,14 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
         
         print("✅ Integration and project tables created")
         print("📋 Creating workflow and mapping tables...")
 
-        # 7. Workflows table (renamed from flow_steps) with vector column
+        # 7. Workflows table (renamed from flow_steps) - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS workflows (
                 id SERIAL,
@@ -237,12 +243,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 8. Status mappings table with vector column
+        # 8. Status mappings table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS status_mappings (
                 id SERIAL,
@@ -254,12 +259,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 9. Issue type hierarchies table with vector column
+        # 9. Issue type hierarchies table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issuetype_hierarchies (
                 id SERIAL,
@@ -270,12 +274,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 10. Issue type mappings table with vector column
+        # 10. Issue type mappings table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issuetype_mappings (
                 id SERIAL,
@@ -286,12 +289,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 11. Issue types table with vector column
+        # 11. Issue types table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issuetypes (
                 id SERIAL,
@@ -304,12 +306,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 12. Statuses table with vector column
+        # 12. Statuses table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS statuses (
                 id SERIAL,
@@ -322,8 +323,7 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
@@ -408,12 +408,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 16. Issue changelogs table with vector column
+        # 16. Issue changelogs table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS issue_changelogs (
                 id SERIAL,
@@ -429,12 +428,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 17. Repositories table with vector column
+        # 17. Repositories table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS repositories (
                 id SERIAL,
@@ -454,15 +452,14 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
         print("✅ Main data tables created")
         print("📋 Creating development and system tables...")
 
-        # 18. Pull requests table (complete with all columns) with vector column
+        # 18. Pull requests table (complete with all columns) - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pull_requests (
                 id SERIAL,
@@ -497,12 +494,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 19. Pull request reviews table with vector column
+        # 19. Pull request reviews table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pull_request_reviews (
                 id SERIAL,
@@ -516,12 +512,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 20. Pull request commits table with vector column
+        # 20. Pull request commits table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pull_request_commits (
                 id SERIAL,
@@ -538,12 +533,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 21. Pull request comments table with vector column
+        # 21. Pull request comments table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pull_request_comments (
                 id SERIAL,
@@ -561,12 +555,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 22. System settings table with vector column
+        # 22. System settings table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_settings (
                 id SERIAL,
@@ -577,16 +570,16 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 23. Job schedules table with vector column
+        # 23. Job schedules table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS job_schedules (
                 id SERIAL,
-                job_name VARCHAR UNIQUE NOT NULL,
+                job_name VARCHAR NOT NULL,
+                execution_order INTEGER NOT NULL,
                 status VARCHAR NOT NULL DEFAULT 'PENDING',
                 last_repo_sync_checkpoint TIMESTAMP,
                 repo_processing_queue TEXT,
@@ -604,12 +597,11 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 24. Jira pull request links table (complete with all columns) with vector column
+        # 24. Jira pull request links table (complete with all columns) - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS jira_pull_request_links (
                 id SERIAL,
@@ -624,8 +616,7 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536)
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
@@ -638,6 +629,70 @@ def apply(connection):
                 applied_at TIMESTAMP DEFAULT NOW(),
                 rollback_at TIMESTAMP,
                 status VARCHAR(20) NOT NULL DEFAULT 'applied'
+            );
+        """)
+
+        # 26. Qdrant vectors table - tracks vector references with client isolation (Phase 3-1)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS qdrant_vectors (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                table_name VARCHAR(50) NOT NULL,
+                record_id INTEGER NOT NULL,
+                qdrant_collection VARCHAR(100) NOT NULL,
+                qdrant_point_id UUID NOT NULL,
+                vector_type VARCHAR(50) NOT NULL, -- 'content', 'summary', 'metadata'
+                embedding_model VARCHAR(100) NOT NULL, -- Track which model generated this
+                embedding_provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
+                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                UNIQUE(client_id, table_name, record_id, vector_type)
+            );
+        """)
+
+        # 27. Client AI preferences table (inspired by WrenAI's configuration system)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS client_ai_preferences (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                preference_type VARCHAR(50) NOT NULL, -- 'default_models', 'performance', 'cost_limits'
+                configuration JSONB DEFAULT '{}',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                UNIQUE(client_id, preference_type)
+            );
+        """)
+
+        # 28. Client AI configuration table (inspired by WrenAI's pipeline configuration)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS client_ai_configuration (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                config_category VARCHAR(50) NOT NULL, -- 'embedding_models', 'llm_models', 'pipeline_config'
+                configuration JSONB DEFAULT '{}',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                UNIQUE(client_id, config_category)
+            );
+        """)
+
+        # 29. AI usage tracking table (inspired by WrenAI's cost monitoring)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_usage_tracking (
+                id SERIAL PRIMARY KEY,
+                client_id INTEGER NOT NULL,
+                provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
+                operation VARCHAR(50) NOT NULL, -- 'embedding', 'text_generation', 'analysis'
+                model_name VARCHAR(100),
+                input_count INTEGER DEFAULT 0,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                cost DECIMAL(10,4) DEFAULT 0.0,
+                request_metadata JSONB DEFAULT '{}',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
         """)
 
@@ -705,7 +760,6 @@ def apply(connection):
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
-                embedding vector(1536),
 
                 -- === NEW UNIFIED UNIQUE CONSTRAINT ===
                 CONSTRAINT uk_client_color_unified UNIQUE(client_id, color_schema_mode, accessibility_level, theme_mode)
@@ -753,6 +807,12 @@ def apply(connection):
         ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
         ensure_primary_key('client_color_settings', 'pk_client_color_settings')
 
+        # Phase 3-1: New table primary keys
+        ensure_primary_key('qdrant_vectors', 'pk_qdrant_vectors')
+        ensure_primary_key('client_ai_preferences', 'pk_client_ai_preferences')
+        ensure_primary_key('client_ai_configuration', 'pk_client_ai_configuration')
+        ensure_primary_key('ai_usage_tracking', 'pk_ai_usage_tracking')
+
         # Check if migration_history table already has a primary key (from migration runner)
         cursor.execute("""
             SELECT constraint_name
@@ -768,7 +828,7 @@ def apply(connection):
 
         print("📋 Creating ML monitoring tables...")
 
-        # AI Learning Memory table - stores user feedback and corrections (Phase 1 + Phase 2)
+        # AI Learning Memory table - stores user feedback and corrections (Phase 3-1 Clean)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ai_learning_memory (
                 id SERIAL PRIMARY KEY,
@@ -784,37 +844,11 @@ def apply(connection):
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
-                -- Phase 2: Validation enhancement columns
-                validation_type VARCHAR(50) DEFAULT 'syntax',
-                confidence_score DECIMAL(3,2) DEFAULT 0.0,
-                retry_count INTEGER DEFAULT 0,
-                learning_context JSONB DEFAULT '{}',
-                pattern_hash VARCHAR(64),
-                resolution_time_ms INTEGER,
-                validation_passed BOOLEAN DEFAULT FALSE,
-
                 FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             );
         """)
 
-        # AI Validation Patterns table - stores validation failure patterns for self-healing (Phase 2)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_validation_patterns (
-                id SERIAL PRIMARY KEY,
-                pattern_hash VARCHAR(64) UNIQUE NOT NULL,
-                error_pattern TEXT NOT NULL,
-                failure_count INTEGER DEFAULT 1,
-                success_count INTEGER DEFAULT 0,
-                last_seen_at TIMESTAMP DEFAULT NOW(),
-                pattern_metadata JSONB DEFAULT '{}',
-                suggested_fix TEXT,
-                confidence_score DECIMAL(3,2) DEFAULT 0.0,
-                client_id INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
 
-                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
-            );
-        """)
 
         # AI Predictions table - logs ML model predictions and accuracy
         cursor.execute("""
@@ -863,7 +897,6 @@ def apply(connection):
                 acknowledged_by INTEGER,
                 acknowledged_at TIMESTAMP,
                 client_id INTEGER NOT NULL,
-                embedding vector(1536), -- AI Enhancement: Vector column for embeddings
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
                 active BOOLEAN DEFAULT TRUE,
@@ -897,6 +930,7 @@ def apply(connection):
 
         # Integrations and projects
         add_constraint_if_not_exists('fk_integrations_client_id', 'integrations', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_integrations_fallback', 'integrations', 'FOREIGN KEY (fallback_integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_projects_integration_id', 'projects', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_projects_client_id', 'projects', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
 
@@ -967,6 +1001,12 @@ def apply(connection):
         # Color table foreign key
         add_constraint_if_not_exists('fk_client_color_settings_client_id', 'client_color_settings', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
 
+        # Phase 3-1: New table foreign keys
+        add_constraint_if_not_exists('fk_qdrant_vectors_client_id', 'qdrant_vectors', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_client_ai_preferences_client_id', 'client_ai_preferences', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_client_ai_configuration_client_id', 'client_ai_configuration', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_usage_tracking_client_id', 'ai_usage_tracking', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
+
         print("✅ Data table foreign key constraints created")
         print("📋 Creating relationship table constraints...")
 
@@ -995,8 +1035,9 @@ def apply(connection):
         ensure_unique_constraint('users', 'uk_users_email', 'email')
         ensure_unique_constraint('users', 'uk_users_okta_user_id', 'okta_user_id')
         ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_client_id', 'setting_key, client_id')
-        ensure_unique_constraint('job_schedules', 'uk_job_schedules_job_name', 'job_name')
-        ensure_unique_constraint('integrations', 'uk_integrations_name_client_id', 'name, client_id')
+        ensure_unique_constraint('job_schedules', 'uk_job_schedules_job_name_client_id', 'job_name, client_id')
+        ensure_unique_constraint('job_schedules', 'uk_job_schedules_execution_order_client_id', 'execution_order, client_id')
+        ensure_unique_constraint('integrations', 'uk_integrations_provider_client_id', 'provider, client_id')
         ensure_unique_constraint('status_mappings', 'uk_status_mappings_from_client', 'status_from, client_id')
         ensure_unique_constraint('issuetype_mappings', 'uk_issuetype_mappings_from_client', 'issuetype_from, client_id')
         ensure_unique_constraint('migration_history', 'uk_migration_history_migration_number', 'migration_number')
@@ -1019,7 +1060,8 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id);")
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_client_id ON integrations(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_name ON integrations(name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_provider ON integrations(provider);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_integration_id ON projects(integration_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_key ON projects(key);")
@@ -1098,24 +1140,10 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_mode ON client_color_settings(client_id, color_schema_mode);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_unified ON client_color_settings(client_id, color_schema_mode, accessibility_level, theme_mode);")
 
-        # ML monitoring table indexes (Phase 1 + Phase 2)
+        # ML monitoring table indexes (Phase 3-1 Clean Architecture)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_client_id ON ai_learning_memory(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_error_type ON ai_learning_memory(error_type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_message_id ON ai_learning_memory(message_id);")
-
-        # Phase 2: Validation-specific indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_type ON ai_learning_memory(validation_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_confidence ON ai_learning_memory(confidence_score);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_pattern_hash ON ai_learning_memory(pattern_hash);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_validation_passed ON ai_learning_memory(validation_passed);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_retry_count ON ai_learning_memory(retry_count);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_learning_context ON ai_learning_memory USING GIN(learning_context);")
-
-        # AI validation patterns indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_hash ON ai_validation_patterns(pattern_hash);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_client ON ai_validation_patterns(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_confidence ON ai_validation_patterns(confidence_score);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_validation_patterns_metadata ON ai_validation_patterns USING GIN(pattern_metadata);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_client_id ON ai_predictions(client_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
@@ -1127,6 +1155,21 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
+
+        # Phase 3-1: Qdrant and AI configuration table indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_client ON qdrant_vectors(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_client ON client_ai_preferences(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_type ON client_ai_preferences(preference_type);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_configuration_client ON client_ai_configuration(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_configuration_category ON client_ai_configuration(config_category);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_client ON ai_usage_tracking(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_provider ON ai_usage_tracking(provider);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_operation ON ai_usage_tracking(operation);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_created_at ON ai_usage_tracking(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 

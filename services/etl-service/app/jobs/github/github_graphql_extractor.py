@@ -26,7 +26,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
     """
     Process pull requests for a repository using GraphQL with bulk inserts and early termination.
 
-    Uses DESC ordering by updatedAt and stops when encountering PRs older than integration.last_sync_at
+    Uses DESC ordering by updatedAt and stops when encountering PRs older than job_schedule.last_success_at
     for optimal efficiency. Only processes new/updated PRs since last sync.
 
     Args:
@@ -35,7 +35,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         repository: Repository object
         owner: Repository owner
         repo_name: Repository name
-        integration: GitHub integration (last_sync_at used for early termination)
+        integration: GitHub integration (for configuration)
         job_schedule: Job schedule for checkpoint management
 
     Returns:
@@ -52,9 +52,10 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         prs_processed = 0
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
-        last_sync_at = integration.last_sync_at
+        # Use job_schedule.last_success_at instead of integration.last_sync_at
+        last_sync_at = job_schedule.last_success_at
         if last_sync_at:
-            logger.info(f"Using last_sync_at for early termination: {last_sync_at}")
+            logger.info(f"Using job_schedule.last_success_at for early termination: {last_sync_at}")
         else:
             logger.info("No last_sync_at found - will process all PRs")
 
@@ -352,11 +353,12 @@ async def process_repository_prs_with_graphql_recovery(session: Session, graphql
         checkpoint_state = job_schedule.get_checkpoint_state()
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
-        last_sync_at = integration.last_sync_at
+        # Use job_schedule.last_success_at instead of integration.last_sync_at
+        last_sync_at = job_schedule.last_success_at
         if last_sync_at:
-            logger.info(f"Using last_sync_at for early termination in recovery: {last_sync_at}")
+            logger.info(f"Using job_schedule.last_success_at for early termination in recovery: {last_sync_at}")
         else:
-            logger.info("No last_sync_at found - will process all PRs in recovery")
+            logger.info("No last_success_at found - will process all PRs in recovery")
 
         prs_processed = 0
         pr_cursor = checkpoint_state['last_pr_cursor']
@@ -615,19 +617,12 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
                     setattr(existing_pr, key, value)
             pull_request = existing_pr
         else:
-            # Create new PR with schema compatibility validation
-            from app.core.schema_compatibility import safe_model_creation
+            # Create new PR - Phase 3-1 clean architecture
             try:
-                pull_request = safe_model_creation(
-                    PullRequest, pr_data,
-                    context=f"PR #{pr_data.get('number', 'unknown')}",
-                    job_name="GitHub-ETL"
-                )
-                if pull_request is None:
-                    raise ValueError(f"Failed to create PR {pr_data.get('number', 'unknown')} - schema validation failed")
+                pull_request = PullRequest(**pr_data)
                 session.add(pull_request)
             except Exception as e:
-                logger.error(f"❌ Schema compatibility error creating PR {pr_data.get('number', 'unknown')}: {e}")
+                logger.error(f"❌ Error creating PR {pr_data.get('number', 'unknown')}: {e}")
                 raise
 
         session.flush()  # Get the PR ID

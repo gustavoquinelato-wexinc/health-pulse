@@ -155,12 +155,13 @@ SettingsManager.set_setting("custom_colors", color_data, client_id, "json")
 - **Required**: Yes (for Jira job functionality)
 - **Example**: `"ATATT3xFfGF0..."`
 
-#### jira_projects
-- **Purpose**: List of Jira project keys to process
-- **Type**: json
-- **Valid Values**: Array of valid project keys
-- **Default**: [] (empty array)
-- **Example**: `["PROJ1", "PROJ2", "TECH"]`
+#### jira_base_search (Integration Configuration)
+- **Purpose**: JQL search criteria for Jira data collection (stored in integrations table)
+- **Type**: string
+- **Valid Values**: Valid JQL syntax including project filtering
+- **Default**: "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"
+- **Example**: `"project in (PROJ1,PROJ2) AND labels = 'urgent'"`
+- **Note**: Replaces the deprecated separate projects column for better JQL flexibility
 
 ## ⚙️ Job Configuration Settings
 

@@ -76,6 +76,9 @@
         <button onclick="showLogManagement()" class="btn-neutral-secondary">
             <i class="fas fa-file-alt mr-1"></i>Logs
         </button>
+        <button onclick="refreshOrchestratorSchedule()" id="refreshScheduleBtn" class="btn-neutral-secondary">
+            <i class="fas fa-sync mr-1"></i>Refresh Schedule
+        </button>
         <button onclick="refreshData();" class="btn-neutral-secondary">
             <i class="fas fa-refresh mr-1"></i>Refresh
         </button>
@@ -345,9 +348,129 @@
         background-color: rgba(255, 255, 255, 0.15) !important; /* Dark mode: white with opacity */
     }
 
+    /* Simple inactive job card styling - no grayscale, just visual indication */
+    .job-card-inactive {
+        opacity: 0.8;
+        border-left: 4px solid var(--status-neutral) !important;
+    }
+
+    /* Toggle Switch Styling */
+    .job-toggle-switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .toggle-switch {
+        position: relative;
+        width: 36px;
+        height: 18px;
+        background-color: var(--status-neutral);
+        border-radius: 9px;
+        transition: background-color 0.3s ease;
+        cursor: pointer;
+    }
+
+    .toggle-switch.active {
+        background-color: var(--crud-create);
+    }
+
+    .toggle-slider {
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 16px;
+        height: 16px;
+        background-color: white;
+        border-radius: 50%;
+        transition: transform 0.3s ease;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle-switch.active .toggle-slider {
+        transform: translateX(18px);
+    }
+
+    .toggle-label {
+        margin-right: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+
+    /* Icon-only action buttons */
+    .action-icon-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 14px;
+        position: relative;
+    }
+
+    .action-icon-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .action-icon-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Icon button variants */
+    .action-icon-btn.force-pending {
+        background-color: var(--color-1);
+        color: white;
+    }
+
+    .action-icon-btn.pause-resume {
+        background-color: var(--status-warning);
+        color: white;
+    }
+
+    .action-icon-btn.resume {
+        background-color: var(--crud-create);
+        color: white;
+    }
+
+    .action-icon-btn.details {
+        background-color: var(--neutral-secondary);
+        color: white;
+    }
+
+    .action-icon-btn.disabled {
+        background-color: var(--neutral-tertiary);
+        color: var(--text-muted);
+    }
+
     /* Jira icon background - lighter blue for both themes */
     .jira-icon-bg {
         background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
+    }
+
+    /* Microsoft Fabric icon background - Microsoft blue */
+    .fabric-icon-bg {
+        background-color: rgba(0, 120, 212, 0.2) !important; /* Microsoft blue with opacity */
+    }
+
+    /* Active Directory icon background - Microsoft blue variant */
+    .ad-icon-bg {
+        background-color: rgba(0, 120, 212, 0.15) !important; /* Slightly lighter Microsoft blue */
+    }
+
+    /* Default icon background for unknown integration types */
+    .default-icon-bg {
+        background-color: rgba(107, 114, 128, 0.2) !important; /* Gray with opacity */
     }
 </style>
 
@@ -356,27 +479,23 @@
 
     // WebSocket connections for real-time progress with connection management
     let websockets = {
-        jira_sync: null,
-        github_sync: null,
+        'Jira': null,
+        'GitHub': null,
         orchestrator: null
     };
 
     // Connection management
     let connectionAttempts = {
-        jira_sync: 0,
-        github_sync: 0,
+        'Jira': 0,
+        'GitHub': 0,
         orchestrator: 0
     };
 
     const maxReconnectAttempts = 3;
     let isPageUnloading = false;
 
-    // Progress and exception data
-    let jobProgress = {
-        jira_sync: { percentage: 0, step: '', exceptions: [] },
-        github_sync: { percentage: 0, step: '', exceptions: [] },
-        orchestrator: { percentage: 0, step: '', exceptions: [] }
-    };
+    // Progress and exception data - will be dynamically populated
+    let jobProgress = {};
 
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', async function () {
@@ -666,7 +785,7 @@
 
     // WebSocket Management
     function initializeWebSockets() {
-        const jobs = ['jira_sync', 'github_sync'];
+        const jobs = ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD'];
         jobs.forEach(jobName => {
             connectWebSocket(jobName);
         });
@@ -751,7 +870,7 @@
             case 'completion':
                 handleJobCompletion(jobName, data.success, data.summary);
                 break;
-            // 🚀 Handle real-time color schema updates
+            // Handle real-time color schema updates
             case 'color_schema_updated':
             case 'color_schema_mode_updated':
                 handleColorSchemaUpdate(data);
@@ -880,7 +999,7 @@
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch('/api/v1/jobs/status', {
+            const response = await fetch('/api/v1/home/jobs', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -893,7 +1012,9 @@
             }
 
             const data = await response.json();
-            updateJobCards(data.jobs || data);
+            console.log('[REFRESH] Job data received:', data);
+            // New endpoint returns array of job cards directly
+            updateJobCards(data);
             updateLastRefreshTime();
 
             // Also refresh orchestrator status to keep it in sync
@@ -907,10 +1028,38 @@
         const container = document.getElementById('jobsContainer');
         container.innerHTML = '';
 
-        Object.entries(jobsData).forEach(([jobName, jobData]) => {
-            const card = createJobCard(jobName, jobData, jobsData);
-            container.appendChild(card);
-        });
+        // Handle new array format from /api/v1/home/jobs endpoint
+        if (Array.isArray(jobsData)) {
+            jobsData.forEach(jobCard => {
+                // Initialize jobProgress only for jobs that support WebSocket progress
+                const supportsWebSocket = ['jira', 'github', 'wex fabric', 'wex ad'].includes(jobCard.job_name.toLowerCase());
+                if (supportsWebSocket && !jobProgress[jobCard.job_name]) {
+                    jobProgress[jobCard.job_name] = {
+                        exceptions: [],
+                        percentage: 0,
+                        step: 'Ready'
+                    };
+                }
+
+                // Convert new format to old format for compatibility with existing createJobCard function
+                const jobData = {
+                    id: jobCard.id,  // Add job ID for toggle functionality
+                    status: jobCard.status,
+                    last_sync: jobCard.last_sync,
+                    integration_type: jobCard.integration_type,
+                    execution_order: jobCard.execution_order,
+                    active: jobCard.active
+                };
+                const card = createJobCard(jobCard.job_name, jobData, jobsData);
+                container.appendChild(card);
+            });
+        } else {
+            // Fallback for old object format (if needed)
+            Object.entries(jobsData).forEach(([jobName, jobData]) => {
+                const card = createJobCard(jobName, jobData, jobsData);
+                container.appendChild(card);
+            });
+        }
 
         updateOrchestratorButtonState(jobsData);
     }
@@ -970,16 +1119,51 @@
 
     function createJobCard(jobName, jobData, allJobsData) {
         const card = document.createElement('div');
-        card.className = 'relative p-6 rounded-lg transition-all duration-200 hover:shadow-lg';
+        const isInactive = jobData.active === false;
+
+        card.className = `relative p-6 rounded-lg transition-all duration-200 ${isInactive ? 'opacity-50' : 'hover:shadow-lg'}`;
         card.style.backgroundColor = 'var(--bg-secondary)';
         card.style.border = '1px solid var(--border-color)';
         card.setAttribute('data-job', jobName);
 
-        // Use proper FontAwesome icons for Jira and GitHub
-        const jobIcon = jobName === 'jira_sync' ? 'atlassian' : 'github';
-        const jobIconClass = 'fab'; // Both are brand icons
-        const jobColor = jobName === 'jira_sync' ? '#0052CC' : '#000000'; // Hardcoded integration colors
-        const jobTitle = jobName === 'jira_sync' ? 'Jira Sync' : 'GitHub Sync';
+        // Add simple inactive styling
+        if (isInactive) {
+            card.classList.add('job-card-inactive');
+        }
+
+        // Use integration_type from API response to determine icon and styling
+        const integrationType = jobData.integration_type || 'unknown';
+        let jobIcon, jobIconClass, jobColor;
+
+        // Use the actual job_name from database as the title
+        const jobTitle = jobName;
+
+        switch (integrationType) {
+            case 'jira':
+                jobIcon = 'atlassian';
+                jobIconClass = 'fab';
+                jobColor = '#0052CC';
+                break;
+            case 'github':
+                jobIcon = 'github';
+                jobIconClass = 'fab';
+                jobColor = '#000000';
+                break;
+            case 'wex_fabric':
+                jobIcon = 'database';
+                jobIconClass = 'fas';
+                jobColor = '#0078D4';
+                break;
+            case 'active_directory':
+                jobIcon = 'users';
+                jobIconClass = 'fas';
+                jobColor = '#0078D4';
+                break;
+            default:
+                jobIcon = 'cog';
+                jobIconClass = 'fas';
+                jobColor = '#6B7280';
+        }
 
         card.innerHTML = `
             <!-- Job Title with Icon on Left and Status -->
@@ -987,30 +1171,44 @@
                 <div class="flex items-center justify-between mb-3">
                     <div class="flex items-center space-x-3">
                         <!-- Icon with background on left - bigger size -->
-                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative ${jobName === 'jira_sync' ? 'jira-icon-bg' : 'github-icon-bg'}">
+                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative ${getIntegrationIconBgClass(integrationType)}">
                             <i class="${jobIconClass} fa-${jobIcon} text-base" style="color: ${jobColor};"></i>
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
                     </div>
                     <!-- Status Badge -->
-                    <span class="text-sm ${getStatusClass(jobData.status)}">
-                        <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
-                    </span>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm ${getStatusClass(jobData.status)}">
+                            <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
+                        </span>
+                    </div>
                 </div>
             </div>
 
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
-            ${createWebSocketProgress(jobName)}
 
-            <!-- Action Buttons - Right Aligned with Better Grouping -->
+            <!-- Toggle Switch - Right aligned like action buttons -->
+            <div class="mt-4 flex justify-end">
+                <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
+                    <span class="toggle-label">${isInactive ? 'Inactive' : 'Active'}</span>
+                    <div class="toggle-switch ${isInactive ? '' : 'active'}">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons - Icon-only with compact spacing -->
             <div class="mt-6 flex justify-end">
-                <div class="flex space-x-2">
+                <div class="flex space-x-1 action-buttons">
                     ${createActionButtons(jobName, jobData, allJobsData)}
                 </div>
             </div>
 
-            <!-- Messages Section - Below Buttons for Consistent Layout -->
+            <!-- Progress Bar - Below Buttons, Above Messages -->
+            ${createWebSocketProgress(jobName)}
+
+            <!-- Messages Section - Below Progress Bar for Consistent Layout -->
             ${createMessagesSection(jobName, jobData)}
             ${createExceptionLog(jobName)}
         `;
@@ -1089,7 +1287,7 @@
         let messagesHtml = '';
 
         // Recovery details for GitHub jobs (moved from createJobDetails)
-        if (jobName === 'github_sync' && jobData.status === 'PENDING' && jobData.checkpoint_data &&
+        if (jobName.toLowerCase() === 'github' && jobData.status === 'PENDING' && jobData.checkpoint_data &&
             jobData.checkpoint_data.repo_processing_queue) {
             messagesHtml += createRecoveryDetails(jobData.checkpoint_data);
         }
@@ -1108,6 +1306,7 @@
     }
 
     function createActionButtons(jobName, jobData, allJobsData) {
+        const isInactive = jobData.active === false;
         const canActivate = ['PENDING', 'FINISHED', 'NOT_STARTED', 'PAUSED'].includes(jobData.status);
         const canPause = !['ERROR'].includes(jobData.status); // Can pause any status except ERROR
         const canUnpause = jobData.status === 'PAUSED';
@@ -1116,45 +1315,52 @@
             name !== jobName && data.status === 'RUNNING'
         );
 
-        const canActivateSafe = canActivate && !otherJobRunning;
-        const canPauseSafe = canPause; // Simplified - if job can be paused, it's safe to pause
+        const canActivateSafe = canActivate && !otherJobRunning && !isInactive;
+        const canPauseSafe = canPause && !isInactive; // Disabled if job is inactive
 
 
+
+        // Determine button titles based on state
+        let forcePendingTitle = '';
+        if (isInactive) {
+            forcePendingTitle = 'Job is inactive - cannot be executed';
+        } else if (!canActivateSafe && otherJobRunning) {
+            forcePendingTitle = 'Cannot activate while another job is running';
+        }
+
+        let pauseTitle = '';
+        if (isInactive) {
+            pauseTitle = 'Job is inactive - cannot be controlled';
+        } else if (!canPauseSafe && jobData.status === 'RUNNING') {
+            pauseTitle = 'Cannot pause while job is running';
+        }
 
         let buttons = `
-            <button onclick="setJobActive('${jobName}')"
-                    ${!canActivateSafe ? 'disabled' : ''}
-                    class="${canActivateSafe ? 'btn-color-1-sm' : 'btn-neutral-disabled'}"
-                    title="${!canActivateSafe && otherJobRunning ? 'Cannot activate while another job is running' : ''}">
-                <i class="fas fa-play mr-1"></i>Force Pending
+            <button onclick="setJobActive('${jobName}', ${jobData.id})"
+                    ${!canActivateSafe || isInactive ? 'disabled' : ''}
+                    class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
+                    title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
+                <i class="fas fa-play"></i>
             </button>
-            <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
-                    ${!(canPauseSafe || canUnpause) ? 'disabled' : ''}
-                    class="${canUnpause ? 'btn-status-success-sm' : (canPauseSafe ? 'btn-status-warning-sm' : 'btn-neutral-disabled')}"
-                    title="${!canPauseSafe && jobData.status === 'RUNNING' ? 'Cannot pause while job is running' : ''}">
-                <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Resume' : 'Pause'}
+            <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}', ${jobData.id})"
+                    ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
+                    class="action-icon-btn ${canUnpause && !isInactive ? 'resume' : (canPauseSafe && !isInactive ? 'pause-resume' : 'disabled')}"
+                    title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
+                <i class="fas fa-${canUnpause ? 'play' : 'pause'}"></i>
             </button>
-            <button onclick="showJobDetails('${jobName}')"
-                    class="btn-neutral-secondary">
-                <i class="fas fa-info-circle mr-1"></i>Details
+            <button onclick="showJobDetails('${jobName}', ${jobData.id})"
+                    ${isInactive ? 'disabled' : ''}
+                    class="action-icon-btn ${isInactive ? 'disabled' : 'details'}"
+                    title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
+                <i class="fas fa-info-circle"></i>
             </button>
         `;
-
-        // Add GitHub rate limits button for GitHub job only
-        if (jobName === 'github_sync') {
-            buttons += `
-            <button onclick="showGitHubRateLimits()"
-                    class="btn-neutral-secondary">
-                <i class="fas fa-tachometer-alt mr-1"></i>Rate Limits
-            </button>
-            `;
-        }
 
         return buttons;
     }
 
     // Job control functions
-    async function setJobActive(jobName) {
+    async function setJobActive(jobName, jobId) {
         try {
             // Clear any existing error messages when starting a new job run
             clearJobExceptions(jobName);
@@ -1164,7 +1370,7 @@
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/set-active`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -1177,14 +1383,43 @@
                 setTimeout(refreshData, 1000);
             } else {
                 const result = await response.json();
-                console.error(`Failed to set ${jobName} active: ${result.detail}`);
+                console.error(`Failed to set ${jobName} (ID: ${jobId}) active: ${result.detail}`);
             }
         } catch (error) {
-            console.error(`Error setting ${jobName} active: ${error.message}`);
+            console.error(`Error setting ${jobName} (ID: ${jobId}) active: ${error.message}`);
         }
     }
 
+    // Toggle job active/inactive status
+    async function toggleJobActiveStatus(jobName, jobId) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
 
+            const response = await fetch(`/api/v1/home/jobs/${jobId}/toggle`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                showNotification(result.message, 'success');
+                // Refresh the job cards to show updated status
+                setTimeout(refreshData, 500);
+            } else {
+                const result = await response.json();
+                showNotification(`Failed to toggle ${jobName}: ${result.detail}`, 'error');
+            }
+        } catch (error) {
+            console.error(`Error toggling ${jobName} status: ${error.message}`);
+            showNotification(`Error toggling ${jobName} status: ${error.message}`, 'error');
+        }
+    }
 
     async function showLogManagement() {
         try {
@@ -1444,41 +1679,63 @@
 
     function getStatusClass(status) {
         switch (status) {
+            // Database status values (uppercase)
             case 'RUNNING': return 'btn-status-info'; // Blue
             case 'PENDING': return 'btn-color-1'; // Color #1
             case 'FINISHED': return 'btn-status-success'; // Green
             case 'PAUSED': return 'btn-status-warning'; // Yellow/Amber
             case 'NOT_STARTED': return 'btn-neutral-primary'; // Enterprise dark
+            case 'ERROR': return 'status-error'; // Red
+            // Special API status values
+            case 'inactive': return 'btn-neutral-primary'; // Enterprise dark (for inactive integrations)
             default: return 'status-error';
         }
     }
 
     function getStatusIcon(status) {
         switch (status) {
+            // Database status values (uppercase)
             case 'RUNNING': return 'spinner fa-spin';
             case 'PENDING': return 'clock';
             case 'FINISHED': return 'check-circle';
             case 'PAUSED': return 'pause-circle';
             case 'NOT_STARTED': return 'circle';
+            case 'ERROR': return 'exclamation-triangle';
+            // Special API status values
+            case 'inactive': return 'circle'; // For inactive integrations
             default: return 'exclamation-triangle';
+        }
+    }
+
+    function getIntegrationIconBgClass(integrationType) {
+        switch (integrationType) {
+            case 'jira': return 'jira-icon-bg';
+            case 'github': return 'github-icon-bg';
+            case 'wex_fabric': return 'fabric-icon-bg';
+            case 'active_directory': return 'ad-icon-bg';
+            default: return 'default-icon-bg';
         }
     }
 
     function getStatusDotClass(status) {
         switch (status) {
+            // Database status values (uppercase)
             case 'RUNNING': return 'bg-green-500';
             case 'PENDING': return 'status-dot-color-1';
             case 'FINISHED': return 'bg-gray-500';
             case 'PAUSED': return 'bg-orange-500';
             case 'NOT_STARTED': return 'bg-gray-400';
             case 'ERROR': return 'bg-red-500';
+            // Special API status values
+            case 'inactive': return 'bg-gray-400'; // For inactive integrations
             default: return 'bg-gray-400';
         }
     }
 
     function createWebSocketProgress(jobName) {
         const progress = jobProgress[jobName];
-        if (!progress || progress.percentage === 0) {
+        // Only show progress bar if job has progress data AND percentage > 0
+        if (!progress || !progress.percentage || progress.percentage === 0) {
             return '';
         }
 
@@ -1497,6 +1754,11 @@
     }
 
     function createExceptionLog(jobName) {
+        // Safety check for jobProgress existence
+        if (!jobProgress[jobName] || !jobProgress[jobName].exceptions) {
+            return '';
+        }
+
         const exceptions = jobProgress[jobName].exceptions;
         if (!exceptions || exceptions.length === 0) {
             return '';
@@ -1525,10 +1787,11 @@
     function updateJobCardProgress(jobCard, percentage, step) {
         let progressSection = jobCard.querySelector('.ws-progress-container');
         if (!progressSection) {
-            const detailsSection = jobCard.querySelector('.space-y-3');
-            if (detailsSection) {
+            // Insert progress bar after the action buttons section
+            const buttonsSection = jobCard.querySelector('.mt-6.flex.justify-end');
+            if (buttonsSection) {
                 const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
-                detailsSection.insertAdjacentHTML('afterend', progressHtml);
+                buttonsSection.insertAdjacentHTML('afterend', progressHtml);
                 progressSection = jobCard.querySelector('.ws-progress-container');
             }
         }
@@ -1637,12 +1900,10 @@
         }
     }
 
-    async function pauseJob(jobName) {
-        if (!confirm(`Are you sure you want to pause ${jobName}?`)) return;
-
+    async function pauseJob(jobName, jobId) {
         try {
             const token = getAuthToken();
-            const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/pause`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -1651,23 +1912,22 @@
             });
 
             const result = await response.json();
+            console.log(`[PAUSE] Response for ${jobName}:`, result);
             if (response.ok) {
-                console.log(`${jobName} paused successfully`);
+                console.log(`[PAUSE] ${jobName} paused successfully, refreshing data...`);
                 await refreshData();
             } else {
-                console.error(`Failed to pause ${jobName}: ${result.detail || result.message}`);
+                console.error(`[PAUSE] Failed to pause ${jobName}: ${result.detail || result.message}`);
             }
         } catch (error) {
             console.error(`Error pausing ${jobName}: ${error.message}`);
         }
     }
 
-    async function unpauseJob(jobName) {
-        if (!confirm(`Are you sure you want to unpause ${jobName}?`)) return;
-
+    async function unpauseJob(jobName, jobId) {
         try {
             const token = getAuthToken();
-            const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/unpause`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -1676,20 +1936,19 @@
             });
 
             const result = await response.json();
+            console.log(`[UNPAUSE] Response for ${jobName}:`, result);
             if (response.ok) {
-                console.log(`${jobName} unpaused successfully - new status: ${result.status}`);
+                console.log(`[UNPAUSE] ${jobName} unpaused successfully - new status: ${result.status}, refreshing data...`);
                 await refreshData();
             } else {
-                console.error(`Failed to unpause ${jobName}: ${result.detail || result.message}`);
+                console.error(`[UNPAUSE] Failed to unpause ${jobName}: ${result.detail || result.message}`);
             }
         } catch (error) {
             console.error(`Error unpausing ${jobName}: ${error.message}`);
         }
     }
 
-    function showJobDetails(jobName) {
-        console.log(`Showing details for ${jobName} (feature coming soon)`);
-    }
+
 
     // Orchestrator Control Functions
     async function forceStartOrchestrator() {
@@ -1701,8 +1960,8 @@
         }
 
         // Clear error messages for all jobs when starting orchestrator
-        clearJobExceptions('jira_sync');
-        clearJobExceptions('github_sync');
+        clearJobExceptions('Jira');
+        clearJobExceptions('GitHub');
 
         const originalText = button.innerHTML;
 
@@ -1790,6 +2049,52 @@
             await resumeOrchestrator();
         } else {
             await pauseOrchestrator();
+        }
+    }
+
+    async function refreshOrchestratorSchedule() {
+        const button = document.getElementById('refreshScheduleBtn');
+        const originalText = button.innerHTML;
+
+        try {
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Refreshing...';
+            button.disabled = true;
+
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/orchestrator/reinitialize', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                console.log('Orchestrator schedule refreshed successfully');
+                // Refresh the orchestrator status to show updated countdown
+                setTimeout(refreshOrchestratorStatus, 500);
+                // Show success message briefly
+                button.innerHTML = '<i class="fas fa-check mr-1"></i>Refreshed!';
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }, 2000);
+            } else {
+                console.error(`Failed to refresh orchestrator schedule: ${result.detail}`);
+                button.innerHTML = '<i class="fas fa-times mr-1"></i>Failed';
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }, 2000);
+            }
+        } catch (error) {
+            console.error(`Error refreshing orchestrator schedule: ${error.message}`);
+            button.innerHTML = '<i class="fas fa-times mr-1"></i>Error';
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 2000);
         }
     }
 
@@ -2060,16 +2365,16 @@
     }
 
     // Job Details Modal Functions
-    async function showJobDetails(jobName) {
+    async function showJobDetails(jobName, jobId) {
         try {
-            if (jobName === 'jira_sync') {
+            if (jobName.toLowerCase() === 'jira') {
                 // Show Jira-specific modal with summary data
                 await showJiraDetailsModal();
                 return;
             }
 
-            // For other jobs (GitHub), show regular job details
-            const response = await fetch(`/api/v1/jobs/${jobName}/details`, {
+            // For other jobs (GitHub), show regular job details using job ID
+            const response = await fetch(`/api/v1/jobs/${jobId}/details`, {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
                 }
@@ -2082,7 +2387,7 @@
                 const jobIcon = document.getElementById('jobDetailsIcon');
                 const jobTitle = document.getElementById('jobDetailsTitle');
 
-                if (jobName === 'github_sync') {
+                if (jobName.toLowerCase() === 'github') {
                     jobIcon.innerHTML = '<i class="fab fa-github mr-2" style="color: var(--text-primary);"></i>';
                     jobTitle.textContent = 'GitHub Sync Job Details';
                 } else {
@@ -2282,6 +2587,25 @@
                     </div>
                     ` : ''}
 
+                    <!-- GitHub Rate Limits (only for GitHub job) -->
+                    ${jobName.toLowerCase() === 'github' ? `
+                    <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-md font-semibold" style="color: var(--text-primary);">
+                                <i class="fas fa-tachometer-alt mr-2"></i>GitHub API Rate Limits
+                            </h3>
+                            <button onclick="loadGitHubRateLimitsInDetails()" class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                                <i class="fas fa-sync mr-1"></i>Refresh
+                            </button>
+                        </div>
+                        <div id="rateLimitsInDetails">
+                            <div class="text-center py-2">
+                                <span style="color: var(--text-muted);">Click Refresh to load rate limits</span>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+
                     <!-- Error Message -->
                     ${jobDetails.error_message ? `
                     <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
@@ -2350,7 +2674,7 @@
     async function showJiraDetailsModal() {
         try {
             // Fetch Jira summary data from API
-            const response = await fetch('/api/v1/jobs/jira_sync/summary', {
+            const response = await fetch('/api/v1/jobs/Jira/summary', {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
                 }
@@ -2686,6 +3010,120 @@
         modal.style.display = 'none';
         modal.classList.add('hidden');
         modal.classList.remove('modal-show');
+    }
+
+    // Load GitHub rate limits within the job details modal
+    async function loadGitHubRateLimitsInDetails() {
+        try {
+            const container = document.getElementById('rateLimitsInDetails');
+            container.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</div>';
+
+            console.log('Fetching GitHub rate limits...');
+            const response = await fetch('/api/v1/github/rate-limits', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            console.log('Rate limits response status:', response.status);
+
+            if (response.ok) {
+                const rateLimits = await response.json();
+
+                // Helper function to get status color based on remaining vs limit
+                function getStatusColor(remaining, limit) {
+                    const percentage = (remaining / limit) * 100;
+                    if (percentage > 50) return 'text-green-600';
+                    if (percentage > 20) return 'text-yellow-600';
+                    return 'text-red-600';
+                }
+
+                // Helper function to format reset time
+                function formatResetTime(resetTimestamp) {
+                    if (!resetTimestamp) return 'N/A';
+                    const resetDate = new Date(resetTimestamp * 1000);
+                    return resetDate.toLocaleString();
+                }
+
+                container.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <!-- Core API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">Core API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.core?.remaining || 0, rateLimits.core?.limit || 1)}">${rateLimits.core?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.core?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.core?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">Search API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.search?.remaining || 0, rateLimits.search?.limit || 1)}">${rateLimits.search?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.search?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.search?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GraphQL API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">GraphQL API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.graphql?.remaining || 0, rateLimits.graphql?.limit || 1)}">${rateLimits.graphql?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.graphql?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.graphql?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                const errorText = await response.text();
+                console.error('Rate limits API error:', response.status, errorText);
+                container.innerHTML = `
+                    <div class="text-center py-2">
+                        <span style="color: var(--status-error);">Failed to load rate limits (${response.status})</span>
+                        <div class="text-xs mt-1" style="color: var(--text-muted);">${errorText}</div>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Failed to load GitHub rate limits in details:', error);
+            document.getElementById('rateLimitsInDetails').innerHTML = `
+                <div class="text-center py-2">
+                    <span style="color: var(--status-error);">Error loading rate limits</span>
+                    <div class="text-xs mt-1" style="color: var(--text-muted);">${error.message}</div>
+                </div>
+            `;
+        }
     }
 </script>
 {% endblock %}

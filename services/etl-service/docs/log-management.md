@@ -2,7 +2,40 @@
 
 ## 🎯 Overview
 
-The ETL Service includes a comprehensive log management system with a modern web interface for viewing, managing, and maintaining log files.
+The ETL Service includes a comprehensive log management system with structured logging, colorful console output, and a modern web interface for viewing, managing, and maintaining log files.
+
+## 🌈 Structured Logging Features
+
+### **Windows-Compatible Structured Logging**
+- **Colorful Console Output**: Beautiful colored logs with structured data using structlog
+- **Windows Compatible**: No Unicode emoji characters to prevent encoding errors
+- **Categorized Prefixes**: Clear prefixes like `[HTTP]`, `[WS]`, `[AUTH]`, `[JIRA]`, `[GITHUB]` for easy filtering
+- **Rich Context Data**: Structured key-value pairs for detailed debugging
+- **Real-time Streaming**: Live log updates with WebSocket connections
+
+### **Log Categories & Prefixes**
+```
+[HTTP]    - HTTP requests and responses
+[WS]      - WebSocket connections and messages
+[AUTH]    - Authentication and authorization
+[JIRA]    - Jira job execution and API calls
+[GITHUB]  - GitHub job execution and API calls
+[ORCH]    - Orchestrator operations
+[ETL]     - ETL service lifecycle events
+[SCHED]   - Scheduler operations
+[COLOR]   - Color schema management
+[BULK]    - Bulk database operations
+[ERROR]   - Error conditions and exceptions
+[TEST]    - Testing and debugging messages
+```
+
+### **Example Log Output**
+```
+2025-09-04T01:19:52.225555Z [info] [HTTP] Request [app.core.logging_config] method=GET url=http://localhost:8000/ headers_count=15
+2025-09-04T01:19:52.226255Z [info] [WS] Connected [app.core.websocket_manager] job_name=Jira total_connections=1
+2025-09-04T01:19:52.239316Z [info] [BULK] Processing 9 issuetypes records for bulk insert [jobs] job_name=Jira
+2025-09-04T01:19:52.243526Z [info] [JIRA] Starting optimized Jira sync (ID: 123) [app.jobs.jira.jira_job]
+```
 
 ## 🚀 Features
 
@@ -99,32 +132,38 @@ MAX_LOG_FILE_SIZE=100
 LOG_RETENTION_DAYS=30
 ```
 
-### **Logging Configuration**
+### **Structured Logging Configuration**
 ```python
-# Python logging configuration
-LOGGING_CONFIG = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'detailed': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        },
-    },
-    'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/etl_service.log',
-            'maxBytes': 100 * 1024 * 1024,  # 100MB
-            'backupCount': 5,
-            'formatter': 'detailed',
-        },
-    },
-    'root': {
-        'level': 'INFO',
-        'handlers': ['file'],
-    },
-}
+# Structured logging with structlog
+import structlog
+from structlog.processors import TimeStamper, StackInfoRenderer
+from structlog.dev import ColoredConsoleRenderer
+
+# Configure structlog for colorful output
+shared_processors = [
+    structlog.stdlib.filter_by_level,
+    structlog.stdlib.add_logger_name,
+    structlog.stdlib.add_log_level,
+    structlog.stdlib.PositionalArgumentsFormatter(),
+    TimeStamper(fmt="ISO"),
+    StackInfoRenderer(),
+    structlog.processors.format_exc_info,
+]
+
+# Use colored console renderer for development
+processors = shared_processors + [ColoredConsoleRenderer()]
+
+structlog.configure(
+    processors=processors,
+    wrapper_class=structlog.stdlib.BoundLogger,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    context_class=dict,
+    cache_logger_on_first_use=True,
+)
+
+# Example usage
+logger = structlog.get_logger("app.module")
+logger.info("[HTTP] Request processed", method="GET", status_code=200, response_time_ms=45.2)
 ```
 
 ## 🔍 Troubleshooting

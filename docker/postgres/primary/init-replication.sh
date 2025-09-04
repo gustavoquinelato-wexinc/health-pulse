@@ -24,9 +24,18 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     END
     \$\$;
 
-    -- Create replication slot for replica
-    SELECT pg_create_physical_replication_slot('replica_slot');
-    
+    -- Create replication slot for replica (if it doesn't exist)
+    DO \$\$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'replica_slot') THEN
+            PERFORM pg_create_physical_replication_slot('replica_slot');
+            RAISE NOTICE '✅ Replication slot "replica_slot" created successfully';
+        ELSE
+            RAISE NOTICE '✅ Replication slot "replica_slot" already exists';
+        END IF;
+    END
+    \$\$;
+
     -- Show replication status
     SELECT slot_name, slot_type, active, restart_lsn FROM pg_replication_slots;
 EOSQL

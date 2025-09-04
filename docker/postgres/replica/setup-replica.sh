@@ -14,6 +14,30 @@ done
 
 echo "✅ Primary database is ready!"
 
+# Debug: Show network connectivity
+echo "🔍 Debugging network connectivity..."
+echo "Primary host: $POSTGRES_PRIMARY_HOST"
+echo "Primary port: $POSTGRES_PRIMARY_PORT"
+echo "Replication user: $POSTGRES_REPLICATION_USER"
+echo "Container IP: $(hostname -i)"
+
+# Test basic connectivity
+echo "🌐 Testing basic connectivity to primary..."
+if nc -z "$POSTGRES_PRIMARY_HOST" "$POSTGRES_PRIMARY_PORT"; then
+    echo "✅ Network connection to primary successful"
+else
+    echo "❌ Network connection to primary failed"
+    exit 1
+fi
+
+# Test PostgreSQL connectivity
+echo "🔍 Testing PostgreSQL connectivity..."
+if pg_isready -h "$POSTGRES_PRIMARY_HOST" -p "$POSTGRES_PRIMARY_PORT" -U "$POSTGRES_USER"; then
+    echo "✅ PostgreSQL connection test successful"
+else
+    echo "❌ PostgreSQL connection test failed"
+fi
+
 # Only set up replica if standby.signal doesn't exist (indicating it's not already a replica)
 if [ ! -f "$PGDATA/standby.signal" ]; then
     echo "🧹 Setting up fresh replica..."
@@ -23,7 +47,14 @@ if [ ! -f "$PGDATA/standby.signal" ]; then
 
     # Create base backup from primary
     echo "📦 Creating base backup from primary..."
-    PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup \
+
+    # Set up .pgpass file for authentication
+    echo "$POSTGRES_PRIMARY_HOST:$POSTGRES_PRIMARY_PORT:*:$POSTGRES_REPLICATION_USER:$POSTGRES_REPLICATION_PASSWORD" > ~/.pgpass
+    chmod 600 ~/.pgpass
+
+    # Try with password authentication first
+    echo "🔐 Attempting connection with password authentication..."
+    if ! PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup \
         -h "$POSTGRES_PRIMARY_HOST" \
         -p "$POSTGRES_PRIMARY_PORT" \
         -U "$POSTGRES_REPLICATION_USER" \
@@ -32,7 +63,20 @@ if [ ! -f "$PGDATA/standby.signal" ]; then
         -Xs \
         -P \
         -R \
-        -W
+        -w; then
+
+        echo "🔓 Password auth failed, trying trust authentication..."
+        # If password auth fails, try without password (trust mode)
+        pg_basebackup \
+            -h "$POSTGRES_PRIMARY_HOST" \
+            -p "$POSTGRES_PRIMARY_PORT" \
+            -U "$POSTGRES_REPLICATION_USER" \
+            -D "$PGDATA" \
+            -Fp \
+            -Xs \
+            -P \
+            -R
+    fi
 
     # Create recovery configuration
     echo "⚙️ Configuring recovery settings..."

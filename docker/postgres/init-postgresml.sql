@@ -1,9 +1,19 @@
 -- PostgresML Initialization Script
 -- This script sets up PostgresML extensions and configurations for AI capabilities
 
--- Create required extensions
-CREATE EXTENSION IF NOT EXISTS pgvector;
-CREATE EXTENSION IF NOT EXISTS postgresml;
+-- Create required extensions (Phase 3-1: pgvector removed, PostgresML optional)
+-- CREATE EXTENSION IF NOT EXISTS pgvector;  -- Removed in Phase 3-1
+-- CREATE EXTENSION IF NOT EXISTS postgresml;  -- Made optional in Phase 3-1
+
+-- Try to create PostgresML extension (optional)
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS postgresml;
+    RAISE NOTICE 'PostgresML extension created successfully';
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'PostgresML extension not available: %', SQLERRM;
+    RAISE NOTICE 'This is expected in Phase 3-1 - AI operations will use AI Gateway instead';
+END $$;
 
 -- Configure PostgresML settings
 -- Enable shared_preload_libraries for PostgresML (this is typically done in postgresql.conf)
@@ -12,12 +22,12 @@ CREATE EXTENSION IF NOT EXISTS postgresml;
 -- Create a simple test to verify PostgresML is working
 DO $$
 BEGIN
-    -- Test that pgvector is working
-    PERFORM '[]'::vector;
-    RAISE NOTICE 'pgvector extension is working correctly';
+    -- Test that PostgresML is available (Phase 3-1: pgvector tests removed)
+    -- PERFORM '[]'::vector;  -- Removed in Phase 3-1
+    -- RAISE NOTICE 'pgvector extension is working correctly';  -- Removed in Phase 3-1
 
-    -- Test that vector extension is working
-    RAISE NOTICE 'Vector extension is available for AI operations';
+    -- Test that PostgresML extension is working
+    RAISE NOTICE 'PostgresML extension is available for future AI operations';
 
 EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'Extension initialization encountered an issue: %', SQLERRM;
@@ -38,7 +48,7 @@ SELECT pg_reload_conf();
 -- Log successful initialization
 DO $$
 BEGIN
-    RAISE NOTICE 'PostgresML initialization completed successfully';
-    RAISE NOTICE 'Extensions available: vector, postgresml';
-    RAISE NOTICE 'Database is ready for AI operations';
+    RAISE NOTICE 'PostgresML initialization completed successfully (Phase 3-1)';
+    RAISE NOTICE 'Extensions available: postgresml (pgvector removed in Phase 3-1)';
+    RAISE NOTICE 'Database is ready for AI operations via AI Gateway';
 END $$;

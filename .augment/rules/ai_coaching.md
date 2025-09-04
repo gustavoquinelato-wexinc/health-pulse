@@ -24,6 +24,7 @@ type: "manual"
 - **Deactivated Records**: Exclude data connected to deactivated records at ANY level
 - **Test File Cleanup**: Delete test scripts after execution unless explicitly requested to keep
 - **Migration Pattern**: Update existing migration 0001 instead of creating new migrations
+- **No Compatibility Code**: NEVER keep backward compatibility code - always fix as new (fresh platform approach)
 
 ### Environment Configuration:
 - **Root .env**: Used by Docker Compose, startup scripts, and service configuration loading
@@ -73,26 +74,24 @@ Frontend → Backend Service ← ETL Service
 - **ML Monitoring**: Comprehensive tracking of AI performance and anomalies
 - **Client Isolation**: AI features respect multi-tenant architecture
 
-### AI Database Patterns
-- **Vector Columns**: `embedding vector(1536)` in all 24 business tables
+### AI Database Patterns (Phase 3-1)
+- **Clean PostgreSQL**: Business data only, no vector columns
+- **Qdrant Integration**: Separate vector database for embeddings
 - **ML Monitoring Tables**: `ai_learning_memory`, `ai_predictions`, `ai_performance_metrics`, `ml_anomaly_alert`
-- **Vector Indexes**: HNSW indexes for efficient similarity search
-- **Extensions**: pgvector and postgresml installed and configured
-- **Phase 1 State**: Vector columns exist but are NULL (populated in Phase 2+)
+- **Vector Tracking**: `qdrant_vectors` table tracks vector references
+- **3-Database Architecture**: Primary PostgreSQL + Replica + Qdrant
 
-### AI Model Enhancements
+### AI Architecture (Phase 3-1)
 ```python
-# All models include vector support
+# Clean models with separate vector storage in Qdrant
 class Issue(Base):
-    # ... existing fields ...
-    embedding: Optional[List[float]] = Column(VectorType(), nullable=True)
+    # ... business fields only ...
+    # Vectors stored in Qdrant, tracked via QdrantVector table
 
-    def to_dict(self, include_ml_fields: bool = False):
+    def to_dict(self):
         result = {
-            # ... existing fields ...
+            # ... business fields only ...
         }
-        if include_ml_fields and self.embedding:
-            result['embedding'] = self.embedding
         return result
 ```
 
@@ -110,13 +109,19 @@ class Issue(Base):
 
 ## 🔧 Development Standards
 
-### Database Patterns
+### Fresh Platform Approach
+- **No Backward Compatibility**: This is a fresh platform - always implement the correct solution immediately
+- **No Legacy Support**: Don't create mapping functions, compatibility layers, or transition code
+- **Direct Implementation**: Update all references to use the new approach consistently
+- **Clean Architecture**: Avoid technical debt from day one by implementing proper patterns immediately
+
+### Database Patterns (Phase 3-1)
 - **Client Isolation**: ALL tables include `client_id` for multi-tenant separation
 - **Queries**: Always filter by `client_id` in database operations
 - **Migrations**: Update existing migration 0001_initial_db_schema.py instead of creating new migrations
 - **Deactivated Records**: Exclude data connected to deactivated records at ANY level
 - **Database Router**: Use primary for writes, replica for analytics reads
-- **Vector Columns**: All business tables include `embedding vector(1536)` for AI capabilities
+- **Clean Architecture**: Business data in PostgreSQL, vectors in Qdrant
 - **ML Monitoring**: Use dedicated ML monitoring tables for AI performance tracking
 
 
