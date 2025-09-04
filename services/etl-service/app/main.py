@@ -31,7 +31,7 @@ from app.core.config import get_settings
 from app.core.database import get_database, get_db_session
 from app.core.logging_config import get_logger
 from app.core.middleware import (
-    LoggingMiddleware, ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
+    ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
 # Import new modular API routers
@@ -428,8 +428,7 @@ app.add_middleware(
 if not settings.DEBUG:
     app.add_middleware(RateLimitingMiddleware, max_requests=100, window_seconds=60)
 
-# Other middleware
-app.add_middleware(LoggingMiddleware)  # Add HTTP request/response logging
+# Other middleware (ErrorHandlingMiddleware includes HTTP request/response logging)
 app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
