@@ -373,4 +373,50 @@ async def get_integrations(
         )
 
 
+@router.post("/jobs/{job_id}/toggle")
+async def toggle_job_active_status(
+    job_id: int,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Toggle the active status of a job (enable/disable)"""
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the job with client isolation
+            job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id  # Ensure client isolation
+            ).first()
+
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Job {job_id} not found for client {user.client_id}"
+                )
+
+            # Toggle the active status
+            old_status = job.active
+            job.active = not job.active
+            session.commit()
+
+            logger.info(f"[JOB] Toggled job {job.job_name} (ID: {job_id}) active status: {old_status} → {job.active}")
+
+            return {
+                "success": True,
+                "job_id": job_id,
+                "job_name": job.job_name,
+                "old_status": old_status,
+                "new_status": job.active,
+                "message": f"Job {job.job_name} {'activated' if job.active else 'deactivated'} successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[JOB] Error toggling job {job_id} active status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to toggle job status"
+        )
 
