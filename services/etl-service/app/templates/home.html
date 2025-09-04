@@ -1175,24 +1175,27 @@
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
                     </div>
-                    <!-- Status Badge and Toggle Switch -->
-                    <div class="flex items-center space-x-4">
+                    <!-- Status Badge -->
+                    <div class="flex items-center space-x-2">
                         <span class="text-sm ${getStatusClass(jobData.status)}">
                             <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
                         </span>
-                        <!-- Toggle Switch -->
-                        <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
-                            <div class="toggle-switch ${isInactive ? '' : 'active'}">
-                                <div class="toggle-slider"></div>
-                            </div>
-                            <span class="toggle-label">${isInactive ? 'Inactive' : 'Active'}</span>
-                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
+
+            <!-- Toggle Switch - Below job details for better logical grouping -->
+            <div class="mt-4 flex justify-center">
+                <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
+                    <div class="toggle-switch ${isInactive ? '' : 'active'}">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">${isInactive ? 'Inactive' : 'Active'}</span>
+                </div>
+            </div>
 
             <!-- Action Buttons - Icon-only with compact spacing -->
             <div class="mt-6 flex justify-end">
@@ -1351,16 +1354,6 @@
                 <i class="fas fa-info-circle"></i>
             </button>
         `;
-
-        // Add GitHub rate limits button for GitHub job only
-        if (jobName.toLowerCase() === 'github') {
-            buttons += `
-            <button onclick="showGitHubRateLimits()"
-                    class="btn-neutral-secondary">
-                <i class="fas fa-tachometer-alt mr-1"></i>Rate Limits
-            </button>
-            `;
-        }
 
         return buttons;
     }
@@ -1956,9 +1949,7 @@
         }
     }
 
-    function showJobDetails(jobName) {
-        console.log(`Showing details for ${jobName} (feature coming soon)`);
-    }
+
 
     // Orchestrator Control Functions
     async function forceStartOrchestrator() {
@@ -2597,6 +2588,25 @@
                     </div>
                     ` : ''}
 
+                    <!-- GitHub Rate Limits (only for GitHub job) -->
+                    ${jobName.toLowerCase() === 'github' ? `
+                    <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-md font-semibold" style="color: var(--text-primary);">
+                                <i class="fas fa-tachometer-alt mr-2"></i>GitHub API Rate Limits
+                            </h3>
+                            <button onclick="loadGitHubRateLimitsInDetails()" class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                                <i class="fas fa-sync mr-1"></i>Refresh
+                            </button>
+                        </div>
+                        <div id="rateLimitsInDetails">
+                            <div class="text-center py-2">
+                                <span style="color: var(--text-muted);">Click Refresh to load rate limits</span>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+
                     <!-- Error Message -->
                     ${jobDetails.error_message ? `
                     <div class="mt-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
@@ -3001,6 +3011,113 @@
         modal.style.display = 'none';
         modal.classList.add('hidden');
         modal.classList.remove('modal-show');
+    }
+
+    // Load GitHub rate limits within the job details modal
+    async function loadGitHubRateLimitsInDetails() {
+        try {
+            const container = document.getElementById('rateLimitsInDetails');
+            container.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</div>';
+
+            const response = await fetch('/api/v1/github/rate-limits', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const rateLimits = await response.json();
+
+                // Helper function to get status color based on remaining vs limit
+                function getStatusColor(remaining, limit) {
+                    const percentage = (remaining / limit) * 100;
+                    if (percentage > 50) return 'text-green-600';
+                    if (percentage > 20) return 'text-yellow-600';
+                    return 'text-red-600';
+                }
+
+                // Helper function to format reset time
+                function formatResetTime(resetTimestamp) {
+                    if (!resetTimestamp) return 'N/A';
+                    const resetDate = new Date(resetTimestamp * 1000);
+                    return resetDate.toLocaleString();
+                }
+
+                container.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <!-- Core API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">Core API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.core?.remaining || 0, rateLimits.core?.limit || 1)}">${rateLimits.core?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.core?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.core?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">Search API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.search?.remaining || 0, rateLimits.search?.limit || 1)}">${rateLimits.search?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.search?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.search?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GraphQL API -->
+                        <div class="p-2 rounded border" style="background-color: var(--bg-tertiary); border-color: var(--border-color);">
+                            <h4 class="font-semibold mb-1" style="color: var(--text-primary);">GraphQL API</h4>
+                            <div class="space-y-1">
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Remaining:</span>
+                                    <span class="${getStatusColor(rateLimits.graphql?.remaining || 0, rateLimits.graphql?.limit || 1)}">${rateLimits.graphql?.remaining || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Limit:</span>
+                                    <span style="color: var(--text-primary);">${rateLimits.graphql?.limit || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Reset:</span>
+                                    <span class="text-xs" style="color: var(--text-primary);">${formatResetTime(rateLimits.graphql?.reset)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="text-center py-2">
+                        <span style="color: var(--status-error);">Failed to load rate limits</span>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Failed to load GitHub rate limits in details:', error);
+            document.getElementById('rateLimitsInDetails').innerHTML = `
+                <div class="text-center py-2">
+                    <span style="color: var(--status-error);">Error loading rate limits</span>
+                </div>
+            `;
+        }
     }
 </script>
 {% endblock %}
