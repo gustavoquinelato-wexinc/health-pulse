@@ -398,6 +398,12 @@ async def toggle_job_active_status(
             # Toggle the active status
             old_status = job.active
             job.active = not job.active
+
+            # When deactivating a job, set status to NOT_STARTED
+            if not job.active:
+                job.status = "NOT_STARTED"
+                logger.info(f"[JOB] Set job {job.job_name} status to NOT_STARTED (deactivated)")
+
             session.commit()
 
             logger.info(f"[JOB] Toggled job {job.job_name} (ID: {job_id}) active status: {old_status} → {job.active}")

@@ -348,80 +348,10 @@
         background-color: rgba(255, 255, 255, 0.15) !important; /* Dark mode: white with opacity */
     }
 
-    /* Inactive Job Card Styles */
+    /* Simple inactive job card styling - no grayscale, just visual indication */
     .job-card-inactive {
-        opacity: 0.7;
-    }
-
-    /* Apply grayscale to job content but NOT to action buttons */
-    .job-card-inactive > div:not(.mt-6) {
-        filter: grayscale(50%);
-    }
-
-    /* Disable hover effects on inactive job cards */
-    .job-card-inactive {
-        pointer-events: none; /* Disable all interactions */
-    }
-
-    /* Re-enable pointer events only for action buttons */
-    .job-card-inactive .mt-6,
-    .job-card-inactive .mt-6 * {
-        pointer-events: auto;
-    }
-
-    /* Ensure action buttons container is completely isolated from grayscale */
-    .job-card-inactive .mt-6 {
-        filter: none !important;
-        opacity: 1 !important;
-        isolation: isolate; /* Create new stacking context */
-    }
-
-    /* Special positioning for toggle button to escape grayscale filter */
-    .job-card-inactive .toggle-button-container {
-        position: absolute;
-        top: 1rem;
-        right: 1rem;
-        z-index: 100;
-        /* Completely outside the filtered content */
-        filter: none !important;
-        opacity: 1 !important;
-    }
-
-    /* Toggle button with full color - completely isolated */
-    .toggle-button-isolated {
-        background-color: var(--crud-create) !important; /* Green for activate */
-        color: white !important;
-        border: none !important;
-        padding: 0.375rem 0.75rem !important;
-        border-radius: 0.375rem !important;
-        font-size: 0.8125rem !important;
-        font-weight: 500 !important;
-        min-height: 2rem !important;
-        cursor: pointer !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: all 0.2s ease !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-        /* Complete filter reset */
-        filter: none !important;
-        -webkit-filter: none !important;
-        opacity: 1 !important;
-    }
-
-    .toggle-button-isolated.deactivate {
-        background-color: var(--status-warning) !important; /* Orange for deactivate */
-    }
-
-    .toggle-button-isolated:hover {
-        opacity: 0.9 !important;
-        transform: translateY(-1px) !important;
-    }
-
-    /* Hide the original toggle button in action buttons for inactive cards */
-    .job-card-inactive .action-buttons .btn-status-success-sm:first-child,
-    .job-card-inactive .action-buttons .btn-status-warning-sm:first-child {
-        display: none !important;
+        opacity: 0.8;
+        border-left: 4px solid var(--status-neutral) !important;
     }
 
     /* Jira icon background - lighter blue for both themes */
@@ -1096,23 +1026,9 @@
         card.style.border = '1px solid var(--border-color)';
         card.setAttribute('data-job', jobName);
 
-        // Add inactive styling class instead of direct filter
-        // This allows us to selectively apply grayscale to content but not buttons
+        // Add simple inactive styling
         if (isInactive) {
             card.classList.add('job-card-inactive');
-
-            // Add isolated toggle button for inactive cards
-            const toggleContainer = document.createElement('div');
-            toggleContainer.className = 'toggle-button-container';
-
-            const toggleButton = document.createElement('button');
-            toggleButton.className = 'toggle-button-isolated';
-            toggleButton.onclick = () => toggleJobActiveStatus(jobName, jobData.id);
-            toggleButton.title = 'Activate this job';
-            toggleButton.innerHTML = '<i class="fas fa-toggle-off mr-1"></i>Activate';
-
-            toggleContainer.appendChild(toggleButton);
-            card.appendChild(toggleContainer);
         }
 
         // Use integration_type from API response to determine icon and styling
