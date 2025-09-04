@@ -1900,8 +1900,6 @@
     }
 
     async function pauseJob(jobName) {
-        if (!confirm(`Are you sure you want to pause ${jobName}?`)) return;
-
         try {
             const token = getAuthToken();
             const response = await fetch(`/api/v1/jobs/${jobName}/pause`, {
@@ -1925,8 +1923,6 @@
     }
 
     async function unpauseJob(jobName) {
-        if (!confirm(`Are you sure you want to unpause ${jobName}?`)) return;
-
         try {
             const token = getAuthToken();
             const response = await fetch(`/api/v1/jobs/${jobName}/unpause`, {
