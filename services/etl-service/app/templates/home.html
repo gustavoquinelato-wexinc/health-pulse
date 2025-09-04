@@ -354,6 +354,105 @@
         border-left: 4px solid var(--status-neutral) !important;
     }
 
+    /* Toggle Switch Styling */
+    .job-toggle-switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .toggle-switch {
+        position: relative;
+        width: 48px;
+        height: 24px;
+        background-color: var(--status-neutral);
+        border-radius: 12px;
+        transition: background-color 0.3s ease;
+        cursor: pointer;
+    }
+
+    .toggle-switch.active {
+        background-color: var(--crud-create);
+    }
+
+    .toggle-slider {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        background-color: white;
+        border-radius: 50%;
+        transition: transform 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle-switch.active .toggle-slider {
+        transform: translateX(24px);
+    }
+
+    .toggle-label {
+        margin-left: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+
+    /* Icon-only action buttons */
+    .action-icon-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 14px;
+        position: relative;
+    }
+
+    .action-icon-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .action-icon-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Icon button variants */
+    .action-icon-btn.force-pending {
+        background-color: var(--color-1);
+        color: white;
+    }
+
+    .action-icon-btn.pause-resume {
+        background-color: var(--status-warning);
+        color: white;
+    }
+
+    .action-icon-btn.resume {
+        background-color: var(--crud-create);
+        color: white;
+    }
+
+    .action-icon-btn.details {
+        background-color: var(--neutral-secondary);
+        color: white;
+    }
+
+    .action-icon-btn.disabled {
+        background-color: var(--neutral-tertiary);
+        color: var(--text-muted);
+    }
+
     /* Jira icon background - lighter blue for both themes */
     .jira-icon-bg {
         background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
@@ -1076,11 +1175,18 @@
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
                     </div>
-                    <!-- Status Badge -->
-                    <div class="flex items-center space-x-2">
+                    <!-- Status Badge and Toggle Switch -->
+                    <div class="flex items-center space-x-4">
                         <span class="text-sm ${getStatusClass(jobData.status)}">
                             <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
                         </span>
+                        <!-- Toggle Switch -->
+                        <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
+                            <div class="toggle-switch ${isInactive ? '' : 'active'}">
+                                <div class="toggle-slider"></div>
+                            </div>
+                            <span class="toggle-label">${isInactive ? 'Inactive' : 'Active'}</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1088,9 +1194,9 @@
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
 
-            <!-- Action Buttons - Right Aligned with Better Grouping -->
+            <!-- Action Buttons - Icon-only with compact spacing -->
             <div class="mt-6 flex justify-end">
-                <div class="flex space-x-2 action-buttons">
+                <div class="flex space-x-1 action-buttons">
                     ${createActionButtons(jobName, jobData, allJobsData)}
                 </div>
             </div>
@@ -1226,28 +1332,23 @@
         }
 
         let buttons = `
-            <button onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})"
-                    class="${isInactive ? 'btn-status-success-sm' : 'btn-status-warning-sm'}"
-                    title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
-                <i class="fas fa-${isInactive ? 'toggle-off' : 'toggle-on'} mr-1"></i>${isInactive ? 'Activate' : 'Deactivate'}
-            </button>
             <button onclick="setJobActive('${jobName}')"
                     ${!canActivateSafe || isInactive ? 'disabled' : ''}
-                    class="${canActivateSafe && !isInactive ? 'btn-color-1-sm' : 'btn-neutral-disabled'}"
+                    class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
-                <i class="fas fa-play mr-1"></i>Force Pending
+                <i class="fas fa-play"></i>
             </button>
             <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}')"
                     ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
-                    class="${canUnpause && !isInactive ? 'btn-status-success-sm' : (canPauseSafe && !isInactive ? 'btn-status-warning-sm' : 'btn-neutral-disabled')}"
+                    class="action-icon-btn ${canUnpause && !isInactive ? 'resume' : (canPauseSafe && !isInactive ? 'pause-resume' : 'disabled')}"
                     title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
-                <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Resume' : 'Pause'}
+                <i class="fas fa-${canUnpause ? 'play' : 'pause'}"></i>
             </button>
             <button onclick="showJobDetails('${jobName}')"
                     ${isInactive ? 'disabled' : ''}
-                    class="${isInactive ? 'btn-neutral-disabled' : 'btn-neutral-secondary'}"
+                    class="action-icon-btn ${isInactive ? 'disabled' : 'details'}"
                     title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
-                <i class="fas fa-info-circle mr-1"></i>Details
+                <i class="fas fa-info-circle"></i>
             </button>
         `;
 
