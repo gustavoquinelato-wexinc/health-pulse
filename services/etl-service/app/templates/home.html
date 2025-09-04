@@ -1187,8 +1187,8 @@
             <!-- Job Details -->
             ${createJobDetails(jobName, jobData)}
 
-            <!-- Toggle Switch - Below job details for better logical grouping -->
-            <div class="mt-4 flex justify-center">
+            <!-- Toggle Switch - Right aligned like action buttons -->
+            <div class="mt-4 flex justify-end">
                 <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
                     <div class="toggle-switch ${isInactive ? '' : 'active'}">
                         <div class="toggle-slider"></div>
@@ -3019,11 +3019,14 @@
             const container = document.getElementById('rateLimitsInDetails');
             container.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</div>';
 
+            console.log('Fetching GitHub rate limits...');
             const response = await fetch('/api/v1/github/rate-limits', {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
                 }
             });
+
+            console.log('Rate limits response status:', response.status);
 
             if (response.ok) {
                 const rateLimits = await response.json();
@@ -3104,9 +3107,12 @@
                     </div>
                 `;
             } else {
+                const errorText = await response.text();
+                console.error('Rate limits API error:', response.status, errorText);
                 container.innerHTML = `
                     <div class="text-center py-2">
-                        <span style="color: var(--status-error);">Failed to load rate limits</span>
+                        <span style="color: var(--status-error);">Failed to load rate limits (${response.status})</span>
+                        <div class="text-xs mt-1" style="color: var(--text-muted);">${errorText}</div>
                     </div>
                 `;
             }
@@ -3115,6 +3121,7 @@
             document.getElementById('rateLimitsInDetails').innerHTML = `
                 <div class="text-center py-2">
                     <span style="color: var(--status-error);">Error loading rate limits</span>
+                    <div class="text-xs mt-1" style="color: var(--text-muted);">${error.message}</div>
                 </div>
             `;
         }
