@@ -358,26 +358,31 @@
         filter: grayscale(50%);
     }
 
-    /* Ensure action buttons remain fully colored and clickable */
+    /* Ensure action buttons container is completely isolated from grayscale */
     .job-card-inactive .mt-6 {
         filter: none !important;
         opacity: 1 !important;
+        isolation: isolate; /* Create new stacking context */
     }
 
-    /* Make sure toggle button stands out on inactive cards */
+    /* Aggressively override any inherited filters on toggle buttons */
     .job-card-inactive .btn-status-success-sm,
     .job-card-inactive .btn-status-warning-sm {
         filter: none !important;
         opacity: 1 !important;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        isolation: isolate; /* Create new stacking context */
+        transform: translateZ(0); /* Force hardware acceleration */
     }
 
-    /* Force toggle button colors to override any grayscale effects */
+    /* Force exact same colors as regular buttons - use --crud-create to match FINISHED status */
     .job-card-inactive button.btn-status-success-sm {
-        background-color: var(--status-success) !important;
+        background-color: var(--crud-create) !important; /* Same as btn-status-success */
         color: white !important;
         filter: none !important;
         opacity: 1 !important;
+        isolation: isolate !important;
+        transform: translateZ(0) !important;
     }
 
     .job-card-inactive button.btn-status-warning-sm {
@@ -385,13 +390,17 @@
         color: white !important;
         filter: none !important;
         opacity: 1 !important;
+        isolation: isolate !important;
+        transform: translateZ(0) !important;
     }
 
-    /* Ensure toggle button icons are also not affected by grayscale */
+    /* Ensure toggle button icons are completely isolated from any filters */
     .job-card-inactive .btn-status-success-sm i,
     .job-card-inactive .btn-status-warning-sm i {
         filter: none !important;
         opacity: 1 !important;
+        isolation: isolate !important;
+        transform: translateZ(0) !important;
     }
 
     /* Jira icon background - lighter blue for both themes */
