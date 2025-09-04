@@ -212,7 +212,7 @@ async def extract_github_repositories_only(session, github_integration, github_t
     """Extract GitHub repositories only (no PR processing)."""
     try:
         logger.info("Starting repository discovery only")
-        await websocket_manager.send_progress_update("github_sync", 20.0, "Discovering repositories...")
+        await websocket_manager.send_progress_update("GitHub", 20.0, "Discovering repositories...")
 
         # Create a temporary job schedule for repository discovery
         from app.models.unified_models import JobSchedule
@@ -222,7 +222,7 @@ async def extract_github_repositories_only(session, github_integration, github_t
         repos_result = await discover_all_repositories(session, github_integration, temp_job_schedule)
 
         if repos_result['success']:
-            await websocket_manager.send_progress_update("github_sync", 100.0, f"Repository discovery completed - {repos_result['repos_processed']} repositories processed")
+            await websocket_manager.send_progress_update("GitHub", 100.0, f"Repository discovery completed - {repos_result['repos_processed']} repositories processed")
             return {
                 'success': True,
                 'repos_processed': repos_result['repos_processed'],
@@ -240,7 +240,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
     """Extract pull requests for all repositories (assumes repositories already exist)."""
     try:
         logger.info("Starting PR extraction for all repositories")
-        await websocket_manager.send_progress_update("github_sync", 20.0, "Loading repositories...")
+        await websocket_manager.send_progress_update("GitHub", 20.0, "Loading repositories...")
 
         from app.models.unified_models import Repository
 
@@ -270,7 +270,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
                 logger.info(f"Processing PRs for repository {repo_index}/{len(repositories)}: {owner}/{repo_name}")
 
                 progress = 20.0 + (70.0 * repo_index / len(repositories))
-                await websocket_manager.send_progress_update("github_sync", progress, f"Processing PRs for {owner}/{repo_name}")
+                await websocket_manager.send_progress_update("GitHub", progress, f"Processing PRs for {owner}/{repo_name}")
 
                 # Process PRs for this repository (non-blocking)
                 from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
@@ -297,7 +297,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
                 logger.error(f"Error processing repository {repository.full_name}: {e}")
                 continue
 
-        await websocket_manager.send_progress_update("github_sync", 100.0, f"PR extraction completed - {total_prs_processed} PRs processed")
+        await websocket_manager.send_progress_update("GitHub", 100.0, f"PR extraction completed - {total_prs_processed} PRs processed")
 
         return {
             'success': True,
@@ -314,7 +314,7 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
     """Extract all PRs from a specific repository."""
     try:
         logger.info(f"Starting PR extraction for single repository: {target_repository}")
-        await websocket_manager.send_progress_update("github_sync", 20.0, f"Loading repository {target_repository}...")
+        await websocket_manager.send_progress_update("GitHub", 20.0, f"Loading repository {target_repository}...")
 
         from app.models.unified_models import Repository
 
@@ -335,7 +335,7 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
         owner, repo_name = target_repository.split('/', 1)
         logger.info(f"Processing all PRs for {owner}/{repo_name}")
 
-        await websocket_manager.send_progress_update("github_sync", 50.0, f"Extracting PRs from {owner}/{repo_name}")
+        await websocket_manager.send_progress_update("GitHub", 50.0, f"Extracting PRs from {owner}/{repo_name}")
 
         from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
         pr_result = await process_repository_prs_with_graphql(
@@ -343,7 +343,7 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
         )
 
         if pr_result['success']:
-            await websocket_manager.send_progress_update("github_sync", 100.0, f"Single repository PR extraction completed - {pr_result.get('prs_processed', 0)} PRs processed")
+            await websocket_manager.send_progress_update("GitHub", 100.0, f"Single repository PR extraction completed - {pr_result.get('prs_processed', 0)} PRs processed")
             return {
                 'success': True,
                 'repos_processed': 1,
@@ -392,18 +392,18 @@ async def run_github_sync(
 
         # Initialize WebSocket manager and clear previous progress
         websocket_manager = get_websocket_manager()
-        websocket_manager.clear_job_progress("github_sync")
+        websocket_manager.clear_job_progress("GitHub")
 
         # Send status update that job is running
         if update_job_schedule:
             await websocket_manager.send_status_update(
-                "github_sync",
+                "GitHub",
                 "RUNNING",
                 {"message": "GitHub sync job is now running"}
             )
 
-        # ✅ SECURITY: Get GitHub integration using job_schedule.integration_id for client isolation
-        await websocket_manager.send_progress_update("github_sync", 5.0, "Initializing GitHub integration...")
+        # SECURITY: Get GitHub integration using job_schedule.integration_id for client isolation
+        await websocket_manager.send_progress_update("GitHub", 5.0, "Initializing GitHub integration...")
         if job_schedule.integration_id:
             github_integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id,
@@ -419,7 +419,7 @@ async def run_github_sync(
         if not github_integration:
             error_msg = f"No GitHub integration found for client {job_schedule.client_id}. Please check integration setup."
             logger.error(f"ERROR: {error_msg}")
-            await websocket_manager.send_exception("github_sync", "ERROR", error_msg)
+            await websocket_manager.send_exception("GitHub", "ERROR", error_msg)
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
             return
@@ -429,7 +429,7 @@ async def run_github_sync(
         github_token = AppConfig.decrypt_token(github_integration.password, key)
 
         # Check rate limit before starting work
-        await websocket_manager.send_progress_update("github_sync", 10.0, "Checking GitHub API rate limits...")
+        await websocket_manager.send_progress_update("GitHub", 10.0, "Checking GitHub API rate limits...")
         initial_rate_limits = await get_github_rate_limits_internal(github_token)
         graphql_remaining = initial_rate_limits.get('graphql', {}).get('remaining', 0)
 
@@ -442,7 +442,7 @@ async def run_github_sync(
 
                 # Send status update for early rate limit detection
                 await websocket_manager.send_status_update(
-                    "github_sync",
+                    "GitHub",
                     "PENDING",
                     {"message": "Rate limit too low to proceed - will retry later"}
                 )
@@ -456,15 +456,15 @@ async def run_github_sync(
             orchestrator_scheduler = get_orchestrator_scheduler()
 
             logger.info("GitHub job hit early rate limit - attempting to schedule fast retry...")
-            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('GitHub')
 
             if fast_retry_scheduled:
-                retry_interval = orchestrator_scheduler.get_retry_status('github_sync')['retry_interval_minutes']
+                retry_interval = orchestrator_scheduler.get_retry_status('GitHub')['retry_interval_minutes']
                 logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
             # Send completion notification for early rate limit detection
             await websocket_manager.send_completion(
-                "github_sync",
+                "GitHub",
                 True,  # Partial success - we detected rate limit early
                 {
                     'repos_processed': 0,
@@ -490,10 +490,10 @@ async def run_github_sync(
         # Process GitHub data with unified queue-based recovery
         if job_schedule.is_recovery_run():
             logger.info("Recovery run detected - resuming from checkpoint")
-            await websocket_manager.send_progress_update("github_sync", 15.0, "Resuming from checkpoint...")
+            await websocket_manager.send_progress_update("GitHub", 15.0, "Resuming from checkpoint...")
         else:
             logger.info("Normal run - starting fresh")
-            await websocket_manager.send_progress_update("github_sync", 15.0, "Starting repository discovery...")
+            await websocket_manager.send_progress_update("GitHub", 15.0, "Starting repository discovery...")
 
         # Execute based on mode
         result = await execute_github_extraction_by_mode(
@@ -505,7 +505,7 @@ async def run_github_sync(
         if result['success']:
             # Step 3: PR-Issue linking is now handled by Jira job via JiraPullRequestLinks table
             logger.info("Step 3: PR-Issue linking handled by Jira job (via JiraPullRequestLinks table)")
-            await websocket_manager.send_progress_update("github_sync", 98.0, "GitHub sync completed - PR linking handled by Jira job")
+            await websocket_manager.send_progress_update("GitHub", 98.0, "GitHub sync completed - PR linking handled by Jira job")
 
             # Get current link statistics for reporting
             from app.utils.pr_link_queries import get_pr_link_statistics
@@ -548,10 +548,11 @@ async def run_github_sync(
 
                 # Handle job status transitions based on Jira job status (only if update_job_schedule is True)
                 if update_job_schedule:
-                    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                    # SECURITY: Filter by client_id and active to prevent cross-client data access
                     jira_job = session.query(JobSchedule).filter(
-                        JobSchedule.job_name == 'jira_sync',
-                        JobSchedule.client_id == job_schedule.client_id
+                        func.lower(JobSchedule.job_name) == 'jira',
+                        JobSchedule.client_id == job_schedule.client_id,
+                        JobSchedule.active == True
                     ).first()
 
                     if jira_job and jira_job.status == 'PAUSED':
@@ -567,7 +568,7 @@ async def run_github_sync(
 
                         # Send status update that job is finished
                         await websocket_manager.send_status_update(
-                            "github_sync",
+                            "GitHub",
                             "FINISHED",
                             {"message": "GitHub sync job completed successfully"}
                         )
@@ -580,7 +581,7 @@ async def run_github_sync(
                 final_rate_limits = await get_github_rate_limits_internal(github_token)
 
                 # Send final progress update
-                await websocket_manager.send_progress_update("github_sync", 100.0, "GitHub sync completed successfully")
+                await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync completed successfully")
 
                 # Small delay to ensure progress update is processed before completion notification
                 import asyncio
@@ -588,7 +589,7 @@ async def run_github_sync(
 
                 # Send completion notification
                 await websocket_manager.send_completion(
-                    "github_sync",
+                    "GitHub",
                     True,
                     {
                         'repos_processed': result['repos_processed'],
@@ -602,7 +603,7 @@ async def run_github_sync(
                 # Reset retry attempts and restore normal schedule on success
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
-                orchestrator_scheduler.reset_retry_attempts('github_sync')
+                orchestrator_scheduler.reset_retry_attempts('GitHub')
                 orchestrator_scheduler.restore_normal_schedule()
 
                 logger.info("GitHub sync completed successfully")
@@ -624,11 +625,11 @@ async def run_github_sync(
 
                 if is_rate_limit:
                     # Rate limit reached - this is expected behavior, not an error
-                    await websocket_manager.send_progress_update("github_sync", 100.0, "Rate limit reached - will resume on next run")
+                    await websocket_manager.send_progress_update("GitHub", 100.0, "Rate limit reached - will resume on next run")
                     logger.warning("GitHub rate limit reached - will resume on next scheduled run")
                 else:
                     # Other partial success scenario
-                    await websocket_manager.send_progress_update("github_sync", 100.0, "GitHub sync partially completed - will resume later")
+                    await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync partially completed - will resume later")
                     logger.warning("GitHub sync partially completed - will resume later")
 
                 # Keep GitHub job as PENDING for next run (only if update_job_schedule is True)
@@ -637,7 +638,7 @@ async def run_github_sync(
 
                     # Send status update for partial completion
                     await websocket_manager.send_status_update(
-                        "github_sync",
+                        "GitHub",
                         "PENDING",
                         {"message": "GitHub sync partially completed - will resume later"}
                     )
@@ -649,7 +650,7 @@ async def run_github_sync(
                 # For rate limits, send success=True (partial success), for other issues send success=False
                 completion_success = is_rate_limit  # True for rate limits, False for other partial success
                 await websocket_manager.send_completion(
-                    "github_sync",
+                    "GitHub",
                     completion_success,
                     {
                         'repos_processed': result['repos_processed'],
@@ -666,7 +667,7 @@ async def run_github_sync(
                 orchestrator_scheduler = get_orchestrator_scheduler()
 
                 logger.info("GitHub job partially completed - attempting to schedule fast retry...")
-                fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+                fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('GitHub')
 
                 logger.info("GitHub sync partially completed")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
@@ -675,7 +676,7 @@ async def run_github_sync(
                 logger.info(f"   • Staging data preserved for next run")
                 logger.info(f"   • GitHub job remains PENDING")
                 if fast_retry_scheduled:
-                    retry_interval = orchestrator_scheduler.get_retry_status('github_sync')['retry_interval_minutes']
+                    retry_interval = orchestrator_scheduler.get_retry_status('GitHub')['retry_interval_minutes']
                     logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
             
         else:
@@ -688,10 +689,10 @@ async def run_github_sync(
             orchestrator_scheduler = get_orchestrator_scheduler()
 
             logger.info("GitHub job failed - attempting to schedule fast retry...")
-            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('github_sync')
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('GitHub')
 
             if fast_retry_scheduled:
-                retry_status = orchestrator_scheduler.get_retry_status('github_sync')
+                retry_status = orchestrator_scheduler.get_retry_status('GitHub')
                 logger.info(f"Fast retry scheduled successfully: {retry_status}")
             else:
                 logger.warning("Fast retry was not scheduled")
@@ -729,17 +730,17 @@ async def run_github_sync(
             # Send status update that job failed and is now pending
             if update_job_schedule:
                 await websocket_manager.send_status_update(
-                    "github_sync",
+                    "GitHub",
                     "PENDING",
                     {"message": f"GitHub sync failed - {error_msg[:100]}..."}
                 )
 
             # Send final progress update for error case (short message for progress bar)
-            await websocket_manager.send_progress_update("github_sync", 100.0, "❌ GitHub sync failed - check Issues & Warnings below")
+            await websocket_manager.send_progress_update("GitHub", 100.0, "[ERROR] GitHub sync failed - check Issues & Warnings below")
 
             # Send failure completion notification
             await websocket_manager.send_completion(
-                "github_sync",
+                "GitHub",
                 False,
                 {
                     'error': error_msg,
@@ -811,7 +812,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         from app.models.unified_models import JiraPullRequestLinks
 
         # Check if we have any PR links at all
-        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+        # SECURITY: Filter by client_id to prevent cross-client data access
         total_pr_links = session.query(JiraPullRequestLinks).filter(
             JiraPullRequestLinks.client_id == integration.client_id
         ).count()
@@ -822,7 +823,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
 
         # Get unique repository full names from PR links
         try:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # SECURITY: Filter by client_id to prevent cross-client data access
             jira_repo_names = session.query(JiraPullRequestLinks.repo_full_name).filter(
                 JiraPullRequestLinks.client_id == integration.client_id
             ).distinct().all()
@@ -866,33 +867,42 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         if name_filter:
             logger.info(f"Filtering by name: {name_filter}")
 
-        # Determine start date based on job state
-        if job_schedule.last_repo_sync_checkpoint:
-            # Recovery run - use checkpoint date
-            start_date = job_schedule.last_repo_sync_checkpoint.strftime('%Y-%m-%d')
-            logger.info(f"Recovery run detected - using checkpoint date: {start_date}")
-        elif integration.last_sync_at:
-            # Normal run - use integration's last sync date, but cap at reasonable range
-            sync_date = integration.last_sync_at
-
-            # GitHub search API has limitations on very old dates
-            # If last_sync_at is older than 2 years, use 2 years ago instead
-            from datetime import datetime, timedelta
-            two_years_ago = datetime.now() - timedelta(days=730)
-
-            if sync_date < two_years_ago:
-                start_date = two_years_ago.strftime('%Y-%m-%d')
-                logger.info(f"Integration last sync date ({sync_date.strftime('%Y-%m-%d')}) is too old for GitHub search API")
-                logger.info(f"Using capped date instead: {start_date}")
+        # Determine start date based on recovery vs incremental sync
+        if job_schedule.has_recovery_checkpoints():
+            # RECOVERY MODE: Use last_run_started_at (when job started extracting data)
+            if job_schedule.last_run_started_at:
+                start_date = job_schedule.last_run_started_at.strftime('%Y-%m-%d')
+                logger.info(f"Recovery mode: Using last_run_started_at = {start_date}")
             else:
-                start_date = sync_date.strftime('%Y-%m-%d')
-                logger.info(f"Using integration last sync date: {start_date}")
+                # Fallback if no last_run_started_at
+                from datetime import datetime, timedelta
+                one_year_ago = datetime.now() - timedelta(days=365)
+                start_date = one_year_ago.strftime('%Y-%m-%d')
+                logger.info(f"Recovery mode but no last_run_started_at, using 1-year fallback: {start_date}")
         else:
-            # Fallback - use 1 year ago for first run (reasonable for GitHub search)
-            from datetime import datetime, timedelta
-            one_year_ago = datetime.now() - timedelta(days=365)
-            start_date = one_year_ago.strftime('%Y-%m-%d')
-            logger.info(f"No last_sync_at found, using 1-year fallback date: {start_date}")
+            # INCREMENTAL SYNC MODE: Use last_success_at formatted as %Y-%m-%d %H%M
+            if job_schedule.last_success_at:
+                # Format without seconds: %Y-%m-%d %H%M, but GitHub API needs just date
+                sync_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
+
+                # GitHub search API has limitations on very old dates
+                # If last_success_at is older than 2 years, use 2 years ago instead
+                from datetime import datetime, timedelta
+                two_years_ago = datetime.now() - timedelta(days=730)
+
+                if sync_date < two_years_ago:
+                    start_date = two_years_ago.strftime('%Y-%m-%d')
+                    logger.info(f"Job last_success_at ({sync_date.strftime('%Y-%m-%d %H%M')}) is too old for GitHub search API")
+                    logger.info(f"Using capped date instead: {start_date}")
+                else:
+                    start_date = sync_date.strftime('%Y-%m-%d')
+                    logger.info(f"Incremental sync: Using last_success_at = {sync_date.strftime('%Y-%m-%d %H%M')} -> {start_date}")
+            else:
+                # Fallback - use 1 year ago for first run (reasonable for GitHub search)
+                from datetime import datetime, timedelta
+                one_year_ago = datetime.now() - timedelta(days=365)
+                start_date = one_year_ago.strftime('%Y-%m-%d')
+                logger.info(f"First run: Using 1-year fallback date: {start_date}")
 
         end_date = datetime.today().strftime('%Y-%m-%d')
 
@@ -1145,13 +1155,13 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
 
         # Send initial progress update
         await websocket_manager.send_progress_update(
-            "github_sync",
+            "GitHub",
             10.0,
             f"Starting PR processing for {total_repos} repositories"
         )
 
         # Use cancellable job context
-        with CancellableJob('github_sync') as job_context:
+        with CancellableJob('GitHub') as job_context:
             for repo_index, repository in enumerate(repositories, 1):
                 try:
                     # Check for cancellation every repository
@@ -1163,7 +1173,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                     # Send repository-level progress update
                     repo_progress = 10.0 + (repo_index - 1) / total_repos * 80.0  # 10% to 90%
                     await websocket_manager.send_progress_update(
-                        "github_sync",
+                        "GitHub",
                         repo_progress,
                         f"Repository {repo_index}/{total_repos}: {owner}/{repo_name}"
                     )
@@ -1242,7 +1252,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                     # Send detailed progress update
                     repo_progress = 10.0 + repo_index / total_repos * 80.0  # 10% to 90%
                     await websocket_manager.send_progress_update(
-                        "github_sync",
+                        "GitHub",
                         repo_progress,
                         f"Completed {repo_index}/{total_repos} repositories ({total_prs_processed} PRs total)"
                     )
@@ -1367,7 +1377,7 @@ async def extract_github_single_repo_prs_session_free(
         owner, repo_name = target_repository.split('/', 1)
         logger.info(f"Processing all PRs for {owner}/{repo_name} (session-free)")
 
-        await websocket_manager.send_progress_update("github_sync", 50.0, f"Extracting PRs from {owner}/{repo_name}")
+        await websocket_manager.send_progress_update("GitHub", 50.0, f"Extracting PRs from {owner}/{repo_name}")
 
         # Process with fresh session
         with database.get_job_session_context() as session:
@@ -1385,7 +1395,7 @@ async def extract_github_single_repo_prs_session_free(
             )
 
         if pr_result['success']:
-            await websocket_manager.send_progress_update("github_sync", 100.0, f"Completed processing {target_repository}")
+            await websocket_manager.send_progress_update("GitHub", 100.0, f"Completed processing {target_repository}")
             return {
                 'success': True,
                 'prs_processed': pr_result.get('prs_processed', 0),
@@ -1477,7 +1487,7 @@ async def process_github_data_with_graphql_session_free(
 
                                 progress = 10.0 + (total_processed / len(repo_list)) * 80.0
                                 await websocket_manager.send_progress_update(
-                                    "github_sync", progress,
+                                    "GitHub", progress,
                                     f"Processed {total_processed}/{len(repo_list)} repositories"
                                 )
                             else:
@@ -1520,7 +1530,7 @@ async def run_github_sync_optimized(
     import asyncio
 
     database = get_database()
-    logger.info(f"🚀 Starting optimized GitHub sync (ID: {job_schedule_id})")
+    logger.info(f"[GITHUB] Starting optimized GitHub sync (ID: {job_schedule_id})")
 
     try:
         # Use session-free approach to prevent connection timeouts during long API calls

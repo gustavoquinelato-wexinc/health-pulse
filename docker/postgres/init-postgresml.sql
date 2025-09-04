@@ -1,57 +1,36 @@
 -- PostgresML Initialization Script
 -- This script sets up PostgresML extensions and configurations for AI capabilities
 
--- Check what extensions are available
-DO $$
-DECLARE
-    rec RECORD;
-BEGIN
-    RAISE NOTICE 'Available extensions:';
-    FOR rec IN SELECT name FROM pg_available_extensions ORDER BY name LOOP
-        RAISE NOTICE '  - %', rec.name;
-    END LOOP;
-END $$;
+-- Create required extensions (Phase 3-1: pgvector removed, PostgresML optional)
+-- CREATE EXTENSION IF NOT EXISTS pgvector;  -- Removed in Phase 3-1
+-- CREATE EXTENSION IF NOT EXISTS postgresml;  -- Made optional in Phase 3-1
 
--- Create required extensions (with error handling)
+-- Try to create PostgresML extension (optional)
 DO $$
 BEGIN
-    -- Try to create pgvector extension
-    BEGIN
-        CREATE EXTENSION IF NOT EXISTS pgvector;
-        RAISE NOTICE 'pgvector extension created successfully';
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'pgvector extension not available: %', SQLERRM;
-    END;
-
-    -- Try to create postgresml extension
-    BEGIN
-        CREATE EXTENSION IF NOT EXISTS postgresml;
-        RAISE NOTICE 'postgresml extension created successfully';
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'postgresml extension not available: %', SQLERRM;
-    END;
+    CREATE EXTENSION IF NOT EXISTS postgresml;
+    RAISE NOTICE 'PostgresML extension created successfully';
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'PostgresML extension not available: %', SQLERRM;
+    RAISE NOTICE 'This is expected in Phase 3-1 - AI operations will use AI Gateway instead';
 END $$;
 
 -- Configure PostgresML settings
 -- Enable shared_preload_libraries for PostgresML (this is typically done in postgresql.conf)
 -- For Docker, we'll ensure the extensions are available
 
--- Create a simple test to verify extensions are working
+-- Create a simple test to verify PostgresML is working
 DO $$
 BEGIN
-    -- Test that pgvector is working (if available)
-    BEGIN
-        PERFORM '[]'::vector;
-        RAISE NOTICE 'pgvector extension is working correctly';
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'pgvector extension test failed: %', SQLERRM;
-    END;
+    -- Test that PostgresML is available (Phase 3-1: pgvector tests removed)
+    -- PERFORM '[]'::vector;  -- Removed in Phase 3-1
+    -- RAISE NOTICE 'pgvector extension is working correctly';  -- Removed in Phase 3-1
 
-    -- Test basic PostgreSQL functionality
-    RAISE NOTICE 'PostgreSQL is ready for operations';
+    -- Test that PostgresML extension is working
+    RAISE NOTICE 'PostgresML extension is available for future AI operations';
 
 EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Extension testing encountered an issue: %', SQLERRM;
+    RAISE WARNING 'Extension initialization encountered an issue: %', SQLERRM;
 END $$;
 
 -- Set up basic configurations for AI operations
@@ -69,7 +48,7 @@ SELECT pg_reload_conf();
 -- Log successful initialization
 DO $$
 BEGIN
-    RAISE NOTICE 'PostgresML initialization completed successfully';
-    RAISE NOTICE 'Extensions available: vector, postgresml';
-    RAISE NOTICE 'Database is ready for AI operations';
+    RAISE NOTICE 'PostgresML initialization completed successfully (Phase 3-1)';
+    RAISE NOTICE 'Extensions available: postgresml (pgvector removed in Phase 3-1)';
+    RAISE NOTICE 'Database is ready for AI operations via AI Gateway';
 END $$;

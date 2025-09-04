@@ -615,19 +615,12 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
                     setattr(existing_pr, key, value)
             pull_request = existing_pr
         else:
-            # Create new PR with schema compatibility validation
-            from app.core.schema_compatibility import safe_model_creation
+            # Create new PR - Phase 3-1 clean architecture
             try:
-                pull_request = safe_model_creation(
-                    PullRequest, pr_data,
-                    context=f"PR #{pr_data.get('number', 'unknown')}",
-                    job_name="GitHub-ETL"
-                )
-                if pull_request is None:
-                    raise ValueError(f"Failed to create PR {pr_data.get('number', 'unknown')} - schema validation failed")
+                pull_request = PullRequest(**pr_data)
                 session.add(pull_request)
             except Exception as e:
-                logger.error(f"❌ Schema compatibility error creating PR {pr_data.get('number', 'unknown')}: {e}")
+                logger.error(f"❌ Error creating PR {pr_data.get('number', 'unknown')}: {e}")
                 raise
 
         session.flush()  # Get the PR ID

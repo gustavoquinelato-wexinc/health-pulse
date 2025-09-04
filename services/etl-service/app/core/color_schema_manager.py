@@ -58,7 +58,7 @@ class ColorSchemaManager:
             "theme": "light"
         }
         
-        logger.info("🎨 ColorSchemaManager initialized with smart caching")
+        logger.info("[COLOR] ColorSchemaManager initialized with smart caching")
     
     def is_cache_valid(self, user_id: str) -> bool:
         """Check if cached data is still valid for a specific user"""

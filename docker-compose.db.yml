@@ -23,9 +23,9 @@ services:
       - ./docker/postgres/init-postgresml.sql:/docker-entrypoint-initdb.d/init-postgresml.sql
       - ./docker/postgres/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh
       - ./docker/postgres/custom-entrypoint.sh:/custom-entrypoint.sh:ro
-      # Temporarily comment out custom configs to test basic PostgresML startup
-      # - ./docker/postgres/primary/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
-      # - ./docker/postgres/primary/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      # Custom PostgreSQL configuration files (commented out due to read-only mount issues)
+      # - ./docker/postgres/primary/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf:ro
+      # - ./docker/postgres/primary/postgresql.conf:/var/lib/postgresql/data/postgresql.conf:ro
     networks:
       - pulse-network
     restart: unless-stopped
@@ -88,6 +88,31 @@ services:
       timeout: 3s
       retries: 3
 
+  # Qdrant Vector Database for Phase 3 Clean Architecture
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    container_name: pulse-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+      # Performance optimizations for 10M+ scale
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: 4
+      QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: 2
+    networks:
+      - pulse-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_primary_data:
     name: pulse_postgres_primary_data
@@ -95,6 +120,8 @@ volumes:
     name: pulse_postgres_replica_data
   redis_data:
     name: pulse_redis_data
+  qdrant_data:
+    name: pulse_qdrant_data
 
 networks:
   pulse-network:

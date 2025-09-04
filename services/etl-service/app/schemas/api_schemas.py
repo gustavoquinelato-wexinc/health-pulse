@@ -101,10 +101,11 @@ class IntegrationInfo(BaseModel):
     """Information about an integration."""
     id: int
     name: str
-    url: str
+    base_url: str  # Updated to match new integration model
     username: Optional[str] = None
-    last_sync_at: Optional[datetime] = None
-    
+    model: Optional[str] = None  # AI model name
+    last_sync_at: Optional[datetime] = None  # Populated from job_schedules.last_success_at
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()

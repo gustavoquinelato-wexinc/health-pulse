@@ -211,10 +211,22 @@ python scripts/reset_database.py --recreate-tables
 
 ## 📊 **Log Analysis**
 
+### **Structured Logging Features**
+The ETL service now uses structured logging with colorful console output and categorized prefixes:
+
+```bash
+# Real-time structured logs with colors
+[HTTP] Request method=GET url=http://localhost:8000/ headers_count=15
+[WS] Connected job_name=Jira total_connections=1
+[JIRA] Starting optimized Jira sync (ID: 123)
+[BULK] Processing 9 issuetypes records for bulk insert
+[ERROR] Request processing failed method=POST error=ValidationError
+```
+
 ### **Log Locations**
 ```
 logs/
-├── etl_service.log           # Main application log
+├── etl_service_wex.log      # Main application log (client-specific)
 ├── test_jobs.log            # Job testing output
 ├── reset_database.log       # Database operations
 └── [job_name]_[date].log    # Individual job logs
@@ -222,17 +234,24 @@ logs/
 
 ### **Useful Log Commands**
 ```bash
-# Monitor real-time logs
-tail -f logs/etl_service.log
+# Monitor real-time logs with colors (in terminal)
+tail -f logs/etl_service_wex.log
 
-# Search for errors
-grep -i error logs/etl_service.log
+# Search by category
+grep "\[HTTP\]" logs/etl_service_wex.log     # HTTP requests
+grep "\[WS\]" logs/etl_service_wex.log       # WebSocket connections
+grep "\[JIRA\]" logs/etl_service_wex.log     # Jira job operations
+grep "\[GITHUB\]" logs/etl_service_wex.log   # GitHub job operations
+grep "\[ERROR\]" logs/etl_service_wex.log    # Error conditions
 
-# Check API calls
-grep -i "api\|request\|response" logs/etl_service.log
+# Search for specific operations
+grep "job_name=Jira" logs/etl_service_wex.log
+grep "status_code=" logs/etl_service_wex.log
+grep "total_connections=" logs/etl_service_wex.log
 
-# View job execution
-grep -i "job\|task" logs/etl_service.log
+# View structured data
+grep -o "method=[A-Z]*" logs/etl_service_wex.log
+grep -o "response_time_ms=[0-9.]*" logs/etl_service_wex.log
 ```
 
 ## 🚀 **Performance Testing**

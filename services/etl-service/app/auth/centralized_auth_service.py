@@ -84,8 +84,8 @@ class CentralizedAuthService:
         self.timeout = 5.0  # Reduced timeout for faster failures
         self.cache = TokenCache(ttl_seconds=300)  # 5-minute cache
 
-        logger.info(f"🔗 Centralized Auth Service initialized with Backend URL: {self.backend_service_url}")
-        logger.info("🚀 Token caching enabled (5-minute TTL)")
+        logger.info("[AUTH] Centralized Auth Service initialized", backend_url=self.backend_service_url)
+        logger.info("[AUTH] Token caching enabled (5-minute TTL)")
 
         # Test connectivity on initialization
         logger.info(f"Testing connectivity to backend service at: {self.backend_service_url}")

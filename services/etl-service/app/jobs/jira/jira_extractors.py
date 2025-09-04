@@ -871,6 +871,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
 
+        # Log the actual date being used for sync
+        job_logger.progress(f"[DATE_LOGIC] Using start_date: {last_sync.strftime('%Y-%m-%d %H:%M')} ({days_ago} days ago)")
+
         # Construct JQL query: base_search AND updated timestamp
         jql_parts = []
 
@@ -1098,7 +1101,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
                             asyncio.create_task(websocket_manager.send_progress_update(
-                                "jira_sync",
+                                "Jira",
                                 process_progress,
                                 progress_message
                             ))
@@ -1411,7 +1414,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
                             asyncio.create_task(websocket_manager.send_progress_update(
-                                "jira_sync",
+                                "Jira",
                                 changelog_progress,
                                 progress_message
                             ))
@@ -1890,7 +1893,7 @@ async def extract_work_items_and_changelogs_session_free(
 
             # Store integration details for session-free operations
             integration_base_search = integration.base_search
-            integration_name = integration.name
+            integration_name = integration.provider
 
         # Fetch all issues from Jira API (session-free)
         job_logger.progress("[API] Starting Jira API data fetch...")

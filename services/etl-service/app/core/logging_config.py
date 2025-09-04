@@ -136,27 +136,21 @@ _logging_configured = False
 
 
 def setup_logging(force_reconfigure=False):
-    """Configures the structured logging system."""
+    """Configures colorful structured logging (Windows-compatible)."""
     global _logging_configured
 
-    # Check if logging is already configured
+    # Always reconfigure if forced, or if not configured yet
     if _logging_configured and not force_reconfigure:
         return
+
+    print("Setting up colorful structured logging...")
 
     # Clear any existing handlers first
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Configure console handler with colors
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
-    console_formatter = logging.Formatter("%(message)s")
-    console_handler.setFormatter(console_formatter)
-    root_logger.addHandler(console_handler)
-    root_logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
-    
-    # Common processors
+    # Configure structlog for colorful output
     shared_processors = [
         structlog.stdlib.filter_by_level,
         structlog.stdlib.add_logger_name,
@@ -166,78 +160,56 @@ def setup_logging(force_reconfigure=False):
         StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    
-    # Configuration for development vs production
-    # Check for debug mode from multiple sources
-    debug_mode = (
-        settings.DEBUG or
-        force_reconfigure or
-        os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes') or
-        os.environ.get('FORCE_COLOR', '').lower() in ('true', '1', 'yes')
-    )
 
-    if debug_mode:
-        # Development: colored console logs
-        # File handler will clean ANSI codes automatically
-        processors = shared_processors + [ColoredConsoleRenderer()]
-    else:
-        # Production: JSON logs
-        processors = shared_processors + [JSONRenderer()]
-    
-    # Clear structlog cache if forcing reconfiguration
-    if force_reconfigure:
-        try:
-            # Clear the logger cache to allow reconfiguration
-            structlog.reset_defaults()
-        except Exception:
-            # If reset_defaults doesn't work, try to clear manually
-            pass
+    # Use colored console renderer for development
+    processors = shared_processors + [ColoredConsoleRenderer()]
 
-    # Configure structlog (colors for console, cleaned automatically for file)
+    # Configure structlog
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.stdlib.BoundLogger,
         logger_factory=LoggerFactory(),
         context_class=dict,
-        cache_logger_on_first_use=not force_reconfigure,  # Allow reconfiguration if forced
+        cache_logger_on_first_use=not force_reconfigure,
     )
+
+    # Configure console handler with colors
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+    console_formatter = logging.Formatter("%(message)s")
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 
     # Configure specific loggers
     _configure_third_party_loggers()
 
-    # Create logs directory if it doesn't exist
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    print("Colorful structured logging setup complete")
 
-    # Add file handler with ANSI cleaning
-    class AnsiCleaningFileHandler(logging.FileHandler):
-        """File handler that removes ANSI escape sequences from log messages."""
+    # Skip all the complex structlog configuration for now
+    # Just use basic Python logging
 
-        def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
-            super().__init__(filename, mode, encoding, delay)
-            # Compile ANSI escape sequence regex once
-            import re
-            self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    # Add simple file handler
+    try:
+        from pathlib import Path
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
 
-        def format(self, record):
-            # Get the formatted message
-            formatted = super().format(record)
-            # Remove ANSI escape sequences
-            return self.ansi_escape.sub('', formatted)
+        client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
+        log_filename = f"logs/etl_service_{client_name}.log"
 
-    # Add client-specific file handler
-    client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
-    log_filename = f"logs/etl_service_{client_name}.log"
-    file_handler = AnsiCleaningFileHandler(log_filename)
-    file_handler.setLevel(logging.INFO)
+        file_handler = logging.FileHandler(log_filename)
+        file_handler.setLevel(logging.INFO)
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logging.getLogger().addHandler(file_handler)
 
-    # Create a clean formatter
-    clean_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(clean_formatter)
-    root_logger.addHandler(file_handler)
+        print(f"File logging enabled: {log_filename}")
+    except Exception as e:
+        print(f"WARNING: File logging setup failed: {e}")
 
 
 
@@ -247,7 +219,7 @@ def setup_logging(force_reconfigure=False):
 
 def _configure_third_party_loggers():
     """Configures log levels for third-party libraries."""
-    
+
     # Reduce verbosity of external libraries
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -257,7 +229,7 @@ def _configure_third_party_loggers():
     logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.CRITICAL)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
     logging.getLogger("apscheduler").setLevel(logging.INFO)
-    
+
     # Configure specific logs if needed
     if not settings.DEBUG:
         logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -266,11 +238,11 @@ def _configure_third_party_loggers():
 
 def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
     """
-    Returns a structured logger.
-    
+    Returns a structured logger with colors and emojis.
+
     Args:
         name: Logger name. If None, uses the calling module name.
-    
+
     Returns:
         Configured structured logger.
     """
@@ -279,13 +251,13 @@ def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
         import inspect
         frame = inspect.currentframe().f_back
         name = frame.f_globals.get('__name__', 'unknown')
-    
+
     return structlog.get_logger(name)
 
 
 class LoggerMixin:
     """Mixin to add structured logging to classes."""
-    
+
     @property
     def logger(self) -> structlog.stdlib.BoundLogger:
         """Returns logger for the class."""
@@ -299,36 +271,36 @@ class RequestLogger:
     def log_request(method: str, url: str, headers: Dict = None, body: Any = None):
         """Log HTTP request."""
         logger = get_logger("http.request")
-        
+
         log_data = {
             "method": method,
             "url": url,
             "headers_count": len(headers) if headers else 0
         }
-        
+
         if body and settings.DEBUG:
             # In debug, include request body (be careful with sensitive data)
             log_data["body_size"] = len(str(body))
-        
-        logger.info("HTTP request", **log_data)
+
+        logger.info("[HTTP] Request", **log_data)
     
     @staticmethod
     def log_response(status_code: int, response_time: float, response_size: int = None):
         """Log HTTP response."""
         logger = get_logger("http.response")
-        
+
         log_data = {
             "status_code": status_code,
             "response_time_ms": round(response_time * 1000, 2)
         }
-        
+
         if response_size:
             log_data["response_size"] = response_size
-        
+
         if status_code >= 400:
-            logger.warning("HTTP response error", **log_data)
+            logger.warning("[HTTP] Response Error", **log_data)
         else:
-            logger.info("HTTP response", **log_data)
+            logger.info("[HTTP] Response", **log_data)
 
 
 class JobLogger:

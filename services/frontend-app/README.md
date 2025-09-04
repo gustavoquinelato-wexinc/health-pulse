@@ -114,7 +114,7 @@ VITE_ENABLE_REAL_TIME=true
 VITE_ENABLE_AI_FEATURES=true
 ```
 
-**Important**: Do not create a local `.env` file. All configuration is centralized in the root `.env` file.
+**Important**: Frontend configuration can use either service-specific `.env` file (`services/frontend-app/.env`) or root `.env` file. Service-specific takes priority.
 
 ## 📚 Documentation
 
