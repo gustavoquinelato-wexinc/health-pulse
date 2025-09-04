@@ -358,6 +358,17 @@
         filter: grayscale(50%);
     }
 
+    /* Disable hover effects on inactive job cards */
+    .job-card-inactive {
+        pointer-events: none; /* Disable all interactions */
+    }
+
+    /* Re-enable pointer events only for action buttons */
+    .job-card-inactive .mt-6,
+    .job-card-inactive .mt-6 * {
+        pointer-events: auto;
+    }
+
     /* Ensure action buttons container is completely isolated from grayscale */
     .job-card-inactive .mt-6 {
         filter: none !important;
@@ -365,76 +376,52 @@
         isolation: isolate; /* Create new stacking context */
     }
 
-    /* Aggressively override any inherited filters on toggle buttons */
-    .job-card-inactive .btn-status-success-sm,
-    .job-card-inactive .btn-status-warning-sm {
+    /* Special positioning for toggle button to escape grayscale filter */
+    .job-card-inactive .toggle-button-container {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        z-index: 100;
+        /* Completely outside the filtered content */
         filter: none !important;
         opacity: 1 !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        isolation: isolate; /* Create new stacking context */
-        transform: translateZ(0); /* Force hardware acceleration */
-        position: relative; /* Ensure proper stacking */
-        z-index: 10; /* Above any filtered content */
     }
 
-    /* Force exact same colors as regular buttons - use --crud-create to match FINISHED status */
-    .job-card-inactive button.btn-status-success-sm {
-        background-color: var(--crud-create) !important; /* Same as btn-status-success */
+    /* Toggle button with full color - completely isolated */
+    .toggle-button-isolated {
+        background-color: var(--crud-create) !important; /* Green for activate */
         color: white !important;
+        border: none !important;
+        padding: 0.375rem 0.75rem !important;
+        border-radius: 0.375rem !important;
+        font-size: 0.8125rem !important;
+        font-weight: 500 !important;
+        min-height: 2rem !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        /* Complete filter reset */
         filter: none !important;
-        opacity: 1 !important;
-        isolation: isolate !important;
-        transform: translateZ(0) !important;
-        position: relative !important;
-        z-index: 10 !important;
-        /* Force complete visual reset */
         -webkit-filter: none !important;
-        -moz-filter: none !important;
-        -ms-filter: none !important;
-        -o-filter: none !important;
+        opacity: 1 !important;
     }
 
-    .job-card-inactive button.btn-status-warning-sm {
-        background-color: var(--status-warning) !important;
-        color: white !important;
-        filter: none !important;
-        opacity: 1 !important;
-        isolation: isolate !important;
-        transform: translateZ(0) !important;
-        position: relative !important;
-        z-index: 10 !important;
-        /* Force complete visual reset */
-        -webkit-filter: none !important;
-        -moz-filter: none !important;
-        -ms-filter: none !important;
-        -o-filter: none !important;
+    .toggle-button-isolated.deactivate {
+        background-color: var(--status-warning) !important; /* Orange for deactivate */
     }
 
-    /* Ensure toggle button icons are completely isolated from any filters */
-    .job-card-inactive .btn-status-success-sm i,
-    .job-card-inactive .btn-status-warning-sm i {
-        filter: none !important;
-        opacity: 1 !important;
-        isolation: isolate !important;
-        transform: translateZ(0) !important;
-        position: relative !important;
-        z-index: 11 !important;
-        /* Force complete visual reset for icons */
-        -webkit-filter: none !important;
-        -moz-filter: none !important;
-        -ms-filter: none !important;
-        -o-filter: none !important;
+    .toggle-button-isolated:hover {
+        opacity: 0.9 !important;
+        transform: translateY(-1px) !important;
     }
 
-    /* Nuclear option - completely override any possible filter inheritance */
-    .job-card-inactive button.btn-status-success-sm *,
-    .job-card-inactive button.btn-status-warning-sm * {
-        filter: none !important;
-        -webkit-filter: none !important;
-        -moz-filter: none !important;
-        -ms-filter: none !important;
-        -o-filter: none !important;
-        opacity: 1 !important;
+    /* Hide the original toggle button in action buttons for inactive cards */
+    .job-card-inactive .action-buttons .btn-status-success-sm:first-child,
+    .job-card-inactive .action-buttons .btn-status-warning-sm:first-child {
+        display: none !important;
     }
 
     /* Jira icon background - lighter blue for both themes */
@@ -1113,6 +1100,19 @@
         // This allows us to selectively apply grayscale to content but not buttons
         if (isInactive) {
             card.classList.add('job-card-inactive');
+
+            // Add isolated toggle button for inactive cards
+            const toggleContainer = document.createElement('div');
+            toggleContainer.className = 'toggle-button-container';
+
+            const toggleButton = document.createElement('button');
+            toggleButton.className = 'toggle-button-isolated';
+            toggleButton.onclick = () => toggleJobActiveStatus(jobName, jobData.id);
+            toggleButton.title = 'Activate this job';
+            toggleButton.innerHTML = '<i class="fas fa-toggle-off mr-1"></i>Activate';
+
+            toggleContainer.appendChild(toggleButton);
+            card.appendChild(toggleContainer);
         }
 
         // Use integration_type from API response to determine icon and styling
@@ -1174,7 +1174,7 @@
 
             <!-- Action Buttons - Right Aligned with Better Grouping -->
             <div class="mt-6 flex justify-end">
-                <div class="flex space-x-2">
+                <div class="flex space-x-2 action-buttons">
                     ${createActionButtons(jobName, jobData, allJobsData)}
                 </div>
             </div>
@@ -1328,7 +1328,9 @@
                 <i class="fas fa-${canUnpause ? 'play' : 'pause'} mr-1"></i>${canUnpause ? 'Resume' : 'Pause'}
             </button>
             <button onclick="showJobDetails('${jobName}')"
-                    class="btn-neutral-secondary">
+                    ${isInactive ? 'disabled' : ''}
+                    class="${isInactive ? 'btn-neutral-disabled' : 'btn-neutral-secondary'}"
+                    title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
                 <i class="fas fa-info-circle mr-1"></i>Details
             </button>
         `;
