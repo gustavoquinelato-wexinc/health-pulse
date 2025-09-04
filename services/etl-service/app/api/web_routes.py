@@ -2221,19 +2221,25 @@ async def pause_job(job_name: str, user: UserData = Depends(require_admin_authen
             ).first()
 
             if not job_to_pause:
+                logger.error(f"[PAUSE] Job {job_name} not found or not active")
                 raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
 
+            logger.info(f"[PAUSE] Job {job_name} current status: {job_to_pause.status}")
+
             if job_to_pause.status == 'PAUSED':
+                logger.info(f"[PAUSE] Job {job_name} is already paused")
                 return {"message": f"Job {job_name} is already paused", "status": "paused"}
 
             if job_to_pause.status == 'RUNNING':
+                logger.warning(f"[PAUSE] Cannot pause job {job_name} while it's running")
                 raise HTTPException(status_code=400, detail=f"Cannot pause job {job_name} while it's running")
 
             # Pause the job
+            old_status = job_to_pause.status
             job_to_pause.set_paused()
             session.commit()
 
-            logger.info(f"Job {job_name} paused successfully")
+            logger.info(f"[PAUSE] Job {job_name} paused successfully: {old_status} -> PAUSED")
 
             return {
                 "message": f"Job {job_name} paused successfully",
@@ -2269,17 +2275,22 @@ async def unpause_job(job_name: str, user: UserData = Depends(require_admin_auth
                     other_job = job
 
             if not job_to_unpause:
+                logger.error(f"[UNPAUSE] Job {job_name} not found")
                 raise HTTPException(status_code=404, detail=f"Job {job_name} not found")
 
+            logger.info(f"[UNPAUSE] Job {job_name} current status: {job_to_unpause.status}")
+
             if job_to_unpause.status != 'PAUSED':
+                logger.info(f"[UNPAUSE] Job {job_name} is not paused (status: {job_to_unpause.status})")
                 return {"message": f"Job {job_name} is not paused", "status": job_to_unpause.status.lower()}
 
             # Determine new status based on other job status
             other_job_status = other_job.status if other_job else 'FINISHED'
+            old_status = job_to_unpause.status
             job_to_unpause.set_unpaused(other_job_status)
             session.commit()
 
-            logger.info(f"Job {job_name} unpaused successfully, new status: {job_to_unpause.status}")
+            logger.info(f"[UNPAUSE] Job {job_name} unpaused successfully: {old_status} -> {job_to_unpause.status} (other job: {other_job_status})")
 
             return {
                 "message": f"Job {job_name} unpaused successfully",
