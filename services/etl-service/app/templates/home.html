@@ -1012,6 +1012,7 @@
             }
 
             const data = await response.json();
+            console.log('[REFRESH] Job data received:', data);
             // New endpoint returns array of job cards directly
             updateJobCards(data);
             updateLastRefreshTime();
@@ -1911,11 +1912,12 @@
             });
 
             const result = await response.json();
+            console.log(`[PAUSE] Response for ${jobName}:`, result);
             if (response.ok) {
-                console.log(`${jobName} paused successfully`);
+                console.log(`[PAUSE] ${jobName} paused successfully, refreshing data...`);
                 await refreshData();
             } else {
-                console.error(`Failed to pause ${jobName}: ${result.detail || result.message}`);
+                console.error(`[PAUSE] Failed to pause ${jobName}: ${result.detail || result.message}`);
             }
         } catch (error) {
             console.error(`Error pausing ${jobName}: ${error.message}`);
@@ -1934,11 +1936,12 @@
             });
 
             const result = await response.json();
+            console.log(`[UNPAUSE] Response for ${jobName}:`, result);
             if (response.ok) {
-                console.log(`${jobName} unpaused successfully - new status: ${result.status}`);
+                console.log(`[UNPAUSE] ${jobName} unpaused successfully - new status: ${result.status}, refreshing data...`);
                 await refreshData();
             } else {
-                console.error(`Failed to unpause ${jobName}: ${result.detail || result.message}`);
+                console.error(`[UNPAUSE] Failed to unpause ${jobName}: ${result.detail || result.message}`);
             }
         } catch (error) {
             console.error(`Error unpausing ${jobName}: ${error.message}`);
