@@ -9,6 +9,7 @@ Date: 2025-08-18
 import os
 import sys
 import argparse
+import json
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -137,17 +138,25 @@ def apply(connection):
             jira_username = "gustavo.quinelato@wexinc.com"
 
         cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (name, client_id) DO NOTHING
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, model,
+                configuration, client_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, client_id) DO NOTHING
             RETURNING id;
-        """, ("JIRA", jira_url, jira_username, jira_password, "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", "2000-01-01 00:00:00", client_id, jira_active))
+        """, (
+            "jira", "data_source", jira_username, jira_password, jira_url,
+            "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
+            json.dumps({"base_search": "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"}),
+            client_id, jira_active
+        ))
 
         jira_result = cursor.fetchone()
         if jira_result:
             jira_integration_id = jira_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE name = 'JIRA' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'jira' AND client_id = %s;", (client_id,))
             jira_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
@@ -176,23 +185,196 @@ def apply(connection):
             print("   ⚠️  GitHub token not found in .env file")
 
         cursor.execute("""
-            INSERT INTO integrations (name, url, username, password, base_search, last_sync_at, client_id, active, created_at, last_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (name, client_id) DO NOTHING
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, model,
+                configuration, client_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, client_id) DO NOTHING
             RETURNING id;
-        """, ("GITHUB", "https://api.github.com", None, github_password, "health-", "2000-01-01 00:00:00", client_id, github_active))
+        """, (
+            "github", "data_source", None, github_password, "https://api.github.com",
+            "health-", None,
+            json.dumps({"base_search": "health-"}),
+            client_id, github_active
+        ))
 
         github_result = cursor.fetchone()
         if github_result:
             github_integration_id = github_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE name = 'GITHUB' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'github' AND client_id = %s;", (client_id,))
             github_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ GitHub integration created (ID: {github_integration_id}, active: {github_active})")
+
+        # Create AI Gateway integration
+        print("   📋 Creating AI Gateway integration...")
+        ai_gateway_base_url = os.getenv("AI_GATEWAY_BASE_URL")
+        ai_gateway_api_key = os.getenv("AI_GATEWAY_API_KEY")
+        ai_model = os.getenv("AI_MODEL")
+        ai_fallback_model = os.getenv("AI_FALLBACK_MODEL")
+
+        if ai_gateway_base_url and ai_gateway_api_key and ai_model:
+            # Encrypt the AI Gateway API key
+            encrypted_ai_key = AppConfig.encrypt_token(ai_gateway_api_key, key)
+            print("   🔐 AI Gateway API key encrypted successfully")
+
+            # Create primary AI Gateway integration
+            cursor.execute("""
+                INSERT INTO integrations (
+                    provider, type, username, password, base_url, base_search, model,
+                    model_config, configuration, client_id, active, created_at, last_updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (provider, client_id) DO NOTHING
+                RETURNING id;
+            """, (
+                "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
+                None, ai_model,
+                json.dumps({"temperature": 0.3, "max_tokens": 700}),
+                json.dumps({"primary_model": ai_model, "fallback_model": ai_fallback_model}),
+                client_id, True
+            ))
+
+            ai_gateway_result = cursor.fetchone()
+            if ai_gateway_result:
+                ai_gateway_integration_id = ai_gateway_result['id']
+            else:
+                cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_ai_gateway' AND client_id = %s;", (client_id,))
+                ai_gateway_integration_id = cursor.fetchone()['id']
+
+            print(f"   ✅ AI Gateway integration created (ID: {ai_gateway_integration_id}, model: {ai_model})")
+
+            # Create fallback AI Gateway integration if fallback model is specified
+            if ai_fallback_model and ai_fallback_model != ai_model:
+                cursor.execute("""
+                    INSERT INTO integrations (
+                        provider, type, username, password, base_url, base_search, model,
+                        model_config, configuration, fallback_integration_id, client_id, active, created_at, last_updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (provider, client_id) DO NOTHING
+                    RETURNING id;
+                """, (
+                    "google_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
+                    None, ai_fallback_model,
+                    json.dumps({"temperature": 0.3, "max_tokens": 700}),
+                    json.dumps({"fallback_for": ai_model}),
+                    ai_gateway_integration_id, client_id, True
+                ))
+
+                fallback_result = cursor.fetchone()
+                if fallback_result:
+                    fallback_integration_id = fallback_result['id']
+                    # Update primary integration to point to fallback
+                    cursor.execute("""
+                        UPDATE integrations SET fallback_integration_id = %s
+                        WHERE id = %s;
+                    """, (fallback_integration_id, ai_gateway_integration_id))
+                    print(f"   ✅ AI Gateway fallback integration created (ID: {fallback_integration_id}, model: {ai_fallback_model})")
+        else:
+            print("   ⚠️ AI Gateway credentials not found in .env - skipping AI Gateway integration")
+
+        # Create WEX Fabric integration (placeholder for future)
+        print("   📋 Creating WEX Fabric integration...")
+        cursor.execute("""
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, model,
+                model_config, configuration, client_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, client_id) DO NOTHING
+            RETURNING id;
+        """, (
+            "wex_fabric", "data_warehouse", "google_fabric_user", None, "https://fabric.wex.com",
+            None, None,
+            json.dumps({"workspace_id": "placeholder"}),
+            json.dumps({"description": "WEX Fabric data warehouse integration"}),
+            client_id, False  # Inactive until implemented
+        ))
+
+        fabric_result = cursor.fetchone()
+        if fabric_result:
+            fabric_integration_id = fabric_result['id']
+        else:
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_fabric' AND client_id = %s;", (client_id,))
+            fabric_integration_id = cursor.fetchone()['id']
+
+        print(f"   ✅ WEX Fabric integration created (ID: {fabric_integration_id}, inactive)")
+
+        # Create Active Directory integration (placeholder for future)
+        print("   📋 Creating Active Directory integration...")
+        cursor.execute("""
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, model,
+                model_config, configuration, client_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, client_id) DO NOTHING
+            RETURNING id;
+        """, (
+            "active_directory", "identity_provider", "google_ad_user", None, "https://login.microsoftonline.com",
+            None, None,
+            json.dumps({"tenant_id": "placeholder"}),
+            json.dumps({"description": "Active Directory identity provider integration"}),
+            client_id, False  # Inactive until implemented
+        ))
+
+        ad_result = cursor.fetchone()
+        if ad_result:
+            ad_integration_id = ad_result['id']
+        else:
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'active_directory' AND client_id = %s;", (client_id,))
+            ad_integration_id = cursor.fetchone()['id']
+
+        print(f"   ✅ Active Directory integration created (ID: {ad_integration_id}, inactive)")
+
         print("✅ Integrations created")
 
-        # 4. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
+        # 4. Create default job schedules
+        print("📋 Creating default job schedules...")
+
+        # Integration IDs already available from previous steps
+        job_schedules_data = [
+            {
+                "job_name": "Jira",
+                "execution_order": 1,
+                "status": "PENDING",
+                "integration_id": jira_integration_id
+            },
+            {
+                "job_name": "GitHub",
+                "execution_order": 2,
+                "status": "NOT_STARTED",
+                "integration_id": github_integration_id
+            },
+            {
+                "job_name": "WEX Fabric",
+                "execution_order": 3,
+                "status": "NOT_STARTED",
+                "integration_id": fabric_integration_id
+            },
+            {
+                "job_name": "WEX AD",
+                "execution_order": 4,
+                "status": "NOT_STARTED",
+                "integration_id": ad_integration_id
+            }
+        ]
+
+        for job in job_schedules_data:
+            # Set Fabric and AD jobs as inactive since they're not implemented yet
+            is_active = job["job_name"] not in ["WEX Fabric", "WEX AD"]
+            cursor.execute("""
+                INSERT INTO job_schedules (job_name, execution_order, status, integration_id, client_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (job_name, client_id) DO NOTHING;
+            """, (job["job_name"], job["execution_order"], job["status"], job["integration_id"], client_id, is_active))
+
+        print("✅ Default job schedules created")
+
+        # 5. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
         print("📋 Creating workflow steps...")
         workflow_steps_data = [
             {"step_name": "Backlog", "step_number": 1, "category": "To Do", "is_commitment_point": False},
@@ -599,32 +781,7 @@ def apply(connection):
 
         print("✅ Default user permissions created")
 
-        # 10. Create default job schedules
-        print("📋 Creating default job schedules...")
 
-        # Integration IDs already available from previous steps
-
-        job_schedules_data = [
-            {
-                "job_name": "jira_sync",
-                "status": "PENDING",
-                "integration_id": jira_integration_id
-            },
-            {
-                "job_name": "github_sync",
-                "status": "NOT_STARTED",
-                "integration_id": github_integration_id
-            }
-        ]
-
-        for job in job_schedules_data:
-            cursor.execute("""
-                INSERT INTO job_schedules (job_name, status, integration_id, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW())
-                ON CONFLICT (job_name) DO NOTHING;
-            """, (job["job_name"], job["status"], job["integration_id"], client_id))
-
-        print("✅ Default job schedules created")
 
         # 11. Insert color settings for Google client
         print("📋 Creating color settings for Google client...")
@@ -770,7 +927,7 @@ def rollback(connection):
 
         # Delete seed data in reverse order of creation, handling foreign key constraints properly
         print("📋 Removing job schedules...")
-        cursor.execute("DELETE FROM job_schedules WHERE job_name IN ('jira_sync', 'github_sync');")
+        cursor.execute("DELETE FROM job_schedules WHERE client_id = (SELECT id FROM clients WHERE name = 'Google');")
 
         print("📋 Removing user permissions...")
         # First remove permissions for Google client

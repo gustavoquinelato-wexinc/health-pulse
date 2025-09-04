@@ -83,8 +83,8 @@ class AuthService:
     async def verify_token(self, token: str) -> Optional[User]:
         """Verify JWT token and return user if valid - checks Redis first, then database"""
         try:
-            # Debug: Log JWT secret being used (debug only)
-            logger.debug(f"Verifying JWT with secret: {self.jwt_secret[:10]}...")
+            # Debug: Log JWT verification attempt (debug only)
+            logger.debug(f"[AUTH] Verifying JWT token (secret length: {len(self.jwt_secret)})")
 
             # Decode JWT token
             payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])

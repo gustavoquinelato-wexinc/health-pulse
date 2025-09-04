@@ -208,20 +208,18 @@ CORS_ORIGINS=["http://localhost:5173"]
 
 ## 🤖 AI Enhancements (Phase 1)
 
-### **Enhanced Data Models**
-All unified models now include vector columns for AI capabilities:
+### **Clean Data Models (Phase 3-1)**
+All unified models use clean PostgreSQL schema with Qdrant for vector storage:
 ```python
-# Example: Enhanced Issue model with vector support
+# Example: Clean Issue model (Phase 3-1)
 class Issue(Base):
-    # ... existing fields ...
-    embedding: Optional[List[float]] = Column(VectorType(), nullable=True)
+    # ... business fields only ...
+    # Vector storage handled separately in Qdrant
 
-    def to_dict(self, include_ml_fields: bool = False):
+    def to_dict(self):
         result = {
-            # ... existing fields ...
+            # ... business fields only ...
         }
-        if include_ml_fields and self.embedding:
-            result['embedding'] = self.embedding
         return result
 ```
 

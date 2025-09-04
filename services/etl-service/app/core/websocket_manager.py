@@ -49,28 +49,28 @@ class WebSocketManager:
             self.connections[job_name] = []
         
         self.connections[job_name].append(websocket)
-        logger.info(f"WebSocket connected for job '{job_name}'. Total connections: {len(self.connections[job_name])}")
+        logger.info("[WS] Connected", job_name=job_name, total_connections=len(self.connections[job_name]))
         
         # Send latest progress if available
         if job_name in self.latest_progress:
             try:
                 await websocket.send_text(json.dumps(self.latest_progress[job_name]))
             except Exception as e:
-                logger.warning(f"Failed to send latest progress to new connection: {e}")
+                logger.warning("[WS] Failed to send latest progress to new connection", error=str(e))
     
     def disconnect(self, websocket: WebSocket, job_name: str):
         """Remove a WebSocket connection."""
         if job_name in self.connections:
             try:
                 self.connections[job_name].remove(websocket)
-                logger.info(f"WebSocket disconnected for job '{job_name}'. Remaining connections: {len(self.connections[job_name])}")
+                logger.info("[WS] Disconnected", job_name=job_name, remaining_connections=len(self.connections[job_name]))
                 
                 # Clean up empty job lists
                 if not self.connections[job_name]:
                     del self.connections[job_name]
                     
             except ValueError:
-                logger.warning(f"WebSocket not found in connections for job '{job_name}'")
+                logger.warning("[WS] WebSocket not found in connections", job_name=job_name)
     
     async def send_progress_update(self, job_name: str, percentage: float, step: str):
         """Send progress update to all connected clients for a job."""
@@ -143,7 +143,7 @@ class WebSocketManager:
             except WebSocketDisconnect:
                 disconnected_clients.append(websocket)
             except Exception as e:
-                logger.warning(f"Failed to send message to WebSocket client: {e}")
+                logger.warning("[WS] Failed to send message to WebSocket client", error=str(e))
                 disconnected_clients.append(websocket)
         
         # Clean up disconnected clients
@@ -179,7 +179,7 @@ class WebSocketManager:
                 except WebSocketDisconnect:
                     disconnected_clients.append(websocket)
                 except Exception as e:
-                    logger.warning(f"Failed to send color schema update to WebSocket client: {e}")
+                    logger.warning("[WS] Failed to send color schema update to WebSocket client", error=str(e))
                     disconnected_clients.append(websocket)
 
             # Clean up disconnected clients
@@ -187,7 +187,7 @@ class WebSocketManager:
                 self.disconnect(websocket, job_name)
 
         if total_sent > 0:
-            logger.info(f"🎨 Broadcasted color schema update to {total_sent} WebSocket connections")
+            logger.info("[COLOR] Broadcasted color schema update", total_connections=total_sent)
         else:
             logger.debug("No active WebSocket connections to broadcast color schema update")
 

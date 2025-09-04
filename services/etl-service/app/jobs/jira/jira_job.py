@@ -60,7 +60,7 @@ async def execute_jira_extraction_by_mode(
             logger.info("Executing ISSUETYPES mode - extracting issue types and projects")
             from app.jobs.jira.jira_extractors import extract_projects_and_issuetypes
             from app.core.logging_config import JobLogger
-            job_logger = JobLogger("jira_sync")
+            job_logger = JobLogger("Jira")
             result = extract_projects_and_issuetypes(session, jira_client, jira_integration, job_logger)
             return {'success': True, **result}
 
@@ -68,7 +68,7 @@ async def execute_jira_extraction_by_mode(
             logger.info("Executing STATUSES mode - extracting statuses and project links")
             from app.jobs.jira.jira_extractors import extract_projects_and_statuses
             from app.core.logging_config import JobLogger
-            job_logger = JobLogger("jira_sync")
+            job_logger = JobLogger("Jira")
             result = extract_projects_and_statuses(session, jira_client, jira_integration, job_logger)
             return {'success': True, **result}
 
@@ -76,7 +76,7 @@ async def execute_jira_extraction_by_mode(
             logger.info("Executing ISSUES mode - extracting issues, changelogs, and dev_status")
             from app.jobs.jira.jira_extractors import extract_work_items_and_changelogs
             from app.core.logging_config import JobLogger
-            job_logger = JobLogger("jira_sync")
+            job_logger = JobLogger("Jira")
             websocket_manager = get_websocket_manager()
             result = await extract_work_items_and_changelogs(
                 session, jira_client, jira_integration, job_logger,
@@ -154,7 +154,7 @@ async def execute_jira_extraction_session_free(
             # Store integration details for jira_client creation if needed
             integration_username = integration.username
             integration_password = integration.password
-            integration_url = integration.url
+            integration_url = integration.base_url
 
         # Create jira_client if not provided
         if jira_client is None:
@@ -196,7 +196,7 @@ async def execute_jira_extraction_session_free(
             from app.core.logging_config import JobLogger
             from app.core.websocket_manager import get_websocket_manager
 
-            job_logger = JobLogger("jira_sync")
+            job_logger = JobLogger("Jira")
             websocket_manager = get_websocket_manager()
 
             # Use session-free extraction to prevent connection timeouts
@@ -255,7 +255,7 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
         from app.jobs.jira.jira_extractors import extract_work_items_and_changelogs
         from app.core.logging_config import JobLogger
 
-        job_logger = JobLogger("jira_sync")
+        job_logger = JobLogger("Jira")
         websocket_manager = get_websocket_manager()
 
         # Store original JQL query method and replace with custom query
@@ -361,7 +361,7 @@ async def run_jira_sync(
             from app.core.websocket_manager import get_websocket_manager
             websocket_manager = get_websocket_manager()
             await websocket_manager.send_status_update(
-                "jira_sync",
+                "Jira",
                 "RUNNING",
                 {"message": "Jira sync job is now running"}
             )
@@ -372,7 +372,7 @@ async def run_jira_sync(
         if target_projects:
             logger.info(f"Target Projects: {target_projects}")
 
-        # ✅ SECURITY: Get Jira integration using job_schedule.integration_id for client isolation
+        # SECURITY: Get Jira integration using job_schedule.integration_id for client isolation
         if job_schedule.integration_id:
             jira_integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id,
@@ -396,7 +396,7 @@ async def run_jira_sync(
         integration_id = jira_integration.id
         integration_username = jira_integration.username
         integration_password = jira_integration.password
-        integration_url = jira_integration.url
+        integration_url = jira_integration.base_url
         client_id = job_schedule.client_id
         job_schedule_id = job_schedule.id
 
@@ -432,39 +432,53 @@ async def run_jira_sync(
             database = get_database()
 
             with database.get_write_session_context() as fresh_session:
-                # Re-fetch job schedule and GitHub job in fresh session
+                # Re-fetch job schedule in fresh session
                 job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
-                github_job = fresh_session.query(JobSchedule).filter(
-                    JobSchedule.job_name == 'github_sync',
-                    JobSchedule.client_id == client_id
-                ).first()
+                if not job_schedule:
+                    logger.error(f"Job schedule {job_schedule_id} not found")
+                    return
 
-                if github_job and github_job.status == 'PAUSED':
-                    # GitHub is PAUSED: Keep Jira as PENDING for next run
-                    job_schedule.status = 'PENDING'
-                    logger.info(f"   • GitHub job is PAUSED - keeping Jira job as PENDING")
+                current_order = job_schedule.execution_order
+
+                # Mark current job as finished
+                job_schedule.set_finished()
+                logger.info(f"Jira sync job completed successfully")
+
+                # Find next job in execution order
+                next_job = fresh_session.query(JobSchedule).filter(
+                    JobSchedule.client_id == client_id,
+                    JobSchedule.active == True,
+                    JobSchedule.execution_order > current_order
+                ).order_by(JobSchedule.execution_order.asc()).first()
+
+                if next_job:
+                    next_job.status = 'PENDING'
+                    logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
                 else:
-                    # GitHub is not PAUSED: Set GitHub to PENDING and Jira to FINISHED
-                    if github_job:
-                        github_job.status = 'PENDING'
-                    job_schedule.set_finished()
+                    # No next job, cycle back to first job
+                    first_job = fresh_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True
+                    ).order_by(JobSchedule.execution_order.asc()).first()
 
-                    # Reset retry attempts and restore normal schedule on success
-                    from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-                    orchestrator_scheduler = get_orchestrator_scheduler()
-                    orchestrator_scheduler.reset_retry_attempts('jira_sync')
-                    orchestrator_scheduler.restore_normal_schedule()
+                    if first_job and first_job.id != job_schedule_id:
+                        first_job.status = 'PENDING'
+                        logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
 
-                    logger.info(f"   • GitHub job set to PENDING, Jira job set to FINISHED")
+                # Reset retry attempts and restore normal schedule on success
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.reset_retry_attempts('Jira')
+                orchestrator_scheduler.restore_normal_schedule()
 
-                    # Send status update that job is finished
-                    from app.core.websocket_manager import get_websocket_manager
-                    websocket_manager = get_websocket_manager()
-                    await websocket_manager.send_status_update(
-                        "jira_sync",
-                        "FINISHED",
-                        {"message": "Jira sync job completed successfully"}
-                    )
+                # Send status update that job is finished
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "Jira",
+                    "FINISHED",
+                    {"message": "Jira sync job completed successfully"}
+                )
 
                 # Session will be committed automatically by context manager
             logger.info(f"Jira sync completed successfully")
@@ -488,26 +502,26 @@ async def run_jira_sync(
             # Schedule fast retry if enabled
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
-            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+            fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('Jira')
 
             # Send status update that job failed and is now pending
             from app.core.websocket_manager import get_websocket_manager
             websocket_manager = get_websocket_manager()
             await websocket_manager.send_status_update(
-                "jira_sync",
+                "Jira",
                 "PENDING",
                 {"message": f"Jira sync failed - {error_msg[:100]}..."}
             )
 
             # Send error progress update (short message for progress bar)
-            await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync failed - check Issues & Warnings below")
+            await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync failed - check Issues & Warnings below")
 
             # Send detailed error via exception message (like GitHub job does)
-            await websocket_manager.send_exception("jira_sync", "ERROR", f"Jira sync failed: {error_msg}", error_msg)
+            await websocket_manager.send_exception("Jira", "ERROR", f"Jira sync failed: {error_msg}", error_msg)
 
             # Send failure completion notification (like GitHub job does)
             await websocket_manager.send_completion(
-                "jira_sync",
+                "Jira",
                 False,
                 {
                     'error': error_msg,
@@ -521,7 +535,7 @@ async def run_jira_sync(
             if checkpoint:
                 logger.info(f"   • Checkpoint saved: {checkpoint}")
             if fast_retry_scheduled:
-                retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+                retry_interval = orchestrator_scheduler.get_retry_status('Jira')['retry_interval_minutes']
                 logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
     except Exception as e:
@@ -532,14 +546,14 @@ async def run_jira_sync(
         # Send error progress update (short message for progress bar)
         from app.core.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
-        await websocket_manager.send_progress_update("jira_sync", 100.0, "❌ Jira sync error - check Issues & Warnings below")
+        await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync error - check Issues & Warnings below")
 
         # Send detailed error via exception message (like GitHub job does)
-        await websocket_manager.send_exception("jira_sync", "ERROR", f"Jira sync error: {str(e)}", str(e))
+        await websocket_manager.send_exception("Jira", "ERROR", f"Jira sync error: {str(e)}", str(e))
 
         # Send failure completion notification (like GitHub job does)
         await websocket_manager.send_completion(
-            "jira_sync",
+            "Jira",
             False,
             {
                 'error': str(e),
@@ -565,10 +579,10 @@ async def run_jira_sync(
         # Schedule fast retry if enabled
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
         orchestrator_scheduler = get_orchestrator_scheduler()
-        fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('jira_sync')
+        fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('Jira')
 
         if fast_retry_scheduled:
-            retry_interval = orchestrator_scheduler.get_retry_status('jira_sync')['retry_interval_minutes']
+            retry_interval = orchestrator_scheduler.get_retry_status('Jira')['retry_interval_minutes']
             logger.info(f"   • Fast retry scheduled in {retry_interval} minutes")
 
 
@@ -589,41 +603,51 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         from app.jobs.jira.jira_extractors import extract_projects_and_issuetypes, extract_projects_and_statuses, extract_work_items_and_changelogs
         from app.core.logging_config import JobLogger
 
-        job_logger = JobLogger("jira_sync")
+        job_logger = JobLogger("Jira")
         websocket_manager = get_websocket_manager()
 
         # Clear any previous progress and notify start
-        websocket_manager.clear_job_progress("jira_sync")
-        
+        websocket_manager.clear_job_progress("Jira")
+
         # Step 1: Extract projects and issue types
         logger.info("Step 1: Extracting projects and issue types...")
-        await websocket_manager.send_progress_update("jira_sync", 10.0, "Extracting projects and issue types...")
+        await websocket_manager.send_progress_update("Jira", 10.0, "Extracting projects and issue types...")
         projects_result = extract_projects_and_issuetypes(session, jira_client, integration, job_logger)
         if not projects_result.get('projects_processed', 0):
             logger.warning("No projects found or processed")
-            await websocket_manager.send_exception("jira_sync", "WARNING", "No projects found or processed")
+            await websocket_manager.send_exception("Jira", "WARNING", "No projects found or processed")
 
         # Step 2: Extract projects and statuses
         logger.info("Step 2: Extracting projects and statuses...")
-        await websocket_manager.send_progress_update("jira_sync", 20.0, "Extracting projects and statuses...")
+        await websocket_manager.send_progress_update("Jira", 20.0, "Extracting projects and statuses...")
         statuses_result = extract_projects_and_statuses(session, jira_client, integration, job_logger)
         if not statuses_result.get('statuses_processed', 0):
             logger.warning("No statuses found or processed")
-            await websocket_manager.send_exception("jira_sync", "WARNING", "No statuses found or processed")
+            await websocket_manager.send_exception("Jira", "WARNING", "No statuses found or processed")
 
         # Step 3: Extract issues and changelogs
         logger.info("Step 3: Extracting issues and changelogs...")
-        await websocket_manager.send_progress_update("jira_sync", 30.0, "Extracting issues and changelogs...")
+        await websocket_manager.send_progress_update("Jira", 30.0, "Extracting issues and changelogs...")
 
-        # Determine start date for incremental sync
-        start_date = job_schedule.last_repo_sync_checkpoint or integration.last_sync_at
-        if not start_date:
-            # Default to 30 days ago for first run
-            from datetime import timedelta
-            start_date = DateTimeHelper.now_utc() - timedelta(days=30)
+        # Determine start date based on recovery vs incremental sync
+        if job_schedule.has_recovery_checkpoints():
+            # RECOVERY MODE: Use last_run_started_at (when job started extracting data)
+            start_date = job_schedule.last_run_started_at
+            logger.info(f"Recovery mode: Using last_run_started_at = {start_date}")
+        else:
+            # INCREMENTAL SYNC MODE: Use last_success_at formatted as %Y-%m-%d %H%M
+            if job_schedule.last_success_at:
+                # Format without seconds: %Y-%m-%d %H%M
+                start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
+                logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
+            else:
+                # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
+                from datetime import timedelta
+                start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
         # Start the extraction with periodic progress updates
-        await websocket_manager.send_progress_update("jira_sync", 35.0, "Starting issue and changelog processing...")
+        await websocket_manager.send_progress_update("Jira", 35.0, "Starting issue and changelog processing...")
 
         # Run the extraction (progress updates are handled within the extractors)
         issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager)
@@ -640,17 +664,17 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         issues_processed = issues_result.get('issues_processed', 0)
         changelogs_processed = issues_result.get('changelogs_processed', 0)
         await websocket_manager.send_progress_update(
-            "jira_sync",
+            "Jira",
             50.0,
             f"Completed processing {issues_processed:,} issues and {changelogs_processed:,} changelogs"
         )
 
         # Step 3.5: Issues and changelogs completed
-        await websocket_manager.send_progress_update("jira_sync", 45.0, f"Processed {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs")
+        await websocket_manager.send_progress_update("Jira", 45.0, f"Processed {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs")
 
         # Step 4: Extract dev_status and create PR links
         logger.info("Step 4: Extracting dev_status data and creating PR links...")
-        await websocket_manager.send_progress_update("jira_sync", 50.0, "Extracting dev_status data and creating PR links...")
+        await websocket_manager.send_progress_update("Jira", 50.0, "Extracting dev_status data and creating PR links...")
 
         # Get issues with code_changed = True from the current extraction
         # Use hybrid approach: current extraction + recently updated issues
@@ -774,7 +798,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                     progress = 50.0 + (issues_processed / total_issues) * 40.0  # 50% to 90%
                     percentage = (issues_processed / total_issues) * 100 if total_issues > 0 else 0
                     await websocket_manager.send_progress_update(
-                        "jira_sync",
+                        "Jira",
                         progress,
                         f"Processing dev_status: {issues_processed:,} of {total_issues:,} issues ({percentage:.1f}%)"
                     )
@@ -795,7 +819,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             except Exception as e:
                 error_msg = f"Error processing dev_status for issue {issue.key}: {e}"
                 logger.error(error_msg)
-                await websocket_manager.send_exception("jira_sync", "ERROR", error_msg, str(e))
+                await websocket_manager.send_exception("Jira", "ERROR", error_msg, str(e))
                 continue
 
         # Final commit
@@ -812,7 +836,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.client_id}")
 
         # Step 5: All processing completed - send final progress update
-        await websocket_manager.send_progress_update("jira_sync", 100.0, f"✅ Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
+        await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
 
         # Small delay to ensure progress update is processed before completion notification
         import asyncio
@@ -820,7 +844,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
 
         # Send completion notification
         await websocket_manager.send_completion(
-            "jira_sync",
+            "Jira",
             True,
             {
                 'issues_processed': issues_result['issues_processed'],
@@ -869,7 +893,7 @@ async def run_jira_sync_optimized(
     import asyncio
 
     database = get_database()
-    logger.info(f"🚀 Starting optimized Jira sync (ID: {job_schedule_id})")
+    logger.info(f"[JIRA] Starting optimized Jira sync (ID: {job_schedule_id})")
 
     try:
         # Use session-free approach to prevent connection timeouts during long API calls

@@ -22,27 +22,39 @@ logger = get_logger(__name__)
 async def job_progress_websocket(websocket: WebSocket, job_name: str):
     """
     WebSocket endpoint for real-time job progress monitoring.
-    
+
     Args:
         websocket: WebSocket connection
-        job_name: Name of the job to monitor (jira_sync, github_sync, orchestrator)
-    
+        job_name: Name of the job to monitor (Jira, GitHub, orchestrator)
+
     Message Types:
         - progress: Real-time progress updates with percentage and step
         - exception: Error/warning messages only
         - status: Job status changes (RUNNING, FINISHED, etc.)
         - completion: Job completion with summary
     """
-    # Validate job name
-    valid_jobs = ['jira_sync', 'github_sync', 'orchestrator']
-    if job_name not in valid_jobs:
+    # Log the incoming connection attempt
+    logger.info("[WS] Connection attempt", job_name=job_name, raw=True)
+
+    # URL decode job name to handle spaces (e.g., "WEX%20Fabric" -> "WEX Fabric")
+    import urllib.parse
+    decoded_job_name = urllib.parse.unquote(job_name)
+    logger.info("[WS] Job name decoded", original=job_name, decoded=decoded_job_name)
+
+    # Validate job name - accept both display names and internal names for compatibility
+    valid_jobs = ['Jira', 'jira_sync', 'GitHub', 'github_sync', 'WEX Fabric', 'fabric_sync', 'WEX AD', 'ad_sync', 'orchestrator']
+    if decoded_job_name not in valid_jobs:
+        logger.warning("[WS] Invalid job name", job_name=decoded_job_name, valid_jobs=valid_jobs)
         await websocket.close(code=4000, reason=f"Invalid job name. Valid jobs: {valid_jobs}")
         return
-    
+
+    # Use decoded job name from here on
+    job_name = decoded_job_name
+
     websocket_manager = get_websocket_manager()
-    
+
     try:
-        # Accept connection and register client
+        # Register client (this will accept the WebSocket connection)
         await websocket_manager.connect(websocket, job_name)
         
         # Keep connection alive and handle client messages
@@ -84,7 +96,7 @@ async def websocket_status(token: str = Depends(verify_token)):
     
     # Get connection counts per job
     job_connections = {}
-    for job_name in ['jira_sync', 'github_sync', 'orchestrator']:
+    for job_name in ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD', 'orchestrator']:
         job_connections[job_name] = websocket_manager.get_connection_count(job_name)
     
     return {
@@ -100,11 +112,15 @@ async def test_websocket_message(job_name: str, token: str = Depends(verify_toke
     """
     Test endpoint to send sample WebSocket messages.
     Useful for testing WebSocket functionality.
-    
+
     Args:
         job_name: Job to send test message to
     """
-    valid_jobs = ['jira_sync', 'github_sync', 'orchestrator']
+    # URL decode job name to handle spaces (e.g., "WEX%20Fabric" -> "WEX Fabric")
+    import urllib.parse
+    job_name = urllib.parse.unquote(job_name)
+
+    valid_jobs = ['Jira', 'jira_sync', 'GitHub', 'github_sync', 'WEX Fabric', 'fabric_sync', 'WEX AD', 'ad_sync', 'orchestrator']
     if job_name not in valid_jobs:
         raise HTTPException(status_code=400, detail=f"Invalid job name. Valid jobs: {valid_jobs}")
     

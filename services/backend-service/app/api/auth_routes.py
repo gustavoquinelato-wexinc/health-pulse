@@ -261,13 +261,13 @@ async def validate_token(request: Request):
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]  # Remove "Bearer " prefix
-            logger.info(f"Backend validating token from header: {token[:30]}... (length: {len(token)})")
+            logger.info(f"[AUTH] Backend validating token from header (length: {len(token)})")
 
         # 2. Fallback to cookie if no Authorization header
         if not token:
             token = request.cookies.get("pulse_token")
             if token:
-                logger.debug(f"Backend validating token from cookie: {token[:30]}... (length: {len(token)})")
+                logger.debug(f"[AUTH] Backend validating token from cookie (length: {len(token)})")
 
         if not token:
             logger.debug("No token found in Authorization header or cookies")
@@ -291,7 +291,8 @@ async def validate_token(request: Request):
                     token_data = response.json()
                     if token_data.get("valid"):
                         user_data = token_data.get("user")
-                        logger.info(f"Backend token validation successful (centralized) for user: {user_data['email']}")
+                        # Log success without exposing email address (PII)
+                        logger.info(f"[AUTH] Backend token validation successful (centralized) for user_id: {user_data.get('id')}")
 
                         # Enforce revocation: require an ACTIVE DB session for this token
                         from app.core.database import get_database
@@ -308,7 +309,7 @@ async def validate_token(request: Request):
                             ).first()
 
                             if not session_row:
-                                logger.info("Token valid cryptographically but no active session found; denying")
+                                logger.info("[AUTH] Token valid cryptographically but no active session found; denying")
                                 return TokenValidationResponse(valid=False, user=None)
 
                         # Optional: touch last_updated_at in a short write
@@ -320,9 +321,9 @@ async def validate_token(request: Request):
 
                         return TokenValidationResponse(valid=True, user=user_data)
         except Exception as e:
-            logger.warning(f"Error contacting centralized auth service: {e}")
+            logger.warning(f"[AUTH] Error contacting centralized auth service: {e}")
 
-        logger.warning(f"Backend token validation failed for token: {token[:30]}... (length: {len(token)})")
+        logger.warning(f"[AUTH] Backend token validation failed (token length: {len(token)})")
         return TokenValidationResponse(valid=False, user=None)
             
     except Exception as e:

@@ -871,6 +871,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
 
+        # Log the actual date being used for sync
+        job_logger.progress(f"[DATE_LOGIC] Using start_date: {last_sync.strftime('%Y-%m-%d %H:%M')} ({days_ago} days ago)")
+
         # Construct JQL query: base_search AND updated timestamp
         jql_parts = []
 
@@ -1098,7 +1101,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
                             asyncio.create_task(websocket_manager.send_progress_update(
-                                "jira_sync",
+                                "Jira",
                                 process_progress,
                                 progress_message
                             ))
@@ -1199,15 +1202,15 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
 
 
-        # Update integration.last_sync_at to extraction start time (truncated to %Y-%m-%d %H:%M format)
+        # Update job_schedule.last_success_at to extraction start time (truncated to %Y-%m-%d %H:%M format)
         # This ensures we capture the start time to prevent losing changes made during extraction
         if update_sync_timestamp:
             truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-            integration.last_sync_at = truncated_start_time
+            job_schedule.last_success_at = truncated_start_time
             session.commit()
-            job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+            job_logger.progress(f"[SYNC_TIME] Updated job_schedule last_success_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
         else:
-            job_logger.progress("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
+            job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
         return {
             'success': True,
@@ -1411,7 +1414,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
                             asyncio.create_task(websocket_manager.send_progress_update(
-                                "jira_sync",
+                                "Jira",
                                 changelog_progress,
                                 progress_message
                             ))
@@ -1890,7 +1893,7 @@ async def extract_work_items_and_changelogs_session_free(
 
             # Store integration details for session-free operations
             integration_base_search = integration.base_search
-            integration_name = integration.name
+            integration_name = integration.provider
 
         # Fetch all issues from Jira API (session-free)
         job_logger.progress("[API] Starting Jira API data fetch...")
@@ -1984,10 +1987,10 @@ async def extract_work_items_and_changelogs_session_free(
         if update_sync_timestamp:
             try:
                 with database.get_write_session_context() as session:
-                    integration = session.query(Integration).get(integration_id)
+                    job_schedule_obj = session.query(JobSchedule).get(job_schedule_id)
                     truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-                    integration.last_sync_at = truncated_start_time
-                    job_logger.progress(f"[SYNC_TIME] Updated last_sync_at for integration {integration_name}")
+                    job_schedule_obj.last_success_at = truncated_start_time
+                    job_logger.progress(f"[SYNC_TIME] Updated last_success_at for job_schedule {job_schedule_id}")
             except Exception as sync_error:
                 job_logger.warning(f"Failed to update sync timestamp: {sync_error}")
 

@@ -32,12 +32,8 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
 
     # Configure PostgreSQL
     echo "host all all all md5" >> "$PGDATA/pg_hba.conf"
-    echo "host replication replicator all md5" >> "$PGDATA/pg_hba.conf"
     echo "listen_addresses = '*'" >> "$PGDATA/postgresql.conf"
     echo "port = 5432" >> "$PGDATA/postgresql.conf"
-    echo "wal_level = replica" >> "$PGDATA/postgresql.conf"
-    echo "max_wal_senders = 3" >> "$PGDATA/postgresql.conf"
-    echo "max_replication_slots = 3" >> "$PGDATA/postgresql.conf"
 
     # Start PostgreSQL temporarily for setup
     sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D "$PGDATA" -w start

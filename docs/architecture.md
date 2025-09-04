@@ -383,3 +383,44 @@ WHERE client_id = ? AND embedding IS NOT NULL;
 🔄 **Predictive Analytics**: Story point estimation and timeline forecasting
 🔄 **Anomaly Detection**: Automated issue and performance anomaly detection
 🔄 **Conversational Interface**: Natural language query and interaction
+
+## 📊 Logging & Monitoring Architecture
+
+### Structured Logging System
+
+The platform implements a comprehensive structured logging system with the following features:
+
+#### **ETL Service Logging**
+- **Structured Logs**: Using structlog for rich, contextual logging with key-value pairs
+- **Colorful Console Output**: Beautiful colored logs for development and debugging
+- **Windows Compatible**: No Unicode emoji characters to prevent encoding errors
+- **Categorized Prefixes**: Clear prefixes for easy filtering and analysis
+
+#### **Log Categories**
+```
+[HTTP]    - HTTP requests and responses with timing and status codes
+[WS]      - WebSocket connections, messages, and client management
+[AUTH]    - Authentication flows, token validation, and session management
+[JIRA]    - Jira job execution, API calls, and data processing
+[GITHUB]  - GitHub job execution, API calls, and repository operations
+[ORCH]    - Orchestrator operations, job scheduling, and coordination
+[ETL]     - ETL service lifecycle events and configuration
+[SCHED]   - Scheduler operations and job timing
+[COLOR]   - Color schema management and client branding
+[BULK]    - Bulk database operations and performance metrics
+[ERROR]   - Error conditions, exceptions, and failure scenarios
+[TEST]    - Testing, debugging, and development messages
+```
+
+#### **Log Output Example**
+```
+2025-09-04T01:19:52.225555Z [info] [HTTP] Request [app.core.logging_config] method=GET url=http://localhost:8000/ headers_count=15
+2025-09-04T01:19:52.226255Z [info] [WS] Connected [app.core.websocket_manager] job_name=Jira total_connections=1
+2025-09-04T01:19:52.239316Z [info] [BULK] Processing 9 issuetypes records for bulk insert [jobs] job_name=Jira
+```
+
+#### **Monitoring Integration**
+- **Real-time WebSocket Updates**: Live progress tracking for all ETL jobs
+- **Client-Specific Log Files**: Separate log files per client for isolation
+- **Web-Based Log Viewer**: Built-in log management interface at `/logs`
+- **Performance Metrics**: Request timing, database operation metrics, and job execution stats

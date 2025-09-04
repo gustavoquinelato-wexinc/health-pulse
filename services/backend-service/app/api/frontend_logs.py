@@ -225,8 +225,8 @@ async def get_frontend_logging_status(
             "client_context": {
                 "client_id": current_user.client_id,
                 "client_name": client_context.get('client_name') if client_context else None,
-                "user_id": current_user.id,
-                "user_email": current_user.email
+                "user_id": current_user.id
+                # Email removed to avoid PII in logs
             },
             "log_levels": ["DEBUG", "INFO", "WARN", "ERROR"],
             "supported_types": [

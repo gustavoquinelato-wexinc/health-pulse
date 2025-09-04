@@ -54,7 +54,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             
             # Log error
             logger.error(
-                "Request processing failed",
+                "[ERROR] Request processing failed",
                 method=request.method,
                 url=str(request.url),
                 process_time=process_time,

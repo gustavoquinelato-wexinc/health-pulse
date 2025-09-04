@@ -20,12 +20,12 @@ try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
     SCHEDULER_AVAILABLE = True
-    print(f"✅ APScheduler imported successfully")
+    print(f"[OK] APScheduler imported successfully")
 except ImportError as e:
     SCHEDULER_AVAILABLE = False
     AsyncIOScheduler = None
     IntervalTrigger = None
-    print(f"❌ APScheduler import failed: {e}")
+    print(f"[ERROR] APScheduler import failed: {e}")
 
 from app.core.config import get_settings
 from app.core.database import get_database, get_db_session
@@ -258,6 +258,15 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
+    # Force reconfigure logging to override uvicorn's configuration
+    from app.core.logging_config import setup_logging
+    setup_logging(force_reconfigure=True)
+
+    # Test logging immediately
+    import logging
+    test_logger = logging.getLogger("startup_test")
+    test_logger.info("[TEST] STARTUP TEST: Console logging should be working now!")
+
     logger.info("Starting ETL Service...")
 
     try:
@@ -280,7 +289,7 @@ async def lifespan(_: FastAPI):
         # Initialize color schema manager
         from app.core.color_schema_manager import get_color_schema_manager
         color_manager = get_color_schema_manager()
-        logger.info("🎨 Color schema manager initialized")
+        logger.info("[COLOR] Color schema manager initialized")
 
         yield
 
@@ -406,7 +415,7 @@ app = FastAPI(
 app.add_middleware(AuthenticationMiddleware)
 
 # CORS configuration (runs second)
-logger.info(f"🌐 CORS Origins configured: {settings.cors_origins_list}")
+logger.info("[CORS] Origins configured", origins=settings.cors_origins_list)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,  # Use configured origins
@@ -419,7 +428,7 @@ app.add_middleware(
 if not settings.DEBUG:
     app.add_middleware(RateLimitingMiddleware, max_requests=100, window_seconds=60)
 
-# Other middleware
+# Other middleware (ErrorHandlingMiddleware includes HTTP request/response logging)
 app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
@@ -618,7 +627,7 @@ async def global_exception_handler(request, exc):
     # Generate error ID for tracking
     error_id = str(uuid.uuid4())[:8]
 
-    logger.error("Unhandled exception",
+    logger.error("[ERROR] Unhandled exception",
                 error=str(exc),
                 error_id=error_id,
                 path=str(request.url) if hasattr(request, 'url') else 'unknown')
@@ -674,7 +683,7 @@ async def initialize_database():
 
 async def initialize_scheduler():
     """Initializes the job scheduler with database-driven configuration."""
-    logger.info(f"🔧 Starting scheduler initialization: SCHEDULER_AVAILABLE={SCHEDULER_AVAILABLE}, scheduler={scheduler}")
+    logger.info("[SCHED] Starting scheduler initialization", scheduler_available=SCHEDULER_AVAILABLE, scheduler_type=type(scheduler).__name__)
 
     if not SCHEDULER_AVAILABLE:
         logger.warning("APScheduler not available, jobs will not be scheduled automatically")
@@ -694,14 +703,14 @@ async def initialize_scheduler():
             from app.core.settings_manager import SettingsManager, get_orchestrator_interval, is_orchestrator_enabled
             SettingsManager.initialize_default_settings()
 
-            # 🎯 SIMPLE CLIENT-SPECIFIC ORCHESTRATOR (Multi-Instance Approach)
+            # SIMPLE CLIENT-SPECIFIC ORCHESTRATOR (Multi-Instance Approach)
             # This ETL instance serves only one client (defined by CLIENT_NAME env var)
             client_name = settings.CLIENT_NAME
 
             # Get client ID from name (case-insensitive lookup)
             from app.core.config import get_client_id_from_name
             client_id = get_client_id_from_name(client_name)
-            logger.info(f"🎯 ETL Instance configured for: {client_name} (ID: {client_id})")
+            logger.info("[ETL] Instance configured", client_name=client_name, client_id=client_id)
 
         except Exception as db_error:
             logger.warning(f"Database not available during scheduler initialization: {db_error}")
@@ -727,7 +736,7 @@ async def initialize_scheduler():
                 coalesce=True,
                 replace_existing=True
             )
-            logger.info(f"✅ Started orchestrator for {client_name} (interval: {interval_minutes}min)")
+            logger.info("[ORCH] Started orchestrator", client_name=client_name, interval_minutes=interval_minutes)
         else:
             logger.info(f"⏸️ Orchestrator disabled for {client_name}")
 
@@ -754,7 +763,7 @@ async def initialize_scheduler():
         logger.info("Scheduler initialized successfully")
 
     except Exception as e:
-        logger.error("Scheduler initialization failed", error=str(e))
+        logger.error("[ERROR] Scheduler initialization failed", error=str(e))
         logger.warning("Continuing without scheduler - jobs can still be triggered manually")
 
 
@@ -771,12 +780,12 @@ async def simple_orchestrator():
         from app.core.config import get_current_client_id
         client_id = get_current_client_id()
 
-        logger.info(f"🚀 Starting orchestrator for {client_name} (ID: {client_id})")
+        logger.info("[ORCH] Starting orchestrator", client_name=client_name, client_id=client_id)
 
         from app.jobs.orchestrator import run_orchestrator_for_client
         await run_orchestrator_for_client(client_id)
 
-        logger.info(f"✅ Completed orchestrator run for {client_name}")
+        logger.info("[ORCH] Completed orchestrator run", client_name=client_name)
 
     except Exception as e:
         logger.error(f"❌ Orchestrator error: {e}")
@@ -792,7 +801,7 @@ def get_scheduler():
     return scheduler
 
 
-# 🎯 REMOVED: Complex client management functions no longer needed
+# REMOVED: Complex client management functions no longer needed
 # Each ETL instance manages only one client, so no dynamic client management required
 
 
@@ -843,9 +852,9 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
                 coalesce=True,
                 replace_existing=True
             )
-            logger.info(f"✅ Updated orchestrator for {client_name} to run every {interval_minutes} minutes")
+            logger.info(f"Updated orchestrator for {client_name} to run every {interval_minutes} minutes")
         else:
-            logger.info(f"⏸️ Disabled orchestrator for {client_name}")
+            logger.info(f"Disabled orchestrator for {client_name}")
 
         return True
 

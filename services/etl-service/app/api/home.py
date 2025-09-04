@@ -57,6 +57,16 @@ class IntegrationStatusResponse(BaseModel):
     status: str  # 'connected', 'error', 'inactive'
 
 
+class JobCardResponse(BaseModel):
+    id: int
+    job_name: str
+    execution_order: int
+    integration_type: Optional[str] = None
+    active: bool
+    last_sync: Optional[str] = None
+    status: str  # 'pending', 'running', 'connected', 'error', 'inactive'
+
+
 @router.get("/stats", response_model=HomeStatsResponse)
 async def get_home_stats(
     user: UserData = Depends(require_admin_authentication)
@@ -234,13 +244,91 @@ async def get_recent_activity(
         )
 
 
-@router.get("/integrations", response_model=List[IntegrationStatusResponse])
-async def get_integration_status(
+@router.get("/jobs", response_model=List[JobCardResponse])
+async def get_job_cards(
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get integration status for the home page"""
+    """Get all job cards for the home page dashboard"""
     try:
-        logger.info(f"Getting integration status for client_id: {user.client_id}")
+        # Get job cards for client (reduced logging for frequent calls)
+        database = get_database()
+        job_cards = []
+
+        with database.get_write_session_context() as session:
+            # Get all job schedules for this client (including inactive), ordered by execution_order
+            job_schedules = session.query(JobSchedule).filter(
+                JobSchedule.client_id == user.client_id
+            ).order_by(JobSchedule.execution_order.asc()).all()
+
+            for job in job_schedules:
+                try:
+                    # Get integration info if job has one
+                    integration_type = None
+                    integration_active = True
+
+                    if job.integration_id:
+                        integration = session.query(Integration).filter(
+                            Integration.id == job.integration_id
+                        ).first()
+                        if integration:
+                            integration_type = integration.provider
+                            integration_active = integration.active
+
+                    # Always use actual database status values
+                    status_value = job.status
+                    logger.debug(f"[HOME] Job {job.job_name} - ID: {job.id}, Status: {status_value}, Active: {job.active}")
+                    last_sync = None
+
+                    # Set last_sync if job has completed successfully
+                    if job.last_success_at:
+                        last_sync = job.last_success_at.isoformat()
+
+                    # Create a job card
+                    job_cards.append(JobCardResponse(
+                        id=job.id,
+                        job_name=job.job_name,
+                        execution_order=job.execution_order,
+                        integration_type=integration_type,
+                        active=job.active,  # Use job.active from job_schedules table, not integration.active
+                        last_sync=last_sync,
+                        status=status_value
+                    ))
+
+                except Exception as e:
+                    logger.error(f"Error processing job {job.job_name}: {e}")
+                    # Add job with error status instead of failing completely
+                    job_cards.append(JobCardResponse(
+                        id=job.id,
+                        job_name=job.job_name,
+                        execution_order=job.execution_order or 999,
+                        integration_type="Unknown",
+                        active=False,
+                        last_sync=None,
+                        status="error"
+                    ))
+
+        # Return job cards (debug logging only if needed)
+        if len(job_cards) == 0:
+            logger.warning(f"No job cards found for client {user.client_id}")
+        return job_cards
+
+    except Exception as e:
+        logger.error(f"Error fetching job cards: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch job cards"
+        )
+
+
+@router.get("/integrations", response_model=List[IntegrationStatusResponse])
+async def get_integrations(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get actual integrations (for admin purposes)"""
+    try:
+        # Get integrations for client (reduced logging for frequent calls)
         database = get_database()
         integrations = []
 
@@ -250,71 +338,26 @@ async def get_integration_status(
                 Integration.client_id == user.client_id
             ).all()
 
-            logger.info(f"Found {len(db_integrations)} integrations for client {user.client_id}")
-            
             for integration in db_integrations:
                 try:
-                    # Use integration.name as the type (JIRA, GITHUB, etc.)
-                    integration_type = integration.name or "Unknown"
-                    logger.debug(f"Processing integration: {integration.name} (type: {integration_type})")
+                    # For AI provider integrations, just show as connected if active
+                    status_value = "connected" if integration.active else "inactive"
 
-                    # Determine status based on recent activity
-                    status_value = "inactive"
-                    last_sync = None
-
-                    if integration.active:
-                        # Check for recent data to determine if connected
-                        if integration_type.lower() == 'jira':
-                            try:
-                                recent_issues = session.query(Issue).filter(
-                                    and_(
-                                        Issue.client_id == user.client_id,
-                                        Issue.updated >= datetime.now() - timedelta(hours=24)
-                                    )
-                                ).first()
-
-                                if recent_issues:
-                                    status_value = "connected"
-                                    last_sync = recent_issues.updated.isoformat()
-                                else:
-                                    status_value = "error"
-                            except Exception as e:
-                                logger.warning(f"Error checking Jira issues for integration {integration.name}: {e}")
-                                status_value = "error"
-
-                        elif integration_type.lower() == 'github':
-                            try:
-                                recent_prs = session.query(PullRequest).filter(
-                                    and_(
-                                        PullRequest.client_id == user.client_id,
-                                        PullRequest.updated_at >= datetime.now() - timedelta(hours=24)
-                                    )
-                                ).first()
-
-                                if recent_prs:
-                                    status_value = "connected"
-                                    last_sync = recent_prs.updated_at.isoformat()
-                                else:
-                                    status_value = "error"
-                            except Exception as e:
-                                logger.warning(f"Error checking GitHub PRs for integration {integration.name}: {e}")
-                                status_value = "error"
-                
                     integrations.append(IntegrationStatusResponse(
                         id=integration.id,
-                        name=integration.name,
-                        type=integration_type,
+                        name=integration.provider,
+                        type=integration.type,
                         active=integration.active,
-                        last_sync=last_sync,
+                        last_sync=None,  # Integrations don't have sync times, jobs do
                         status=status_value
                     ))
+
                 except Exception as e:
-                    logger.error(f"Error processing integration {integration.name}: {e}")
-                    # Add integration with error status instead of failing completely
+                    logger.error(f"Error processing integration {integration.provider}: {e}")
                     integrations.append(IntegrationStatusResponse(
                         id=integration.id,
-                        name=integration.name,
-                        type=integration.name or "Unknown",  # Fallback to name as type
+                        name=integration.provider,
+                        type=integration.type or "Unknown",
                         active=integration.active,
                         last_sync=None,
                         status="error"
@@ -324,10 +367,63 @@ async def get_integration_status(
         return integrations
 
     except Exception as e:
-        logger.error(f"Error fetching integration status: {e}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
+        logger.error(f"Error fetching integrations: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch integration status"
+            detail="Failed to fetch integrations"
         )
+
+
+@router.post("/jobs/{job_id}/toggle")
+async def toggle_job_active_status(
+    job_id: int,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Toggle the active status of a job (enable/disable)"""
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the job with client isolation
+            job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.client_id == user.client_id  # Ensure client isolation
+            ).first()
+
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Job {job_id} not found for client {user.client_id}"
+                )
+
+            # Toggle the active status
+            old_status = job.active
+            job.active = not job.active
+
+            # When deactivating a job, set status to NOT_STARTED
+            if not job.active:
+                job.status = "NOT_STARTED"
+                logger.info(f"[JOB] Set job {job.job_name} status to NOT_STARTED (deactivated)")
+
+            session.commit()
+
+            logger.info(f"[JOB] Toggled job {job.job_name} (ID: {job_id}) active status: {old_status} -> {job.active}")
+
+            return {
+                "success": True,
+                "job_id": job_id,
+                "job_name": job.job_name,
+                "old_status": old_status,
+                "new_status": job.active,
+                "message": f"Job {job.job_name} {'activated' if job.active else 'deactivated'} successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[JOB] Error toggling job {job_id} active status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to toggle job status"
+        )
+

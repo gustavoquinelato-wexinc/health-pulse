@@ -27,7 +27,7 @@ class TokenCache:
             if token_hash in self.cache:
                 entry = self.cache[token_hash]
                 if datetime.utcnow() < entry["expires_at"]:
-                    logger.debug(f"Token cache HIT for user: {entry['data'].get('email', 'unknown')}")
+                    logger.debug(f"[AUTH] Token cache HIT for user_id: {entry['data'].get('id', 'unknown')}")
                     return entry["data"]
                 else:
                     # Remove expired entry
@@ -44,7 +44,7 @@ class TokenCache:
                 "data": user_data,
                 "expires_at": now_utc + timedelta(seconds=self.ttl_seconds)
             }
-            logger.debug(f"Token cached for user: {user_data.get('email', 'unknown')}")
+            logger.debug(f"[AUTH] Token cached for user_id: {user_data.get('id', 'unknown')}")
 
     async def invalidate(self, token_hash: str):
         """Remove token from cache."""
@@ -84,8 +84,8 @@ class CentralizedAuthService:
         self.timeout = 5.0  # Reduced timeout for faster failures
         self.cache = TokenCache(ttl_seconds=300)  # 5-minute cache
 
-        logger.info(f"🔗 Centralized Auth Service initialized with Backend URL: {self.backend_service_url}")
-        logger.info("🚀 Token caching enabled (5-minute TTL)")
+        logger.info("[AUTH] Centralized Auth Service initialized", backend_url=self.backend_service_url)
+        logger.info("[AUTH] Token caching enabled (5-minute TTL)")
 
         # Test connectivity on initialization
         logger.info(f"Testing connectivity to backend service at: {self.backend_service_url}")
@@ -124,7 +124,7 @@ class CentralizedAuthService:
                     return cached_data
                 else:
                     # User lost admin permissions, remove from cache
-                    logger.info(f"Cached user {cached_data.get('email')} no longer has admin permissions, removing from cache")
+                    logger.info(f"[AUTH] Cached user_id {cached_data.get('id')} no longer has admin permissions, removing from cache")
                     await self.cache.invalidate(token_hash)
 
             # Cache miss - call backend service
@@ -147,15 +147,16 @@ class CentralizedAuthService:
 
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"Backend service response: {data}")
+                # Log response without exposing user data (PII)
+                logger.info(f"[AUTH] Backend service response: valid={data.get('valid')}, user_present={bool(data.get('user'))}")
                 if data.get("valid") and data.get("user"):
                     user_data = data["user"]
                     # Only cache tokens for admin users since ETL service is admin-only
                     if user_data.get("is_admin", False) or user_data.get("role") == "admin":
                         await self.cache.set(token_hash, user_data)
-                        logger.info(f"Token validation successful for admin user: {user_data['email']}")
+                        logger.info(f"[AUTH] Token validation successful for admin user_id: {user_data.get('id')}")
                     else:
-                        logger.info(f"Token validation successful but user is not admin: {user_data['email']} - not caching")
+                        logger.info(f"[AUTH] Token validation successful but user_id {user_data.get('id')} is not admin - not caching")
                     return user_data
                 else:
                     logger.warning(f"Invalid response format from backend service. Response: {data}")
@@ -240,7 +241,7 @@ class CentralizedAuthService:
         """
         # With Redis shared sessions, sessions are automatically managed
         # Just return True to maintain compatibility
-        logger.debug(f"Session existence ensured via Redis for user: {user_data.get('email')}")
+        logger.debug(f"[AUTH] Session existence ensured via Redis for user_id: {user_data.get('id')}")
         return True
 
     async def invalidate_session(self, token: str) -> bool:
