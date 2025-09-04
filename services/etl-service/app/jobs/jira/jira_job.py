@@ -641,10 +641,10 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                 start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
                 logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
             else:
-                # Default to 30 days ago for first run
+                # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                 from datetime import timedelta
-                start_date = DateTimeHelper.now_utc() - timedelta(days=30)
-                logger.info(f"First run: Using 30-day fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
+                start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
         # Start the extraction with periodic progress updates
         await websocket_manager.send_progress_update("Jira", 35.0, "Starting issue and changelog processing...")

@@ -876,9 +876,9 @@ async def discover_all_repositories(session: Session, integration: Integration, 
             else:
                 # Fallback if no last_run_started_at
                 from datetime import datetime, timedelta
-                one_year_ago = datetime.now() - timedelta(days=365)
-                start_date = one_year_ago.strftime('%Y-%m-%d')
-                logger.info(f"Recovery mode but no last_run_started_at, using 1-year fallback: {start_date}")
+                twenty_years_ago = datetime.now() - timedelta(days=7300)  # 20 years * 365 days
+                start_date = twenty_years_ago.strftime('%Y-%m-%d')
+                logger.info(f"Recovery mode but no last_run_started_at, using 20-year fallback: {start_date}")
         else:
             # INCREMENTAL SYNC MODE: Use last_success_at formatted as %Y-%m-%d %H%M
             if job_schedule.last_success_at:
@@ -898,11 +898,11 @@ async def discover_all_repositories(session: Session, integration: Integration, 
                     start_date = sync_date.strftime('%Y-%m-%d')
                     logger.info(f"Incremental sync: Using last_success_at = {sync_date.strftime('%Y-%m-%d %H%M')} -> {start_date}")
             else:
-                # Fallback - use 1 year ago for first run (reasonable for GitHub search)
+                # Fallback - use 20 years ago for first run (comprehensive knowledge base for AI agents)
                 from datetime import datetime, timedelta
-                one_year_ago = datetime.now() - timedelta(days=365)
-                start_date = one_year_ago.strftime('%Y-%m-%d')
-                logger.info(f"First run: Using 1-year fallback date: {start_date}")
+                twenty_years_ago = datetime.now() - timedelta(days=7300)  # 20 years * 365 days
+                start_date = twenty_years_ago.strftime('%Y-%m-%d')
+                logger.info(f"First run: Using 20-year fallback date: {start_date}")
 
         end_date = datetime.today().strftime('%Y-%m-%d')
 

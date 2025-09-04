@@ -704,10 +704,10 @@ async def run_fabric_sync_async(job_schedule_id: int):
                     start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
                     logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
                 else:
-                    # Default to 30 days ago for first run
+                    # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=30)
-                    logger.info(f"First run: Using 30-day fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
+                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
@@ -809,10 +809,10 @@ async def run_ad_sync_async(job_schedule_id: int):
                     start_date = job_schedule.last_success_at.replace(second=0, microsecond=0)
                     logger.info(f"Incremental sync: Using last_success_at = {start_date.strftime('%Y-%m-%d %H%M')}")
                 else:
-                    # Default to 30 days ago for first run
+                    # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=30)
-                    logger.info(f"First run: Using 30-day fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
+                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
