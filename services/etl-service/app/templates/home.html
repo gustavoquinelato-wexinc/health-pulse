@@ -1336,7 +1336,7 @@
         }
 
         let buttons = `
-            <button onclick="setJobActive('${jobName}')"
+            <button onclick="setJobActive('${jobName}', ${jobData.id})"
                     ${!canActivateSafe || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
@@ -1348,7 +1348,7 @@
                     title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
                 <i class="fas fa-${canUnpause ? 'play' : 'pause'}"></i>
             </button>
-            <button onclick="showJobDetails('${jobName}')"
+            <button onclick="showJobDetails('${jobName}', ${jobData.id})"
                     ${isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${isInactive ? 'disabled' : 'details'}"
                     title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
@@ -1360,7 +1360,7 @@
     }
 
     // Job control functions
-    async function setJobActive(jobName) {
+    async function setJobActive(jobName, jobId) {
         try {
             // Clear any existing error messages when starting a new job run
             clearJobExceptions(jobName);
@@ -1370,7 +1370,7 @@
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch(`/api/v1/jobs/${jobName}/set-active`, {
+            const response = await fetch(`/api/v1/jobs/${jobId}/set-active`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -1383,10 +1383,10 @@
                 setTimeout(refreshData, 1000);
             } else {
                 const result = await response.json();
-                console.error(`Failed to set ${jobName} active: ${result.detail}`);
+                console.error(`Failed to set ${jobName} (ID: ${jobId}) active: ${result.detail}`);
             }
         } catch (error) {
-            console.error(`Error setting ${jobName} active: ${error.message}`);
+            console.error(`Error setting ${jobName} (ID: ${jobId}) active: ${error.message}`);
         }
     }
 
@@ -2365,7 +2365,7 @@
     }
 
     // Job Details Modal Functions
-    async function showJobDetails(jobName) {
+    async function showJobDetails(jobName, jobId) {
         try {
             if (jobName.toLowerCase() === 'jira') {
                 // Show Jira-specific modal with summary data
@@ -2373,8 +2373,8 @@
                 return;
             }
 
-            // For other jobs (GitHub), show regular job details
-            const response = await fetch(`/api/v1/jobs/${jobName}/details`, {
+            // For other jobs (GitHub), show regular job details using job ID
+            const response = await fetch(`/api/v1/jobs/${jobId}/details`, {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
                 }

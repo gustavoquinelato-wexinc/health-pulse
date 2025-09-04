@@ -458,17 +458,11 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
     # Fallback if no token (shouldn't happen due to middleware)
     return templates.TemplateResponse("old_admin.html", {"request": request, "user": {"email": "Unknown"}})
 
-@router.get("/api/v1/jobs/{job_name}/details")
-async def get_job_details(job_name: str, user: UserData = Depends(require_admin_authentication)):
+@router.get("/api/v1/jobs/{job_id}/details")
+async def get_job_details(job_id: int, user: UserData = Depends(require_admin_authentication)):
     """Get detailed job information for the job details modal"""
     try:
-        logger.info(f"Getting job details for {job_name}, user: {user.email}, client_id: {user.client_id}")
-
-        if job_name not in ['Jira', 'GitHub']:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid job name"
-            )
+        logger.info(f"Getting job details for job ID {job_id}, client_id: {user.client_id}")
 
         from app.core.database import get_database
         from app.models.unified_models import JobSchedule
@@ -476,17 +470,17 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
         database = get_database()
         logger.info(f"Database connection established for job details")
 
-        with database.get_read_session_context() as session:
-            # Get job schedule details
-            logger.info(f"Querying JobSchedule for job_name={job_name}, client_id={user.client_id}")
+        with database.get_write_session_context() as session:
+            # Get job schedule details by ID and client
+            logger.info(f"Querying JobSchedule for job_id={job_id}, client_id={user.client_id}")
 
             job_schedule = session.query(JobSchedule).filter(
-                JobSchedule.job_name == job_name,
+                JobSchedule.id == job_id,
                 JobSchedule.client_id == user.client_id
             ).first()
 
             if not job_schedule:
-                logger.warning(f"No job schedule found for {job_name} and client_id {user.client_id}")
+                logger.warning(f"No job schedule found for job_id {job_id} and client_id {user.client_id}")
                 # Return default values instead of 404 to prevent modal errors
                 return {
                     "status": "NOT_CONFIGURED",
@@ -529,10 +523,10 @@ async def get_job_details(job_name: str, user: UserData = Depends(require_admin_
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting job details for {job_name}: {e}", exc_info=True)
+        logger.error(f"Error getting job details for job_id {job_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get job details for {job_name}: {str(e)}"
+            detail=f"Failed to get job details for job_id {job_id}: {str(e)}"
         )
 
 @router.get("/api/v1/jobs/Jira/summary")
@@ -2394,88 +2388,70 @@ async def resume_orchestrator(user: UserData = Depends(require_admin_authenticat
         )
 
 
-@router.post("/api/v1/jobs/{job_name}/set-active")
-async def set_job_active(job_name: str, user: UserData = Depends(require_admin_authentication)):
-    """Set a specific job as active (PENDING) and set all other jobs to NOT_STARTED"""
+@router.post("/api/v1/jobs/{job_id}/set-active")
+async def set_job_active(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Set a specific job as active (PENDING) - simplified to only affect target job"""
     try:
-        valid_jobs = ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD']
-        if job_name not in valid_jobs:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid job name. Must be one of: {', '.join(valid_jobs)}"
-            )
 
         database = get_database()
         with database.get_write_session_context() as session:
-            # Get all jobs for this client
-            all_jobs = session.query(JobSchedule).filter(
+            # Get the specific job by ID and client
+            target_job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
                 JobSchedule.client_id == user.client_id,
                 JobSchedule.active == True
-            ).all()
-
-            if not all_jobs:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No active jobs found for this client"
-                )
-
-            # Find the target job
-            target_job = None
-            for job in all_jobs:
-                if job.job_name == job_name:
-                    target_job = job
-                    break
+            ).first()
 
             if not target_job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Job {job_name} not found"
+                    detail=f"Job ID {job_id} not found for client {user.client_id}"
                 )
 
-            # Check if any job is currently running
-            running_jobs = [job for job in all_jobs if job.status == 'RUNNING']
-            if running_jobs:
-                running_job_names = [job.job_name for job in running_jobs]
+            job_name = target_job.job_name
+
+            # Check if target job is already PENDING
+            if target_job.status == 'PENDING':
+                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING")
+                return {
+                    "success": True,
+                    "message": f"Job {job_name} is already active and ready to run",
+                    "job_id": job_id,
+                    "job_name": job_name
+                }
+
+            # Check if target job is currently RUNNING
+            if target_job.status == 'RUNNING':
+                logger.warning(f"[FORCE_PENDING] Cannot set {job_name} (ID: {job_id}) to PENDING while it's RUNNING")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot set active while jobs are running: {', '.join(running_job_names)}"
+                    detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
                 )
 
-            # ORCHESTRATION RULE: Set target job to PENDING, all others to NOT_STARTED
-            other_jobs_updated = []
-
-            for job in all_jobs:
-                if job.job_name == job_name:
-                    # Set target job to PENDING
-                    job.status = 'PENDING'
-                    job.error_message = None  # Clear any previous errors
-                    logger.info(f"Set {job_name} to PENDING")
-                else:
-                    # Set all other jobs to NOT_STARTED (not FINISHED anymore)
-                    job.status = 'NOT_STARTED'
-                    job.error_message = None  # Clear any previous errors
-                    other_jobs_updated.append(job.job_name)
-                    logger.info(f"Set {job.job_name} to NOT_STARTED")
-
+            # Set target job to PENDING (simplified - don't affect other jobs)
+            old_status = target_job.status
+            target_job.status = 'PENDING'
+            target_job.error_message = None  # Clear any previous errors
             session.commit()
 
-            logger.info(f"Job {job_name} set as active (PENDING) by user {user.email}. Other jobs set to NOT_STARTED: {', '.join(other_jobs_updated)}")
+            logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) set to PENDING: {old_status} -> PENDING")
 
             return {
                 "success": True,
                 "message": f"Job {job_name} is now active and ready to run",
-                "active_job": job_name,
-                "other_jobs": other_jobs_updated,
-                "note": f"{job_name} set to PENDING, others set to NOT_STARTED: {', '.join(other_jobs_updated)}"
+                "job_id": job_id,
+                "job_name": job_name,
+                "old_status": old_status,
+                "new_status": "PENDING"
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error setting job {job_name} as active: {e}")
+        logger.error(f"Error setting job ID {job_id} as active: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to set job {job_name} as active"
+            detail=f"Failed to set job ID {job_id} as active"
         )
 
 
