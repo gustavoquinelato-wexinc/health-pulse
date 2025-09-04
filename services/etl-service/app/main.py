@@ -25,7 +25,7 @@ except ImportError as e:
     SCHEDULER_AVAILABLE = False
     AsyncIOScheduler = None
     IntervalTrigger = None
-    print(f"❌ APScheduler import failed: {e}")
+    print(f"[ERROR] APScheduler import failed: {e}")
 
 from app.core.config import get_settings
 from app.core.database import get_database, get_db_session

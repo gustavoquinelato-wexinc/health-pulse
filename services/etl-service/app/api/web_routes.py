@@ -128,9 +128,9 @@ async def root(request: Request):
                 # User is authenticated, redirect to home
                 return RedirectResponse(url="/home")
             else:
-                logger.info("❌ Token validation returned no user data")
+                logger.info("[AUTH] Token validation returned no user data")
         except Exception as e:
-            logger.error(f"❌ Token validation failed for root route: {e}")
+            logger.error(f"[AUTH] Token validation failed for root route: {e}")
 
     # No valid token, redirect to login
     logger.info("[AUTH] No valid authentication - redirecting to /login")
@@ -177,7 +177,7 @@ async def login_page(request: Request):
                     )
                 else:
                     # User is authenticated but not admin - show permission denied
-                    logger.info(f"❌ Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
+                    logger.info(f"[AUTH] Non-admin user already authenticated: {user_data.get('email')} - showing permission denied")
 
                     # Clear the token cookie since user doesn't have permission
                     from app.core.config import get_settings
@@ -254,9 +254,9 @@ async def home_page(request: Request, token: Optional[str] = None):
                 logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
-                logger.warning("❌ Portal embedding: Invalid token provided")
+                logger.warning("[AUTH] Portal embedding: Invalid token provided")
         except Exception as e:
-            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+            logger.error(f"[AUTH] Portal embedding: Token validation error: {e}")
 
     # 🚀 EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
     from app.core.color_schema_manager import get_color_schema_manager
@@ -432,9 +432,9 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
                 logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
-                logger.warning("❌ Portal embedding: Invalid token provided")
+                logger.warning("[AUTH] Portal embedding: Invalid token provided")
         except Exception as e:
-            logger.error(f"❌ Portal embedding: Token validation error: {e}")
+            logger.error(f"[AUTH] Portal embedding: Token validation error: {e}")
 
     # Check for authentication via cookie or header
     auth_token = request.cookies.get("pulse_token")
@@ -1357,11 +1357,11 @@ async def api_logout(request: Request):
                 auth_service = get_centralized_auth_service()
                 success = await auth_service.invalidate_session(token)
                 if success:
-                    logger.info("✅ Session invalidated successfully in Backend Service")
+                    logger.info("[AUTH] Session invalidated successfully in Backend Service")
                 else:
-                    logger.warning("❌ Failed to invalidate session in Backend Service")
+                    logger.warning("[AUTH] Failed to invalidate session in Backend Service")
             except Exception as e:
-                logger.error(f"❌ Error invalidating session: {e}")
+                logger.error(f"[AUTH] Error invalidating session: {e}")
         else:
             logger.info("No token found in cookies during API logout")
     except Exception as e:
@@ -1836,7 +1836,7 @@ async def handle_color_schema_change(request: Request):
         colors = data.get("colors", {})
         event_type = data.get("event_type", "color_update")
 
-        logger.info(f"🎨 Received color schema change notification for client {client_id}")
+        logger.info(f"[COLOR] Received color schema change notification for client {client_id}")
         logger.debug(f"Colors: {colors}")
 
         # Invalidate color schema cache to force refresh
@@ -1866,7 +1866,7 @@ async def handle_color_schema_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing color schema change: {e}")
+        logger.error(f"[COLOR] Error processing color schema change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -1898,7 +1898,7 @@ async def handle_color_schema_mode_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing color schema mode change: {e}")
+        logger.error(f"[COLOR] Error processing color schema mode change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -1930,7 +1930,7 @@ async def handle_user_theme_change(request: Request):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error processing user theme change: {e}")
+        logger.error(f"[COLOR] Error processing user theme change: {e}")
         return {
             "success": False,
             "error": str(e)
@@ -3087,15 +3087,15 @@ async def websocket_test():
         function updateStatus(jobName, connected) {
             const statusElement = document.getElementById(`${jobName.replace('_', '-')}-status`);
             if (!statusElement) {
-                log(`❌ Status element not found for ${jobName}`);
+                log(`[ERROR] Status element not found for ${jobName}`);
                 return;
             }
             if (connected) {
                 statusElement.className = 'status connected';
-                statusElement.innerHTML = `🟢 ${jobName.replace('_', ' ').toUpperCase()}: Connected`;
+                statusElement.innerHTML = `[CONNECTED] ${jobName.replace('_', ' ').toUpperCase()}: Connected`;
             } else {
                 statusElement.className = 'status disconnected';
-                statusElement.innerHTML = `🔴 ${jobName.replace('_', ' ').toUpperCase()}: Disconnected`;
+                statusElement.innerHTML = `[DISCONNECTED] ${jobName.replace('_', ' ').toUpperCase()}: Disconnected`;
             }
         }
 
@@ -3128,7 +3128,7 @@ async def websocket_test():
                 ws.onmessage = function (event) {
                     try {
                         const data = JSON.parse(event.data);
-                        log(`📨 Message from ${jobName}: ${JSON.stringify(data)}`);
+                        log(`[WS] Message from ${jobName}: ${JSON.stringify(data)}`);
 
                         if (data.type === 'progress') {
                             updateProgress(data.percentage, data.step);
@@ -3177,7 +3177,7 @@ async def websocket_test():
         }
 
         function sendTestMessage() {
-            log('📤 Requesting test message via API...');
+            log('[TEST] Requesting test message via API...');
             fetch('/api/test_websocket', {
                 method: 'POST',
                 headers: {
@@ -3191,7 +3191,7 @@ async def websocket_test():
             })
             .then(response => response.json())
             .then(data => {
-                log(`📨 API Response: ${JSON.stringify(data)}`);
+                log(`[API] Response: ${JSON.stringify(data)}`);
             })
             .catch(error => {
                 log(`❌ API Error: ${error}`);
