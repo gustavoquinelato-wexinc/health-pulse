@@ -526,7 +526,7 @@ async def run_github_sync(
                 # Clear checkpoint data
                 job_schedule.clear_checkpoints()
 
-                # Update integration.last_sync_at only on complete success with repositories processed
+                # Update job_schedule.last_success_at only on complete success with repositories processed
                 if update_sync_timestamp:
                     # Only update if repositories were actually processed
                     repos_processed = result.get('repos_processed', 0)
@@ -537,14 +537,14 @@ async def run_github_sync(
                             from datetime import datetime
                             # Update to current time (truncated to minute precision like Jira)
                             current_time = datetime.now().replace(second=0, microsecond=0)
-                            github_integration.last_sync_at = current_time
-                            logger.info(f"[SYNC_TIME] Updated GitHub integration last_sync_at to: {current_time.strftime('%Y-%m-%d %H:%M')} (processed {repos_processed} repositories)")
+                            job_schedule.last_success_at = current_time
+                            logger.info(f"[SYNC_TIME] Updated GitHub job_schedule last_success_at to: {current_time.strftime('%Y-%m-%d %H:%M')} (processed {repos_processed} repositories)")
                         else:
-                            logger.info("[SYNC_TIME] Skipped updating integration last_sync_at (recovery checkpoints remain)")
+                            logger.info("[SYNC_TIME] Skipped updating job_schedule last_success_at (recovery checkpoints remain)")
                     else:
-                        logger.info(f"[SYNC_TIME] Skipped updating integration last_sync_at (no repositories processed)")
+                        logger.info(f"[SYNC_TIME] Skipped updating job_schedule last_success_at (no repositories processed)")
                 else:
-                    logger.info("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
+                    logger.info("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
                 # Handle job status transitions based on Jira job status (only if update_job_schedule is True)
                 if update_job_schedule:
@@ -907,8 +907,8 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         end_date = datetime.today().strftime('%Y-%m-%d')
 
         logger.info(f"Date range: {start_date} to {end_date}")
-        if integration.last_sync_at:
-            logger.info(f"Integration last sync: {integration.last_sync_at}")
+        if job_schedule.last_success_at:
+            logger.info(f"Job schedule last success: {job_schedule.last_success_at}")
         else:
             logger.info("No previous sync found, using default start date")
 
