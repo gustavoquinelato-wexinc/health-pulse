@@ -1097,7 +1097,6 @@
                     </div>
                     <!-- Status Badge -->
                     <div class="flex items-center space-x-2">
-                        ${isInactive ? '<span class="text-xs px-2 py-1 rounded-full bg-gray-500 text-white"><i class="fas fa-ban mr-1"></i>INACTIVE</span>' : ''}
                         <span class="text-sm ${getStatusClass(jobData.status)}">
                             <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
                         </span>
