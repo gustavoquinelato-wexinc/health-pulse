@@ -373,6 +373,8 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         isolation: isolate; /* Create new stacking context */
         transform: translateZ(0); /* Force hardware acceleration */
+        position: relative; /* Ensure proper stacking */
+        z-index: 10; /* Above any filtered content */
     }
 
     /* Force exact same colors as regular buttons - use --crud-create to match FINISHED status */
@@ -383,6 +385,13 @@
         opacity: 1 !important;
         isolation: isolate !important;
         transform: translateZ(0) !important;
+        position: relative !important;
+        z-index: 10 !important;
+        /* Force complete visual reset */
+        -webkit-filter: none !important;
+        -moz-filter: none !important;
+        -ms-filter: none !important;
+        -o-filter: none !important;
     }
 
     .job-card-inactive button.btn-status-warning-sm {
@@ -392,6 +401,13 @@
         opacity: 1 !important;
         isolation: isolate !important;
         transform: translateZ(0) !important;
+        position: relative !important;
+        z-index: 10 !important;
+        /* Force complete visual reset */
+        -webkit-filter: none !important;
+        -moz-filter: none !important;
+        -ms-filter: none !important;
+        -o-filter: none !important;
     }
 
     /* Ensure toggle button icons are completely isolated from any filters */
@@ -401,6 +417,24 @@
         opacity: 1 !important;
         isolation: isolate !important;
         transform: translateZ(0) !important;
+        position: relative !important;
+        z-index: 11 !important;
+        /* Force complete visual reset for icons */
+        -webkit-filter: none !important;
+        -moz-filter: none !important;
+        -ms-filter: none !important;
+        -o-filter: none !important;
+    }
+
+    /* Nuclear option - completely override any possible filter inheritance */
+    .job-card-inactive button.btn-status-success-sm *,
+    .job-card-inactive button.btn-status-warning-sm * {
+        filter: none !important;
+        -webkit-filter: none !important;
+        -moz-filter: none !important;
+        -ms-filter: none !important;
+        -o-filter: none !important;
+        opacity: 1 !important;
     }
 
     /* Jira icon background - lighter blue for both themes */
