@@ -2461,23 +2461,16 @@ async def set_job_active(job_name: str, user: UserData = Depends(require_admin_a
 async def get_orchestrator_status(user: UserData = Depends(require_admin_authentication)):
     """Get orchestrator status"""
     try:
-        logger.info("Starting orchestrator status check")
-
+        # Import required modules (reduced logging for frequent calls)
         from app.main import scheduler
-        logger.info(f"Scheduler imported: {scheduler}, type: {type(scheduler)}")
-
         from app.core.settings_manager import (
             get_orchestrator_interval, is_orchestrator_enabled,
             is_orchestrator_retry_enabled, get_orchestrator_retry_interval,
             get_orchestrator_max_retry_attempts
         )
-        logger.info("Settings manager functions imported")
-
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-        logger.info("Orchestrator scheduler function imported")
 
         # Get orchestrator job status (simple single-client approach)
-        logger.info("Attempting to get orchestrator job from scheduler")
         if scheduler is None:
             logger.error("Scheduler is None!")
             return {

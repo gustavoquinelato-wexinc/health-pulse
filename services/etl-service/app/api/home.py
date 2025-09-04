@@ -250,7 +250,7 @@ async def get_job_cards(
 ):
     """Get all job cards for the home page dashboard"""
     try:
-        logger.info(f"Getting job cards for client_id: {user.client_id}")
+        # Get job cards for client (reduced logging for frequent calls)
         database = get_database()
         job_cards = []
 
@@ -259,8 +259,6 @@ async def get_job_cards(
             job_schedules = session.query(JobSchedule).filter(
                 JobSchedule.client_id == user.client_id
             ).order_by(JobSchedule.execution_order.asc()).all()
-
-            logger.info(f"Found {len(job_schedules)} jobs for client {user.client_id}")
 
             for job in job_schedules:
                 try:
@@ -308,7 +306,9 @@ async def get_job_cards(
                         status="error"
                     ))
 
-        logger.info(f"Returning {len(job_cards)} job cards")
+        # Return job cards (debug logging only if needed)
+        if len(job_cards) == 0:
+            logger.warning(f"No job cards found for client {user.client_id}")
         return job_cards
 
     except Exception as e:
@@ -327,7 +327,7 @@ async def get_integrations(
 ):
     """Get actual integrations (for admin purposes)"""
     try:
-        logger.info(f"Getting integrations for client_id: {user.client_id}")
+        # Get integrations for client (reduced logging for frequent calls)
         database = get_database()
         integrations = []
 
@@ -336,8 +336,6 @@ async def get_integrations(
             db_integrations = session.query(Integration).filter(
                 Integration.client_id == user.client_id
             ).all()
-
-            logger.info(f"Found {len(db_integrations)} integrations for client {user.client_id}")
 
             for integration in db_integrations:
                 try:
