@@ -128,7 +128,7 @@ class AuthService:
                         UserSession.user_id == user_id,
                         UserSession.token_hash == token_hash,
                         UserSession.active == True,
-                        UserSession.expires_at > DateTimeHelper.now_utc()
+                        UserSession.expires_at > DateTimeHelper.now_default()
                     )
                 ).first()
 
@@ -146,7 +146,7 @@ class AuthService:
 
                 if user:
                     # Update session activity timestamp
-                    user_session.last_updated_at = DateTimeHelper.now_utc()
+                    user_session.last_updated_at = DateTimeHelper.now_default()
 
                     # Create a detached user object with all needed attributes
                     # This prevents DetachedInstanceError when session closes
@@ -218,7 +218,7 @@ class AuthService:
                     logger.info(f"✅ Found session for user_id: {user_session.user_id}, active: {user_session.active}")
                     # Mark session as inactive instead of deleting for audit purposes
                     user_session.active = False
-                    user_session.last_updated_at = DateTimeHelper.now_utc()
+                    user_session.last_updated_at = DateTimeHelper.now_default()
                     session.commit()
                     logger.info(f"✅ Session invalidated for user: {user_session.user_id}")
                     return True
@@ -247,7 +247,7 @@ class AuthService:
             expired_sessions = session.query(UserSession).filter(
                 and_(
                     UserSession.user_id == user.id,
-                    UserSession.expires_at <= DateTimeHelper.now_utc()
+                    UserSession.expires_at <= DateTimeHelper.now_default()
                 )
             ).delete()
 
@@ -261,8 +261,8 @@ class AuthService:
                 "role": user.role,
                 "is_admin": user.is_admin,
                 "client_id": user.client_id,  # ✅ CRITICAL: Include client_id for multi-client isolation
-                "exp": DateTimeHelper.now_utc() + self.token_expiry,
-                "iat": DateTimeHelper.now_utc()
+                "exp": DateTimeHelper.now_default() + self.token_expiry,
+                "iat": DateTimeHelper.now_default()
             }
 
             # Generate JWT token
@@ -276,20 +276,20 @@ class AuthService:
             user_session = UserSession(
                 user_id=user.id,
                 token_hash=token_hash,
-                expires_at=DateTimeHelper.now_utc() + self.token_expiry,
+                expires_at=DateTimeHelper.now_default() + self.token_expiry,
                 ip_address=ip_address,
                 user_agent=user_agent,
                 client_id=user.client_id,
                 active=True,
-                created_at=DateTimeHelper.now_utc(),
-                last_updated_at=DateTimeHelper.now_utc()
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
             session.add(user_session)
             
             # Update last login
-            user.last_login_at = DateTimeHelper.now_utc()
-            user.last_updated_at = DateTimeHelper.now_utc()
+            user.last_login_at = DateTimeHelper.now_default()
+            user.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -364,7 +364,7 @@ class AuthService:
 
                 if user_session:
                     user_session.active = False
-                    user_session.last_updated_at = DateTimeHelper.now_utc()
+                    user_session.last_updated_at = DateTimeHelper.now_default()
                     session.commit()
                     logger.info(f"✅ Session invalidated for user {user_session.user_id}")
                     return True
@@ -400,7 +400,7 @@ class AuthService:
                     )
                 ).update({
                     "active": False,
-                    "last_updated_at": DateTimeHelper.now_utc()
+                    "last_updated_at": DateTimeHelper.now_default()
                 })
 
                 session.commit()
@@ -460,12 +460,25 @@ class AuthService:
                 logger.error("Token missing expiration timestamp")
                 return False
 
-            expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc).replace(tzinfo=None)
+            # Convert JWT timestamps to local timezone for consistency
+            try:
+                import pytz
+                from app.core.config import get_settings
+                settings = get_settings()
+                tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+
+                # Convert UTC timestamp to local timezone
+                expires_at_utc = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+                expires_at = expires_at_utc.astimezone(tz).replace(tzinfo=None)
+            except Exception:
+                # Fallback to UTC conversion
+                expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc).replace(tzinfo=None)
+
             token_hash = self._hash_token(token)
 
             # Store in Redis if available
             if self.redis_session_manager.is_available():
-                ttl_seconds = int((expires_at - DateTimeHelper.now_utc()).total_seconds())
+                ttl_seconds = int((expires_at - DateTimeHelper.now_default()).total_seconds())
                 if ttl_seconds > 0:
                     await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
 
@@ -499,14 +512,14 @@ class AuthService:
                         user_agent=user_agent,
                         client_id=user.client_id,
                         active=True,
-                        created_at=DateTimeHelper.now_utc(),
-                        last_updated_at=DateTimeHelper.now_utc()
+                        created_at=DateTimeHelper.now_default(),
+                        last_updated_at=DateTimeHelper.now_default()
                     )
                     session.add(user_session)
                 else:
                     user_session.expires_at = expires_at
                     user_session.active = True
-                    user_session.last_updated_at = DateTimeHelper.now_utc()
+                    user_session.last_updated_at = DateTimeHelper.now_default()
                     if ip_address:
                         user_session.ip_address = ip_address
                     if user_agent:
@@ -560,8 +573,8 @@ class AuthService:
                     password_hash=password_hash,
                     client_id=client_id,
                     active=True,
-                    created_at=DateTimeHelper.now_utc(),
-                    last_updated_at=DateTimeHelper.now_utc()
+                    created_at=DateTimeHelper.now_default(),
+                    last_updated_at=DateTimeHelper.now_default()
                 )
 
                 session.add(user)

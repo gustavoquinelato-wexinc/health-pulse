@@ -277,6 +277,8 @@ class Issue(Base, IntegrationBaseEntity):
     project_id = Column(Integer, ForeignKey('projects.id'), quote=False, name="project_id")
     team = Column(String, quote=False, name="team")
     summary = Column(String, quote=False, name="summary")
+    description = Column(Text, quote=False, name="description")
+    acceptance_criteria = Column(Text, quote=False, name="acceptance_criteria")
     issuetype_id = Column(Integer, ForeignKey('issuetypes.id'), quote=False, name="issuetype_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
     resolution = Column(String, quote=False, name="resolution")
@@ -630,13 +632,13 @@ class JobSchedule(Base, IntegrationBaseEntity):
         """Mark job as running."""
         from app.core.utils import DateTimeHelper
         self.status = 'RUNNING'
-        self.last_run_started_at = DateTimeHelper.now_utc()
+        self.last_run_started_at = DateTimeHelper.now_default()
 
     def set_finished(self):
         """Mark job as finished and clear checkpoints."""
         from app.core.utils import DateTimeHelper
         self.status = 'FINISHED'
-        self.last_success_at = DateTimeHelper.now_utc()
+        self.last_success_at = DateTimeHelper.now_default()
         self.clear_checkpoints()
 
     def set_paused(self):

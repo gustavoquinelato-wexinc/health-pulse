@@ -72,19 +72,28 @@ def get_database_connection():
 def create_migration_table(connection):
     """Create migration tracking table if it doesn't exist."""
     cursor = connection.cursor()
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS migration_history (
-            id SERIAL PRIMARY KEY,
-            migration_number VARCHAR(10) NOT NULL UNIQUE,
-            migration_name VARCHAR(255) NOT NULL,
-            applied_at TIMESTAMP DEFAULT NOW(),
-            rollback_at TIMESTAMP NULL,
-            status VARCHAR(20) NOT NULL DEFAULT 'applied'
-        );
-    """)
-    
-    connection.commit()
+
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS migration_history (
+                id SERIAL PRIMARY KEY,
+                migration_number VARCHAR(10) NOT NULL UNIQUE,
+                migration_name VARCHAR(255) NOT NULL,
+                applied_at TIMESTAMP DEFAULT NOW(),
+                rollback_at TIMESTAMP NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'applied'
+            );
+        """)
+        connection.commit()
+        print("✅ Migration history table ready")
+    except Exception as e:
+        if "already exists" in str(e).lower() or "duplicate key" in str(e).lower():
+            print("✅ Migration history table already exists")
+            connection.rollback()
+        else:
+            print(f"❌ Error creating migration history table: {e}")
+            connection.rollback()
+            raise e
 
 def get_migration_files():
     """Get list of available migration files."""

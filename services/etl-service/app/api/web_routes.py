@@ -118,13 +118,13 @@ async def root(request: Request):
     logger.info("[AUTH] Cookie token found", has_token=bool(token))
 
     if token:
-        logger.info(f"🔍 Validating token: {token[:20]}...")
+        logger.info(f"Validating token: {token[:20]}...")
         try:
             # Validate token via centralized auth service
             auth_service = get_centralized_auth_service()
             user_data = await auth_service.verify_token(token)
             if user_data:
-                logger.info(f"✅ User authenticated: {user_data.get('email')} - redirecting to /home")
+                logger.info(f"User authenticated: {user_data.get('email')} - redirecting to /home")
                 # User is authenticated, redirect to home
                 return RedirectResponse(url="/home")
             else:
@@ -158,7 +158,7 @@ async def login_page(request: Request):
             if user_data:
                 # Check if user has admin permissions before redirecting
                 if user_data.get("is_admin", False) or user_data.get("role") == "admin":
-                    logger.info(f"✅ Admin user already authenticated: {user_data.get('email')} - redirecting to /home")
+                    logger.info(f"Admin user already authenticated: {user_data.get('email')} - redirecting to /home")
 
                     # Set subdomain-shared cookie and redirect
                     from app.core.config import get_settings
@@ -251,14 +251,14 @@ async def home_page(request: Request, token: Optional[str] = None):
                     "embedded": embedded
                 })
                 response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
-                logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
+                logger.info(f"Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
                 logger.warning("[AUTH] Portal embedding: Invalid token provided")
         except Exception as e:
             logger.error(f"[AUTH] Portal embedding: Token validation error: {e}")
 
-    # 🚀 EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
+    # EVENT-DRIVEN COLOR SCHEMA: Load once on page load, update via events
     from app.core.color_schema_manager import get_color_schema_manager
 
     color_manager = get_color_schema_manager()
@@ -278,7 +278,7 @@ async def home_page(request: Request, token: Optional[str] = None):
     # Get color schema - use direct backend call like workflows page for consistency
     color_schema_data = {"mode": "default"}  # Default fallback
 
-    logger.debug(f"🎨 ETL Home Route Debug: Starting color schema fetch, auth_token present: {bool(auth_token)}")
+    logger.debug(f"ETL Home Route Debug: Starting color schema fetch, auth_token present: {bool(auth_token)}")
 
     if auth_token:
         try:
@@ -308,8 +308,8 @@ async def home_page(request: Request, token: Optional[str] = None):
                         color_data = data.get("color_data", [])
                         color_schema_mode = data.get("color_schema_mode", "default")
 
-                        logger.debug(f"🎨 ETL Web Route Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
-                        logger.debug(f"🎨 ETL Web Route Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
+                        logger.debug(f"ETL Web Route Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
+                        logger.debug(f"ETL Web Route Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
 
                         # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
                         light_regular = next((c for c in color_data if
@@ -321,11 +321,11 @@ async def home_page(request: Request, token: Optional[str] = None):
                                            c.get('theme_mode') == 'dark' and
                                            c.get('accessibility_level') == 'regular'), None)
 
-                        logger.debug(f"🎨 ETL Web Route Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
+                        logger.debug(f"ETL Web Route Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
                         if light_regular:
-                            logger.debug(f"🎨 ETL Web Route Debug: Light colors - color1: {light_regular.get('color1')}, mode: {light_regular.get('color_schema_mode')}")
+                            logger.debug(f"ETL Web Route Debug: Light colors - color1: {light_regular.get('color1')}, mode: {light_regular.get('color_schema_mode')}")
                         if dark_regular:
-                            logger.debug(f"🎨 ETL Web Route Debug: Dark colors - color1: {dark_regular.get('color1')}, mode: {dark_regular.get('color_schema_mode')}")
+                            logger.debug(f"ETL Web Route Debug: Dark colors - color1: {dark_regular.get('color1')}, mode: {dark_regular.get('color_schema_mode')}")
 
                         # Use colors based on current theme
                         current_colors = light_regular if theme_mode == 'light' else dark_regular
@@ -346,11 +346,11 @@ async def home_page(request: Request, token: Optional[str] = None):
                                 },
                                 "theme": theme_mode
                             }
-                            logger.debug(f"🎨 ETL Web Route Debug: Final color_schema_data - mode: {color_schema_data['mode']}, color1: {color_schema_data['colors']['color1']}")
+                            logger.debug(f"ETL Web Route Debug: Final color_schema_data - mode: {color_schema_data['mode']}, color1: {color_schema_data['colors']['color1']}")
         except Exception as e:
             logger.debug(f"Could not fetch color schema for home page: {e}")
 
-    logger.debug(f"🎨 ETL Home Route Debug: Final color_schema_data being sent to template: {color_schema_data}")
+    logger.debug(f"ETL Home Route Debug: Final color_schema_data being sent to template: {color_schema_data}")
 
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
@@ -429,7 +429,7 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
                 # Set cookie for subsequent requests (accessible by JavaScript for API calls)
                 response = templates.TemplateResponse("old_admin", {"request": request, "user": user_data, "token": token})
                 response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
-                logger.info(f"✅ Portal embedding: Token validated for user {user_data.get('email')}")
+                logger.info(f"Portal embedding: Token validated for user {user_data.get('email')}")
                 return response
             else:
                 logger.warning("[AUTH] Portal embedding: Invalid token provided")
@@ -452,7 +452,7 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
             response = templates.TemplateResponse("old_admin.html", {"request": request, "user": user, "token": token if token else None})
             if token:  # Token came from URL parameter
                 response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
-                logger.info(f"✅ Portal embedding: Old admin access granted for user {user.get('email')}")
+                logger.info(f"Portal embedding: Old admin access granted for user {user.get('email')}")
             return response
 
     # Fallback if no token (shouldn't happen due to middleware)
@@ -535,8 +535,8 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
     try:
         from app.core.database import get_database
         from app.models.unified_models import (
-            JiraProject, JiraIssueType, JiraStatus, JiraIssue,
-            JiraChangelog, JiraPullRequestLink
+            Project, Issuetype, Status, Issue,
+            IssueChangelog, JiraPullRequestLinks
         )
         from sqlalchemy import func, desc
 
@@ -544,69 +544,69 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 
         with database.get_read_session_context() as session:
             # Projects summary
-            projects_total = session.query(JiraProject).filter(JiraProject.client_id == user.client_id).count()
-            projects_active = session.query(JiraProject).filter(
-                JiraProject.client_id == user.client_id,
-                JiraProject.is_active == True
+            projects_total = session.query(Project).filter(Project.client_id == user.client_id).count()
+            projects_active = session.query(Project).filter(
+                Project.client_id == user.client_id,
+                Project.active == True
             ).count()
 
             # Issue Types summary
-            issuetypes_total = session.query(JiraIssueType).filter(JiraIssueType.client_id == user.client_id).count()
-            issuetypes_active = session.query(JiraIssueType).filter(
-                JiraIssueType.client_id == user.client_id,
-                JiraIssueType.is_active == True
+            issuetypes_total = session.query(Issuetype).filter(Issuetype.client_id == user.client_id).count()
+            issuetypes_active = session.query(Issuetype).filter(
+                Issuetype.client_id == user.client_id,
+                Issuetype.active == True
             ).count()
 
             # Statuses summary
-            statuses_total = session.query(JiraStatus).filter(JiraStatus.client_id == user.client_id).count()
-            statuses_active = session.query(JiraStatus).filter(
-                JiraStatus.client_id == user.client_id,
-                JiraStatus.is_active == True
+            statuses_total = session.query(Status).filter(Status.client_id == user.client_id).count()
+            statuses_active = session.query(Status).filter(
+                Status.client_id == user.client_id,
+                Status.active == True
             ).count()
 
             # Issues summary
-            issues_total = session.query(JiraIssue).filter(JiraIssue.client_id == user.client_id).count()
-            issues_active = session.query(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
+            issues_total = session.query(Issue).filter(Issue.client_id == user.client_id).count()
+            issues_active = session.query(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
             ).count()
 
             # Top issue types
             top_types = session.query(
-                JiraIssueType.name,
-                func.count(JiraIssue.id).label('count')
-            ).join(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
-            ).group_by(JiraIssueType.name).order_by(desc('count')).limit(5).all()
+                Issuetype.original_name,
+                func.count(Issue.id).label('count')
+            ).join(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
+            ).group_by(Issuetype.original_name).order_by(desc('count')).limit(5).all()
 
             # Top statuses
             top_statuses = session.query(
-                JiraStatus.name,
-                func.count(JiraIssue.id).label('count')
-            ).join(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
-            ).group_by(JiraStatus.name).order_by(desc('count')).limit(10).all()
+                Status.original_name,
+                func.count(Issue.id).label('count')
+            ).join(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
+            ).group_by(Status.original_name).order_by(desc('count')).limit(10).all()
 
             # Changelogs summary
-            changelogs_total = session.query(JiraChangelog).filter(JiraChangelog.client_id == user.client_id).count()
-            changelogs_active = session.query(JiraChangelog).filter(
-                JiraChangelog.client_id == user.client_id,
-                JiraChangelog.is_active == True
+            changelogs_total = session.query(IssueChangelog).filter(IssueChangelog.client_id == user.client_id).count()
+            changelogs_active = session.query(IssueChangelog).filter(
+                IssueChangelog.client_id == user.client_id,
+                IssueChangelog.active == True
             ).count()
 
             # PR Links summary
-            pr_links_total = session.query(JiraPullRequestLink).filter(JiraPullRequestLink.client_id == user.client_id).count()
-            pr_links_active = session.query(JiraPullRequestLink).filter(
-                JiraPullRequestLink.client_id == user.client_id,
-                JiraPullRequestLink.is_active == True
+            pr_links_total = session.query(JiraPullRequestLinks).filter(JiraPullRequestLinks.client_id == user.client_id).count()
+            pr_links_active = session.query(JiraPullRequestLinks).filter(
+                JiraPullRequestLinks.client_id == user.client_id,
+                JiraPullRequestLinks.active == True
             ).count()
 
             # Unique repositories count
-            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLink.repository_name))).filter(
-                JiraPullRequestLink.client_id == user.client_id,
-                JiraPullRequestLink.is_active == True
+            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLinks.repo_full_name))).filter(
+                JiraPullRequestLinks.client_id == user.client_id,
+                JiraPullRequestLinks.active == True
             ).scalar() or 0
 
             return {
@@ -652,6 +652,176 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get Jira summary: {str(e)}"
+        )
+
+@router.get("/api/v1/jobs/GitHub/summary")
+async def get_github_summary(user: UserData = Depends(require_admin_authentication)):
+    """Get GitHub data summary for the details modal"""
+    try:
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_read_session_context() as session:
+            from app.models.unified_models import (
+                Repository, PullRequest, PullRequestReview, PullRequestCommit, PullRequestComment,
+                JobSchedule, Integration
+            )
+            from sqlalchemy import func, desc
+
+            # Get GitHub integration and job schedule
+            github_integration = session.query(Integration).filter(
+                Integration.client_id == user.client_id,
+                Integration.provider == 'github'
+            ).first()
+
+            github_job = None
+            if github_integration:
+                github_job = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == user.client_id,
+                    JobSchedule.integration_id == github_integration.id
+                ).first()
+
+            # Repositories summary
+            repos_total = session.query(Repository).filter(Repository.client_id == user.client_id).count()
+            repos_active = session.query(Repository).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True
+            ).count()
+
+            # Top 3 languages
+            top_languages = session.query(
+                Repository.language,
+                func.count(Repository.id).label('count')
+            ).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True,
+                Repository.language.isnot(None)
+            ).group_by(Repository.language).order_by(desc('count')).limit(3).all()
+
+            # Top 3 repositories by PR count
+            top_repos = session.query(
+                Repository.full_name,
+                func.count(PullRequest.id).label('pr_count')
+            ).join(PullRequest).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True
+            ).group_by(Repository.full_name).order_by(desc('pr_count')).limit(3).all()
+
+            # Pull Requests summary with code statistics
+            prs_total = session.query(PullRequest).filter(PullRequest.client_id == user.client_id).count()
+            prs_active = session.query(PullRequest).filter(
+                PullRequest.client_id == user.client_id,
+                PullRequest.active == True
+            ).count()
+
+            # Code statistics
+            code_stats = session.query(
+                func.sum(PullRequest.additions).label('total_additions'),
+                func.sum(PullRequest.deletions).label('total_deletions'),
+                func.sum(PullRequest.changed_files).label('total_changed_files')
+            ).filter(
+                PullRequest.client_id == user.client_id,
+                PullRequest.active == True
+            ).first()
+
+            # Reviews summary
+            reviews_total = session.query(PullRequestReview).filter(PullRequestReview.client_id == user.client_id).count()
+            reviews_active = session.query(PullRequestReview).filter(
+                PullRequestReview.client_id == user.client_id,
+                PullRequestReview.active == True
+            ).count()
+
+            # Commits summary
+            commits_total = session.query(PullRequestCommit).filter(PullRequestCommit.client_id == user.client_id).count()
+            commits_active = session.query(PullRequestCommit).filter(
+                PullRequestCommit.client_id == user.client_id,
+                PullRequestCommit.active == True
+            ).count()
+
+            # Comments summary
+            comments_total = session.query(PullRequestComment).filter(PullRequestComment.client_id == user.client_id).count()
+            comments_active = session.query(PullRequestComment).filter(
+                PullRequestComment.client_id == user.client_id,
+                PullRequestComment.active == True
+            ).count()
+
+            # Recovery information
+            recovery_info = {}
+            if github_job:
+                # Collect cursor values
+                cursor_fields = [
+                    'last_pr_cursor', 'current_pr_node_id', 'last_commit_cursor',
+                    'last_review_cursor', 'last_comment_cursor', 'last_review_thread_cursor'
+                ]
+                cursors = {}
+                has_active_cursors = False
+
+                for field in cursor_fields:
+                    value = getattr(github_job, field, None)
+                    if value:
+                        cursors[field] = value
+                        has_active_cursors = True
+
+                # Parse repo processing queue
+                repo_queue = None
+                if github_job.repo_processing_queue:
+                    try:
+                        import json
+                        repo_queue = json.loads(github_job.repo_processing_queue)
+                    except:
+                        repo_queue = None
+
+                recovery_info = {
+                    "job_status": github_job.status,
+                    "active": github_job.active,
+                    "last_run_started_at": github_job.last_run_started_at.isoformat() if github_job.last_run_started_at else None,
+                    "last_success_at": github_job.last_success_at.isoformat() if github_job.last_success_at else None,
+                    "has_active_cursors": has_active_cursors,
+                    "cursors": cursors,
+                    "repo_processing_queue": repo_queue,
+                    "error_message": getattr(github_job, 'error_message', None),
+                    "retry_count": getattr(github_job, 'retry_count', 0)
+                }
+
+            return {
+                "repositories": {
+                    "total": repos_total,
+                    "active": repos_active,
+                    "inactive": repos_total - repos_active,
+                    "top_languages": [{"language": lang, "count": count} for lang, count in top_languages],
+                    "top_repos": [{"repo": repo, "pr_count": count} for repo, count in top_repos]
+                },
+                "pull_requests": {
+                    "total": prs_total,
+                    "active": prs_active,
+                    "inactive": prs_total - prs_active,
+                    "total_additions": code_stats.total_additions or 0,
+                    "total_deletions": code_stats.total_deletions or 0,
+                    "total_changed_files": code_stats.total_changed_files or 0
+                },
+                "reviews": {
+                    "total": reviews_total,
+                    "active": reviews_active,
+                    "inactive": reviews_total - reviews_active
+                },
+                "commits": {
+                    "total": commits_total,
+                    "active": commits_active,
+                    "inactive": commits_total - commits_active
+                },
+                "comments": {
+                    "total": comments_total,
+                    "active": comments_active,
+                    "inactive": comments_total - comments_active
+                },
+                "recovery": recovery_info
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting GitHub summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get GitHub summary: {str(e)}"
         )
 
 @router.get("/api/v1/logs/download/{filename}")
@@ -760,7 +930,7 @@ async def admin_page(request: Request, token: Optional[str] = None):
                 })
                 if token:  # Token came from URL parameter
                     response.set_cookie("pulse_token", token, max_age=86400, httponly=False, path="/")
-                    logger.info(f"✅ Portal embedding: Admin access granted for user {user.get('email')}")
+                    logger.info(f"Portal embedding: Admin access granted for user {user.get('email')}")
                 return response
 
         # Check if this is an embedded request (iframe)
@@ -885,7 +1055,7 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
         })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
-            logger.info(f"✅ Portal embedding: Status mappings access granted for user {user.get('email')}")
+            logger.info(f"Portal embedding: Status mappings access granted for user {user.get('email')}")
         return response
 
     except Exception as e:
@@ -1176,11 +1346,11 @@ async def logout_page(request: Request):
                 auth_service = get_centralized_auth_service()
                 success = await auth_service.invalidate_session(token)
                 if success:
-                    logger.info("✅ Session invalidated successfully in Backend Service")
+                    logger.info("Session invalidated successfully in Backend Service")
                 else:
-                    logger.warning("❌ Failed to invalidate session in Backend Service")
+                    logger.warning("Failed to invalidate session in Backend Service")
             except Exception as e:
-                logger.error(f"❌ Error invalidating session: {e}")
+                logger.error(f"Error invalidating session: {e}")
                 import traceback
                 logger.error(f"Full traceback: {traceback.format_exc()}")
         else:
@@ -1386,7 +1556,7 @@ async def api_logout(request: Request):
 @router.post("/auth/navigate")
 async def navigate_with_token(request: Request):
     """Handle navigation from frontend with token authentication."""
-    logger.info("🚀 ETL Navigation endpoint called!")
+    logger.info("ETL Navigation endpoint called!")
     try:
         # Handle both form data and JSON
         content_type = request.headers.get("content-type", "")
@@ -1563,7 +1733,7 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
         database = get_database()
 
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter job schedule by client_id
+            # SECURITY: Filter job schedule by client_id
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
                 JobSchedule.client_id == user.client_id
@@ -1634,7 +1804,7 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
         with database.get_read_session_context() as session:
             # Get GitHub integration for the authenticated user's client
             github_integration = session.query(Integration).filter(
-                func.upper(Integration.name) == 'GITHUB',
+                func.upper(Integration.provider) == 'GITHUB',
                 Integration.client_id == user.client_id
             ).first()
 
@@ -1694,13 +1864,13 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 async def get_jobs_status(user: UserData = Depends(verify_token)):
     """Get current status of all jobs with optimized queries"""
     try:
-        # ✅ SECURITY: Get job status filtered by client_id
+        # SECURITY: Get job status filtered by client_id
         status_data = get_job_status(client_id=user.client_id)
 
         # Enhance with checkpoint data using optimized query
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Get job objects filtered by client_id (include all jobs)
+            # SECURITY: Get job objects filtered by client_id (include all jobs)
             jobs = session.query(JobSchedule).filter(
                 JobSchedule.client_id == user.client_id
             ).all()
@@ -1820,7 +1990,7 @@ async def get_color_schema_cache_status(user: UserData = Depends(require_web_aut
     }
 
 
-# 🚀 Internal API Endpoints for Backend Service Communication
+# Internal API Endpoints for Backend Service Communication
 @router.post("/api/v1/internal/color-schema-changed")
 async def handle_color_schema_change(request: Request):
     """Internal endpoint: Handle color schema change notification from backend"""
@@ -1851,7 +2021,7 @@ async def handle_color_schema_change(request: Request):
             "timestamp": datetime.utcnow().isoformat()
         })
 
-        logger.info(f"✅ Color schema cache invalidated and clients notified for client {client_id}")
+        logger.info(f"Color schema cache invalidated and clients notified for client {client_id}")
 
         return {
             "success": True,
@@ -1875,14 +2045,14 @@ async def handle_color_schema_mode_change(request: Request):
         client_id = data.get("client_id")
         mode = data.get("mode")
 
-        logger.info(f"🎨 Color schema mode change notification received for client {client_id}: {mode}")
+        logger.info(f"Color schema mode change notification received for client {client_id}: {mode}")
 
         # Invalidate color schema cache to force refresh on next page load
         from app.core.color_schema_manager import get_color_schema_manager
         color_manager = get_color_schema_manager()
         color_manager.invalidate_cache()
 
-        logger.info(f"✅ Color schema cache invalidated for client {client_id}")
+        logger.info(f"Color schema cache invalidated for client {client_id}")
 
         return {
             "success": True,
@@ -1907,14 +2077,14 @@ async def handle_user_theme_change(request: Request):
         user_id = data.get("user_id")
         theme_mode = data.get("theme_mode")
 
-        logger.info(f"🎨 User theme change notification received for user {user_id}: {theme_mode}")
+        logger.info(f"User theme change notification received for user {user_id}: {theme_mode}")
 
         # Invalidate user-specific color schema cache to force refresh on next page load
         from app.core.color_schema_manager import get_color_schema_manager
         color_manager = get_color_schema_manager()
         color_manager.invalidate_cache(str(user_id))
 
-        logger.info(f"✅ Color schema cache invalidated for user {user_id}")
+        logger.info(f"Color schema cache invalidated for user {user_id}")
 
         return {
             "success": True,
@@ -1952,7 +2122,7 @@ async def start_job(
         else:
             logger.info(f"Force starting job {job_name} in MANUAL MODE (default parameters)")
 
-        # ✅ SECURITY: Use client-aware trigger functions with user's client_id
+        # SECURITY: Use client-aware trigger functions with user's client_id
         # Run in background to avoid blocking the web request
         import asyncio
         job_name_lower = job_name.lower()
@@ -2400,15 +2570,9 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
 
             job_name = target_job.job_name
 
-            # Check if target job is already PENDING
+            # Log if target job is already PENDING (but continue to reset other jobs)
             if target_job.status == 'PENDING':
-                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING")
-                return {
-                    "success": True,
-                    "message": f"Job {job_name} is already active and ready to run",
-                    "job_id": job_id,
-                    "job_name": job_name
-                }
+                logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) is already PENDING, but will still reset other active jobs")
 
             # Check if target job is currently RUNNING
             if target_job.status == 'RUNNING':
@@ -2418,21 +2582,56 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
                     detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
                 )
 
-            # Set target job to PENDING (simplified - don't affect other jobs)
+            # Set other active, non-paused jobs to NOT_STARTED
+            other_jobs = session.query(JobSchedule).filter(
+                JobSchedule.client_id == user.client_id,
+                JobSchedule.active == True,
+                JobSchedule.id != job_id,  # Exclude the target job
+                JobSchedule.status.notin_(['PAUSED'])  # Don't affect paused jobs
+            ).all()
+
+            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other active, non-paused jobs to potentially reset")
+
+            jobs_reset = []
+            for other_job in other_jobs:
+                if other_job.status != 'NOT_STARTED':
+                    old_other_status = other_job.status
+                    other_job.status = 'NOT_STARTED'
+                    other_job.error_message = None  # Clear any previous errors
+                    jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> NOT_STARTED)")
+                    logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> NOT_STARTED")
+
+            # Set target job to PENDING
             old_status = target_job.status
             target_job.status = 'PENDING'
             target_job.error_message = None  # Clear any previous errors
+
+            # Commit all changes
             session.commit()
 
             logger.info(f"[FORCE_PENDING] Job {job_name} (ID: {job_id}) set to PENDING: {old_status} -> PENDING")
+            if jobs_reset:
+                logger.info(f"[FORCE_PENDING] Reset {len(jobs_reset)} other jobs: {', '.join(jobs_reset)}")
+            else:
+                logger.info(f"[FORCE_PENDING] No other jobs were reset")
+
+            # Create success message
+            if old_status == 'PENDING':
+                message = f"Job {job_name} was already active and ready to run"
+            else:
+                message = f"Job {job_name} is now active and ready to run"
+
+            if jobs_reset:
+                message += f" (reset {len(jobs_reset)} other jobs to NOT_STARTED)"
 
             return {
                 "success": True,
-                "message": f"Job {job_name} is now active and ready to run",
+                "message": message,
                 "job_id": job_id,
                 "job_name": job_name,
                 "old_status": old_status,
-                "new_status": "PENDING"
+                "new_status": "PENDING",
+                "jobs_reset": len(jobs_reset)
             }
 
     except HTTPException:
@@ -2533,22 +2732,20 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
             }
             fast_retry_active = False
 
-        # Determine orchestrator status more accurately
+        # Check if any jobs are currently running to determine countdown visibility
+        from app.jobs.orchestrator import get_job_status
+        job_status = get_job_status(client_id=user.client_id)
+        any_job_running = any(job_data.get('status') == 'RUNNING' for job_data in job_status.values())
+
+        # Simplified orchestrator status - no status, just countdown control
         if is_paused:
             orchestrator_status = "paused"
             status_message = "Orchestrator is paused"
+            show_countdown = False
         else:
-            # Check if any jobs are currently running to determine if orchestrator is active
-            from app.jobs.orchestrator import get_job_status
-            job_status = get_job_status(client_id=user.client_id)
-            any_job_running = any(job_data.get('status') == 'RUNNING' for job_data in job_status.values())
-
-            if any_job_running:
-                orchestrator_status = "running"
-                status_message = "Orchestrator is running jobs"
-            else:
-                orchestrator_status = "idle"
-                status_message = "Orchestrator is idle, waiting for next run"
+            orchestrator_status = "active"
+            status_message = "Orchestrator"
+            show_countdown = not any_job_running  # Hide countdown when jobs are running
 
         status_info = {
             "status": orchestrator_status,
@@ -2556,6 +2753,8 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
             "job_id": job.id,
             "name": job.name,
             "message": status_message,
+            "show_countdown": show_countdown,
+            "any_job_running": any_job_running,
             "interval_minutes": get_orchestrator_interval(),
             "enabled": is_orchestrator_enabled(),
             "fast_retry_active": fast_retry_active,
@@ -2789,7 +2988,7 @@ async def update_system_setting(
             )
 
         from app.core.settings_manager import SettingsManager
-        # ✅ SECURITY: Pass client_id for client-specific settings
+        # SECURITY: Pass client_id for client-specific settings
         success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
 
         if success:
@@ -2875,7 +3074,7 @@ async def update_system_settings_bulk(
                 continue
 
             try:
-                # ✅ SECURITY: Pass client_id for client-specific settings
+                # SECURITY: Pass client_id for client-specific settings
                 success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
 
                 if success:
@@ -3026,15 +3225,15 @@ async def websocket_test():
     </style>
 </head>
 <body>
-    <h1>🔌 WebSocket Connection Test</h1>
+    <h1>WebSocket Connection Test</h1>
 
     <div class="container">
         <h2>Connection Status</h2>
         <div id="jira-status" class="status disconnected">
-            🔴 Jira: Disconnected
+            Jira: Disconnected
         </div>
         <div id="github-status" class="status disconnected">
-            🔴 GitHub: Disconnected
+            GitHub: Disconnected
         </div>
 
         <button onclick="connectAll()">Connect All</button>
@@ -3101,14 +3300,14 @@ async def websocket_test():
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobName}`;
 
-            log(`🔌 Attempting to connect to ${jobName} at: ${wsUrl}`);
-            log(`🔍 Looking for status element: ${jobName.replace('_', '-')}-status`);
+            log(`Attempting to connect to ${jobName} at: ${wsUrl}`);
+            log(`Looking for status element: ${jobName.replace('_', '-')}-status`);
 
             try {
                 const ws = new WebSocket(wsUrl);
 
                 ws.onopen = function () {
-                    log(`✅ WebSocket connected for ${jobName}`);
+                    log(`WebSocket connected for ${jobName}`);
                     websockets[jobName] = ws;
                     updateStatus(jobName, true);
                 };
@@ -3122,35 +3321,35 @@ async def websocket_test():
                             updateProgress(data.percentage, data.step);
                         }
                     } catch (e) {
-                        log(`❌ Error parsing message from ${jobName}: ${e}`);
+                        log(`Error parsing message from ${jobName}: ${e}`);
                     }
                 };
 
                 ws.onclose = function (event) {
-                    log(`🔌 WebSocket disconnected for ${jobName}. Code: ${event.code}, Reason: ${event.reason}`);
+                    log(`WebSocket disconnected for ${jobName}. Code: ${event.code}, Reason: ${event.reason}`);
                     websockets[jobName] = null;
                     updateStatus(jobName, false);
                 };
 
                 ws.onerror = function (error) {
-                    log(`❌ WebSocket error for ${jobName}: ${error}`);
+                    log(`WebSocket error for ${jobName}: ${error}`);
                     updateStatus(jobName, false);
                 };
 
             } catch (e) {
-                log(`❌ Failed to create WebSocket for ${jobName}: ${e}`);
+                log(`Failed to create WebSocket for ${jobName}: ${e}`);
                 updateStatus(jobName, false);
             }
         }
 
         function connectAll() {
-            log('🚀 Connecting to all WebSocket endpoints...');
+            log('Connecting to all WebSocket endpoints...');
             connectWebSocket('Jira');
             connectWebSocket('GitHub');
         }
 
         function disconnectAll() {
-            log('🔌 Disconnecting all WebSocket connections...');
+            log('Disconnecting all WebSocket connections...');
             Object.keys(websockets).forEach(jobName => {
                 if (websockets[jobName]) {
                     websockets[jobName].close();
@@ -3182,14 +3381,14 @@ async def websocket_test():
                 log(`[API] Response: ${JSON.stringify(data)}`);
             })
             .catch(error => {
-                log(`❌ API Error: ${error}`);
+                log(`API Error: ${error}`);
             });
         }
 
         // Auto-connect on page load
         window.addEventListener('load', function() {
-            log('🌐 WebSocket Test Page Loaded');
-            log('📍 Current URL: ' + window.location.href);
+            log('WebSocket Test Page Loaded');
+            log('Current URL: ' + window.location.href);
 
             // Auto-connect after a short delay
             setTimeout(() => {

@@ -13,7 +13,10 @@ class AuthServiceSettings(BaseSettings):
     # Service Configuration
     AUTH_SERVICE_HOST: str = Field(default="0.0.0.0", env="AUTH_SERVICE_HOST")
     AUTH_SERVICE_PORT: int = Field(default=4000, env="AUTH_SERVICE_PORT")
-    
+
+    # Timezone Configuration
+    DEFAULT_TIMEZONE: str = Field(default="UTC", env="DEFAULT_TIMEZONE")
+
     # JWT Configuration
     JWT_SECRET_KEY: str = Field(default="A-JdcapOLIm3zoYtTkxA1vTMyNt7EEvH7jHCuDjAmqw", env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
