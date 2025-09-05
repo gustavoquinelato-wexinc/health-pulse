@@ -81,7 +81,8 @@ async def execute_jira_extraction_by_mode(
             result = await extract_work_items_and_changelogs(
                 session, jira_client, jira_integration, job_logger,
                 websocket_manager=websocket_manager,
-                update_sync_timestamp=update_sync_timestamp
+                update_sync_timestamp=update_sync_timestamp,
+                job_schedule=job_schedule
             )
             return {'success': True, **result}
 
@@ -135,7 +136,7 @@ async def execute_jira_extraction_session_free(
 
                 integration = session.query(Integration).filter(
                     Integration.client_id == client_id,
-                    func.upper(Integration.name) == 'JIRA'
+                    func.upper(Integration.provider) == 'JIRA'
                 ).first()
 
                 if not integration:
@@ -317,7 +318,8 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
                 session, jira_client, jira_integration, job_logger,
                 start_date=None,  # Not used with custom query
                 websocket_manager=websocket_manager,
-                update_sync_timestamp=update_sync_timestamp
+                update_sync_timestamp=update_sync_timestamp,
+                job_schedule=job_schedule
             )
 
             logger.info(f"Custom query extraction completed: {result.get('issues_processed', 0)} issues processed")
@@ -381,7 +383,7 @@ async def run_jira_sync(
         else:
             # Fallback: Get by name and client_id (for backward compatibility)
             jira_integration = session.query(Integration).filter(
-                func.upper(Integration.name) == "JIRA",
+                func.upper(Integration.provider) == "JIRA",
                 Integration.client_id == job_schedule.client_id
             ).first()
 
@@ -657,7 +659,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         await websocket_manager.send_progress_update("Jira", 35.0, "Starting issue and changelog processing...")
 
         # Run the extraction (progress updates are handled within the extractors)
-        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager)
+        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager, job_schedule=job_schedule)
 
         if not issues_result['success']:
             return {

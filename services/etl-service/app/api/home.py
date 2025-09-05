@@ -65,6 +65,9 @@ class JobCardResponse(BaseModel):
     active: bool
     last_sync: Optional[str] = None
     status: str  # 'pending', 'running', 'connected', 'error', 'inactive'
+    last_run_started_at: Optional[str] = None
+    last_success_at: Optional[str] = None
+    retry_count: Optional[int] = None
 
 
 @router.get("/stats", response_model=HomeStatsResponse)
@@ -291,7 +294,10 @@ async def get_job_cards(
                         integration_type=integration_type,
                         active=job.active,  # Use job.active from job_schedules table, not integration.active
                         last_sync=last_sync,
-                        status=status_value
+                        status=status_value,
+                        last_run_started_at=job.last_run_started_at.isoformat() if job.last_run_started_at else None,
+                        last_success_at=job.last_success_at.isoformat() if job.last_success_at else None,
+                        retry_count=job.retry_count
                     ))
 
                 except Exception as e:

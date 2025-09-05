@@ -32,6 +32,40 @@ import asyncio
 logger = get_logger(__name__)
 
 
+def find_next_ready_job(session: Session, client_id: int, current_order: int) -> JobSchedule:
+    """
+    Find the next ready job in execution order that's not paused.
+
+    Args:
+        session: Database session
+        client_id: Client ID for security filtering
+        current_order: Current job's execution order
+
+    Returns:
+        Next ready JobSchedule or None if no ready jobs found
+    """
+    # First, try to find next job after current order that's ready to run
+    next_job = session.query(JobSchedule).filter(
+        JobSchedule.client_id == client_id,
+        JobSchedule.active == True,
+        JobSchedule.status != 'PAUSED',  # Skip paused jobs
+        JobSchedule.execution_order > current_order
+    ).order_by(JobSchedule.execution_order.asc()).first()
+
+    if next_job:
+        return next_job
+
+    # If no next job, cycle back to first ready job (excluding current)
+    first_job = session.query(JobSchedule).filter(
+        JobSchedule.client_id == client_id,
+        JobSchedule.active == True,
+        JobSchedule.status != 'PAUSED',  # Skip paused jobs
+        JobSchedule.execution_order != current_order  # Exclude current job
+    ).order_by(JobSchedule.execution_order.asc()).first()
+
+    return first_job
+
+
 def check_integration_active(job_schedule_id: int) -> dict:
     """
     Check if the integration associated with a job schedule is active.
@@ -119,32 +153,22 @@ def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: st
 
             logger.info(f"Job {job_schedule.job_name} marked as FINISHED due to inactive integration")
 
-            # Find the next job in sequence
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == job_schedule.client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > job_schedule.execution_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, job_schedule.client_id, job_schedule.execution_order)
 
             if next_job:
                 # Set next job as pending
                 next_job.status = 'PENDING'
                 next_job.error_message = None
-                logger.info(f"Next job {next_job.job_name} set to PENDING")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == job_schedule.client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule.id:
-                    first_job.status = 'PENDING'
-                    first_job.error_message = None
-                    logger.info(f"Cycling back to first job {first_job.job_name} set to PENDING")
+                logger.info(f"Next ready job {next_job.job_name} set to PENDING")
 
             session.commit()
             logger.info(f"Successfully skipped job {job_schedule.job_name} and set next job as pending")
+
+        # Schedule orchestrator restart to process the next job
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.schedule_fast_retry(job_schedule.job_name)
 
     except Exception as e:
         logger.error(f"Error skipping job due to inactive integration: {e}")
@@ -467,7 +491,7 @@ async def run_orchestrator_for_client(client_id: int):
     try:
         database = get_database()
 
-        # Step 1: Quick check for pending jobs for this client
+        # Step 2: Quick check for pending jobs for this client
         pending_job_id = None
         pending_job_name = None
 
@@ -483,7 +507,7 @@ async def run_orchestrator_for_client(client_id: int):
             ).order_by(JobSchedule.execution_order.asc()).first()
 
             if not result:
-                logger.info(f"INFO: No PENDING jobs found for client {client_id}, orchestrator exiting")
+                logger.info(f"INFO: No PENDING jobs found for client {client_id}")
                 return
 
             pending_job_id, pending_job_name = result.id, result.job_name
@@ -549,13 +573,18 @@ async def run_orchestrator_for_client(client_id: int):
                     JobSchedule.id == pending_job_id
                 ).update({'status': 'PENDING'})
                 session.commit()
+
+            # Schedule orchestrator restart to retry the job
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.schedule_fast_retry(pending_job_name)
             return
 
         logger.info(f"SUCCESS: Orchestrator completed - {pending_job_name} job triggered")
 
         # Yield control to allow other async operations
         await asyncio.sleep(0)
-            
+
     except Exception as e:
         logger.error(f"ERROR: Orchestrator error: {e}")
         import traceback
@@ -1098,12 +1127,12 @@ def initialize_job_schedules_for_client(client_id: int):
 
             # SECURITY: Get integrations for this specific client
             jira_integration = session.query(Integration).filter(
-                Integration.name.ilike('JIRA'),
+                Integration.provider.ilike('JIRA'),
                 Integration.client_id == client_id
             ).first()
 
             github_integration = session.query(Integration).filter(
-                Integration.name.ilike('GITHUB'),
+                Integration.provider.ilike('GITHUB'),
                 Integration.client_id == client_id
             ).first()
 

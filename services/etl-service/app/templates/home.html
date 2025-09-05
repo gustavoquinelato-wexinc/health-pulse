@@ -16,72 +16,59 @@
                 Monitor and control your data integration workflows
             </p>
         </div>
-        <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm">
-            <i class="fas fa-cog mr-1"></i>Settings
-        </button>
+
     </div>
 </div>
 
-<!-- Combined Orchestrator + Job Monitor Section -->
+<!-- ETL Orchestrator Section -->
 <div class="mb-8 p-6 rounded-lg transition-all duration-200 hover:shadow-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <!-- Header -->
     <div class="flex items-center justify-between mb-6">
-        <h2 class="text-2xl font-semibold" style="color: var(--text-primary);">
-            <i class="fas fa-robot mr-3" style="color: var(--color-1);"></i>ETL Orchestrator
-        </h2>
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+                <i class="fas fa-robot text-lg" style="color: var(--color-1);"></i>
+            </div>
+            <div>
+                <h2 class="text-xl font-semibold" style="color: var(--text-primary);">ETL Orchestrator</h2>
+                <div class="flex items-center space-x-2 mt-1">
+                    <div id="orchestratorStatusDot" class="w-2 h-2 rounded-full bg-green-500"></div>
+                    <span class="text-sm" style="color: var(--text-secondary);">Job Scheduler</span>
+                </div>
+            </div>
+        </div>
         <div class="text-sm" style="color: var(--text-muted);" id="lastUpdate">
             Last updated: Never
         </div>
     </div>
 
-    <!-- Two Internal Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Status Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-info); opacity: 0.15;"></div>
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-circle-info text-base" style="color: var(--status-info);"></i>
+    <!-- Countdown and Controls -->
+    <div class="flex items-center justify-between">
+        <!-- Next Run Timer -->
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <i class="fas fa-clock text-sm" style="color: var(--text-secondary);"></i>
+                <span class="text-sm font-medium" style="color: var(--text-secondary);">Next run in:</span>
             </div>
-            <div class="pr-10">
-                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Status</h3>
-                <div class="flex items-center space-x-2">
-                    <div id="orchestratorStatusDot" class="w-2 h-2 rounded-full bg-gray-500"></div>
-                    <span id="orchestratorStatusText" class="text-lg font-semibold" style="color: var(--text-primary);">Loading...</span>
-                </div>
+            <div id="countdownTimer" class="text-lg font-mono font-bold px-3 py-1 rounded" style="color: var(--color-1); background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+                --:--:--
             </div>
         </div>
 
-        <!-- Countdown Card -->
-        <div class="relative p-5 rounded-lg transition-all duration-200" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md" style="background-color: var(--status-warning); opacity: 0.15;"></div>
-            <div class="absolute top-4 right-4 w-10 h-10 rounded-md flex items-center justify-center">
-                <i class="fas fa-clock text-base" style="color: var(--status-warning);"></i>
-            </div>
-            <div class="pr-10">
-                <h3 class="text-sm font-medium mb-3" style="color: var(--text-secondary);">Next Run</h3>
-                <div id="countdownTimer" class="text-xl font-mono font-bold" style="color: var(--text-primary);">
-                    --:--:--
-                </div>
-            </div>
+        <!-- Control Buttons -->
+        <div class="flex items-center space-x-2">
+            <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="action-icon-btn force-pending" title="Run Now">
+                <i class="fas fa-flag-checkered"></i>
+            </button>
+            <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm" title="Pause">
+                <i class="fas fa-pause"></i>
+            </button>
+            <button onclick="showLogManagement()" class="btn-neutral-secondary" title="Logs">
+                <i class="fas fa-file-alt"></i>
+            </button>
+            <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm" title="Settings">
+                <i class="fas fa-cog"></i>
+            </button>
         </div>
-    </div>
-
-    <!-- Control Buttons -->
-    <div id="orchestratorControlButtons" class="flex justify-end space-x-2 mt-6">
-        <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="btn-crud-edit-sm">
-            <i class="fas fa-play mr-1"></i>Force Run
-        </button>
-        <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm">
-            <i class="fas fa-pause mr-1"></i>Pause
-        </button>
-        <button onclick="showLogManagement()" class="btn-neutral-secondary">
-            <i class="fas fa-file-alt mr-1"></i>Logs
-        </button>
-        <button onclick="refreshOrchestratorSchedule()" id="refreshScheduleBtn" class="btn-neutral-secondary">
-            <i class="fas fa-sync mr-1"></i>Refresh Schedule
-        </button>
-        <button onclick="refreshData();" class="btn-neutral-secondary">
-            <i class="fas fa-refresh mr-1"></i>Refresh
-        </button>
     </div>
 </div>
 
@@ -93,7 +80,7 @@
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
                     <i class="fas fa-cog mr-2"></i>Orchestrator Settings
                 </h3>
-                <button onclick="hideOrchestratorSettings()" class="hover:opacity-75" style="color: var(--text-secondary);">
+                <button onclick="hideOrchestratorSettings()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
                     <i class="fas fa-times text-xl"></i>
                 </button>
             </div>
@@ -162,10 +149,10 @@
                 </div>
             </div>
             <div class="px-6 py-4 border-t flex justify-end space-x-3" style="border-color: var(--border-color);">
-                <button onclick="hideOrchestratorSettings()" class="btn-neutral-secondary">
+                <button onclick="hideOrchestratorSettings()" class="btn-neutral-secondary" title="Cancel changes">
                     Cancel
                 </button>
-                <button onclick="saveOrchestratorSettings()" class="btn-crud-create">
+                <button onclick="saveOrchestratorSettings()" class="btn-crud-create" title="Save orchestrator settings">
                     <i class="fas fa-save mr-1"></i>Save Changes
                 </button>
             </div>
@@ -185,7 +172,7 @@
             <h3 class="text-xl font-bold" style="color: var(--text-primary);">
                 <span id="jobDetailsIcon"><i class="fas fa-info-circle mr-2"></i></span><span id="jobDetailsTitle">Job Details</span>
             </h3>
-            <button onclick="closeJobDetailsModal()" class="hover:opacity-75" style="color: var(--text-secondary);">
+            <button onclick="closeJobDetailsModal()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
                 <i class="fas fa-times text-xl"></i>
             </button>
         </div>
@@ -194,7 +181,7 @@
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="mt-4 flex justify-end">
-                <button onclick="hideJobDetails()" class="btn-neutral-secondary">
+                <button onclick="hideJobDetails()" class="btn-neutral-secondary" title="Close job details">
                     Close
                 </button>
             </div>
@@ -209,7 +196,7 @@
             <h2 class="text-xl font-bold" style="color: var(--text-primary);">
                 <i class="fab fa-github mr-2"></i>GitHub API Rate Limits
             </h2>
-            <button onclick="hideGitHubRateLimits()" class="hover:opacity-75" style="color: var(--text-secondary);">
+            <button onclick="hideGitHubRateLimits()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
                 <i class="fas fa-times text-xl"></i>
             </button>
         </div>
@@ -218,7 +205,7 @@
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="mt-4 flex justify-end">
-                <button onclick="hideGitHubRateLimits()" class="btn-neutral-secondary">
+                <button onclick="hideGitHubRateLimits()" class="btn-neutral-secondary" title="Close rate limits">
                     Close
                 </button>
             </div>
@@ -236,7 +223,7 @@
                 </h3>
                 <p class="text-sm mt-1" style="color: var(--text-secondary);">Manage all log files in the ETL service directory</p>
             </div>
-            <button onclick="hideLogManagement()" class="hover:opacity-75" style="color: var(--text-secondary);">
+            <button onclick="hideLogManagement()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
                 <i class="fas fa-times text-xl"></i>
             </button>
         </div>
@@ -245,7 +232,7 @@
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="mt-4 flex justify-end">
-                <button onclick="hideLogManagement()" class="btn-neutral-secondary">
+                <button onclick="hideLogManagement()" class="btn-neutral-secondary" title="Close log management">
                     Close
                 </button>
             </div>
@@ -265,7 +252,7 @@
     }
 
     /* Status Classes */
-    .status-running { background-color: var(--status-success); color: white; }
+    .status-running { background-color: var(--crud-edit); color: white; }
     .status-pending { background-color: var(--color-1); color: white; }
     .status-finished { background-color: var(--neutral-tertiary); color: white; }
     .status-paused { background-color: var(--color-4); color: white; }
@@ -471,6 +458,24 @@
     /* Default icon background for unknown integration types */
     .default-icon-bg {
         background-color: rgba(107, 114, 128, 0.2) !important; /* Gray with opacity */
+    }
+
+    /* Orchestrator Control Buttons - Force Uniform Sizing */
+    #forceStartOrchestratorBtn,
+    #pauseOrchestratorBtn,
+    button[onclick="showLogManagement()"],
+    button[onclick="showOrchestratorSettings()"] {
+        width: 2.5rem !important;
+        height: 2.5rem !important;
+        min-width: 2.5rem !important;
+        min-height: 2.5rem !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 0.375rem !important;
+        font-size: 0.875rem !important;
+        box-sizing: border-box !important;
     }
 </style>
 
@@ -1012,7 +1017,6 @@
             }
 
             const data = await response.json();
-            console.log('[REFRESH] Job data received:', data);
             // New endpoint returns array of job cards directly
             updateJobCards(data);
             updateLastRefreshTime();
@@ -1048,7 +1052,10 @@
                     last_sync: jobCard.last_sync,
                     integration_type: jobCard.integration_type,
                     execution_order: jobCard.execution_order,
-                    active: jobCard.active
+                    active: jobCard.active,
+                    last_run_started_at: jobCard.last_run_started_at,
+                    last_success_at: jobCard.last_success_at,
+                    retry_count: jobCard.retry_count
                 };
                 const card = createJobCard(jobCard.job_name, jobData, jobsData);
                 container.appendChild(card);
@@ -1073,20 +1080,9 @@
     }
 
     function updateOrchestratorButtonState(jobsData) {
-        const orchestratorBtn = document.getElementById('forceStartOrchestratorBtn');
-        if (!orchestratorBtn) return;
-
-        const anyJobRunning = Object.values(jobsData).some(jobData => jobData.status === 'RUNNING');
-
-        if (anyJobRunning) {
-            orchestratorBtn.disabled = true;
-            orchestratorBtn.className = 'bg-gray-500 cursor-not-allowed text-white px-3 py-1 rounded text-sm font-medium';
-            orchestratorBtn.title = 'Cannot start orchestrator while jobs are running';
-        } else {
-            orchestratorBtn.disabled = false;
-            orchestratorBtn.className = 'btn-crud-edit-sm';
-            orchestratorBtn.title = '';
-        }
+        // This function is now handled by updateOrchestratorUI
+        // Just trigger a refresh of orchestrator status to update button states
+        refreshOrchestratorStatus();
     }
 
     function setupAutoRefresh() {
@@ -1220,11 +1216,11 @@
         let details = `
             <div class="space-y-3 text-sm" style="color: var(--text-secondary);">
                 <div class="flex justify-between">
-                    <span>Last Run:</span>
+                    <span>Last Run - Started At:</span>
                     <span>${jobData.last_run_started_at ? new Date(jobData.last_run_started_at).toLocaleString() : 'Never'}</span>
                 </div>
                 <div class="flex justify-between">
-                    <span>Last Success:</span>
+                    <span>Last Run - Finished At:</span>
                     <span>${jobData.last_success_at ? new Date(jobData.last_success_at).toLocaleString() : 'Never'}</span>
                 </div>
                 <div class="flex justify-between">
@@ -1321,14 +1317,14 @@
 
 
         // Determine button titles based on state
-        let forcePendingTitle = '';
+        let forcePendingTitle = 'Set job to pending';
         if (isInactive) {
             forcePendingTitle = 'Job is inactive - cannot be executed';
         } else if (!canActivateSafe && otherJobRunning) {
             forcePendingTitle = 'Cannot activate while another job is running';
         }
 
-        let pauseTitle = '';
+        let pauseTitle = canUnpause ? 'Resume job' : 'Pause job';
         if (isInactive) {
             pauseTitle = 'Job is inactive - cannot be controlled';
         } else if (!canPauseSafe && jobData.status === 'RUNNING') {
@@ -1340,7 +1336,7 @@
                     ${!canActivateSafe || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
-                <i class="fas fa-play"></i>
+                <i class="fas fa-clock"></i>
             </button>
             <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}', ${jobData.id})"
                     ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
@@ -1686,7 +1682,7 @@
         // Use dedicated status badge classes (non-interactive)
         switch (status) {
             // Database status values (uppercase) - use status badge classes
-            case 'RUNNING': return 'status-badge status-badge-running'; // Blue
+            case 'RUNNING': return 'status-badge status-badge-running'; // Blue (crud-edit)
             case 'PENDING': return 'status-badge status-badge-pending'; // Blue (color-1)
             case 'FINISHED': return 'status-badge status-badge-finished'; // Green
             case 'PAUSED': return 'status-badge status-badge-paused'; // Yellow/Amber
@@ -1726,7 +1722,7 @@
     function getStatusDotClass(status) {
         switch (status) {
             // Database status values (uppercase)
-            case 'RUNNING': return 'bg-green-500';
+            case 'RUNNING': return 'bg-blue-500';
             case 'PENDING': return 'status-dot-color-1';
             case 'FINISHED': return 'bg-gray-500';
             case 'PAUSED': return 'bg-orange-500';
@@ -1961,13 +1957,18 @@
 
 
     // Orchestrator Control Functions
+    let orchestratorStarting = false; // Prevent multiple simultaneous starts
+
     async function forceStartOrchestrator() {
         const button = event.target.closest('button');
 
-        if (button.disabled) {
-            console.warn('Cannot start orchestrator while jobs are running');
+        if (button.disabled || orchestratorStarting) {
+            console.warn('Cannot start orchestrator - already starting or jobs are running');
             return;
         }
+
+        // Set flag to prevent multiple simultaneous starts
+        orchestratorStarting = true;
 
         // Clear error messages for all jobs when starting orchestrator
         clearJobExceptions('Jira');
@@ -1976,7 +1977,7 @@
         const originalText = button.innerHTML;
 
         try {
-            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Starting...';
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             button.disabled = true;
 
 
@@ -1992,7 +1993,12 @@
 
             const result = await response.json();
             if (response.ok) {
-                setTimeout(refreshOrchestratorStatus, 1000);
+                console.log('Orchestrator started successfully');
+                // Refresh both job data and orchestrator status after a short delay
+                setTimeout(() => {
+                    refreshData();
+                    refreshOrchestratorStatus();
+                }, 1000);
             } else {
                 console.error(`Failed to start orchestrator: ${result.detail}`);
             }
@@ -2001,6 +2007,7 @@
         } finally {
             button.innerHTML = originalText;
             button.disabled = false;
+            orchestratorStarting = false; // Reset flag
         }
     }
 
@@ -2051,11 +2058,11 @@
     }
 
     async function toggleOrchestratorPause() {
-        // Get current status to determine action
-        const statusText = document.getElementById('orchestratorStatusText');
-        const currentStatus = statusText ? statusText.textContent.toLowerCase() : '';
+        // Get current status from the pause button to determine action
+        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+        const buttonTitle = pauseBtn ? pauseBtn.title.toLowerCase() : '';
 
-        if (currentStatus === 'paused') {
+        if (buttonTitle === 'resume') {
             await resumeOrchestrator();
         } else {
             await pauseOrchestrator();
@@ -2142,41 +2149,73 @@
 
     function updateOrchestratorUI(status) {
         const statusDot = document.getElementById('orchestratorStatusDot');
-        const statusText = document.getElementById('orchestratorStatusText');
         const pauseBtn = document.getElementById('pauseOrchestratorBtn');
-
-        if (statusText) {
-            statusText.textContent = status.status.charAt(0).toUpperCase() + status.status.slice(1);
-        }
+        const runNowBtn = document.getElementById('forceStartOrchestratorBtn');
+        const countdownTimer = document.getElementById('countdownTimer');
 
         if (statusDot) {
             // Update status dot color based on status
             statusDot.className = 'w-2 h-2 rounded-full ';
-            if (status.status === 'running') {
-                statusDot.className += 'bg-green-500';
-                if (pauseBtn) {
-                    pauseBtn.classList.remove('hidden');
-                    pauseBtn.className = 'btn-status-warning-sm';
-                    pauseBtn.innerHTML = '<i class="fas fa-pause mr-1"></i>Pause';
-                }
-                startCountdownTimer(status.next_run);
-            } else if (status.status === 'paused') {
+            if (status.status === 'paused') {
                 statusDot.className += 'bg-yellow-500';
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
                     pauseBtn.className = 'btn-status-success-sm';
-                    pauseBtn.innerHTML = '<i class="fas fa-play mr-1"></i>Resume';
+                    pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                    pauseBtn.title = 'Resume';
+                    pauseBtn.disabled = false;
+                }
+                if (runNowBtn) {
+                    runNowBtn.disabled = false;
+                    runNowBtn.className = 'action-icon-btn force-pending';
+                    runNowBtn.title = 'Run Now';
                 }
                 stopCountdownTimer();
             } else {
-                // Idle/finished - restart countdown for next scheduled run
-                statusDot.className += 'bg-gray-500';
+                // Active orchestrator - show green dot
+                statusDot.className += 'bg-green-500';
+
+                // Check if jobs are running to disable/enable buttons
+                const jobsRunning = status.any_job_running;
+
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
-                    pauseBtn.className = 'btn-status-warning-sm';
-                    pauseBtn.innerHTML = '<i class="fas fa-pause mr-1"></i>Pause';
+                    pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    pauseBtn.title = 'Pause';
+                    if (jobsRunning) {
+                        pauseBtn.disabled = true;
+                        pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
+                    } else {
+                        pauseBtn.disabled = false;
+                        pauseBtn.className = 'btn-status-warning-sm';
+                    }
                 }
-                startCountdownTimer(status.next_run);
+
+                if (runNowBtn) {
+                    if (jobsRunning) {
+                        runNowBtn.disabled = true;
+                        runNowBtn.className = 'action-icon-btn force-pending opacity-50 cursor-not-allowed';
+                        runNowBtn.title = 'Cannot run while jobs are running';
+                    } else {
+                        runNowBtn.disabled = false;
+                        runNowBtn.className = 'action-icon-btn force-pending';
+                        runNowBtn.title = 'Run Now';
+                    }
+                }
+
+                // Show/hide countdown based on whether jobs are running
+                if (status.show_countdown && status.next_run) {
+                    startCountdownTimer(status.next_run);
+                    if (countdownTimer) {
+                        countdownTimer.style.opacity = '1';
+                    }
+                } else {
+                    stopCountdownTimer();
+                    if (countdownTimer) {
+                        countdownTimer.style.opacity = '0.3';
+                        countdownTimer.textContent = 'Jobs running...';
+                    }
+                }
             }
         }
     }
@@ -2905,282 +2944,19 @@
     }
 
     function displayGitHubDetailsModal(summary) {
-        // Helper function to format numbers
-        function formatNumber(num) {
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toLocaleString();
-        }
+        // Set icon and title for GitHub
+        const jobIcon = document.getElementById('jobDetailsIcon');
+        const jobTitle = document.getElementById('jobDetailsTitle');
 
-        // Helper function to create status badge
-        function createStatusBadge(status) {
-            const statusColors = {
-                'COMPLETED': 'var(--status-success)',
-                'RUNNING': 'var(--status-info)',
-                'PENDING': 'var(--status-warning)',
-                'FAILED': 'var(--status-error)'
-            };
-            const color = statusColors[status] || 'var(--text-muted)';
-            return `<span class="px-2 py-1 rounded text-xs font-medium" style="background-color: ${color}; color: white;">${status}</span>`;
-        }
+        jobIcon.innerHTML = '<i class="fab fa-github mr-2"></i>';
+        jobTitle.textContent = 'GitHub Sync Job Details';
 
+        // Create GitHub-specific content with 4-row layout
         const content = `
-            <!-- First Row: 3 Equal Height Columns -->
-            <div class="grid grid-cols-3 gap-4 mb-4" style="min-height: 300px;">
-
-                <!-- Column 1: Repositories (Enhanced & Taller) -->
-                <div class="rounded-lg p-4 border flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                    <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
-                        <i class="fab fa-github mr-2"></i>Repositories
-                    </h3>
-
-                    <!-- Repository Counts -->
-                    <div class="grid grid-cols-3 gap-2 mb-4">
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--color-1);">${summary.repositories.total}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Total</div>
-                        </div>
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--status-success);">${summary.repositories.active}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Active</div>
-                        </div>
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--text-muted);">${summary.repositories.inactive}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
-                        </div>
-                    </div>
-
-                    <!-- Top 3 Languages (Smaller) -->
-                    <div class="mb-4">
-                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Top Languages</h4>
-                        <div class="space-y-1">
-                            ${summary.repositories.top_languages.map(lang => `
-                                <div class="flex justify-between items-center text-xs">
-                                    <span style="color: var(--text-secondary);">${lang.language}</span>
-                                    <span class="font-medium" style="color: var(--text-primary);">${lang.count}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-
-                    <!-- Top Repositories by PR Count -->
-                    <div class="flex-1">
-                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Top Repositories (by PRs)</h4>
-                        <div class="space-y-2">
-                            ${summary.repositories.top_repos.map(repo => `
-                                <div class="p-2 rounded border" style="background-color: var(--bg-primary); border-color: var(--border-color);">
-                                    <div class="text-sm font-medium" style="color: var(--text-primary);">${repo.repo}</div>
-                                    <div class="text-xs" style="color: var(--text-secondary);">${repo.pr_count} PRs</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Column 2: Pull Requests (Enhanced with Code Statistics) -->
-                <div class="rounded-lg p-4 border flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                    <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
-                        <i class="fas fa-code-branch mr-2"></i>Pull Requests
-                    </h3>
-
-                    <!-- PR Counts -->
-                    <div class="grid grid-cols-3 gap-2 mb-4">
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--color-1);">${summary.pull_requests.total}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Total</div>
-                        </div>
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--status-success);">${summary.pull_requests.active}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Active</div>
-                        </div>
-                        <div class="text-center">
-                            <div class="text-2xl font-bold" style="color: var(--text-muted);">${summary.pull_requests.inactive}</div>
-                            <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
-                        </div>
-                    </div>
-
-                    <!-- Code Statistics -->
-                    <div class="flex-1">
-                        <h4 class="text-sm font-medium mb-3" style="color: var(--text-primary);">Code Statistics</h4>
-                        <div class="space-y-3">
-                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--status-success-rgb), 0.1);">
-                                <span class="text-sm" style="color: var(--text-secondary);">
-                                    <i class="fas fa-plus mr-1" style="color: var(--status-success);"></i>Additions
-                                </span>
-                                <span class="font-bold" style="color: var(--status-success);">+${formatNumber(summary.pull_requests.total_additions)}</span>
-                            </div>
-                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--status-error-rgb), 0.1);">
-                                <span class="text-sm" style="color: var(--text-secondary);">
-                                    <i class="fas fa-minus mr-1" style="color: var(--status-error);"></i>Deletions
-                                </span>
-                                <span class="font-bold" style="color: var(--status-error);">-${formatNumber(summary.pull_requests.total_deletions)}</span>
-                            </div>
-                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--color-1-rgb), 0.1);">
-                                <span class="text-sm" style="color: var(--text-secondary);">
-                                    <i class="fas fa-file-alt mr-1" style="color: var(--color-1);"></i>Changed Files
-                                </span>
-                                <span class="font-bold" style="color: var(--color-1);">${formatNumber(summary.pull_requests.total_changed_files)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Column 3: Reviews, Commits, Comments (Stacked) -->
-                <div class="flex flex-col gap-2">
-                    <!-- Reviews -->
-                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
-                            <i class="fas fa-eye mr-2"></i>Reviews
-                        </h3>
-                        <div class="grid grid-cols-3 gap-1 text-center">
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.reviews.total}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.reviews.active}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.reviews.inactive}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Commits -->
-                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
-                            <i class="fas fa-code-commit mr-2"></i>Commits
-                        </h3>
-                        <div class="grid grid-cols-3 gap-1 text-center">
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.commits.total}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.commits.active}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.commits.inactive}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Comments -->
-                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
-                            <i class="fas fa-comments mr-2"></i>Comments
-                        </h3>
-                        <div class="grid grid-cols-3 gap-1 text-center">
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.comments.total}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.comments.active}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
-                            </div>
-                            <div>
-                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.comments.inactive}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Second Row: Recovery Information -->
-            ${summary.recovery && Object.keys(summary.recovery).length > 0 ? `
-            <div class="rounded-lg p-4 border mb-4" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
-                <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
-                    <i class="fas fa-redo mr-2"></i>Recovery Information
-                </h3>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <!-- Job Status -->
-                    <div>
-                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Job Status</h4>
-                        <div class="space-y-2">
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Status:</span>
-                                ${createStatusBadge(summary.recovery.job_status)}
-                            </div>
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Active:</span>
-                                <span style="color: ${summary.recovery.active ? 'var(--status-success)' : 'var(--status-error)'};">
-                                    ${summary.recovery.active ? 'Yes' : 'No'}
-                                </span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Last Started:</span>
-                                <span style="color: var(--text-primary);">
-                                    ${summary.recovery.last_run_started_at ? new Date(summary.recovery.last_run_started_at).toLocaleString() : 'Never'}
-                                </span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Last Success:</span>
-                                <span style="color: var(--text-primary);">
-                                    ${summary.recovery.last_success_at ? new Date(summary.recovery.last_success_at).toLocaleString() : 'Never'}
-                                </span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Next Run:</span>
-                                <span style="color: var(--text-primary);">
-                                    ${summary.recovery.next_run_at ? new Date(summary.recovery.next_run_at).toLocaleString() : 'Not scheduled'}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Recovery Cursors -->
-                    <div>
-                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Recovery Cursors</h4>
-                        <div class="space-y-2">
-                            <div class="flex justify-between">
-                                <span style="color: var(--text-secondary);">Active Cursors:</span>
-                                <span style="color: ${summary.recovery.has_active_cursors ? 'var(--status-warning)' : 'var(--status-success)'};">
-                                    ${summary.recovery.has_active_cursors ? 'Yes' : 'No'}
-                                </span>
-                            </div>
-                            ${summary.recovery.has_active_cursors ? `
-                                <button onclick="showCursorDetails(${JSON.stringify(summary.recovery.cursors).replace(/"/g, '&quot;')})"
-                                        class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
-                                    <i class="fas fa-eye mr-1"></i>View Details
-                                </button>
-                            ` : ''}
-                            ${summary.recovery.repo_processing_queue ? `
-                                <div class="mt-2">
-                                    <button onclick="showRepoQueue(${JSON.stringify(summary.recovery.repo_processing_queue).replace(/"/g, '&quot;')})"
-                                            class="text-xs px-2 py-1 rounded" style="background-color: var(--status-info); color: white;">
-                                        <i class="fas fa-list mr-1"></i>View Repo Queue
-                                    </button>
-                                </div>
-                            ` : ''}
-                            ${summary.recovery.error_message ? `
-                                <div class="mt-2 p-2 rounded" style="background-color: rgba(var(--status-error-rgb), 0.1);">
-                                    <div class="text-xs font-medium" style="color: var(--status-error);">Error:</div>
-                                    <div class="text-xs" style="color: var(--text-secondary);">${summary.recovery.error_message}</div>
-                                </div>
-                            ` : ''}
-                            ${summary.recovery.retry_count > 0 ? `
-                                <div class="flex justify-between">
-                                    <span style="color: var(--text-secondary);">Retry Count:</span>
-                                    <span style="color: var(--status-warning);">${summary.recovery.retry_count}</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            ` : ''}
-
-            <!-- Third Row: Rate Limits -->
-            <div class="rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+            <!-- Row 1: GitHub Rate Limits (Auto-displayed at top) -->
+            <div class="mb-4 rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
                 <div class="flex justify-between items-center mb-2">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
+                    <h3 class="text-md font-semibold" style="color: var(--text-primary);">
                         <i class="fas fa-tachometer-alt mr-2"></i>GitHub API Rate Limits
                     </h3>
                     <button onclick="loadGitHubRateLimitsInDetails()" class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
@@ -3189,23 +2965,359 @@
                 </div>
                 <div id="rateLimitsInDetails">
                     <div class="text-center py-2">
-                        <span style="color: var(--text-muted);">Click Refresh to load rate limits</span>
+                        <span style="color: var(--text-muted);">Loading rate limits...</span>
                     </div>
                 </div>
             </div>
+
+            <!-- Row 2: Repositories, Pull Requests, Reviews/Commits/Comments (Same Height) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4" style="min-height: 200px;">
+
+                <!-- Column 1: Repositories -->
+                <div class="rounded-lg p-3 border h-full flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fab fa-github mr-2"></i>Repositories
+                    </h3>
+                    <div class="space-y-1 text-sm flex-1">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.repositories?.total || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.repositories?.active || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.repositories?.inactive || 0}</span>
+                        </div>
+                        <div class="mt-2 pt-2 border-t" style="border-color: var(--border-color);">
+                            <div class="text-xs" style="color: var(--text-secondary);">Top Languages:</div>
+                            ${(summary.repositories?.top_languages || []).slice(0, 3).map(lang => `
+                                <div class="flex justify-between text-xs">
+                                    <span style="color: var(--text-muted);">${lang.language}:</span>
+                                    <span class="text-blue-600">${lang.count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 2: Pull Requests -->
+                <div class="rounded-lg p-3 border h-full flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
+                        <i class="fas fa-code-branch mr-2"></i>Pull Requests
+                    </h3>
+                    <div class="space-y-1 text-sm flex-1">
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Total:</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.pull_requests?.total || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Active:</span>
+                            <span class="font-medium text-green-600">${summary.pull_requests?.active || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span style="color: var(--text-secondary);">Inactive:</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.pull_requests?.inactive || 0}</span>
+                        </div>
+                        <div class="mt-2 pt-2 border-t" style="border-color: var(--border-color);">
+                            <div class="text-xs" style="color: var(--text-secondary);">Code Changes:</div>
+                            <div class="flex justify-between text-xs">
+                                <span style="color: var(--text-muted);">Additions:</span>
+                                <span class="text-green-600">+${(summary.pull_requests?.total_additions || 0).toLocaleString()}</span>
+                            </div>
+                            <div class="flex justify-between text-xs">
+                                <span style="color: var(--text-muted);">Deletions:</span>
+                                <span class="text-red-600">-${(summary.pull_requests?.total_deletions || 0).toLocaleString()}</span>
+                            </div>
+                            <div class="flex justify-between text-xs">
+                                <span style="color: var(--text-muted);">Files:</span>
+                                <span class="text-blue-600">${(summary.pull_requests?.total_changed_files || 0).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Reviews, Commits, Comments (Stacked) -->
+                <div class="h-full flex flex-col gap-2">
+                    <!-- Reviews -->
+                    <div class="rounded-lg p-2 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h4 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">
+                            <i class="fas fa-eye mr-1"></i>Reviews
+                        </h4>
+                        <div class="grid grid-cols-3 gap-1 text-center text-xs">
+                            <div>
+                                <div class="font-medium" style="color: var(--text-primary);">${summary.reviews?.total || 0}</div>
+                                <div style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="font-medium text-green-600">${summary.reviews?.active || 0}</div>
+                                <div style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="font-medium" style="color: var(--text-muted);">${summary.reviews?.inactive || 0}</div>
+                                <div style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Commits -->
+                    <div class="rounded-lg p-2 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h4 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">
+                            <i class="fas fa-code-commit mr-1"></i>Commits
+                        </h4>
+                        <div class="grid grid-cols-3 gap-1 text-center text-xs">
+                            <div>
+                                <div class="font-medium" style="color: var(--text-primary);">${summary.commits?.total || 0}</div>
+                                <div style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="font-medium text-green-600">${summary.commits?.active || 0}</div>
+                                <div style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="font-medium" style="color: var(--text-muted);">${summary.commits?.inactive || 0}</div>
+                                <div style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="rounded-lg p-2 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h4 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">
+                            <i class="fas fa-comments mr-1"></i>Comments
+                        </h4>
+                        <div class="grid grid-cols-3 gap-1 text-center text-xs">
+                            <div>
+                                <div class="font-medium" style="color: var(--text-primary);">${summary.comments?.total || 0}</div>
+                                <div style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="font-medium text-green-600">${summary.comments?.active || 0}</div>
+                                <div style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="font-medium" style="color: var(--text-muted);">${summary.comments?.inactive || 0}</div>
+                                <div style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Recovery Information (Full Width) -->
+            <div class="mb-4 rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+                    <i class="fas fa-redo mr-2"></i>Recovery Information
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Recovery State -->
+                    <div>
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Recovery State</h4>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Recovery Mode:</span>
+                                <span class="font-medium ${summary.recovery?.has_active_cursors ? 'text-yellow-600' : 'text-green-600'}">
+                                    ${summary.recovery?.has_active_cursors ? 'Active (Resuming)' : 'Normal (Fresh Start)'}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Retry Count:</span>
+                                <span class="font-medium ${(summary.recovery?.retry_count || 0) > 0 ? 'text-orange-600' : 'text-green-600'}">
+                                    ${summary.recovery?.retry_count || 0}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Execution Order:</span>
+                                <span style="color: var(--text-primary);">
+                                    ${summary.recovery?.execution_order || 'Unknown'}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Repo Sync Checkpoint:</span>
+                                <span style="color: var(--text-primary);">
+                                    ${summary.recovery?.last_repo_sync_checkpoint ? new Date(summary.recovery.last_repo_sync_checkpoint).toLocaleString() : 'None'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recovery Cursors & Queue -->
+                    <div>
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Recovery Cursors & Queue</h4>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Repositories in Queue:</span>
+                                <span class="font-medium" style="color: var(--text-primary);">
+                                    ${summary.recovery?.repo_processing_queue ? summary.recovery.repo_processing_queue.length : 0}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Current PR Node ID:</span>
+                                <span class="font-mono text-xs" style="color: var(--text-primary);">
+                                    ${summary.recovery?.current_pr_node_id ? summary.recovery.current_pr_node_id.substring(0, 12) + '...' : 'None'}
+                                </span>
+                            </div>
+                            ${summary.recovery?.has_active_cursors && summary.recovery?.cursors ? `
+                                <div class="mt-2">
+                                    <div class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Active Cursors:</div>
+                                    ${Object.entries(summary.recovery.cursors).slice(0, 3).map(([key, value]) => `
+                                        <div class="flex justify-between text-xs">
+                                            <span style="color: var(--text-secondary);">${key.replace(/_/g, ' ').replace(/cursor/gi, '').trim()}:</span>
+                                            <span class="font-mono" style="color: var(--text-primary);">${value ? value.substring(0, 10) + '...' : 'None'}</span>
+                                        </div>
+                                    `).join('')}
+                                    ${Object.keys(summary.recovery.cursors).length > 3 ? `<div class="text-xs" style="color: var(--text-muted);">+${Object.keys(summary.recovery.cursors).length - 3} more cursors</div>` : ''}
+                                </div>
+                            ` : '<div style="color: var(--text-muted);">No recovery cursors</div>'}
+                            ${summary.recovery?.error_message ? `
+                                <div class="mt-2 p-2 rounded" style="background-color: rgba(220, 38, 38, 0.1);">
+                                    <div class="text-xs font-medium text-red-600">Last Error:</div>
+                                    <div class="text-xs" style="color: var(--text-secondary);">${summary.recovery.error_message.substring(0, 100)}${summary.recovery.error_message.length > 100 ? '...' : ''}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 4: Repository Processing Queue with Filtering -->
+            ${summary.recovery?.repo_processing_queue && summary.recovery.repo_processing_queue.length > 0 ? `
+            <div class="rounded-lg border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                <div class="p-4 border-b" style="border-color: var(--border-color);">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
+                            <i class="fas fa-list mr-2"></i>Repository Processing Queue
+                        </h3>
+                        <div class="flex gap-2">
+                            <button onclick="filterRepoQueue('all')" class="repo-filter-btn active text-sm px-3 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                                All (${summary.recovery.repo_processing_queue.length})
+                            </button>
+                            <button onclick="filterRepoQueue('completed')" class="repo-filter-btn text-sm px-3 py-1 rounded" style="background-color: var(--text-muted); color: white;">
+                                Completed (${summary.recovery.repo_processing_queue.filter(r => r.status === 'completed').length})
+                            </button>
+                            <button onclick="filterRepoQueue('pending')" class="repo-filter-btn text-sm px-3 py-1 rounded" style="background-color: var(--text-muted); color: white;">
+                                Pending (${summary.recovery.repo_processing_queue.filter(r => r.status !== 'completed').length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-auto" style="max-height: 400px;">
+                    <table class="w-full">
+                        <thead class="sticky top-0" style="background-color: var(--bg-primary);">
+                            <tr class="border-b" style="border-color: var(--border-color);">
+                                <th class="text-left p-3 font-medium" style="color: var(--text-primary);">Repository</th>
+                                <th class="text-left p-3 font-medium" style="color: var(--text-primary);">Status</th>
+                                <th class="text-left p-3 font-medium" style="color: var(--text-primary);">Progress</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${summary.recovery.repo_processing_queue.map(repo => `
+                                <tr class="repo-row border-b hover:bg-opacity-50" data-status="${repo.status}" style="border-color: var(--border-color);">
+                                    <td class="p-3" style="color: var(--text-primary);">
+                                        <div class="font-medium">${repo.repository}</div>
+                                    </td>
+                                    <td class="p-3">
+                                        <span class="px-3 py-1 rounded text-sm font-medium ${repo.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                            ${repo.status.charAt(0).toUpperCase() + repo.status.slice(1)}
+                                        </span>
+                                    </td>
+                                    <td class="p-3" style="color: var(--text-secondary);">
+                                        ${repo.progress || 'N/A'}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            ` : `
+            <div class="rounded-lg border p-4 text-center" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                <h3 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">
+                    <i class="fas fa-list mr-2"></i>Repository Processing Queue
+                </h3>
+                <p style="color: var(--text-muted);">No repository processing queue data available</p>
+            </div>
+            `}
+
         `;
 
-        // Update modal title and content
-        document.getElementById('jobDetailsTitle').textContent = 'GitHub Details';
-        document.getElementById('jobDetailsIcon').innerHTML = '<i class="fab fa-github mr-2"></i>';
+        // Set the modal content
         document.getElementById('jobDetailsContent').innerHTML = content;
 
-        // Show modal with proper display
+        // Auto-load rate limits when modal opens
+        loadGitHubRateLimitsInDetails();
+
+        // Show modal with proper display (same as Jira modal)
         const modal = document.getElementById('jobDetailsModal');
         modal.style.display = 'flex';
         modal.style.alignItems = 'center';
         modal.style.justifyContent = 'center';
         modal.classList.remove('hidden');
+    }
+
+    // Function to load GitHub rate limits in the details modal
+    function loadGitHubRateLimitsInDetails() {
+        const rateLimitsDiv = document.getElementById('rateLimitsInDetails');
+        if (!rateLimitsDiv) return;
+
+        rateLimitsDiv.innerHTML = '<div class="text-center py-2"><span style="color: var(--text-muted);">Loading...</span></div>';
+
+        fetch('/api/v1/github/rate-limits')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    rateLimitsDiv.innerHTML = `<div class="text-center py-2 text-red-600">${data.error}</div>`;
+                    return;
+                }
+
+                const rateLimitsHtml = `
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div class="text-center">
+                            <div class="font-medium" style="color: var(--text-primary);">${data.core.remaining}/${data.core.limit}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Core API</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="font-medium" style="color: var(--text-primary);">${data.search.remaining}/${data.search.limit}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Search API</div>
+                        </div>
+                    </div>
+                `;
+                rateLimitsDiv.innerHTML = rateLimitsHtml;
+            })
+            .catch(error => {
+                console.error('Error loading rate limits:', error);
+                rateLimitsDiv.innerHTML = '<div class="text-center py-2 text-red-600">Failed to load rate limits</div>';
+            });
+    }
+
+    // Function to filter repository queue
+    function filterRepoQueue(status) {
+        const rows = document.querySelectorAll('.repo-row');
+        const buttons = document.querySelectorAll('.repo-filter-btn');
+
+        // Update button styles
+        buttons.forEach(btn => {
+            btn.classList.remove('active');
+            btn.style.backgroundColor = 'var(--text-muted)';
+        });
+        event.target.classList.add('active');
+        event.target.style.backgroundColor = 'var(--color-1)';
+
+        // Filter rows
+        rows.forEach(row => {
+            const rowStatus = row.getAttribute('data-status');
+            if (status === 'all') {
+                row.style.display = '';
+            } else if (status === 'completed' && rowStatus === 'completed') {
+                row.style.display = '';
+            } else if (status === 'pending' && rowStatus !== 'completed') {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
     }
 
     // Helper functions for GitHub modal
@@ -3438,14 +3550,11 @@
             const container = document.getElementById('rateLimitsInDetails');
             container.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</div>';
 
-            console.log('Fetching GitHub rate limits...');
             const response = await fetch('/api/v1/github/rate-limits', {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
                 }
             });
-
-            console.log('Rate limits response status:', response.status);
 
             if (response.ok) {
                 const rateLimits = await response.json();

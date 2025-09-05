@@ -571,7 +571,8 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(setting_key, client_id)
             );
         """)
 
@@ -598,7 +599,8 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(job_name, client_id)
             );
         """)
 

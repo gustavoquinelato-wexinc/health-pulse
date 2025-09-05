@@ -157,7 +157,7 @@ async def execute_github_extraction_session_free(
 
                 integration = session.query(Integration).filter(
                     Integration.client_id == client_id,
-                    func.upper(Integration.name) == 'GITHUB'
+                    func.upper(Integration.provider) == 'GITHUB'
                 ).first()
 
                 if not integration:
@@ -412,7 +412,7 @@ async def run_github_sync(
         else:
             # Fallback: Get by name and client_id (for backward compatibility)
             github_integration = session.query(Integration).filter(
-                func.upper(Integration.name) == "GITHUB",
+                func.upper(Integration.provider) == "GITHUB",
                 Integration.client_id == job_schedule.client_id
             ).first()
 
@@ -546,25 +546,26 @@ async def run_github_sync(
                 else:
                     logger.info("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
-                # Handle job status transitions based on Jira job status (only if update_job_schedule is True)
+                # Handle job status transitions using proper job sequencing (only if update_job_schedule is True)
                 if update_job_schedule:
-                    # SECURITY: Filter by client_id and active to prevent cross-client data access
-                    jira_job = session.query(JobSchedule).filter(
-                        func.lower(JobSchedule.job_name) == 'jira',
-                        JobSchedule.client_id == job_schedule.client_id,
-                        JobSchedule.active == True
-                    ).first()
+                    # Find next ready job using centralized logic
+                    from app.jobs.orchestrator import find_next_ready_job
+                    next_job = find_next_ready_job(session, job_schedule.client_id, job_schedule.execution_order)
 
-                    if jira_job and jira_job.status == 'PAUSED':
-                        # Jira is PAUSED: Keep GitHub as PENDING for next run
-                        job_schedule.status = 'PENDING'
-                        logger.info(f"   • Jira job is PAUSED - keeping GitHub job as PENDING")
-                    else:
-                        # Jira is not PAUSED: Set Jira to PENDING and GitHub to FINISHED
-                        if jira_job:
-                            jira_job.status = 'PENDING'
+                    if next_job:
+                        # Set next job to PENDING and current job to FINISHED
+                        next_job.status = 'PENDING'
+                        next_job.error_message = None
                         job_schedule.set_finished()
-                        logger.info(f"   • Jira job set to PENDING, GitHub job set to FINISHED")
+                        logger.info(f"   • Next ready job {next_job.job_name} set to PENDING, GitHub job set to FINISHED")
+
+                        # Store reference for scheduling logic
+                        jira_job = next_job if next_job.job_name.lower() == 'jira' else None
+                    else:
+                        # No next job found - keep GitHub as PENDING
+                        job_schedule.status = 'PENDING'
+                        logger.info(f"   • No next ready job found - keeping GitHub job as PENDING")
+                        jira_job = None
 
                         # Send status update that job is finished
                         await websocket_manager.send_status_update(
@@ -608,6 +609,8 @@ async def run_github_sync(
                 # Check if we set a next job and if it's a cycle restart
                 if update_job_schedule and jira_job:
                     # Re-query to check if next job is the first job (cycle restart)
+                    from app.core.database import get_database
+                    database = get_database()
                     with database.get_read_session_context() as check_session:
                         first_job = check_session.query(JobSchedule).filter(
                             JobSchedule.client_id == job_schedule.client_id,

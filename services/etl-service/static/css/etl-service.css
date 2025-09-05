@@ -203,7 +203,7 @@ body {
 
 /* Job Status Classes - Using Universal Colors for System States */
 .status-running {
-    background-color: var(--status-success);
+    background-color: var(--crud-edit);
     color: white;
 }
 
@@ -1321,7 +1321,7 @@ textarea:disabled {
 
 /* Dedicated Status Badge Classes - Non-interactive */
 .status-badge-running {
-    background-color: var(--status-success);
+    background-color: var(--crud-edit);
     color: white;
 }
 
@@ -1367,7 +1367,7 @@ textarea:disabled {
 /* Job Status Badges - Universal Colors for System States */
 .badge-running,
 .badge-active {
-    background-color: var(--status-success);
+    background-color: var(--crud-edit);
     color: white;
 }
 
