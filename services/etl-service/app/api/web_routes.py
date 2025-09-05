@@ -690,13 +690,13 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
 
             # Top 3 languages
             top_languages = session.query(
-                Repository.primary_language,
+                Repository.language,
                 func.count(Repository.id).label('count')
             ).filter(
                 Repository.client_id == user.client_id,
                 Repository.active == True,
-                Repository.primary_language.isnot(None)
-            ).group_by(Repository.primary_language).order_by(desc('count')).limit(3).all()
+                Repository.language.isnot(None)
+            ).group_by(Repository.language).order_by(desc('count')).limit(3).all()
 
             # Top 3 repositories by PR count
             top_repos = session.query(
