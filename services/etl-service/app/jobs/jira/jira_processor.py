@@ -39,6 +39,8 @@ class JiraDataProcessor:
             processed = {
                 'key': issue_data.get('key', None),
                 'summary': fields.get('summary', None),
+                'description': self._extract_description(fields.get('description')),
+                'acceptance_criteria': fields.get('customfield_10222', None),  # Acceptance criteria custom field
                 'created': self._parse_datetime(fields.get('created')),
                 'updated': self._parse_datetime(fields.get('updated')),
                 'work_first_started_at': None,  # Will be calculated from status transitions
@@ -134,6 +136,42 @@ class JiraDataProcessor:
         if isinstance(team_data, dict):
             return team_data.get('value', None)
         return str(team_data) if team_data else None
+
+    def _extract_description(self, description_obj) -> str:
+        """Extract plain text from Jira's description object (handles ADF format)."""
+        if not description_obj:
+            return None
+
+        # If it's already a string, return it
+        if isinstance(description_obj, str):
+            return description_obj
+
+        # Handle Atlassian Document Format (ADF)
+        if isinstance(description_obj, dict) and "content" in description_obj:
+            text_parts = []
+            for content in description_obj.get("content", []):
+                if content.get("type") == "paragraph":
+                    for item in content.get("content", []):
+                        if item.get("type") == "text":
+                            text_parts.append(item.get("text", ""))
+                elif content.get("type") == "codeBlock":
+                    # Handle code blocks
+                    for item in content.get("content", []):
+                        if item.get("type") == "text":
+                            text_parts.append(f"```\n{item.get('text', '')}\n```")
+                elif content.get("type") == "bulletList" or content.get("type") == "orderedList":
+                    # Handle lists
+                    for list_item in content.get("content", []):
+                        if list_item.get("type") == "listItem":
+                            for paragraph in list_item.get("content", []):
+                                if paragraph.get("type") == "paragraph":
+                                    for item in paragraph.get("content", []):
+                                        if item.get("type") == "text":
+                                            text_parts.append(f"• {item.get('text', '')}")
+            return "\n".join(text_parts) if text_parts else None
+
+        # Fallback to string conversion
+        return str(description_obj) if description_obj else None
     
     def _extract_parent_id(self, parent_data: Dict) -> str:
         """Extract parent issue ID from Jira parent object."""
