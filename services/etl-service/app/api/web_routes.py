@@ -658,6 +658,9 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 async def get_github_summary(user: UserData = Depends(require_admin_authentication)):
     """Get GitHub data summary for the details modal"""
     try:
+        from app.core.database import get_database
+
+        database = get_database()
         with database.get_read_session_context() as session:
             from app.models.unified_models import (
                 Repository, PullRequest, Review, Commit, Comment,
