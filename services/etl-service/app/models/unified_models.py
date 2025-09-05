@@ -277,6 +277,8 @@ class Issue(Base, IntegrationBaseEntity):
     project_id = Column(Integer, ForeignKey('projects.id'), quote=False, name="project_id")
     team = Column(String, quote=False, name="team")
     summary = Column(String, quote=False, name="summary")
+    description = Column(Text, quote=False, name="description")
+    acceptance_criteria = Column(Text, quote=False, name="acceptance_criteria")
     issuetype_id = Column(Integer, ForeignKey('issuetypes.id'), quote=False, name="issuetype_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
     resolution = Column(String, quote=False, name="resolution")

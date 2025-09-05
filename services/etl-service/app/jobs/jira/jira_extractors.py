@@ -848,11 +848,16 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         job_logger.progress(f"[LOADED] Reference data: {len(statuses_dict)} statuses, {len(issuetypes_dict)} issuetypes, {len(projects_dict)} projects")
 
         # Fetch recently updated issues
-        # Use start_date parameter if provided, otherwise fall back to integration.last_sync_at
+        # Use start_date parameter if provided, otherwise fall back to job_schedule.last_success_at
         if start_date:
             last_sync = start_date
         else:
-            last_sync = integration.last_sync_at or datetime.now() - timedelta(days=30)
+            # Get job_schedule from session to access last_success_at
+            from app.models.unified_models import JobSchedule
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.integration_id == integration.id
+            ).first()
+            last_sync = (job_schedule.last_success_at if job_schedule else None) or datetime.now() - timedelta(days=30)
 
         # Format datetime for Jira JQL (use relative date format for API v3 compatibility)
         from datetime import datetime, timedelta, timezone
@@ -932,14 +937,20 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if not all_issues:
             job_logger.warning("No issues found for the given criteria")
 
-            # Update integration.last_sync_at even when no issues found (to prevent re-processing same time range)
+            # Update job_schedule.last_success_at even when no issues found (to prevent re-processing same time range)
             if update_sync_timestamp:
                 truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-                integration.last_sync_at = truncated_start_time
-                session.commit()
-                job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+                # Get job_schedule from session to update last_success_at
+                from app.models.unified_models import JobSchedule
+                job_schedule = session.query(JobSchedule).filter(
+                    JobSchedule.integration_id == integration.id
+                ).first()
+                if job_schedule:
+                    job_schedule.last_success_at = truncated_start_time
+                    session.commit()
+                    job_logger.progress(f"[SYNC_TIME] Updated job_schedule last_success_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
             else:
-                job_logger.progress("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
+                job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
             return {'success': True, 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': []}
 

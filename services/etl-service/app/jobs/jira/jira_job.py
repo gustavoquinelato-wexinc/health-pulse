@@ -689,11 +689,11 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
 
         # Get recently updated issues with code changes (since last sync)
         recent_code_changed_issues = []
-        if integration.last_sync_at:
+        if job_schedule.last_success_at:
             recent_code_changed_issues = session.query(Issue.key).filter(
                 Issue.integration_id == integration.id,
                 Issue.code_changed == True,
-                Issue.last_updated_at > integration.last_sync_at
+                Issue.last_updated_at > job_schedule.last_success_at
             ).all()
 
         recent_keys = {issue.key for issue in recent_code_changed_issues}
