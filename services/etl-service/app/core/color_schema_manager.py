@@ -90,7 +90,7 @@ class ColorSchemaManager:
             # Reset circuit breaker
             self.circuit_opened_at = None
             self.failure_count = 0
-            logger.info("🔄 Circuit breaker reset - attempting color schema fetch")
+            logger.info("Circuit breaker reset - attempting color schema fetch")
             return False
         
         return True
@@ -100,7 +100,7 @@ class ColorSchemaManager:
         self.failure_count = 0
         self.circuit_opened_at = None
         self.last_fetch_time = time.time()
-        logger.debug("✅ Color schema fetch successful")
+        logger.debug("Color schema fetch successful")
     
     def record_failure(self):
         """Record failed fetch and potentially open circuit"""
@@ -109,9 +109,9 @@ class ColorSchemaManager:
         
         if self.failure_count >= self.max_failures:
             self.circuit_opened_at = time.time()
-            logger.warning(f"🚨 Circuit breaker opened after {self.failure_count} failures")
+            logger.warning(f"Circuit breaker opened after {self.failure_count} failures")
         else:
-            logger.warning(f"⚠️ Color schema fetch failed ({self.failure_count}/{self.max_failures})")
+            logger.warning(f"Color schema fetch failed ({self.failure_count}/{self.max_failures})")
     
     async def fetch_from_backend(self, auth_token: str) -> Optional[Dict[str, Any]]:
         """Fetch color schema from backend service with enhanced color support"""
@@ -201,8 +201,8 @@ class ColorSchemaManager:
                         color_data = data.get("color_data", [])
                         color_schema_mode = data.get("color_schema_mode", "default")
 
-                        logger.debug(f"🎨 ETL Color Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
-                        logger.debug(f"🎨 ETL Color Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
+                        logger.debug(f"ETL Color Debug: client_color_schema_mode={color_schema_mode}, theme_mode={theme_mode}")
+                        logger.debug(f"ETL Color Debug: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
 
                         # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
                         light_regular = next((c for c in color_data if
@@ -214,7 +214,7 @@ class ColorSchemaManager:
                                            c.get('theme_mode') == 'dark' and
                                            c.get('accessibility_level') == 'regular'), None)
 
-                        logger.debug(f"🎨 ETL Color Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
+                        logger.debug(f"ETL Color Debug: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
 
                         # Use colors based on current theme
                         current_colors = light_regular if theme_mode == 'light' else dark_regular
@@ -283,7 +283,7 @@ class ColorSchemaManager:
 
         # Use cache if valid and not forced refresh
         if not force_refresh and self.is_cache_valid(user_id):
-            logger.debug(f"📋 Using cached color schema for user {user_id}")
+            logger.debug(f"Using cached color schema for user {user_id}")
             return self.user_caches[user_id]['schema']
         
         # Get user's cached data if available
@@ -293,17 +293,17 @@ class ColorSchemaManager:
 
         # Check rate limiting (anti-infinite-loop) - but allow fresh fetch if no cached data
         if not force_refresh and self.is_rate_limited() and user_cached_schema:
-            logger.debug(f"⏱️ Rate limited - using cached schema for user {user_id}")
+            logger.debug(f"Rate limited - using cached schema for user {user_id}")
             return user_cached_schema
 
         # Check circuit breaker - but allow fresh fetch if no cached data
         if self.is_circuit_open() and user_cached_schema:
-            logger.debug(f"🚨 Circuit breaker open - using cached schema for user {user_id}")
+            logger.debug(f"Circuit breaker open - using cached schema for user {user_id}")
             return user_cached_schema
 
         # Try to fetch fresh data
         if auth_token:
-            logger.debug(f"🔄 Fetching fresh color schema from backend for user {user_id}")
+            logger.debug(f"Fetching fresh color schema from backend for user {user_id}")
             fresh_schema = await self.fetch_from_backend(auth_token)
 
             if fresh_schema:
@@ -313,16 +313,16 @@ class ColorSchemaManager:
                     'last_fetch_time': time.time()
                 }
                 self.record_success()
-                logger.info(f"✅ Color schema updated from backend for user {user_id}")
+                logger.info(f"Color schema updated from backend for user {user_id}")
                 return fresh_schema
             else:
                 self.record_failure()
         else:
-            logger.debug("🔑 No auth token provided - using cached or default schema")
+            logger.debug("No auth token provided - using cached or default schema")
 
         # Fallback to cached data or default
         fallback = user_cached_schema or self.default_schema
-        logger.debug(f"📋 Using fallback color schema for user {user_id}")
+        logger.debug(f"Using fallback color schema for user {user_id}")
         return fallback
     
     def cleanup_expired_caches(self):
@@ -337,10 +337,10 @@ class ColorSchemaManager:
 
         for user_id in expired_users:
             del self.user_caches[user_id]
-            logger.debug(f"🧹 Removed expired cache for user {user_id}")
+            logger.debug(f"Removed expired cache for user {user_id}")
 
         if expired_users:
-            logger.info(f"🧹 Cleaned up {len(expired_users)} expired user caches")
+            logger.info(f"Cleaned up {len(expired_users)} expired user caches")
 
         self.last_cleanup_time = current_time
 
@@ -359,9 +359,9 @@ class ColorSchemaManager:
         for i in range(users_to_remove):
             user_id = sorted_users[i][0]
             del self.user_caches[user_id]
-            logger.debug(f"🧹 Removed cache for user {user_id} (cache limit)")
+            logger.debug(f"Removed cache for user {user_id} (cache limit)")
 
-        logger.info(f"🧹 Enforced cache limit: removed {users_to_remove} oldest user caches")
+        logger.info(f"Enforced cache limit: removed {users_to_remove} oldest user caches")
 
     def perform_cache_maintenance(self):
         """Perform periodic cache maintenance"""
@@ -380,11 +380,11 @@ class ColorSchemaManager:
             # Invalidate specific user's cache
             if user_id in self.user_caches:
                 del self.user_caches[user_id]
-                logger.info(f"🗑️ Color schema cache invalidated for user {user_id}")
+                logger.info(f"Color schema cache invalidated for user {user_id}")
         else:
             # Invalidate all user caches
             self.user_caches.clear()
-            logger.info("🗑️ All color schema caches invalidated")
+            logger.info("All color schema caches invalidated")
     
     def get_cache_info(self, user_id: str = "default") -> Dict[str, Any]:
         """Get cache status information for debugging"""

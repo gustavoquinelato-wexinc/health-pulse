@@ -812,7 +812,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
         return {'statuses_processed': 0, 'relationships_processed': 0}
 
 
-async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None) -> Dict[str, Any]:
+async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None, job_schedule=None) -> Dict[str, Any]:
     """Extract and process Jira work items and their changelogs together using bulk operations with batching for performance.
 
     Returns:
@@ -824,9 +824,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
     try:
         processor = JiraDataProcessor(session, integration)
 
-        # Capture extraction start time (to be saved at the end) - using server local time
+        # Capture extraction start time (to be saved at the end) - using configured timezone
         from datetime import datetime
-        extraction_start_time = datetime.now()
+        from app.core.utils import DateTimeHelper
+        extraction_start_time = DateTimeHelper.now_default()
         job_logger.progress(f"[STARTING] Extraction started at: {extraction_start_time.strftime('%Y-%m-%d %H:%M')}")
 
         # Load all reference data in single queries
@@ -846,12 +847,31 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         job_logger.progress(f"[LOADED] Reference data: {len(statuses_dict)} statuses, {len(issuetypes_dict)} issuetypes, {len(projects_dict)} projects")
 
+        # Use passed job_schedule parameter or query for it if not provided
+        if job_schedule is None:
+            # Get job_schedule from session to access last_success_at
+            from app.models.unified_models import JobSchedule
+            # Try to find job_schedule by integration_id first, then fall back to job_name + client_id
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.integration_id == integration.id
+            ).first()
+
+            if job_schedule is None:
+                # Fallback: Find by job_name and client_id (more common pattern)
+                job_schedule = session.query(JobSchedule).filter(
+                    JobSchedule.job_name.ilike('jira%'),  # Case-insensitive match for 'jira' or 'Jira'
+                    JobSchedule.client_id == integration.client_id
+                ).first()
+
+            if job_schedule is None:
+                job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or client_id {integration.client_id} with jira job name")
+
         # Fetch recently updated issues
-        # Use start_date parameter if provided, otherwise fall back to integration.last_sync_at
+        # Use start_date parameter if provided, otherwise fall back to job_schedule.last_success_at
         if start_date:
             last_sync = start_date
         else:
-            last_sync = integration.last_sync_at or datetime.now() - timedelta(days=30)
+            last_sync = (job_schedule.last_success_at if job_schedule else None) or datetime.now() - timedelta(days=30)
 
         # Format datetime for Jira JQL (use relative date format for API v3 compatibility)
         from datetime import datetime, timedelta, timezone
@@ -931,14 +951,36 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if not all_issues:
             job_logger.warning("No issues found for the given criteria")
 
-            # Update integration.last_sync_at even when no issues found (to prevent re-processing same time range)
+            # Update job_schedule.last_success_at even when no issues found (to prevent re-processing same time range)
             if update_sync_timestamp:
                 truncated_start_time = extraction_start_time.replace(second=0, microsecond=0)
-                integration.last_sync_at = truncated_start_time
-                session.commit()
-                job_logger.progress(f"[SYNC_TIME] Updated integration last_sync_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+                # Get job_schedule from session to update last_success_at (or reuse if already fetched)
+                if job_schedule is None:
+                    from app.models.unified_models import JobSchedule
+                    # Try to find job_schedule by integration_id first, then fall back to job_name + client_id
+                    job_schedule = session.query(JobSchedule).filter(
+                        JobSchedule.integration_id == integration.id
+                    ).first()
+
+                    if job_schedule is None:
+                        # Fallback: Find by job_name and client_id (more common pattern)
+                        job_schedule = session.query(JobSchedule).filter(
+                            JobSchedule.job_name.ilike('jira%'),  # Case-insensitive match for 'jira' or 'Jira'
+                            JobSchedule.client_id == integration.client_id
+                        ).first()
+
+                if job_schedule is not None:
+                    try:
+                        job_schedule.last_success_at = truncated_start_time
+                        session.commit()
+                        job_logger.progress(f"[SYNC_TIME] Updated job_schedule last_success_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
+                    except Exception as e:
+                        job_logger.error(f"[SYNC_TIME] Error updating job_schedule last_success_at: {e}")
+                        session.rollback()
+                else:
+                    job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or client_id {integration.client_id} - skipping timestamp update")
             else:
-                job_logger.progress("[SYNC_TIME] Skipped updating integration last_sync_at (test mode)")
+                job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
             return {'success': True, 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': []}
 
@@ -1879,7 +1921,8 @@ async def extract_work_items_and_changelogs_session_free(
 
     try:
         database = get_database()
-        extraction_start_time = datetime.utcnow()
+        from app.core.utils import DateTimeHelper
+        extraction_start_time = DateTimeHelper.now_default()
 
         # Get integration details with a quick session
         with database.get_read_session_context() as session:

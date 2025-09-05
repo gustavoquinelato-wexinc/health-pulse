@@ -194,7 +194,6 @@ def apply(connection):
                 base_url TEXT,
                 base_search VARCHAR,
                 model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
-                last_sync_at TIMESTAMP WITH TIME ZONE, -- Last successful sync timestamp
 
                 -- JSON configuration columns for complex settings
                 model_config JSONB DEFAULT '{}', -- AI model configuration
@@ -358,6 +357,8 @@ def apply(connection):
                 project_id INTEGER,
                 team VARCHAR,
                 summary VARCHAR,
+                description TEXT,
+                acceptance_criteria TEXT,
                 issuetype_id INTEGER,
                 status_id INTEGER,
                 resolution VARCHAR,
@@ -570,7 +571,8 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(setting_key, client_id)
             );
         """)
 
@@ -597,7 +599,8 @@ def apply(connection):
                 client_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(job_name, client_id)
             );
         """)
 

@@ -26,7 +26,7 @@ async def get_scheduler_status():
         # This is a placeholder implementation
         
         scheduler_status = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "scheduler": {
                 "running": True,  # TODO: Get from actual scheduler
                 "state": "running",

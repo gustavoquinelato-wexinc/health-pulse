@@ -81,7 +81,8 @@ async def execute_jira_extraction_by_mode(
             result = await extract_work_items_and_changelogs(
                 session, jira_client, jira_integration, job_logger,
                 websocket_manager=websocket_manager,
-                update_sync_timestamp=update_sync_timestamp
+                update_sync_timestamp=update_sync_timestamp,
+                job_schedule=job_schedule
             )
             return {'success': True, **result}
 
@@ -135,7 +136,7 @@ async def execute_jira_extraction_session_free(
 
                 integration = session.query(Integration).filter(
                     Integration.client_id == client_id,
-                    func.upper(Integration.name) == 'JIRA'
+                    func.upper(Integration.provider) == 'JIRA'
                 ).first()
 
                 if not integration:
@@ -317,7 +318,8 @@ async def extract_jira_custom_query(session, jira_integration, jira_client, job_
                 session, jira_client, jira_integration, job_logger,
                 start_date=None,  # Not used with custom query
                 websocket_manager=websocket_manager,
-                update_sync_timestamp=update_sync_timestamp
+                update_sync_timestamp=update_sync_timestamp,
+                job_schedule=job_schedule
             )
 
             logger.info(f"Custom query extraction completed: {result.get('issues_processed', 0)} issues processed")
@@ -381,7 +383,7 @@ async def run_jira_sync(
         else:
             # Fallback: Get by name and client_id (for backward compatibility)
             jira_integration = session.query(Integration).filter(
-                func.upper(Integration.name) == "JIRA",
+                func.upper(Integration.provider) == "JIRA",
                 Integration.client_id == job_schedule.client_id
             ).first()
 
@@ -444,32 +446,39 @@ async def run_jira_sync(
                 job_schedule.set_finished()
                 logger.info(f"Jira sync job completed successfully")
 
-                # Find next job in execution order
-                next_job = fresh_session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True,
-                    JobSchedule.execution_order > current_order
-                ).order_by(JobSchedule.execution_order.asc()).first()
+                # Find next ready job (skips paused jobs)
+                from app.jobs.orchestrator import find_next_ready_job
+                next_job = find_next_ready_job(fresh_session, client_id, current_order)
 
-                if next_job:
-                    next_job.status = 'PENDING'
-                    logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-                else:
-                    # No next job, cycle back to first job
-                    first_job = fresh_session.query(JobSchedule).filter(
-                        JobSchedule.client_id == client_id,
-                        JobSchedule.active == True
-                    ).order_by(JobSchedule.execution_order.asc()).first()
-
-                    if first_job and first_job.id != job_schedule_id:
-                        first_job.status = 'PENDING'
-                        logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
-
-                # Reset retry attempts and restore normal schedule on success
+                # Reset retry attempts first
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
                 orchestrator_scheduler.reset_retry_attempts('Jira')
-                orchestrator_scheduler.restore_normal_schedule()
+
+                if next_job:
+                    next_job.status = 'PENDING'
+                    logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+
+                    # Check if this is cycling back to the first job (restart)
+                    first_job = fresh_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('Jira')
+                else:
+                    # No next job - restore normal schedule
+                    orchestrator_scheduler.restore_normal_schedule()
 
                 # Send status update that job is finished
                 from app.core.websocket_manager import get_websocket_manager
@@ -643,14 +652,14 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             else:
                 # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                 from datetime import timedelta
-                start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                 logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
         # Start the extraction with periodic progress updates
         await websocket_manager.send_progress_update("Jira", 35.0, "Starting issue and changelog processing...")
 
         # Run the extraction (progress updates are handled within the extractors)
-        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager)
+        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager, job_schedule=job_schedule)
 
         if not issues_result['success']:
             return {
@@ -682,11 +691,11 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
 
         # Get recently updated issues with code changes (since last sync)
         recent_code_changed_issues = []
-        if integration.last_sync_at:
+        if job_schedule.last_success_at:
             recent_code_changed_issues = session.query(Issue.key).filter(
                 Issue.integration_id == integration.id,
                 Issue.code_changed == True,
-                Issue.last_updated_at > integration.last_sync_at
+                Issue.last_updated_at > job_schedule.last_success_at
             ).all()
 
         recent_keys = {issue.key for issue in recent_code_changed_issues}

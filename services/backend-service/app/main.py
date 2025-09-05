@@ -176,8 +176,14 @@ async def lifespan(_: FastAPI):
         # Backend Service - No scheduler needed
 
         # Clear all user sessions on startup for security
-        # This happens regardless of DEBUG mode for consistent security behavior
-        await clear_all_user_sessions()
+        # Skip in development mode to prevent authentication loops during frequent restarts
+        from app.core.config import get_settings
+        settings = get_settings()
+        if not settings.DEBUG:
+            await clear_all_user_sessions()
+            logger.info("Session clearing enabled (production mode)")
+        else:
+            logger.info("Session clearing disabled (development mode - DEBUG=True)")
 
         logger.info("Backend Service started successfully")
         yield

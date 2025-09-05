@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=False, env="DEBUG")
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
 
+    # Timezone Configuration
+    DEFAULT_TIMEZONE: str = Field(default="UTC", env="DEFAULT_TIMEZONE")
+
     # API Settings
     API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
     HOST: str = Field(default="0.0.0.0", env="BACKEND_HOST")

@@ -32,6 +32,40 @@ import asyncio
 logger = get_logger(__name__)
 
 
+def find_next_ready_job(session: Session, client_id: int, current_order: int) -> JobSchedule:
+    """
+    Find the next ready job in execution order that's not paused.
+
+    Args:
+        session: Database session
+        client_id: Client ID for security filtering
+        current_order: Current job's execution order
+
+    Returns:
+        Next ready JobSchedule or None if no ready jobs found
+    """
+    # First, try to find next job after current order that's ready to run
+    next_job = session.query(JobSchedule).filter(
+        JobSchedule.client_id == client_id,
+        JobSchedule.active == True,
+        JobSchedule.status != 'PAUSED',  # Skip paused jobs
+        JobSchedule.execution_order > current_order
+    ).order_by(JobSchedule.execution_order.asc()).first()
+
+    if next_job:
+        return next_job
+
+    # If no next job, cycle back to first ready job (excluding current)
+    first_job = session.query(JobSchedule).filter(
+        JobSchedule.client_id == client_id,
+        JobSchedule.active == True,
+        JobSchedule.status != 'PAUSED',  # Skip paused jobs
+        JobSchedule.execution_order != current_order  # Exclude current job
+    ).order_by(JobSchedule.execution_order.asc()).first()
+
+    return first_job
+
+
 def check_integration_active(job_schedule_id: int) -> dict:
     """
     Check if the integration associated with a job schedule is active.
@@ -119,32 +153,22 @@ def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: st
 
             logger.info(f"Job {job_schedule.job_name} marked as FINISHED due to inactive integration")
 
-            # Find the next job in sequence
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == job_schedule.client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > job_schedule.execution_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, job_schedule.client_id, job_schedule.execution_order)
 
             if next_job:
                 # Set next job as pending
                 next_job.status = 'PENDING'
                 next_job.error_message = None
-                logger.info(f"Next job {next_job.job_name} set to PENDING")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == job_schedule.client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule.id:
-                    first_job.status = 'PENDING'
-                    first_job.error_message = None
-                    logger.info(f"Cycling back to first job {first_job.job_name} set to PENDING")
+                logger.info(f"Next ready job {next_job.job_name} set to PENDING")
 
             session.commit()
             logger.info(f"Successfully skipped job {job_schedule.job_name} and set next job as pending")
+
+        # Schedule orchestrator restart to process the next job
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.schedule_fast_retry(job_schedule.job_name)
 
     except Exception as e:
         logger.error(f"Error skipping job due to inactive integration: {e}")
@@ -467,7 +491,7 @@ async def run_orchestrator_for_client(client_id: int):
     try:
         database = get_database()
 
-        # Step 1: Quick check for pending jobs for this client
+        # Step 2: Quick check for pending jobs for this client
         pending_job_id = None
         pending_job_name = None
 
@@ -483,7 +507,7 @@ async def run_orchestrator_for_client(client_id: int):
             ).order_by(JobSchedule.execution_order.asc()).first()
 
             if not result:
-                logger.info(f"INFO: No PENDING jobs found for client {client_id}, orchestrator exiting")
+                logger.info(f"INFO: No PENDING jobs found for client {client_id}")
                 return
 
             pending_job_id, pending_job_name = result.id, result.job_name
@@ -498,7 +522,7 @@ async def run_orchestrator_for_client(client_id: int):
                 JobSchedule.status == 'PENDING'  # Double-check it's still pending
             ).update({
                 'status': 'RUNNING',
-                'last_run_started_at': DateTimeHelper.now_utc(),
+                'last_run_started_at': DateTimeHelper.now_default(),
                 'error_message': None
             })
 
@@ -549,13 +573,18 @@ async def run_orchestrator_for_client(client_id: int):
                     JobSchedule.id == pending_job_id
                 ).update({'status': 'PENDING'})
                 session.commit()
+
+            # Schedule orchestrator restart to retry the job
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.schedule_fast_retry(pending_job_name)
             return
 
         logger.info(f"SUCCESS: Orchestrator completed - {pending_job_name} job triggered")
 
         # Yield control to allow other async operations
         await asyncio.sleep(0)
-            
+
     except Exception as e:
         logger.error(f"ERROR: Orchestrator error: {e}")
         import traceback
@@ -706,12 +735,12 @@ async def run_fabric_sync_async(job_schedule_id: int):
                 else:
                     # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                     logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
-                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                job_schedule.last_run_started_at = DateTimeHelper.now_default()
                 session.commit()
                 logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
 
@@ -734,28 +763,41 @@ async def run_fabric_sync_async(job_schedule_id: int):
             job_schedule.set_finished()
             logger.info(f"WEX Fabric sync job completed successfully")
 
-            # Find next job in execution order
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > current_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, client_id, current_order)
 
             if next_job:
                 next_job.status = 'PENDING'
-                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule_id:
-                    first_job.status = 'PENDING'
-                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
 
             session.commit()
+
+            # Handle orchestrator scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('WEX Fabric')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
 
     except Exception as e:
         logger.error(f"WEX Fabric sync job error: {e}")
@@ -811,12 +853,12 @@ async def run_ad_sync_async(job_schedule_id: int):
                 else:
                     # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                     logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
-                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                job_schedule.last_run_started_at = DateTimeHelper.now_default()
                 session.commit()
                 logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
 
@@ -839,28 +881,41 @@ async def run_ad_sync_async(job_schedule_id: int):
             job_schedule.set_finished()
             logger.info(f"Active Directory sync job completed successfully")
 
-            # Find next job in execution order
-            next_job = session.query(JobSchedule).filter(
-                JobSchedule.client_id == client_id,
-                JobSchedule.active == True,
-                JobSchedule.execution_order > current_order
-            ).order_by(JobSchedule.execution_order.asc()).first()
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, client_id, current_order)
 
             if next_job:
                 next_job.status = 'PENDING'
-                logger.info(f"Set next job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-            else:
-                # No next job, cycle back to first job
-                first_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == client_id,
-                    JobSchedule.active == True
-                ).order_by(JobSchedule.execution_order.asc()).first()
-
-                if first_job and first_job.id != job_schedule_id:
-                    first_job.status = 'PENDING'
-                    logger.info(f"Cycling back to first job: {first_job.job_name} (order: {first_job.execution_order})")
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
 
             session.commit()
+
+            # Handle orchestrator scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.client_id == client_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('Active Directory')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
 
     except Exception as e:
         logger.error(f"Active Directory sync job error: {e}")
@@ -1072,12 +1127,12 @@ def initialize_job_schedules_for_client(client_id: int):
 
             # SECURITY: Get integrations for this specific client
             jira_integration = session.query(Integration).filter(
-                Integration.name.ilike('JIRA'),
+                Integration.provider.ilike('JIRA'),
                 Integration.client_id == client_id
             ).first()
 
             github_integration = session.query(Integration).filter(
-                Integration.name.ilike('GITHUB'),
+                Integration.provider.ilike('GITHUB'),
                 Integration.client_id == client_id
             ).first()
 

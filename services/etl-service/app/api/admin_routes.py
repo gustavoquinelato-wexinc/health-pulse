@@ -283,7 +283,7 @@ async def get_integrations(
             # ✅ SECURITY: Filter by client_id to prevent cross-client data access
             integrations = session.query(Integration).filter(
                 Integration.client_id == user.client_id
-            ).order_by(Integration.name).all()
+            ).order_by(Integration.provider).all()
 
             # Get last sync info from job_schedules for each integration
             integration_responses = []
@@ -1901,7 +1901,7 @@ async def get_issuetype_mappings(
                 IssuetypeHierarchy.level_name.label('hierarchy_name'),
                 IssuetypeHierarchy.level_number.label('hierarchy_level'),
                 IssuetypeHierarchy.description.label('hierarchy_description'),
-                Integration.name.label('integration_name')
+                Integration.provider.label('integration_name')
             ).join(
                 IssuetypeHierarchy, IssuetypeMapping.issuetype_hierarchy_id == IssuetypeHierarchy.id
             ).outerjoin(
@@ -2441,7 +2441,7 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
 
             hierarchies = session.query(
                 IssuetypeHierarchy,
-                Integration.name.label('integration_name')
+                Integration.provider.label('integration_name')
             ).outerjoin(
                 Integration, IssuetypeHierarchy.integration_id == Integration.id
             ).filter(
