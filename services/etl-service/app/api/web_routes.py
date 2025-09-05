@@ -535,8 +535,8 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
     try:
         from app.core.database import get_database
         from app.models.unified_models import (
-            JiraProject, JiraIssueType, JiraStatus, JiraIssue,
-            JiraChangelog, JiraPullRequestLink
+            Project, Issuetype, Status, Issue,
+            IssueChangelog, JiraPullRequestLinks
         )
         from sqlalchemy import func, desc
 
@@ -544,69 +544,69 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 
         with database.get_read_session_context() as session:
             # Projects summary
-            projects_total = session.query(JiraProject).filter(JiraProject.client_id == user.client_id).count()
-            projects_active = session.query(JiraProject).filter(
-                JiraProject.client_id == user.client_id,
-                JiraProject.is_active == True
+            projects_total = session.query(Project).filter(Project.client_id == user.client_id).count()
+            projects_active = session.query(Project).filter(
+                Project.client_id == user.client_id,
+                Project.active == True
             ).count()
 
             # Issue Types summary
-            issuetypes_total = session.query(JiraIssueType).filter(JiraIssueType.client_id == user.client_id).count()
-            issuetypes_active = session.query(JiraIssueType).filter(
-                JiraIssueType.client_id == user.client_id,
-                JiraIssueType.is_active == True
+            issuetypes_total = session.query(Issuetype).filter(Issuetype.client_id == user.client_id).count()
+            issuetypes_active = session.query(Issuetype).filter(
+                Issuetype.client_id == user.client_id,
+                Issuetype.active == True
             ).count()
 
             # Statuses summary
-            statuses_total = session.query(JiraStatus).filter(JiraStatus.client_id == user.client_id).count()
-            statuses_active = session.query(JiraStatus).filter(
-                JiraStatus.client_id == user.client_id,
-                JiraStatus.is_active == True
+            statuses_total = session.query(Status).filter(Status.client_id == user.client_id).count()
+            statuses_active = session.query(Status).filter(
+                Status.client_id == user.client_id,
+                Status.active == True
             ).count()
 
             # Issues summary
-            issues_total = session.query(JiraIssue).filter(JiraIssue.client_id == user.client_id).count()
-            issues_active = session.query(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
+            issues_total = session.query(Issue).filter(Issue.client_id == user.client_id).count()
+            issues_active = session.query(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
             ).count()
 
             # Top issue types
             top_types = session.query(
-                JiraIssueType.name,
-                func.count(JiraIssue.id).label('count')
-            ).join(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
-            ).group_by(JiraIssueType.name).order_by(desc('count')).limit(5).all()
+                Issuetype.original_name,
+                func.count(Issue.id).label('count')
+            ).join(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
+            ).group_by(Issuetype.original_name).order_by(desc('count')).limit(5).all()
 
             # Top statuses
             top_statuses = session.query(
-                JiraStatus.name,
-                func.count(JiraIssue.id).label('count')
-            ).join(JiraIssue).filter(
-                JiraIssue.client_id == user.client_id,
-                JiraIssue.is_active == True
-            ).group_by(JiraStatus.name).order_by(desc('count')).limit(10).all()
+                Status.original_name,
+                func.count(Issue.id).label('count')
+            ).join(Issue).filter(
+                Issue.client_id == user.client_id,
+                Issue.active == True
+            ).group_by(Status.original_name).order_by(desc('count')).limit(10).all()
 
             # Changelogs summary
-            changelogs_total = session.query(JiraChangelog).filter(JiraChangelog.client_id == user.client_id).count()
-            changelogs_active = session.query(JiraChangelog).filter(
-                JiraChangelog.client_id == user.client_id,
-                JiraChangelog.is_active == True
+            changelogs_total = session.query(IssueChangelog).filter(IssueChangelog.client_id == user.client_id).count()
+            changelogs_active = session.query(IssueChangelog).filter(
+                IssueChangelog.client_id == user.client_id,
+                IssueChangelog.active == True
             ).count()
 
             # PR Links summary
-            pr_links_total = session.query(JiraPullRequestLink).filter(JiraPullRequestLink.client_id == user.client_id).count()
-            pr_links_active = session.query(JiraPullRequestLink).filter(
-                JiraPullRequestLink.client_id == user.client_id,
-                JiraPullRequestLink.is_active == True
+            pr_links_total = session.query(JiraPullRequestLinks).filter(JiraPullRequestLinks.client_id == user.client_id).count()
+            pr_links_active = session.query(JiraPullRequestLinks).filter(
+                JiraPullRequestLinks.client_id == user.client_id,
+                JiraPullRequestLinks.active == True
             ).count()
 
             # Unique repositories count
-            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLink.repository_name))).filter(
-                JiraPullRequestLink.client_id == user.client_id,
-                JiraPullRequestLink.is_active == True
+            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLinks.repository_name))).filter(
+                JiraPullRequestLinks.client_id == user.client_id,
+                JiraPullRequestLinks.active == True
             ).scalar() or 0
 
             return {
