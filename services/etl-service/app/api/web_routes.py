@@ -663,7 +663,7 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
         database = get_database()
         with database.get_read_session_context() as session:
             from app.models.unified_models import (
-                Repository, PullRequest, Review, Commit, Comment,
+                Repository, PullRequest, PullRequestReview, PullRequestCommit, PullRequestComment,
                 JobSchedule, Integration
             )
             from sqlalchemy import func, desc
@@ -725,24 +725,24 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
             ).first()
 
             # Reviews summary
-            reviews_total = session.query(Review).filter(Review.client_id == user.client_id).count()
-            reviews_active = session.query(Review).filter(
-                Review.client_id == user.client_id,
-                Review.active == True
+            reviews_total = session.query(PullRequestReview).filter(PullRequestReview.client_id == user.client_id).count()
+            reviews_active = session.query(PullRequestReview).filter(
+                PullRequestReview.client_id == user.client_id,
+                PullRequestReview.active == True
             ).count()
 
             # Commits summary
-            commits_total = session.query(Commit).filter(Commit.client_id == user.client_id).count()
-            commits_active = session.query(Commit).filter(
-                Commit.client_id == user.client_id,
-                Commit.active == True
+            commits_total = session.query(PullRequestCommit).filter(PullRequestCommit.client_id == user.client_id).count()
+            commits_active = session.query(PullRequestCommit).filter(
+                PullRequestCommit.client_id == user.client_id,
+                PullRequestCommit.active == True
             ).count()
 
             # Comments summary
-            comments_total = session.query(Comment).filter(Comment.client_id == user.client_id).count()
-            comments_active = session.query(Comment).filter(
-                Comment.client_id == user.client_id,
-                Comment.active == True
+            comments_total = session.query(PullRequestComment).filter(PullRequestComment.client_id == user.client_id).count()
+            comments_active = session.query(PullRequestComment).filter(
+                PullRequestComment.client_id == user.client_id,
+                PullRequestComment.active == True
             ).count()
 
             # Recovery information
