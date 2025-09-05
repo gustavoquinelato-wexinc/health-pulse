@@ -456,8 +456,8 @@ async def get_current_session(
                 "role": payload["role"],
                 "is_admin": payload["is_admin"],
                 "client_id": payload["client_id"],
-                "issued_at": datetime.fromtimestamp(payload["iat"]).isoformat(),
-                "expires_at": datetime.fromtimestamp(payload["exp"]).isoformat(),
+                "issued_at": datetime.fromtimestamp(payload["iat"], tz=timezone.utc).isoformat(),
+                "expires_at": datetime.fromtimestamp(payload["exp"], tz=timezone.utc).isoformat(),
                 "issuer": payload.get("iss", "pulse-auth-service")
             }
 

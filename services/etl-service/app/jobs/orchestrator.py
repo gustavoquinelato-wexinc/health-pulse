@@ -498,7 +498,7 @@ async def run_orchestrator_for_client(client_id: int):
                 JobSchedule.status == 'PENDING'  # Double-check it's still pending
             ).update({
                 'status': 'RUNNING',
-                'last_run_started_at': DateTimeHelper.now_utc(),
+                'last_run_started_at': DateTimeHelper.now_default(),
                 'error_message': None
             })
 
@@ -706,12 +706,12 @@ async def run_fabric_sync_async(job_schedule_id: int):
                 else:
                     # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                     logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
-                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                job_schedule.last_run_started_at = DateTimeHelper.now_default()
                 session.commit()
                 logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
 
@@ -824,12 +824,12 @@ async def run_ad_sync_async(job_schedule_id: int):
                 else:
                     # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                     from datetime import timedelta
-                    start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                    start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                     logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
             # Set last_run_started_at if not in recovery mode
             if not job_schedule.has_recovery_checkpoints():
-                job_schedule.last_run_started_at = DateTimeHelper.now_utc()
+                job_schedule.last_run_started_at = DateTimeHelper.now_default()
                 session.commit()
                 logger.info(f"Set last_run_started_at = {job_schedule.last_run_started_at}")
 

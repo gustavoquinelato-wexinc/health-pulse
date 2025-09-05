@@ -650,7 +650,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             else:
                 # Default to 20 years ago for first run (comprehensive knowledge base for AI agents)
                 from datetime import timedelta
-                start_date = DateTimeHelper.now_utc() - timedelta(days=7300)  # 20 years * 365 days
+                start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                 logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
         # Start the extraction with periodic progress updates

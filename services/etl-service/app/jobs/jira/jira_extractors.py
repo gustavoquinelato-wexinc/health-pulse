@@ -824,9 +824,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
     try:
         processor = JiraDataProcessor(session, integration)
 
-        # Capture extraction start time (to be saved at the end) - using server local time
+        # Capture extraction start time (to be saved at the end) - using configured timezone
         from datetime import datetime
-        extraction_start_time = datetime.now()
+        from app.core.utils import DateTimeHelper
+        extraction_start_time = DateTimeHelper.now_default()
         job_logger.progress(f"[STARTING] Extraction started at: {extraction_start_time.strftime('%Y-%m-%d %H:%M')}")
 
         # Load all reference data in single queries
@@ -1879,7 +1880,8 @@ async def extract_work_items_and_changelogs_session_free(
 
     try:
         database = get_database()
-        extraction_start_time = datetime.utcnow()
+        from app.core.utils import DateTimeHelper
+        extraction_start_time = DateTimeHelper.now_default()
 
         # Get integration details with a quick session
         with database.get_read_session_context() as session:

@@ -736,13 +736,13 @@ class JobSchedule(Base, IntegrationBaseEntity):
         """Mark job as running."""
         from app.core.utils import DateTimeHelper
         self.status = 'RUNNING'
-        self.last_run_started_at = DateTimeHelper.now_utc()
+        self.last_run_started_at = DateTimeHelper.now_default()
 
     def set_finished(self):
         """Mark job as finished and clear checkpoints."""
         from app.core.utils import DateTimeHelper
         self.status = 'FINISHED'
-        self.last_success_at = DateTimeHelper.now_utc()
+        self.last_success_at = DateTimeHelper.now_default()
         self.clear_checkpoints()
 
     def set_paused(self):
