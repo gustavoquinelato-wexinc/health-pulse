@@ -378,6 +378,29 @@ class DateTimeHelper:
         return datetime.now(timezone.utc).replace(tzinfo=None)
 
     @staticmethod
+    def now_default() -> datetime:
+        """
+        Get current datetime in the configured default timezone as timezone-naive.
+
+        Uses the DEFAULT_TIMEZONE environment variable to determine the timezone.
+        Falls back to UTC if timezone configuration fails.
+
+        Returns:
+            Current datetime in configured timezone without timezone info
+        """
+        try:
+            import pytz
+            from app.core.config import get_settings
+            settings = get_settings()
+            tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+            utc_now = datetime.now(timezone.utc)
+            local_now = utc_now.astimezone(tz)
+            return local_now.replace(tzinfo=None)
+        except Exception as e:
+            logger.warning(f"Failed to get time in configured timezone, falling back to UTC: {e}")
+            return DateTimeHelper.now_utc()
+
+    @staticmethod
     def now_central() -> datetime:
         """
         Get current datetime in Central Time (America/Chicago) as timezone-naive.
