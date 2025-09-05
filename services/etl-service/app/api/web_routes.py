@@ -604,7 +604,7 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
             ).count()
 
             # Unique repositories count
-            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLinks.repository_name))).filter(
+            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLinks.repo_full_name))).filter(
                 JiraPullRequestLinks.client_id == user.client_id,
                 JiraPullRequestLinks.active == True
             ).scalar() or 0
