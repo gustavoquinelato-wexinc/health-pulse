@@ -654,6 +654,174 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
             detail=f"Failed to get Jira summary: {str(e)}"
         )
 
+@router.get("/api/v1/jobs/GitHub/summary")
+async def get_github_summary(user: UserData = Depends(require_admin_authentication)):
+    """Get GitHub data summary for the details modal"""
+    try:
+        with database.get_read_session_context() as session:
+            from app.models.unified_models import (
+                Repository, PullRequest, Review, Commit, Comment,
+                JobSchedule, Integration
+            )
+            from sqlalchemy import func, desc
+
+            # Get GitHub integration and job schedule
+            github_integration = session.query(Integration).filter(
+                Integration.client_id == user.client_id,
+                Integration.provider == 'github'
+            ).first()
+
+            github_job = None
+            if github_integration:
+                github_job = session.query(JobSchedule).filter(
+                    JobSchedule.client_id == user.client_id,
+                    JobSchedule.integration_id == github_integration.id
+                ).first()
+
+            # Repositories summary
+            repos_total = session.query(Repository).filter(Repository.client_id == user.client_id).count()
+            repos_active = session.query(Repository).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True
+            ).count()
+
+            # Top 3 languages
+            top_languages = session.query(
+                Repository.primary_language,
+                func.count(Repository.id).label('count')
+            ).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True,
+                Repository.primary_language.isnot(None)
+            ).group_by(Repository.primary_language).order_by(desc('count')).limit(3).all()
+
+            # Top 3 repositories by PR count
+            top_repos = session.query(
+                Repository.full_name,
+                func.count(PullRequest.id).label('pr_count')
+            ).join(PullRequest).filter(
+                Repository.client_id == user.client_id,
+                Repository.active == True
+            ).group_by(Repository.full_name).order_by(desc('pr_count')).limit(3).all()
+
+            # Pull Requests summary with code statistics
+            prs_total = session.query(PullRequest).filter(PullRequest.client_id == user.client_id).count()
+            prs_active = session.query(PullRequest).filter(
+                PullRequest.client_id == user.client_id,
+                PullRequest.active == True
+            ).count()
+
+            # Code statistics
+            code_stats = session.query(
+                func.sum(PullRequest.additions).label('total_additions'),
+                func.sum(PullRequest.deletions).label('total_deletions'),
+                func.sum(PullRequest.changed_files).label('total_changed_files')
+            ).filter(
+                PullRequest.client_id == user.client_id,
+                PullRequest.active == True
+            ).first()
+
+            # Reviews summary
+            reviews_total = session.query(Review).filter(Review.client_id == user.client_id).count()
+            reviews_active = session.query(Review).filter(
+                Review.client_id == user.client_id,
+                Review.active == True
+            ).count()
+
+            # Commits summary
+            commits_total = session.query(Commit).filter(Commit.client_id == user.client_id).count()
+            commits_active = session.query(Commit).filter(
+                Commit.client_id == user.client_id,
+                Commit.active == True
+            ).count()
+
+            # Comments summary
+            comments_total = session.query(Comment).filter(Comment.client_id == user.client_id).count()
+            comments_active = session.query(Comment).filter(
+                Comment.client_id == user.client_id,
+                Comment.active == True
+            ).count()
+
+            # Recovery information
+            recovery_info = {}
+            if github_job:
+                # Collect cursor values
+                cursor_fields = [
+                    'last_pr_cursor', 'current_pr_node_id', 'last_commit_cursor',
+                    'last_review_cursor', 'last_comment_cursor', 'last_review_thread_cursor'
+                ]
+                cursors = {}
+                has_active_cursors = False
+
+                for field in cursor_fields:
+                    value = getattr(github_job, field, None)
+                    if value:
+                        cursors[field] = value
+                        has_active_cursors = True
+
+                # Parse repo processing queue
+                repo_queue = None
+                if github_job.repo_processing_queue:
+                    try:
+                        import json
+                        repo_queue = json.loads(github_job.repo_processing_queue)
+                    except:
+                        repo_queue = None
+
+                recovery_info = {
+                    "job_status": github_job.status,
+                    "active": github_job.active,
+                    "last_run_started_at": github_job.last_run_started_at.isoformat() if github_job.last_run_started_at else None,
+                    "last_success_at": github_job.last_success_at.isoformat() if github_job.last_success_at else None,
+                    "next_run_at": github_job.next_run_at.isoformat() if github_job.next_run_at else None,
+                    "has_active_cursors": has_active_cursors,
+                    "cursors": cursors,
+                    "repo_processing_queue": repo_queue,
+                    "error_message": getattr(github_job, 'error_message', None),
+                    "retry_count": getattr(github_job, 'retry_count', 0)
+                }
+
+            return {
+                "repositories": {
+                    "total": repos_total,
+                    "active": repos_active,
+                    "inactive": repos_total - repos_active,
+                    "top_languages": [{"language": lang, "count": count} for lang, count in top_languages],
+                    "top_repos": [{"repo": repo, "pr_count": count} for repo, count in top_repos]
+                },
+                "pull_requests": {
+                    "total": prs_total,
+                    "active": prs_active,
+                    "inactive": prs_total - prs_active,
+                    "total_additions": code_stats.total_additions or 0,
+                    "total_deletions": code_stats.total_deletions or 0,
+                    "total_changed_files": code_stats.total_changed_files or 0
+                },
+                "reviews": {
+                    "total": reviews_total,
+                    "active": reviews_active,
+                    "inactive": reviews_total - reviews_active
+                },
+                "commits": {
+                    "total": commits_total,
+                    "active": commits_active,
+                    "inactive": commits_total - commits_active
+                },
+                "comments": {
+                    "total": comments_total,
+                    "active": comments_active,
+                    "inactive": comments_total - comments_active
+                },
+                "recovery": recovery_info
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting GitHub summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get GitHub summary: {str(e)}"
+        )
+
 @router.get("/api/v1/logs/download/{filename}")
 async def download_log_file(filename: str, token: str = None, user: UserData = Depends(require_admin_authentication)):
     """Download a specific log file"""

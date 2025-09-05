@@ -2383,7 +2383,13 @@
                 return;
             }
 
-            // For other jobs (GitHub), show regular job details using job ID
+            if (jobName.toLowerCase() === 'github') {
+                // Show GitHub-specific modal with summary data
+                await showGitHubDetailsModal();
+                return;
+            }
+
+            // For other jobs, show regular job details using job ID
             const response = await fetch(`/api/v1/jobs/${jobId}/details`, {
                 headers: {
                     'Authorization': `Bearer ${getAuthToken()}`
@@ -2873,6 +2879,410 @@
         modal.style.alignItems = 'center';
         modal.style.justifyContent = 'center';
         modal.classList.remove('hidden');
+    }
+
+    // GitHub-specific modal functions
+    async function showGitHubDetailsModal() {
+        try {
+            // Fetch GitHub summary data from API
+            const response = await fetch('/api/v1/jobs/GitHub/summary', {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch GitHub summary: ${response.statusText}`);
+            }
+
+            const summary = await response.json();
+            displayGitHubDetailsModal(summary);
+
+        } catch (error) {
+            console.error('Error fetching GitHub details:', error);
+            showNotification('Failed to load GitHub details: ' + error.message, 'error');
+        }
+    }
+
+    function displayGitHubDetailsModal(summary) {
+        // Helper function to format numbers
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toLocaleString();
+        }
+
+        // Helper function to create status badge
+        function createStatusBadge(status) {
+            const statusColors = {
+                'COMPLETED': 'var(--status-success)',
+                'RUNNING': 'var(--status-info)',
+                'PENDING': 'var(--status-warning)',
+                'FAILED': 'var(--status-error)'
+            };
+            const color = statusColors[status] || 'var(--text-muted)';
+            return `<span class="px-2 py-1 rounded text-xs font-medium" style="background-color: ${color}; color: white;">${status}</span>`;
+        }
+
+        const content = `
+            <!-- First Row: 3 Equal Height Columns -->
+            <div class="grid grid-cols-3 gap-4 mb-4" style="min-height: 300px;">
+
+                <!-- Column 1: Repositories (Enhanced & Taller) -->
+                <div class="rounded-lg p-4 border flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
+                        <i class="fab fa-github mr-2"></i>Repositories
+                    </h3>
+
+                    <!-- Repository Counts -->
+                    <div class="grid grid-cols-3 gap-2 mb-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--color-1);">${summary.repositories.total}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--status-success);">${summary.repositories.active}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Active</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--text-muted);">${summary.repositories.inactive}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
+                        </div>
+                    </div>
+
+                    <!-- Top 3 Languages (Smaller) -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Top Languages</h4>
+                        <div class="space-y-1">
+                            ${summary.repositories.top_languages.map(lang => `
+                                <div class="flex justify-between items-center text-xs">
+                                    <span style="color: var(--text-secondary);">${lang.language}</span>
+                                    <span class="font-medium" style="color: var(--text-primary);">${lang.count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Top Repositories by PR Count -->
+                    <div class="flex-1">
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Top Repositories (by PRs)</h4>
+                        <div class="space-y-2">
+                            ${summary.repositories.top_repos.map(repo => `
+                                <div class="p-2 rounded border" style="background-color: var(--bg-primary); border-color: var(--border-color);">
+                                    <div class="text-sm font-medium" style="color: var(--text-primary);">${repo.repo}</div>
+                                    <div class="text-xs" style="color: var(--text-secondary);">${repo.pr_count} PRs</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 2: Pull Requests (Enhanced with Code Statistics) -->
+                <div class="rounded-lg p-4 border flex flex-col" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
+                        <i class="fas fa-code-branch mr-2"></i>Pull Requests
+                    </h3>
+
+                    <!-- PR Counts -->
+                    <div class="grid grid-cols-3 gap-2 mb-4">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--color-1);">${summary.pull_requests.total}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--status-success);">${summary.pull_requests.active}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Active</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--text-muted);">${summary.pull_requests.inactive}</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
+                        </div>
+                    </div>
+
+                    <!-- Code Statistics -->
+                    <div class="flex-1">
+                        <h4 class="text-sm font-medium mb-3" style="color: var(--text-primary);">Code Statistics</h4>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--status-success-rgb), 0.1);">
+                                <span class="text-sm" style="color: var(--text-secondary);">
+                                    <i class="fas fa-plus mr-1" style="color: var(--status-success);"></i>Additions
+                                </span>
+                                <span class="font-bold" style="color: var(--status-success);">+${formatNumber(summary.pull_requests.total_additions)}</span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--status-error-rgb), 0.1);">
+                                <span class="text-sm" style="color: var(--text-secondary);">
+                                    <i class="fas fa-minus mr-1" style="color: var(--status-error);"></i>Deletions
+                                </span>
+                                <span class="font-bold" style="color: var(--status-error);">-${formatNumber(summary.pull_requests.total_deletions)}</span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 rounded" style="background-color: rgba(var(--color-1-rgb), 0.1);">
+                                <span class="text-sm" style="color: var(--text-secondary);">
+                                    <i class="fas fa-file-alt mr-1" style="color: var(--color-1);"></i>Changed Files
+                                </span>
+                                <span class="font-bold" style="color: var(--color-1);">${formatNumber(summary.pull_requests.total_changed_files)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Reviews, Commits, Comments (Stacked) -->
+                <div class="flex flex-col gap-2">
+                    <!-- Reviews -->
+                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
+                            <i class="fas fa-eye mr-2"></i>Reviews
+                        </h3>
+                        <div class="grid grid-cols-3 gap-1 text-center">
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.reviews.total}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.reviews.active}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.reviews.inactive}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Commits -->
+                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
+                            <i class="fas fa-code-commit mr-2"></i>Commits
+                        </h3>
+                        <div class="grid grid-cols-3 gap-1 text-center">
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.commits.total}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.commits.active}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.commits.inactive}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comments -->
+                    <div class="rounded-lg p-3 border flex-1" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <h3 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--text-primary);">
+                            <i class="fas fa-comments mr-2"></i>Comments
+                        </h3>
+                        <div class="grid grid-cols-3 gap-1 text-center">
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--color-1);">${summary.comments.total}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--status-success);">${summary.comments.active}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Active</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-bold" style="color: var(--text-muted);">${summary.comments.inactive}</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">Inactive</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Second Row: Recovery Information -->
+            ${summary.recovery && Object.keys(summary.recovery).length > 0 ? `
+            <div class="rounded-lg p-4 border mb-4" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                <h3 class="text-lg font-semibold mb-3 flex items-center" style="color: var(--text-primary);">
+                    <i class="fas fa-redo mr-2"></i>Recovery Information
+                </h3>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Job Status -->
+                    <div>
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Job Status</h4>
+                        <div class="space-y-2">
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Status:</span>
+                                ${createStatusBadge(summary.recovery.job_status)}
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Active:</span>
+                                <span style="color: ${summary.recovery.active ? 'var(--status-success)' : 'var(--status-error)'};">
+                                    ${summary.recovery.active ? 'Yes' : 'No'}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Last Started:</span>
+                                <span style="color: var(--text-primary);">
+                                    ${summary.recovery.last_run_started_at ? new Date(summary.recovery.last_run_started_at).toLocaleString() : 'Never'}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Last Success:</span>
+                                <span style="color: var(--text-primary);">
+                                    ${summary.recovery.last_success_at ? new Date(summary.recovery.last_success_at).toLocaleString() : 'Never'}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Next Run:</span>
+                                <span style="color: var(--text-primary);">
+                                    ${summary.recovery.next_run_at ? new Date(summary.recovery.next_run_at).toLocaleString() : 'Not scheduled'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recovery Cursors -->
+                    <div>
+                        <h4 class="text-sm font-medium mb-2" style="color: var(--text-primary);">Recovery Cursors</h4>
+                        <div class="space-y-2">
+                            <div class="flex justify-between">
+                                <span style="color: var(--text-secondary);">Active Cursors:</span>
+                                <span style="color: ${summary.recovery.has_active_cursors ? 'var(--status-warning)' : 'var(--status-success)'};">
+                                    ${summary.recovery.has_active_cursors ? 'Yes' : 'No'}
+                                </span>
+                            </div>
+                            ${summary.recovery.has_active_cursors ? `
+                                <button onclick="showCursorDetails(${JSON.stringify(summary.recovery.cursors).replace(/"/g, '&quot;')})"
+                                        class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                                    <i class="fas fa-eye mr-1"></i>View Details
+                                </button>
+                            ` : ''}
+                            ${summary.recovery.repo_processing_queue ? `
+                                <div class="mt-2">
+                                    <button onclick="showRepoQueue(${JSON.stringify(summary.recovery.repo_processing_queue).replace(/"/g, '&quot;')})"
+                                            class="text-xs px-2 py-1 rounded" style="background-color: var(--status-info); color: white;">
+                                        <i class="fas fa-list mr-1"></i>View Repo Queue
+                                    </button>
+                                </div>
+                            ` : ''}
+                            ${summary.recovery.error_message ? `
+                                <div class="mt-2 p-2 rounded" style="background-color: rgba(var(--status-error-rgb), 0.1);">
+                                    <div class="text-xs font-medium" style="color: var(--status-error);">Error:</div>
+                                    <div class="text-xs" style="color: var(--text-secondary);">${summary.recovery.error_message}</div>
+                                </div>
+                            ` : ''}
+                            ${summary.recovery.retry_count > 0 ? `
+                                <div class="flex justify-between">
+                                    <span style="color: var(--text-secondary);">Retry Count:</span>
+                                    <span style="color: var(--status-warning);">${summary.recovery.retry_count}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+
+            <!-- Third Row: Rate Limits -->
+            <div class="rounded-lg p-4 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
+                        <i class="fas fa-tachometer-alt mr-2"></i>GitHub API Rate Limits
+                    </h3>
+                    <button onclick="loadGitHubRateLimitsInDetails()" class="text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                        <i class="fas fa-sync mr-1"></i>Refresh
+                    </button>
+                </div>
+                <div id="rateLimitsInDetails">
+                    <div class="text-center py-2">
+                        <span style="color: var(--text-muted);">Click Refresh to load rate limits</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Update modal title and content
+        document.getElementById('jobDetailsTitle').textContent = 'GitHub Details';
+        document.getElementById('jobDetailsIcon').innerHTML = '<i class="fab fa-github mr-2"></i>';
+        document.getElementById('jobDetailsContent').innerHTML = content;
+
+        // Show modal with proper display
+        const modal = document.getElementById('jobDetailsModal');
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.classList.remove('hidden');
+    }
+
+    // Helper functions for GitHub modal
+    function showCursorDetails(cursors) {
+        let details = '<div class="space-y-2">';
+        for (const [key, value] of Object.entries(cursors)) {
+            const displayName = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            details += `
+                <div class="flex justify-between">
+                    <span style="color: var(--text-secondary);">${displayName}:</span>
+                    <span class="font-mono text-xs" style="color: var(--text-primary);">${value.substring(0, 20)}...</span>
+                </div>
+            `;
+        }
+        details += '</div>';
+
+        showNotification('Cursor Details', 'info', details);
+    }
+
+    function showRepoQueue(queue) {
+        if (!queue || !Array.isArray(queue)) {
+            showNotification('No repository queue data available', 'warning');
+            return;
+        }
+
+        let tableHtml = `
+            <div class="mb-3">
+                <button onclick="filterRepoQueue('all')" class="text-xs px-2 py-1 rounded mr-2" style="background-color: var(--color-1); color: white;">All</button>
+                <button onclick="filterRepoQueue('completed')" class="text-xs px-2 py-1 rounded mr-2" style="background-color: var(--status-success); color: white;">Completed</button>
+                <button onclick="filterRepoQueue('pending')" class="text-xs px-2 py-1 rounded" style="background-color: var(--status-warning); color: white;">Pending</button>
+            </div>
+            <div class="max-h-64 overflow-y-auto">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr style="background-color: var(--bg-primary);">
+                            <th class="p-2 text-left" style="color: var(--text-primary);">Repository</th>
+                            <th class="p-2 text-left" style="color: var(--text-primary);">Status</th>
+                            <th class="p-2 text-left" style="color: var(--text-primary);">Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody id="repoQueueTableBody">
+        `;
+
+        queue.forEach((repo, index) => {
+            const status = repo.completed ? 'completed' : 'pending';
+            const statusColor = repo.completed ? 'var(--status-success)' : 'var(--status-warning)';
+            tableHtml += `
+                <tr class="repo-queue-row" data-status="${status}" style="border-bottom: 1px solid var(--border-color);">
+                    <td class="p-2" style="color: var(--text-primary);">${repo.full_name || repo.name || 'Unknown'}</td>
+                    <td class="p-2">
+                        <span class="px-2 py-1 rounded text-xs" style="background-color: ${statusColor}; color: white;">
+                            ${status.toUpperCase()}
+                        </span>
+                    </td>
+                    <td class="p-2" style="color: var(--text-secondary);">${repo.progress || 'N/A'}</td>
+                </tr>
+            `;
+        });
+
+        tableHtml += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        showNotification('Repository Processing Queue', 'info', tableHtml);
+    }
+
+    function filterRepoQueue(filter) {
+        const rows = document.querySelectorAll('.repo-queue-row');
+        rows.forEach(row => {
+            if (filter === 'all' || row.dataset.status === filter) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
     }
 
     // GitHub Rate Limits Modal Functions
