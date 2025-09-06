@@ -61,8 +61,6 @@ class Client(Base):
 
     # Phase 3-1: New AI architecture relationships
     qdrant_vectors = relationship("QdrantVector", back_populates="client")
-    ai_preferences = relationship("ClientAIPreferences", back_populates="client")
-    ai_configuration = relationship("ClientAIConfiguration", back_populates="client")
     ai_usage_tracking = relationship("AIUsageTracking", back_populates="client")
 
 
@@ -1125,36 +1123,7 @@ class QdrantVector(Base, BaseEntity):
     client = relationship("Client", back_populates="qdrant_vectors")
 
 
-class ClientAIPreferences(Base, BaseEntity):
-    """Client AI preferences table (inspired by WrenAI's configuration system)."""
-    __tablename__ = 'client_ai_preferences'
-    __table_args__ = (
-        UniqueConstraint('client_id', 'preference_type'),
-        {'quote': False}
-    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    preference_type = Column(String(50), nullable=False, quote=False, name="preference_type")  # 'default_models', 'performance', 'cost_limits'
-    configuration = Column(JSON, default={}, quote=False, name="configuration")
-
-    # Relationships
-    client = relationship("Client", back_populates="ai_preferences")
-
-
-class ClientAIConfiguration(Base, BaseEntity):
-    """Client AI configuration table (inspired by WrenAI's pipeline configuration)."""
-    __tablename__ = 'client_ai_configuration'
-    __table_args__ = (
-        UniqueConstraint('client_id', 'config_category'),
-        {'quote': False}
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    config_category = Column(String(50), nullable=False, quote=False, name="config_category")  # 'embedding_models', 'llm_models', 'pipeline_config'
-    configuration = Column(JSON, default={}, quote=False, name="configuration")
-
-    # Relationships
-    client = relationship("Client", back_populates="ai_configuration")
 
 
 class AIUsageTracking(Base, BaseEntity):

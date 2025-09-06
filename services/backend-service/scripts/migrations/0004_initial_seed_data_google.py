@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Migration 0002: Initial Seed Data Google
-Description: Inserts initial seed data for Google client including DORA benchmarks, clients, integrations, workflows, status mappings, users, and system settings
+Migration 0004: Initial Seed Data Google
+Description: Inserts initial seed data for Google tenant including DORA benchmarks, tenants, integrations, workflows, status mappings, users, and system settings (excludes color-related data)
 Author: Pulse Platform Team
 Date: 2025-08-18
 """
@@ -43,21 +43,59 @@ def apply(connection):
     try:
         print("🚀 Applying Migration 0004: Initial Seed Data Google")
 
-        # 1. Insert default client (Google)
-        print("📋 Creating Google client...")
+        # 1. Insert global DORA market benchmarks (2024) and insights
+        print("📋 Inserting DORA market benchmarks...")
         cursor.execute("""
-            INSERT INTO clients (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
+            INSERT INTO dora_market_benchmarks (report_year, performance_tier, metric_name, metric_value, metric_unit) VALUES
+                (2024, 'Elite', 'Deployment Frequency', 'On-demand (multiple deploys per day)', NULL),
+                (2024, 'High', 'Deployment Frequency', 'Between once per day and once per week', NULL),
+                (2024, 'Medium', 'Deployment Frequency', 'Between once per week and once per month', NULL),
+                (2024, 'Low', 'Deployment Frequency', 'Less than once per month', NULL),
+
+                (2024, 'Elite', 'Lead Time for Changes', 'Less than one day', 'days'),
+                (2024, 'High', 'Lead Time for Changes', 'Between one day and one week', 'days'),
+                (2024, 'Medium', 'Lead Time for Changes', 'Between one week and one month', 'months'),
+                (2024, 'Low', 'Lead Time for Changes', 'More than one month', 'months'),
+
+                (2024, 'Elite', 'Change Failure Rate', '0-15%', 'percentage'),
+                (2024, 'High', 'Change Failure Rate', '16-30%', 'percentage'),
+                (2024, 'Medium', 'Change Failure Rate', '31-45%', 'percentage'),
+                (2024, 'Low', 'Change Failure Rate', '46-60%', 'percentage'),
+
+                (2024, 'Elite', 'Time to Restore Service', 'Less than one hour', 'hours'),
+                (2024, 'High', 'Time to Restore Service', 'Less than one day', 'hours'),
+                (2024, 'Medium', 'Time to Restore Service', 'One day to one week', 'days'),
+                (2024, 'Low', 'Time to Restore Service', 'More than one week', 'weeks')
+            ON CONFLICT (report_year, performance_tier, metric_name) DO NOTHING;
+        """)
+
+        print("📋 Inserting DORA metric insights...")
+        cursor.execute("""
+            INSERT INTO dora_metric_insights (report_year, metric_name, insight_text) VALUES
+                (2024, 'Deployment Frequency', 'Elite performers have fully automated and reliable deployment pipelines, allowing them to release changes to production as soon as they are ready. This continuous flow of small, frequent deployments reduces the risk associated with each release and allows for rapid feedback loops.'),
+                (2024, 'Lead Time for Changes', 'A short lead time for changes is a strong indicator of an efficient and automated software delivery process. Elite teams have streamlined their code review, testing, and deployment processes to minimize delays and ensure a smooth path from commit to production.'),
+                (2024, 'Change Failure Rate', 'A low change failure rate is a testament to the quality of a team''s testing and validation processes. Elite performers invest heavily in automated testing and comprehensive pre-deployment checks to catch work_items before they impact users. The significant jump in failure rate for low performers highlights the challenges of manual and error-prone deployment processes.'),
+                (2024, 'Time to Restore Service', 'Elite performers have robust monitoring and observability in place, coupled with well-defined incident response and rollback procedures. This enables them to recover from failures swiftly, minimizing downtime and user impact. The ability to restore service quickly is a hallmark of a resilient and mature operational capability.')
+            ON CONFLICT (report_year, metric_name) DO NOTHING;
+        """)
+
+        print("✅ DORA data inserted")
+
+        # 2. Insert default tenant (Google)
+        print("📋 Creating Google tenant...")
+        cursor.execute("""
+            INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
             VALUES ('Google', 'https://www.google.com', 'google', 'logo.png', 'default', TRUE, NOW(), NOW())
             ON CONFLICT DO NOTHING;
         """)
 
-        # Get the client ID for seed data
-        cursor.execute("SELECT id FROM clients WHERE name = 'Google' LIMIT 1;")
-        client_result = cursor.fetchone()
-        if not client_result:
-            raise Exception("Failed to create or find Google client")
-        client_id = client_result['id']
-        print(f"   ✅ Google client created/found with ID: {client_id}")
+        # Get the tenant ID for seed data
+        cursor.execute("SELECT id FROM tenants WHERE name = 'Google' LIMIT 1;")
+        tenant_result = cursor.fetchone()
+        if not tenant_result:
+            raise Exception("Failed to create or find Google tenant")
+        tenant_id = tenant_result['id']
+        print(f"   ✅ Google tenant created/found with ID: {tenant_id}")
 
         # 3. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
@@ -135,28 +173,28 @@ def apply(connection):
             print("   ⚠️  JIRA credentials not found in .env file")
             # Use default values for inactive integration
             jira_url = "https://wexinc.atlassian.net"
-            jira_username = "gustavo.quinelato@wexinc.com"
+            jira_username = "admin@google.com"
 
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                configuration, client_id, active, created_at, last_updated_at
+                configuration, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (provider, client_id) DO NOTHING
+            ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "jira", "data_source", jira_username, jira_password, jira_url,
             "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
             json.dumps({"base_search": "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"}),
-            client_id, jira_active
+            tenant_id, jira_active
         ))
 
         jira_result = cursor.fetchone()
         if jira_result:
             jira_integration_id = jira_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE provider = 'jira' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE name = 'JIRA' AND tenant_id = %s;", (tenant_id,))
             jira_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
@@ -187,23 +225,23 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                configuration, client_id, active, created_at, last_updated_at
+                configuration, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (provider, client_id) DO NOTHING
+            ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "github", "data_source", None, github_password, "https://api.github.com",
             "health-", None,
             json.dumps({"base_search": "health-"}),
-            client_id, github_active
+            tenant_id, github_active
         ))
 
         github_result = cursor.fetchone()
         if github_result:
             github_integration_id = github_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE provider = 'github' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'github' AND tenant_id = %s;", (tenant_id,))
             github_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ GitHub integration created (ID: {github_integration_id}, active: {github_active})")
@@ -224,24 +262,24 @@ def apply(connection):
             cursor.execute("""
                 INSERT INTO integrations (
                     provider, type, username, password, base_url, base_search, model,
-                    model_config, configuration, client_id, active, created_at, last_updated_at
+                    model_config, configuration, tenant_id, active, created_at, last_updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (provider, client_id) DO NOTHING
+                ON CONFLICT (provider, tenant_id) DO NOTHING
                 RETURNING id;
             """, (
                 "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                 None, ai_model,
                 json.dumps({"temperature": 0.3, "max_tokens": 700}),
                 json.dumps({"primary_model": ai_model, "fallback_model": ai_fallback_model}),
-                client_id, True
+                tenant_id, True
             ))
 
             ai_gateway_result = cursor.fetchone()
             if ai_gateway_result:
                 ai_gateway_integration_id = ai_gateway_result['id']
             else:
-                cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_ai_gateway' AND client_id = %s;", (client_id,))
+                cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_ai_gateway' AND tenant_id = %s;", (tenant_id,))
                 ai_gateway_integration_id = cursor.fetchone()['id']
 
             print(f"   ✅ AI Gateway integration created (ID: {ai_gateway_integration_id}, model: {ai_model})")
@@ -251,17 +289,17 @@ def apply(connection):
                 cursor.execute("""
                     INSERT INTO integrations (
                         provider, type, username, password, base_url, base_search, model,
-                        model_config, configuration, fallback_integration_id, client_id, active, created_at, last_updated_at
+                        model_config, configuration, fallback_integration_id, tenant_id, active, created_at, last_updated_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                    ON CONFLICT (provider, client_id) DO NOTHING
+                    ON CONFLICT (provider, tenant_id) DO NOTHING
                     RETURNING id;
                 """, (
-                    "google_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
+                    "wex_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                     None, ai_fallback_model,
                     json.dumps({"temperature": 0.3, "max_tokens": 700}),
                     json.dumps({"fallback_for": ai_model}),
-                    ai_gateway_integration_id, client_id, True
+                    ai_gateway_integration_id, tenant_id, True
                 ))
 
                 fallback_result = cursor.fetchone()
@@ -281,24 +319,24 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, client_id, active, created_at, last_updated_at
+                model_config, configuration, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (provider, client_id) DO NOTHING
+            ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "wex_fabric", "data_warehouse", "google_fabric_user", None, "https://fabric.wex.com",
+            "wex_fabric", "data_warehouse", "wex_fabric_user", None, "https://fabric.wex.com",
             None, None,
             json.dumps({"workspace_id": "placeholder"}),
             json.dumps({"description": "WEX Fabric data warehouse integration"}),
-            client_id, False  # Inactive until implemented
+            tenant_id, False  # Inactive until implemented
         ))
 
         fabric_result = cursor.fetchone()
         if fabric_result:
             fabric_integration_id = fabric_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_fabric' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_fabric' AND tenant_id = %s;", (tenant_id,))
             fabric_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ WEX Fabric integration created (ID: {fabric_integration_id}, inactive)")
@@ -308,73 +346,31 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, client_id, active, created_at, last_updated_at
+                model_config, configuration, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            ON CONFLICT (provider, client_id) DO NOTHING
+            ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "active_directory", "identity_provider", "google_ad_user", None, "https://login.microsoftonline.com",
+            "active_directory", "identity_provider", "wex_ad_user", None, "https://login.microsoftonline.com",
             None, None,
             json.dumps({"tenant_id": "placeholder"}),
             json.dumps({"description": "Active Directory identity provider integration"}),
-            client_id, False  # Inactive until implemented
+            tenant_id, False  # Inactive until implemented
         ))
 
         ad_result = cursor.fetchone()
         if ad_result:
             ad_integration_id = ad_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE provider = 'active_directory' AND client_id = %s;", (client_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'active_directory' AND tenant_id = %s;", (tenant_id,))
             ad_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ Active Directory integration created (ID: {ad_integration_id}, inactive)")
 
         print("✅ Integrations created")
 
-        # 4. Create default job schedules
-        print("📋 Creating default job schedules...")
-
-        # Integration IDs already available from previous steps
-        job_schedules_data = [
-            {
-                "job_name": "Jira",
-                "execution_order": 1,
-                "status": "PENDING",
-                "integration_id": jira_integration_id
-            },
-            {
-                "job_name": "GitHub",
-                "execution_order": 2,
-                "status": "NOT_STARTED",
-                "integration_id": github_integration_id
-            },
-            {
-                "job_name": "WEX Fabric",
-                "execution_order": 3,
-                "status": "NOT_STARTED",
-                "integration_id": fabric_integration_id
-            },
-            {
-                "job_name": "WEX AD",
-                "execution_order": 4,
-                "status": "NOT_STARTED",
-                "integration_id": ad_integration_id
-            }
-        ]
-
-        for job in job_schedules_data:
-            # Set Fabric and AD jobs as inactive since they're not implemented yet
-            is_active = job["job_name"] not in ["WEX Fabric", "WEX AD"]
-            cursor.execute("""
-                INSERT INTO job_schedules (job_name, execution_order, status, integration_id, client_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (job_name, client_id) DO NOTHING;
-            """, (job["job_name"], job["execution_order"], job["status"], job["integration_id"], client_id, is_active))
-
-        print("✅ Default job schedules created")
-
-        # 5. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
+        # 4. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
         print("📋 Creating workflow steps...")
         workflow_steps_data = [
             {"step_name": "Backlog", "step_number": 1, "category": "To Do", "is_commitment_point": False},
@@ -399,26 +395,27 @@ def apply(connection):
             is_commitment_point = step["is_commitment_point"]
 
             cursor.execute("""
-                INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, integration_id, client_id, active, created_at, last_updated_at)
+                INSERT INTO workflows (step_name, step_number, step_category, is_commitment_point, integration_id, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT DO NOTHING
                 RETURNING id;
-            """, (step_name, step_number, category, is_commitment_point, jira_integration_id, client_id))
+            """, (step_name, step_number, category, is_commitment_point, jira_integration_id, tenant_id))
 
             result = cursor.fetchone()
             if result:
                 workflow_ids[step_name] = result['id']
             else:
                 # Get existing ID if conflict occurred
-                cursor.execute("SELECT id FROM workflows WHERE step_name = %s AND client_id = %s;", (step_name, client_id))
+                cursor.execute("SELECT id FROM workflows WHERE step_name = %s AND tenant_id = %s;", (step_name, tenant_id))
                 existing_result = cursor.fetchone()
                 if existing_result:
                     workflow_ids[step_name] = existing_result['id']
 
         print("✅ Workflow steps created")
 
-        # 5. Insert status mappings (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
+        # 5. Insert status mappings (complete workflow configuration)
         print("📋 Creating status mappings...")
+        # Insert status mappings (complete workflow configuration - EXACT COPY from reset_database.py)
         status_mappings_data = [
             #BACKLOG
             {"status_from": "Backlog", "status_to": "Backlog", "status_category": "To Do", "workflow": "Backlog"},
@@ -561,16 +558,16 @@ def apply(connection):
         for mapping in status_mappings_data:
             workflow_id = workflow_ids.get(mapping["workflow"])
             cursor.execute("""
-                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, integration_id, client_id, active, created_at, last_updated_at)
+                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, integration_id, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                ON CONFLICT (status_from, client_id) DO NOTHING;
-            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, jira_integration_id, client_id))
+                ON CONFLICT (status_from, tenant_id) DO NOTHING;
+            """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, jira_integration_id, tenant_id))
 
         print("✅ Status mappings inserted")
 
-        # 6. Insert issuetype hierarchies
-        print("📋 Creating issuetype hierarchies...")
-        issuetype_hierarchies_data = [
+        # 6. Insert WITs hierarchies
+        print("📋 Creating WITs hierarchies...")
+        wits_hierarchies_data = [
             {"level_name": "Capital Investment", "level_number": 4, "description": "Capital Investment / Theme"},
             {"level_name": "Product Objective", "level_number": 3, "description": "Product Objective / Initiative Name"},
             {"level_name": "Milestone", "level_number": 2, "description": "Milestone"},
@@ -579,79 +576,86 @@ def apply(connection):
             {"level_name": "Sub-task", "level_number": -1, "description": "Internal Checklist Points"}
         ]
 
-        for hierarchy in issuetype_hierarchies_data:
+        for hierarchy in wits_hierarchies_data:
             cursor.execute("""
-                INSERT INTO issuetype_hierarchies (level_name, level_number, description, integration_id, client_id, active, created_at, last_updated_at)
+                INSERT INTO wits_hierarchies (level_name, level_number, description, integration_id, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT DO NOTHING;
-            """, (hierarchy["level_name"], hierarchy["level_number"], hierarchy["description"], jira_integration_id, client_id))
+            """, (hierarchy["level_name"], hierarchy["level_number"], hierarchy["description"], jira_integration_id, tenant_id))
 
-        print("✅ Issuetype hierarchies inserted")
+        print("✅ WITs hierarchies inserted")
 
-        # 7. Insert issuetype mappings
-        print("📋 Creating issuetype mappings...")
-        issuetype_mappings_data = [
+        # 7. Insert WITs mappings
+        print("📋 Creating WITs mappings...")
+        wits_mappings_data = [
             #CAPITAL INVESTMENT
-            {"issuetype_from": "Capital Investment", "issuetype_to": "Capital Investment", "hierarchy_level": 4},
+            {"wit_from": "Capital Investment", "wit_to": "Capital Investment", "hierarchy_level": 4},
 
             #PRODUCT OBJECTIVE
-            {"issuetype_from": "Product Objective", "issuetype_to": "Product Objective", "hierarchy_level": 3},
+            {"wit_from": "Product Objective", "wit_to": "Product Objective", "hierarchy_level": 3},
 
             #MILESTONE
-            {"issuetype_from": "Milestone", "issuetype_to": "Milestone", "hierarchy_level": 2},
+            {"wit_from": "Milestone", "wit_to": "Milestone", "hierarchy_level": 2},
 
             #EPIC
-            {"issuetype_from": "Epic", "issuetype_to": "Epic", "hierarchy_level": 1},
-            {"issuetype_from": "Feature", "issuetype_to": "Epic", "hierarchy_level": 1},
+            {"wit_from": "Epic", "wit_to": "Epic", "hierarchy_level": 1},
+            {"wit_from": "Feature", "wit_to": "Epic", "hierarchy_level": 1},
 
             #STORY
-            {"issuetype_from": "User Story", "issuetype_to": "Story", "hierarchy_level": 0},
-            {"issuetype_from": "Story", "issuetype_to": "Story", "hierarchy_level": 0},
+            {"wit_from": "User Story", "wit_to": "Story", "hierarchy_level": 0},
+            {"wit_from": "Story", "wit_to": "Story", "hierarchy_level": 0},
 
             #TECH ENHANCEMENT
-            {"issuetype_from": "Devops Story", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
-            {"issuetype_from": "Tech Debt", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
-            {"issuetype_from": "Performance", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
-            {"issuetype_from": "Security Remediation", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
-            {"issuetype_from": "Tech Enhancement", "issuetype_to": "Tech Enhancement", "hierarchy_level": 0},
+            {"wit_from": "Devops Story", "wit_to": "Tech Enhancement", "hierarchy_level": 0},
+            {"wit_from": "Tech Debt", "wit_to": "Tech Enhancement", "hierarchy_level": 0},
+            {"wit_from": "Performance", "wit_to": "Tech Enhancement", "hierarchy_level": 0},
+            {"wit_from": "Security Remediation", "wit_to": "Tech Enhancement", "hierarchy_level": 0},
+            {"wit_from": "Tech Enhancement", "wit_to": "Tech Enhancement", "hierarchy_level": 0},
 
             #TASK
-            {"issuetype_from": "Task", "issuetype_to": "Task", "hierarchy_level": 0},
-            {"issuetype_from": "UAT", "issuetype_to": "Task", "hierarchy_level": 0},
-            {"issuetype_from": "Unparented Tasks", "issuetype_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Task", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "UAT", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Unparented Tasks", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Shared Steps", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Educational Services", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Impediment", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Requirement", "wit_to": "Task", "hierarchy_level": 0},
+            {"wit_from": "Shared Parameter", "wit_to": "Task", "hierarchy_level": 0},
 
             #BUG (PROD)
-            {"issuetype_from": "Bug", "issuetype_to": "Bug", "hierarchy_level": 0},
+            {"wit_from": "Bug", "wit_to": "Bug", "hierarchy_level": 0},
 
             #INCIDENT
-            {"issuetype_from": "Issue", "issuetype_to": "Incident", "hierarchy_level": 0},
-            {"issuetype_from": "Incident", "issuetype_to": "Incident", "hierarchy_level": 0},
+            {"wit_from": "Work item", "wit_to": "Incident", "hierarchy_level": 0},
+            {"wit_from": "Incident", "wit_to": "Incident", "hierarchy_level": 0},
 
             #SPIKE
-            {"issuetype_from": "Spike", "issuetype_to": "Spike", "hierarchy_level": 0},
+            {"wit_from": "Spike", "wit_to": "Spike", "hierarchy_level": 0},
 
             #DEFECT (NON-PROD)
-            {"issuetype_from": "Defect", "issuetype_to": "Defect", "hierarchy_level": -1},
-            {"issuetype_from": "Sub-task", "issuetype_to": "Sub-task", "hierarchy_level": -1},
+            {"wit_from": "Defect", "wit_to": "Defect", "hierarchy_level": -1},
+            {"wit_from": "Sprint Work item", "wit_to": "Defect", "hierarchy_level": -1},
+            {"wit_from": "Sub-task", "wit_to": "Sub-task", "hierarchy_level": -1},
+            {"wit_from": "Approval", "wit_to": "Approval", "hierarchy_level": -1},
         ]
 
-        for mapping in issuetype_mappings_data:
+        for mapping in wits_mappings_data:
             # Get the hierarchy ID for this level
             cursor.execute("""
-                SELECT id FROM issuetype_hierarchies
-                WHERE level_number = %s AND client_id = %s
-            """, (mapping["hierarchy_level"], client_id))
+                SELECT id FROM wits_hierarchies
+                WHERE level_number = %s AND tenant_id = %s
+            """, (mapping["hierarchy_level"], tenant_id))
             hierarchy_result = cursor.fetchone()
             hierarchy_id = hierarchy_result['id'] if hierarchy_result else None
 
             if hierarchy_id:
                 cursor.execute("""
-                    INSERT INTO issuetype_mappings (issuetype_from, issuetype_to, issuetype_hierarchy_id, integration_id, client_id, active, created_at, last_updated_at)
+                    INSERT INTO wits_mappings (wit_from, wit_to, wits_hierarchy_id, integration_id, tenant_id, active, created_at, last_updated_at)
                     VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                    ON CONFLICT (issuetype_from, client_id) DO NOTHING;
-                """, (mapping["issuetype_from"], mapping["issuetype_to"], hierarchy_id, jira_integration_id, client_id))
+                    ON CONFLICT (wit_from, tenant_id) DO NOTHING;
+                """, (mapping["wit_from"], mapping["wit_to"], hierarchy_id, jira_integration_id, tenant_id))
 
-        print("✅ Issuetype mappings inserted")
+        print("✅ WITs mappings inserted")
 
         # 8. Insert system settings
         print("📋 Creating system settings...")
@@ -671,10 +675,10 @@ def apply(connection):
 
         for setting in system_settings_data:
             cursor.execute("""
-                INSERT INTO system_settings (setting_key, setting_value, setting_type, description, client_id, active, created_at, last_updated_at)
+                INSERT INTO system_settings (setting_key, setting_value, setting_type, description, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
-                ON CONFLICT (setting_key, client_id) DO NOTHING;
-            """, (setting["setting_key"], setting["setting_value"], setting["setting_type"], setting["description"], client_id))
+                ON CONFLICT (setting_key, tenant_id) DO NOTHING;
+            """, (setting["setting_key"], setting["setting_value"], setting["setting_type"], setting["description"], tenant_id))
 
         print("✅ System settings created")
 
@@ -691,7 +695,7 @@ def apply(connection):
 
         default_users_data = [
             {
-                "email": "gustavo.quinelato@wexinc.com",
+                "email": "admin@google.com",
                 "password_hash": hash_password("pulse"),
                 "first_name": "Gustavo",
                 "last_name": "Quinelato",
@@ -730,10 +734,10 @@ def apply(connection):
 
         for user in default_users_data:
             cursor.execute("""
-                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, theme_mode, client_id, active, created_at, last_updated_at)
+                INSERT INTO users (email, password_hash, first_name, last_name, role, is_admin, auth_provider, theme_mode, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (email) DO NOTHING;
-            """, (user["email"], user["password_hash"], user["first_name"], user["last_name"], user["role"], user["is_admin"], user["auth_provider"], 'light', client_id))
+            """, (user["email"], user["password_hash"], user["first_name"], user["last_name"], user["role"], user["is_admin"], user["auth_provider"], 'light', tenant_id))
 
         print("✅ Default users created")
 
@@ -741,7 +745,7 @@ def apply(connection):
         print("📋 Creating default user permissions...")
 
         # Get user IDs for permission assignment
-        cursor.execute("SELECT id, email, role FROM users WHERE client_id = %s;", (client_id,))
+        cursor.execute("SELECT id, email, role FROM users WHERE tenant_id = %s;", (tenant_id,))
         users = cursor.fetchall()
 
         for user in users:
@@ -774,17 +778,58 @@ def apply(connection):
             # Insert permissions for this user
             for resource, action, granted in permissions:
                 cursor.execute("""
-                    INSERT INTO user_permissions (user_id, resource, action, granted, client_id, active, created_at, last_updated_at)
+                    INSERT INTO user_permissions (user_id, resource, action, granted, tenant_id, active, created_at, last_updated_at)
                     VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT DO NOTHING;
-                """, (user_id, resource, action, granted, client_id))
+                """, (user_id, resource, action, granted, tenant_id))
 
         print("✅ Default user permissions created")
 
+        # 10. Create default job schedules
+        print("📋 Creating default job schedules...")
 
+        # Integration IDs already available from previous steps
 
-        # 11. Insert color settings for Google client
-        print("📋 Creating color settings for Google client...")
+        job_schedules_data = [
+            {
+                "job_name": "Jira",
+                "execution_order": 1,
+                "status": "PENDING",
+                "integration_id": jira_integration_id
+            },
+            {
+                "job_name": "GitHub",
+                "execution_order": 2,
+                "status": "NOT_STARTED",
+                "integration_id": github_integration_id
+            },
+            {
+                "job_name": "WEX Fabric",
+                "execution_order": 3,
+                "status": "NOT_STARTED",
+                "integration_id": fabric_integration_id
+            },
+            {
+                "job_name": "WEX AD",
+                "execution_order": 4,
+                "status": "NOT_STARTED",
+                "integration_id": ad_integration_id
+            }
+        ]
+
+        for job in job_schedules_data:
+            # Set Fabric and AD jobs as inactive since they're not implemented yet
+            is_active = job["job_name"] not in ["WEX Fabric", "WEX AD"]
+            cursor.execute("""
+                INSERT INTO job_schedules (job_name, execution_order, status, integration_id, tenant_id, active, created_at, last_updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (job_name, tenant_id) DO NOTHING;
+            """, (job["job_name"], job["execution_order"], job["status"], job["integration_id"], tenant_id, is_active))
+
+        print("✅ Default job schedules created")
+
+        # 11. Insert colors for Google tenant
+        print("📋 Creating colors for Google tenant...")
 
         # Color calculation functions (inline)
         def _luminance(hex_color):
@@ -843,18 +888,18 @@ def apply(connection):
 
             return variants
 
-        # Google color definitions
+        # WEX color definitions
         DEFAULT_COLORS = {
             'light': {'color1': '#2862EB', 'color2': '#763DED', 'color3': '#059669', 'color4': '#0EA5E9', 'color5': '#F59E0B'},
             'dark': {'color1': '#2862EB', 'color2': '#763DED', 'color3': '#059669', 'color4': '#0EA5E9', 'color5': '#F59E0B'}
         }
 
-        GOOGLE_CUSTOM_COLORS = {
-            'light': {'color1': '#4285F4', 'color2': '#EA4335', 'color3': '#34A853', 'color4': '#FBBC04', 'color5': '#9AA0A6'},
-            'dark': {'color1': '#4285F4', 'color2': '#EA4335', 'color3': '#34A853', 'color4': '#FBBC04', 'color5': '#9AA0A6'}
+        WEX_CUSTOM_COLORS = {
+            'light': {'color1': '#C8102E', 'color2': '#253746', 'color3': '#00C7B1', 'color4': '#A2DDF8', 'color5': '#FFBF3F'},
+            'dark': {'color1': '#C8102E', 'color2': '#253746', 'color3': '#00C7B1', 'color4': '#A2DDF8', 'color5': '#FFBF3F'}
         }
 
-        # Insert 12 rows for Google: 2 modes × 3 accessibility levels × 2 themes
+        # Insert 12 rows for WEX: 2 modes × 3 accessibility levels × 2 themes
         for mode in ['default', 'custom']:
             for accessibility_level in ['regular', 'AA', 'AAA']:
                 for theme_mode in ['light', 'dark']:
@@ -863,7 +908,7 @@ def apply(connection):
                     if mode == 'default':
                         base_colors = DEFAULT_COLORS[theme_mode]
                     else:
-                        base_colors = GOOGLE_CUSTOM_COLORS[theme_mode]
+                        base_colors = WEX_CUSTOM_COLORS[theme_mode]
 
                     # Apply accessibility enhancement if needed
                     if accessibility_level != 'regular':
@@ -878,29 +923,29 @@ def apply(connection):
 
                     # Insert row
                     cursor.execute("""
-                        INSERT INTO client_color_settings (
+                        INSERT INTO tenant_colors (
                             color_schema_mode, accessibility_level, theme_mode,
                             color1, color2, color3, color4, color5,
                             on_color1, on_color2, on_color3, on_color4, on_color5,
                             on_gradient_1_2, on_gradient_2_3, on_gradient_3_4, on_gradient_4_5, on_gradient_5_1,
-                            client_id, active, created_at, last_updated_at
+                            tenant_id, active, created_at, last_updated_at
                         ) VALUES (
                             %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, TRUE, NOW(), NOW()
-                        ) ON CONFLICT (client_id, color_schema_mode, accessibility_level, theme_mode) DO NOTHING;
+                        ) ON CONFLICT (tenant_id, color_schema_mode, accessibility_level, theme_mode) DO NOTHING;
                     """, (
                         mode, accessibility_level, theme_mode,
                         enhanced_colors['color1'], enhanced_colors['color2'], enhanced_colors['color3'], enhanced_colors['color4'], enhanced_colors['color5'],
                         calculated_variants['on_color1'], calculated_variants['on_color2'], calculated_variants['on_color3'], calculated_variants['on_color4'], calculated_variants['on_color5'],
                         calculated_variants['on_gradient_1_2'], calculated_variants['on_gradient_2_3'], calculated_variants['on_gradient_3_4'], calculated_variants['on_gradient_4_5'], calculated_variants['on_gradient_5_1'],
-                        client_id
+                        tenant_id
                     ))
 
-        print("✅ Color settings created for Google client")
-        print("✅ Google client seed data completed successfully")
+        print("✅ Colors created for Google tenant")
+        print("✅ Google tenant seed data completed successfully")
 
         # Record this migration as applied
         cursor.execute("""
@@ -908,7 +953,7 @@ def apply(connection):
             VALUES (%s, %s, NOW(), 'applied')
             ON CONFLICT (migration_number)
             DO UPDATE SET applied_at = NOW(), status = 'applied', rollback_at = NULL;
-        """, ('0004', 'Initial Seed Data Google'))
+        """, ('0004', 'Initial Seed Data WEX'))
 
         connection.commit()
         print(f"SUCCESS: Migration 0004 applied successfully")
@@ -927,79 +972,79 @@ def rollback(connection):
 
         # Delete seed data in reverse order of creation, handling foreign key constraints properly
         print("📋 Removing job schedules...")
-        cursor.execute("DELETE FROM job_schedules WHERE client_id = (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM job_schedules WHERE tenant_id = (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing user permissions...")
-        # First remove permissions for Google client
-        cursor.execute("DELETE FROM user_permissions WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        # Then remove ALL permissions for the specific users we're about to delete
-        cursor.execute("DELETE FROM user_permissions WHERE user_id IN (SELECT id FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com'));")
+        cursor.execute("DELETE FROM user_permissions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing user sessions...")
-        cursor.execute("DELETE FROM user_sessions WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        # Also remove sessions for the specific users we're about to delete
-        cursor.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com'));")
+        cursor.execute("DELETE FROM user_sessions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing default users...")
-        cursor.execute("DELETE FROM users WHERE email IN ('gustavo.quinelato@wexinc.com', 'admin@pulse.com', 'user@pulse.com', 'viewer@pulse.com');")
+        # Only delete users that belong specifically to Google tenant
+        cursor.execute("DELETE FROM users WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing system settings...")
-        cursor.execute("DELETE FROM system_settings WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM system_settings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         # Remove data tables in correct dependency order
         print("📋 Removing data that references other tables...")
         # First: Remove leaf tables (no other tables depend on them)
-        cursor.execute("DELETE FROM pull_request_reviews WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM pull_request_commits WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM pull_request_comments WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM issue_changelogs WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM jira_pull_request_links WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM prs_reviews WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM prs_commits WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM prs_comments WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM wits_changelogs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM wits_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        # Second: Remove tables that depend on issues/repositories
-        cursor.execute("DELETE FROM pull_requests WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        # Second: Remove tables that depend on work_items/repositories
+        cursor.execute("DELETE FROM prs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        # Third: Remove issues (depends on issuetypes, statuses, projects)
-        cursor.execute("DELETE FROM issues WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        # Third: Remove work_items (depends on wits, statuses, projects)
+        cursor.execute("DELETE FROM work_items WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         # Fourth: Remove many-to-many relationship tables
         print("📋 Removing relationship tables...")
         cursor.execute("""
-            DELETE FROM projects_issuetypes
-            WHERE project_id IN (SELECT id FROM projects WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google'))
+            DELETE FROM project_wits
+            WHERE project_id IN (SELECT id FROM projects WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google'))
         """)
         cursor.execute("""
             DELETE FROM projects_statuses
-            WHERE project_id IN (SELECT id FROM projects WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google'))
+            WHERE project_id IN (SELECT id FROM projects WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google'))
         """)
 
         # Fifth: Remove repositories and projects
-        cursor.execute("DELETE FROM repositories WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM projects WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM repositories WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM projects WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        # Sixth: Remove issuetypes and statuses (depend on mappings)
-        cursor.execute("DELETE FROM issuetypes WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
-        cursor.execute("DELETE FROM statuses WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        # Sixth: Remove wits and statuses (depend on mappings)
+        cursor.execute("DELETE FROM wits WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM statuses WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        print("📋 Removing issuetype mappings...")
-        cursor.execute("DELETE FROM issuetype_mappings WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        print("📋 Removing WITs mappings...")
+        cursor.execute("DELETE FROM wits_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        print("📋 Removing issuetype hierarchies...")
-        cursor.execute("DELETE FROM issuetype_hierarchies WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        print("📋 Removing WITs hierarchies...")
+        cursor.execute("DELETE FROM wits_hierarchies WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing status mappings...")
-        cursor.execute("DELETE FROM status_mappings WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM status_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing workflows...")
-        cursor.execute("DELETE FROM workflows WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        cursor.execute("DELETE FROM workflows WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        print("📋 Removing all integrations for Google client...")
-        cursor.execute("DELETE FROM integrations WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        print("📋 Removing all integrations for Google tenant...")
+        cursor.execute("DELETE FROM integrations WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        print("📋 Removing color settings...")
-        cursor.execute("DELETE FROM client_color_settings WHERE client_id IN (SELECT id FROM clients WHERE name = 'Google');")
+        print("📋 Removing colors...")
+        cursor.execute("DELETE FROM tenant_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
-        print("📋 Removing Google client...")
-        cursor.execute("DELETE FROM clients WHERE name = 'Google';")
+        print("📋 Removing Google tenant...")
+        cursor.execute("DELETE FROM tenants WHERE name = 'Google';")
+
+        print("📋 Removing DORA data...")
+        cursor.execute("DELETE FROM dora_metric_insights WHERE report_year = 2024;")
+        cursor.execute("DELETE FROM dora_market_benchmarks WHERE report_year = 2024;")
 
         print("✅ Seed data removed successfully")
 
@@ -1027,23 +1072,23 @@ def check_status(connection):
             SELECT migration_number, migration_name, applied_at, rollback_at, status
             FROM migration_history
             WHERE migration_number = %s;
-        """, ('0002',))
+        """, ('0004',))
 
         result = cursor.fetchone()
         if result:
             status = result['status']
             if status == 'applied':
-                print(f"SUCCESS: Migration 0002 is applied ({result['applied_at']})")
+                print(f"SUCCESS: Migration 0004 is applied ({result['applied_at']})")
             elif status == 'rolled_back':
-                print(f"ROLLBACK: Migration 0002 was rolled back ({result['rollback_at']})")
+                print(f"ROLLBACK: Migration 0004 was rolled back ({result['rollback_at']})")
         else:
-            print(f"PENDING: Migration 0002 has not been applied")
+            print(f"PENDING: Migration 0004 has not been applied")
 
     except Exception as e:
         print(f"ERROR: Error checking migration status: {e}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Migration 0004: Initial Seed Data Google")
+    parser = argparse.ArgumentParser(description="Migration 0004: Initial Seed Data")
     parser.add_argument("--apply", action="store_true", help="Apply the migration")
     parser.add_argument("--rollback", action="store_true", help="Rollback the migration")
     parser.add_argument("--status", action="store_true", help="Check migration status")
