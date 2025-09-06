@@ -415,7 +415,7 @@ def apply(connection):
 
         # 16. Work item changelogs table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS wits_changelogs (
+            CREATE TABLE IF NOT EXISTS changelogs (
                 id SERIAL,
                 work_item_id INTEGER NOT NULL,
                 external_id VARCHAR,
@@ -771,7 +771,7 @@ def apply(connection):
         ensure_primary_key('wits', 'pk_wits')
         ensure_primary_key('statuses', 'pk_statuses')
         ensure_primary_key('work_items', 'pk_work_items')
-        ensure_primary_key('wits_changelogs', 'pk_wits_changelogs')
+        ensure_primary_key('changelogs', 'pk_changelogs')
         ensure_primary_key('repositories', 'pk_repositories')
         ensure_primary_key('prs', 'pk_prs')
         ensure_primary_key('prs_reviews', 'pk_prs_reviews')
@@ -941,11 +941,11 @@ def apply(connection):
         add_constraint_if_not_exists('fk_work_items_tenant_id', 'work_items', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Work item changelogs
-        add_constraint_if_not_exists('fk_wits_changelogs_integration_id', 'wits_changelogs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_wits_changelogs_work_item_id', 'wits_changelogs', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
-        add_constraint_if_not_exists('fk_wits_changelogs_from_status_id', 'wits_changelogs', 'FOREIGN KEY (from_status_id) REFERENCES statuses(id)')
-        add_constraint_if_not_exists('fk_wits_changelogs_to_status_id', 'wits_changelogs', 'FOREIGN KEY (to_status_id) REFERENCES statuses(id)')
-        add_constraint_if_not_exists('fk_wits_changelogs_tenant_id', 'wits_changelogs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_changelogs_integration_id', 'changelogs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_changelogs_work_item_id', 'changelogs', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_changelogs_from_status_id', 'changelogs', 'FOREIGN KEY (from_status_id) REFERENCES statuses(id)')
+        add_constraint_if_not_exists('fk_changelogs_to_status_id', 'changelogs', 'FOREIGN KEY (to_status_id) REFERENCES statuses(id)')
+        add_constraint_if_not_exists('fk_changelogs_tenant_id', 'changelogs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Repositories and PRs
         add_constraint_if_not_exists('fk_repositories_tenant_id', 'repositories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
@@ -1080,8 +1080,8 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_parent_external_id ON work_items(parent_external_id);")
 
         # Work item changelogs indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_changelogs_work_item_id ON wits_changelogs(work_item_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_changelogs_transition_change_date ON wits_changelogs(transition_change_date);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_work_item_id ON changelogs(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_transition_change_date ON changelogs(transition_change_date);")
 
         # Repository and PR indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_tenant_id ON repositories(tenant_id);")
@@ -1216,7 +1216,7 @@ def rollback(connection):
             'repositories',
 
             # Work item related tables (depend on work_items table)
-            'wits_changelogs',
+            'changelogs',
             'work_items',  # Main work items table
 
             # Project relationship tables

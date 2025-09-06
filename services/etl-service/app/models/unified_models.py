@@ -43,7 +43,7 @@ class Tenant(Base):
     wit_mappings = relationship("WitMapping", back_populates="tenant")
     wit_hierarchies = relationship("WitHierarchy", back_populates="tenant")
     work_items = relationship("WorkItem", back_populates="tenant")
-    work_item_changelogs = relationship("WorkItemChangelog", back_populates="tenant")
+    changelogs = relationship("Changelog", back_populates="tenant")
     repositories = relationship("Repository", back_populates="tenant")
     prs = relationship("Pr", back_populates="tenant")
     pr_reviews = relationship("PrReview", back_populates="tenant")
@@ -111,7 +111,7 @@ class Integration(Base, BaseEntity):
     wits = relationship("Wit", back_populates="integration")
     statuses = relationship("Status", back_populates="integration")
     work_items = relationship("WorkItem", back_populates="integration")
-    work_item_work_item_changelogs = relationship("WorkItemChangelog", back_populates="integration")
+    changelogs = relationship("Changelog", back_populates="integration")
     workflows = relationship("Workflow", back_populates="integration")
     repositories = relationship("Repository", back_populates="integration")
     prs = relationship("Pr", back_populates="integration")
@@ -174,7 +174,7 @@ class Wit(Base, IntegrationBaseEntity):
     tenant = relationship("Tenant", back_populates="wits")
     integration = relationship("Integration", back_populates="wits")
     projects = relationship("Project", secondary="project_wits", back_populates="wits")
-    wit_mappings = relationship("WitMapping", back_populates="wits")
+    wit_mappings = relationship("WitMapping", back_populates="wit")
     work_items = relationship("WorkItem", back_populates="wit")
 
 class StatusMapping(Base, IntegrationBaseEntity):
@@ -350,12 +350,12 @@ class WorkItem(Base, IntegrationBaseEntity):
 
     # New relationships for development data
     prs = relationship("Pr", back_populates="work_item")
-    work_item_changelogs = relationship("WorkItemChangelog", back_populates="work_item")
+    changelogs = relationship("Changelog", back_populates="work_item")
     pr_links = relationship("WitPrLinks", back_populates="work_item")
 
-class WorkItemChangelog(Base, IntegrationBaseEntity):
+class Changelog(Base, IntegrationBaseEntity):
     """Work item status change history table"""
-    __tablename__ = 'wits_changelogs'
+    __tablename__ = 'changelogs'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -375,9 +375,9 @@ class WorkItemChangelog(Base, IntegrationBaseEntity):
     changed_by = Column(String, quote=False, name="changed_by")
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="work_item_changelogs")
-    integration = relationship("Integration", back_populates="work_item_changelogs")
-    work_item = relationship("WorkItem", back_populates="work_item_changelogs")
+    tenant = relationship("Tenant", back_populates="changelogs")
+    integration = relationship("Integration", back_populates="changelogs")
+    work_item = relationship("WorkItem", back_populates="changelogs")
     from_status = relationship("Status", foreign_keys=[from_status_id])
     to_status = relationship("Status", foreign_keys=[to_status_id])
 
