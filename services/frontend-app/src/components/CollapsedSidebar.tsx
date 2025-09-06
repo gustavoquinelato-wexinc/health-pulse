@@ -80,7 +80,7 @@ const adminItems: NavigationItem[] = [
     subItems: [
       { id: 'color-scheme', label: 'Color Scheme', path: '/admin/color-scheme' },
       { id: 'user-management', label: 'User Management', path: '/admin/user-management' },
-      { id: 'client-management', label: 'Client Management', path: '/admin/client-management' },
+      { id: 'client-management', label: 'Tenant Management', path: '/admin/client-management' },
       { id: 'notifications', label: 'Notifications', path: '/admin/notifications' }
     ]
   }
@@ -109,7 +109,7 @@ export default function CollapsedSidebar() {
   const handleMouseEnter = (e: React.MouseEvent, item: any) => {
     clearHoverTimeout()
 
-    const rect = e.currentTarget.getBoundingClientRect()
+    const rect = e.currentTarget.getBoundingTenantRect()
     const viewportHeight = window.innerHeight
     const submenuHeight = item.subItems ? (item.subItems.length * 40 + 60) : 40 // Estimate submenu height
 

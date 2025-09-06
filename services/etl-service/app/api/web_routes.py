@@ -40,24 +40,24 @@ async def get_user_client_info(token: str) -> dict:
     """Get current user's client information for template rendering"""
     try:
         if not token:
-            return {"client_logo": None, "client_name": "Client"}
+            return {"client_logo": None, "client_name": "Tenant"}
 
         # Validate token and get user data
         auth_service = get_centralized_auth_service()
         user_data = await auth_service.verify_token(token)
 
         if not user_data:
-            return {"client_logo": None, "client_name": "Client"}
+            return {"client_logo": None, "client_name": "Tenant"}
 
         # Get client information from database
         from app.core.database import get_database
-        from app.models.unified_models import Client
+        from app.models.unified_models import Tenant
 
         database = get_database()
         with database.get_session() as session:
-            client = session.query(Client).filter(
-                Client.id == user_data.get('client_id'),
-                Client.active == True
+            client = session.query(Tenant).filter(
+                Tenant.id == user_data.get('tenant_id'),
+                Tenant.active == True
             ).first()
 
             if client:
@@ -71,11 +71,11 @@ async def get_user_client_info(token: str) -> dict:
                     "client_name": client.name
                 }
 
-        return {"client_logo": None, "client_name": "Client"}
+        return {"client_logo": None, "client_name": "Tenant"}
 
     except Exception as e:
         logger.warning(f"Failed to get client info: {e}")
-        return {"client_logo": None, "client_name": "Client"}
+        return {"client_logo": None, "client_name": "Tenant"}
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -282,7 +282,7 @@ async def home_page(request: Request, token: Optional[str] = None):
 
     if auth_token:
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 # Get color schema from backend (unified API)
                 response_color = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
@@ -462,7 +462,7 @@ async def old_admin_page(request: Request, token: Optional[str] = None):
 async def get_job_details(job_id: int, user: UserData = Depends(require_admin_authentication)):
     """Get detailed job information for the job details modal"""
     try:
-        logger.info(f"Getting job details for job ID {job_id}, client_id: {user.client_id}")
+        logger.info(f"Getting job details for job ID {job_id}, tenant_id: {user.tenant_id}")
 
         from app.core.database import get_database
         from app.models.unified_models import JobSchedule
@@ -472,15 +472,15 @@ async def get_job_details(job_id: int, user: UserData = Depends(require_admin_au
 
         with database.get_write_session_context() as session:
             # Get job schedule details by ID and client
-            logger.info(f"Querying JobSchedule for job_id={job_id}, client_id={user.client_id}")
+            logger.info(f"Querying JobSchedule for job_id={job_id}, tenant_id={user.tenant_id}")
 
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.id == job_id,
-                JobSchedule.client_id == user.client_id
+                JobSchedule.tenant_id == user.tenant_id
             ).first()
 
             if not job_schedule:
-                logger.warning(f"No job schedule found for job_id {job_id} and client_id {user.client_id}")
+                logger.warning(f"No job schedule found for job_id {job_id} and tenant_id {user.tenant_id}")
                 # Return default values instead of 404 to prevent modal errors
                 return {
                     "status": "NOT_CONFIGURED",
@@ -535,8 +535,8 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
     try:
         from app.core.database import get_database
         from app.models.unified_models import (
-            Project, Issuetype, Status, Issue,
-            IssueChangelog, JiraPullRequestLinks
+            Project, Wit, Status, WorkItem,
+            WorkItemChangelog, WitPrLinks
         )
         from sqlalchemy import func, desc
 
@@ -544,69 +544,69 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
 
         with database.get_read_session_context() as session:
             # Projects summary
-            projects_total = session.query(Project).filter(Project.client_id == user.client_id).count()
+            projects_total = session.query(Project).filter(Project.tenant_id == user.tenant_id).count()
             projects_active = session.query(Project).filter(
-                Project.client_id == user.client_id,
+                Project.tenant_id == user.tenant_id,
                 Project.active == True
             ).count()
 
-            # Issue Types summary
-            issuetypes_total = session.query(Issuetype).filter(Issuetype.client_id == user.client_id).count()
-            issuetypes_active = session.query(Issuetype).filter(
-                Issuetype.client_id == user.client_id,
-                Issuetype.active == True
+            # WorkItem Types summary
+            issuetypes_total = session.query(Wit).filter(Wit.tenant_id == user.tenant_id).count()
+            issuetypes_active = session.query(Wit).filter(
+                Wit.tenant_id == user.tenant_id,
+                Wit.active == True
             ).count()
 
             # Statuses summary
-            statuses_total = session.query(Status).filter(Status.client_id == user.client_id).count()
+            statuses_total = session.query(Status).filter(Status.tenant_id == user.tenant_id).count()
             statuses_active = session.query(Status).filter(
-                Status.client_id == user.client_id,
+                Status.tenant_id == user.tenant_id,
                 Status.active == True
             ).count()
 
-            # Issues summary
-            issues_total = session.query(Issue).filter(Issue.client_id == user.client_id).count()
-            issues_active = session.query(Issue).filter(
-                Issue.client_id == user.client_id,
-                Issue.active == True
+            # WorkItems summary
+            issues_total = session.query(WorkItem).filter(WorkItem.tenant_id == user.tenant_id).count()
+            issues_active = session.query(WorkItem).filter(
+                WorkItem.tenant_id == user.tenant_id,
+                WorkItem.active == True
             ).count()
 
             # Top issue types
             top_types = session.query(
-                Issuetype.original_name,
-                func.count(Issue.id).label('count')
-            ).join(Issue).filter(
-                Issue.client_id == user.client_id,
-                Issue.active == True
-            ).group_by(Issuetype.original_name).order_by(desc('count')).limit(5).all()
+                Wit.original_name,
+                func.count(WorkItem.id).label('count')
+            ).join(WorkItem).filter(
+                WorkItem.tenant_id == user.tenant_id,
+                WorkItem.active == True
+            ).group_by(Wit.original_name).order_by(desc('count')).limit(5).all()
 
             # Top statuses
             top_statuses = session.query(
                 Status.original_name,
-                func.count(Issue.id).label('count')
-            ).join(Issue).filter(
-                Issue.client_id == user.client_id,
-                Issue.active == True
+                func.count(WorkItem.id).label('count')
+            ).join(WorkItem).filter(
+                WorkItem.tenant_id == user.tenant_id,
+                WorkItem.active == True
             ).group_by(Status.original_name).order_by(desc('count')).limit(10).all()
 
             # Changelogs summary
-            changelogs_total = session.query(IssueChangelog).filter(IssueChangelog.client_id == user.client_id).count()
-            changelogs_active = session.query(IssueChangelog).filter(
-                IssueChangelog.client_id == user.client_id,
-                IssueChangelog.active == True
+            changelogs_total = session.query(WorkItemChangelog).filter(WorkItemChangelog.tenant_id == user.tenant_id).count()
+            changelogs_active = session.query(WorkItemChangelog).filter(
+                WorkItemChangelog.tenant_id == user.tenant_id,
+                WorkItemChangelog.active == True
             ).count()
 
             # PR Links summary
-            pr_links_total = session.query(JiraPullRequestLinks).filter(JiraPullRequestLinks.client_id == user.client_id).count()
-            pr_links_active = session.query(JiraPullRequestLinks).filter(
-                JiraPullRequestLinks.client_id == user.client_id,
-                JiraPullRequestLinks.active == True
+            pr_links_total = session.query(WitPrLinks).filter(WitPrLinks.tenant_id == user.tenant_id).count()
+            pr_links_active = session.query(WitPrLinks).filter(
+                WitPrLinks.tenant_id == user.tenant_id,
+                WitPrLinks.active == True
             ).count()
 
             # Unique repositories count
-            unique_repos = session.query(func.count(func.distinct(JiraPullRequestLinks.repo_full_name))).filter(
-                JiraPullRequestLinks.client_id == user.client_id,
-                JiraPullRequestLinks.active == True
+            unique_repos = session.query(func.count(func.distinct(WitPrLinks.repo_full_name))).filter(
+                WitPrLinks.tenant_id == user.tenant_id,
+                WitPrLinks.active == True
             ).scalar() or 0
 
             return {
@@ -663,28 +663,28 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
         database = get_database()
         with database.get_read_session_context() as session:
             from app.models.unified_models import (
-                Repository, PullRequest, PullRequestReview, PullRequestCommit, PullRequestComment,
+                Repository, Pr, PrReview, PrCommit, PrComment,
                 JobSchedule, Integration
             )
             from sqlalchemy import func, desc
 
             # Get GitHub integration and job schedule
             github_integration = session.query(Integration).filter(
-                Integration.client_id == user.client_id,
+                Integration.tenant_id == user.tenant_id,
                 Integration.provider == 'github'
             ).first()
 
             github_job = None
             if github_integration:
                 github_job = session.query(JobSchedule).filter(
-                    JobSchedule.client_id == user.client_id,
+                    JobSchedule.tenant_id == user.tenant_id,
                     JobSchedule.integration_id == github_integration.id
                 ).first()
 
             # Repositories summary
-            repos_total = session.query(Repository).filter(Repository.client_id == user.client_id).count()
+            repos_total = session.query(Repository).filter(Repository.tenant_id == user.tenant_id).count()
             repos_active = session.query(Repository).filter(
-                Repository.client_id == user.client_id,
+                Repository.tenant_id == user.tenant_id,
                 Repository.active == True
             ).count()
 
@@ -693,7 +693,7 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
                 Repository.language,
                 func.count(Repository.id).label('count')
             ).filter(
-                Repository.client_id == user.client_id,
+                Repository.tenant_id == user.tenant_id,
                 Repository.active == True,
                 Repository.language.isnot(None)
             ).group_by(Repository.language).order_by(desc('count')).limit(3).all()
@@ -701,48 +701,48 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
             # Top 3 repositories by PR count
             top_repos = session.query(
                 Repository.full_name,
-                func.count(PullRequest.id).label('pr_count')
-            ).join(PullRequest).filter(
-                Repository.client_id == user.client_id,
+                func.count(Pr.id).label('pr_count')
+            ).join(Pr).filter(
+                Repository.tenant_id == user.tenant_id,
                 Repository.active == True
             ).group_by(Repository.full_name).order_by(desc('pr_count')).limit(3).all()
 
             # Pull Requests summary with code statistics
-            prs_total = session.query(PullRequest).filter(PullRequest.client_id == user.client_id).count()
-            prs_active = session.query(PullRequest).filter(
-                PullRequest.client_id == user.client_id,
-                PullRequest.active == True
+            prs_total = session.query(Pr).filter(Pr.tenant_id == user.tenant_id).count()
+            prs_active = session.query(Pr).filter(
+                Pr.tenant_id == user.tenant_id,
+                Pr.active == True
             ).count()
 
             # Code statistics
             code_stats = session.query(
-                func.sum(PullRequest.additions).label('total_additions'),
-                func.sum(PullRequest.deletions).label('total_deletions'),
-                func.sum(PullRequest.changed_files).label('total_changed_files')
+                func.sum(Pr.additions).label('total_additions'),
+                func.sum(Pr.deletions).label('total_deletions'),
+                func.sum(Pr.changed_files).label('total_changed_files')
             ).filter(
-                PullRequest.client_id == user.client_id,
-                PullRequest.active == True
+                Pr.tenant_id == user.tenant_id,
+                Pr.active == True
             ).first()
 
             # Reviews summary
-            reviews_total = session.query(PullRequestReview).filter(PullRequestReview.client_id == user.client_id).count()
-            reviews_active = session.query(PullRequestReview).filter(
-                PullRequestReview.client_id == user.client_id,
-                PullRequestReview.active == True
+            reviews_total = session.query(PrReview).filter(PrReview.tenant_id == user.tenant_id).count()
+            reviews_active = session.query(PrReview).filter(
+                PrReview.tenant_id == user.tenant_id,
+                PrReview.active == True
             ).count()
 
             # Commits summary
-            commits_total = session.query(PullRequestCommit).filter(PullRequestCommit.client_id == user.client_id).count()
-            commits_active = session.query(PullRequestCommit).filter(
-                PullRequestCommit.client_id == user.client_id,
-                PullRequestCommit.active == True
+            commits_total = session.query(PrCommit).filter(PrCommit.tenant_id == user.tenant_id).count()
+            commits_active = session.query(PrCommit).filter(
+                PrCommit.tenant_id == user.tenant_id,
+                PrCommit.active == True
             ).count()
 
             # Comments summary
-            comments_total = session.query(PullRequestComment).filter(PullRequestComment.client_id == user.client_id).count()
-            comments_active = session.query(PullRequestComment).filter(
-                PullRequestComment.client_id == user.client_id,
-                PullRequestComment.active == True
+            comments_total = session.query(PrComment).filter(PrComment.tenant_id == user.tenant_id).count()
+            comments_active = session.query(PrComment).filter(
+                PrComment.tenant_id == user.tenant_id,
+                PrComment.active == True
             ).count()
 
             # Recovery information
@@ -839,7 +839,7 @@ async def download_log_file(filename: str, token: str = None, user: UserData = D
         # Validate filename to prevent directory traversal - include client-specific files
         allowed_files = [
             'etl_service.log', 'orchestrator.log',  # Legacy files
-            f'etl_service_{client_name}.log', f'orchestrator_{client_name}.log',  # Client-specific files
+            f'etl_service_{client_name}.log', f'orchestrator_{client_name}.log',  # Tenant-specific files
             'etl_service.log.1', 'orchestrator.log.1',  # Rotated legacy files
             f'etl_service_{client_name}.log.1', f'orchestrator_{client_name}.log.1'  # Rotated client-specific files
         ]
@@ -987,7 +987,7 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncTenant() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {auth_token}"}
@@ -1091,7 +1091,7 @@ async def issuetype_mappings_page(request: Request):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncTenant() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
@@ -1132,7 +1132,7 @@ async def issuetype_mappings_page(request: Request):
         })
 
     except Exception as e:
-        logger.error(f"Issue type mappings page error: {e}")
+        logger.error(f"WorkItem type mappings page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
@@ -1160,7 +1160,7 @@ async def issuetype_hierarchies_page(request: Request):
 
         if token:
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncTenant() as client:
                     # Get color schema from backend (unified API)
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
@@ -1224,7 +1224,7 @@ async def issuetype_hierarchies_page(request: Request):
         })
 
     except Exception as e:
-        logger.error(f"Issue type hierarchies page error: {e}")
+        logger.error(f"WorkItem type hierarchies page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
@@ -1256,7 +1256,7 @@ async def workflows_page(request: Request):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncTenant() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
@@ -1733,10 +1733,10 @@ async def get_job_schedule_details(job_name: str, user: UserData = Depends(requi
         database = get_database()
 
         with database.get_read_session_context() as session:
-            # SECURITY: Filter job schedule by client_id
+            # SECURITY: Filter job schedule by tenant_id
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.job_name == job_name,
-                JobSchedule.client_id == user.client_id
+                JobSchedule.tenant_id == user.tenant_id
             ).first()
 
             if not job_schedule:
@@ -1805,11 +1805,11 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
             # Get GitHub integration for the authenticated user's client
             github_integration = session.query(Integration).filter(
                 func.upper(Integration.provider) == 'GITHUB',
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
 
             if not github_integration:
-                raise HTTPException(status_code=404, detail=f"GitHub integration not found for client {user.client_id}")
+                raise HTTPException(status_code=404, detail=f"GitHub integration not found for client {user.tenant_id}")
 
             # Decrypt GitHub token
             key = AppConfig.load_key()
@@ -1864,15 +1864,15 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
 async def get_jobs_status(user: UserData = Depends(verify_token)):
     """Get current status of all jobs with optimized queries"""
     try:
-        # SECURITY: Get job status filtered by client_id
-        status_data = get_job_status(client_id=user.client_id)
+        # SECURITY: Get job status filtered by tenant_id
+        status_data = get_job_status(tenant_id=user.tenant_id)
 
         # Enhance with checkpoint data using optimized query
         database = get_database()
         with database.get_read_session_context() as session:
-            # SECURITY: Get job objects filtered by client_id (include all jobs)
+            # SECURITY: Get job objects filtered by tenant_id (include all jobs)
             jobs = session.query(JobSchedule).filter(
-                JobSchedule.client_id == user.client_id
+                JobSchedule.tenant_id == user.tenant_id
             ).all()
 
             for job in jobs:
@@ -1910,7 +1910,7 @@ async def get_home_status_api(user: UserData = Depends(require_admin_authenticat
     """Get comprehensive home page status for modern interface"""
     try:
         # Get job status
-        job_status = get_job_status(client_id=user.client_id)
+        job_status = get_job_status(tenant_id=user.tenant_id)
 
         # Calculate system health
         system_status = "Healthy"
@@ -1996,11 +1996,11 @@ async def handle_color_schema_change(request: Request):
     """Internal endpoint: Handle color schema change notification from backend"""
     try:
         data = await request.json()
-        client_id = data.get("client_id")
+        tenant_id = data.get("tenant_id")
         colors = data.get("colors", {})
         event_type = data.get("event_type", "color_update")
 
-        logger.info(f"[COLOR] Received color schema change notification for client {client_id}")
+        logger.info(f"[COLOR] Received color schema change notification for client {tenant_id}")
         logger.debug(f"Colors: {colors}")
 
         # Invalidate color schema cache to force refresh
@@ -2012,21 +2012,21 @@ async def handle_color_schema_change(request: Request):
         from app.core.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
 
-        # Send color update to all connected clients for this client_id
+        # Send color update to all connected clients for this tenant_id
         from datetime import datetime
-        await websocket_manager.broadcast_to_client(client_id, {
+        await websocket_manager.broadcast_to_client(tenant_id, {
             "type": "color_schema_updated",
             "colors": colors,
             "event_type": event_type,
             "timestamp": datetime.utcnow().isoformat()
         })
 
-        logger.info(f"Color schema cache invalidated and clients notified for client {client_id}")
+        logger.info(f"Color schema cache invalidated and clients notified for client {tenant_id}")
 
         return {
             "success": True,
             "message": "Color schema change processed successfully",
-            "client_id": client_id
+            "tenant_id": tenant_id
         }
 
     except Exception as e:
@@ -2042,22 +2042,22 @@ async def handle_color_schema_mode_change(request: Request):
     """Internal endpoint: Handle color schema mode change notification from backend"""
     try:
         data = await request.json()
-        client_id = data.get("client_id")
+        tenant_id = data.get("tenant_id")
         mode = data.get("mode")
 
-        logger.info(f"Color schema mode change notification received for client {client_id}: {mode}")
+        logger.info(f"Color schema mode change notification received for client {tenant_id}: {mode}")
 
         # Invalidate color schema cache to force refresh on next page load
         from app.core.color_schema_manager import get_color_schema_manager
         color_manager = get_color_schema_manager()
         color_manager.invalidate_cache()
 
-        logger.info(f"Color schema cache invalidated for client {client_id}")
+        logger.info(f"Color schema cache invalidated for client {tenant_id}")
 
         return {
             "success": True,
             "message": "Color schema mode change processed successfully",
-            "client_id": client_id,
+            "tenant_id": tenant_id,
             "mode": mode
         }
 
@@ -2122,7 +2122,7 @@ async def start_job(
         else:
             logger.info(f"Force starting job {job_name} in MANUAL MODE (default parameters)")
 
-        # SECURITY: Use client-aware trigger functions with user's client_id
+        # SECURITY: Use client-aware trigger functions with user's tenant_id
         # Run in background to avoid blocking the web request
         import asyncio
         job_name_lower = job_name.lower()
@@ -2130,22 +2130,22 @@ async def start_job(
             asyncio.create_task(trigger_jira_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                client_id=user.client_id
+                tenant_id=user.tenant_id
             ))
             result = {
                 'status': 'triggered',
-                'message': f'Jira sync job triggered successfully for client {user.client_id}',
+                'message': f'Jira sync job triggered successfully for client {user.tenant_id}',
                 'job_name': job_name
             }
         elif job_name_lower == 'github':
             asyncio.create_task(trigger_github_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                client_id=user.client_id
+                tenant_id=user.tenant_id
             ))
             result = {
                 'status': 'triggered',
-                'message': f'GitHub sync job triggered successfully for client {user.client_id}',
+                'message': f'GitHub sync job triggered successfully for client {user.tenant_id}',
                 'job_name': job_name
             }
         elif job_name_lower == 'wex fabric':
@@ -2153,11 +2153,11 @@ async def start_job(
             asyncio.create_task(trigger_fabric_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                client_id=user.client_id
+                tenant_id=user.tenant_id
             ))
             result = {
                 'status': 'triggered',
-                'message': f'WEX Fabric sync job triggered successfully for client {user.client_id}',
+                'message': f'WEX Fabric sync job triggered successfully for client {user.tenant_id}',
                 'job_name': job_name
             }
         elif job_name_lower == 'wex ad':
@@ -2165,11 +2165,11 @@ async def start_job(
             asyncio.create_task(trigger_ad_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                client_id=user.client_id
+                tenant_id=user.tenant_id
             ))
             result = {
                 'status': 'triggered',
-                'message': f'WEX AD sync job triggered successfully for client {user.client_id}',
+                'message': f'WEX AD sync job triggered successfully for client {user.tenant_id}',
                 'job_name': job_name
             }
         else:
@@ -2381,16 +2381,16 @@ async def pause_job(job_id: int, user: UserData = Depends(require_admin_authenti
             # Get the specific job to pause by ID and client
             job_to_pause = session.query(JobSchedule).filter(
                 JobSchedule.id == job_id,
-                JobSchedule.client_id == user.client_id,
+                JobSchedule.tenant_id == user.tenant_id,
                 JobSchedule.active == True
             ).first()
 
             if not job_to_pause:
-                logger.error(f"[PAUSE] Job ID {job_id} not found or not active for client {user.client_id}")
+                logger.error(f"[PAUSE] Job ID {job_id} not found or not active for client {user.tenant_id}")
                 raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
 
             job_name = job_to_pause.job_name
-            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) found - Status: {job_to_pause.status}, Active: {job_to_pause.active}, Client: {job_to_pause.client_id}")
+            logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) found - Status: {job_to_pause.status}, Active: {job_to_pause.active}, Tenant: {job_to_pause.tenant_id}")
 
             if job_to_pause.status == 'PAUSED':
                 logger.info(f"[PAUSE] Job {job_name} (ID: {job_id}) is already paused")
@@ -2432,12 +2432,12 @@ async def unpause_job(job_id: int, user: UserData = Depends(require_admin_authen
             # Get the specific job to unpause by ID and client
             job_to_unpause = session.query(JobSchedule).filter(
                 JobSchedule.id == job_id,
-                JobSchedule.client_id == user.client_id,
+                JobSchedule.tenant_id == user.tenant_id,
                 JobSchedule.active == True
             ).first()
 
             if not job_to_unpause:
-                logger.error(f"[UNPAUSE] Job ID {job_id} not found for client {user.client_id}")
+                logger.error(f"[UNPAUSE] Job ID {job_id} not found for client {user.tenant_id}")
                 raise HTTPException(status_code=404, detail=f"Job ID {job_id} not found")
 
             job_name = job_to_unpause.job_name
@@ -2558,14 +2558,14 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
             # Get the specific job by ID and client
             target_job = session.query(JobSchedule).filter(
                 JobSchedule.id == job_id,
-                JobSchedule.client_id == user.client_id,
+                JobSchedule.tenant_id == user.tenant_id,
                 JobSchedule.active == True
             ).first()
 
             if not target_job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Job ID {job_id} not found for client {user.client_id}"
+                    detail=f"Job ID {job_id} not found for client {user.tenant_id}"
                 )
 
             job_name = target_job.job_name
@@ -2584,7 +2584,7 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
 
             # Set other active, non-paused jobs to NOT_STARTED
             other_jobs = session.query(JobSchedule).filter(
-                JobSchedule.client_id == user.client_id,
+                JobSchedule.tenant_id == user.tenant_id,
                 JobSchedule.active == True,
                 JobSchedule.id != job_id,  # Exclude the target job
                 JobSchedule.status.notin_(['PAUSED'])  # Don't affect paused jobs
@@ -2734,7 +2734,7 @@ async def get_orchestrator_status(user: UserData = Depends(require_admin_authent
 
         # Check if any jobs are currently running to determine countdown visibility
         from app.jobs.orchestrator import get_job_status
-        job_status = get_job_status(client_id=user.client_id)
+        job_status = get_job_status(tenant_id=user.tenant_id)
         any_job_running = any(job_data.get('status') == 'RUNNING' for job_data in job_status.values())
 
         # Simplified orchestrator status - no status, just countdown control
@@ -2788,8 +2788,8 @@ async def reinitialize_orchestrator(user: UserData = Depends(require_admin_authe
         from app.core.settings_manager import get_orchestrator_interval, is_orchestrator_enabled
 
         # Get current settings from database
-        interval_minutes = get_orchestrator_interval(user.client_id)
-        enabled = is_orchestrator_enabled(user.client_id)
+        interval_minutes = get_orchestrator_interval(user.tenant_id)
+        enabled = is_orchestrator_enabled(user.tenant_id)
 
         # Force update the orchestrator schedule
         success = update_orchestrator_schedule(interval_minutes, enabled)
@@ -2988,8 +2988,8 @@ async def update_system_setting(
             )
 
         from app.core.settings_manager import SettingsManager
-        # SECURITY: Pass client_id for client-specific settings
-        success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
+        # SECURITY: Pass tenant_id for client-specific settings
+        success = SettingsManager.set_setting(setting_key, setting_value, description, tenant_id=user.tenant_id)
 
         if success:
             # If orchestrator setting was updated, refresh the schedule
@@ -3074,8 +3074,8 @@ async def update_system_settings_bulk(
                 continue
 
             try:
-                # SECURITY: Pass client_id for client-specific settings
-                success = SettingsManager.set_setting(setting_key, setting_value, description, client_id=user.client_id)
+                # SECURITY: Pass tenant_id for client-specific settings
+                success = SettingsManager.set_setting(setting_key, setting_value, description, tenant_id=user.tenant_id)
 
                 if success:
                     updated_settings.append({

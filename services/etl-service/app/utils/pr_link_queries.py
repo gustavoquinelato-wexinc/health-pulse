@@ -2,58 +2,58 @@
 Utility functions for querying Jira-PR links using the new join-based architecture.
 
 This module demonstrates how to efficiently query the relationship between
-Jira issues and GitHub pull requests using the JiraPullRequestLinks table.
+Jira issues and GitHub pull requests using the WitPrLinks table.
 """
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from typing import List, Dict, Any, Optional
-from app.models.unified_models import Issue, PullRequest, JiraPullRequestLinks, Repository
+from app.models.unified_models import WorkItem, Pr, WitPrLinks, Repository
 
 
-def get_issues_with_linked_prs(session: Session, client_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+def get_issues_with_linked_prs(session: Session, tenant_id: int, limit: int = 100) -> List[Dict[str, Any]]:
     """
     Get Jira issues with their linked pull requests using join queries.
     
     Args:
         session: Database session
-        client_id: Client ID to filter by
+        tenant_id: Tenant ID to filter by
         limit: Maximum number of issues to return
         
     Returns:
         List of dictionaries containing issue and PR information
     """
     results = session.query(
-        Issue.id.label('issue_id'),
-        Issue.key.label('issue_key'),
-        Issue.title.label('issue_title'),
-        Issue.status.label('issue_status'),
-        PullRequest.id.label('pr_id'),
-        PullRequest.number.label('pr_number'),
-        PullRequest.title.label('pr_title'),
-        PullRequest.state.label('pr_state'),
+        WorkItem.id.label('issue_id'),
+        WorkItem.key.label('issue_key'),
+        WorkItem.title.label('issue_title'),
+        WorkItem.status.label('issue_status'),
+        Pr.id.label('pr_id'),
+        Pr.number.label('pr_number'),
+        Pr.title.label('pr_title'),
+        Pr.state.label('pr_state'),
         Repository.full_name.label('repo_name'),
-        JiraPullRequestLinks.pr_status.label('link_status'),
-        JiraPullRequestLinks.branch_name.label('branch_name')
-    ).select_from(Issue)\
-    .join(JiraPullRequestLinks, Issue.id == JiraPullRequestLinks.issue_id)\
-    .join(PullRequest, and_(
-        JiraPullRequestLinks.external_repo_id == PullRequest.external_repo_id,
-        JiraPullRequestLinks.pull_request_number == PullRequest.number
+        WitPrLinks.pr_status.label('link_status'),
+        WitPrLinks.branch_name.label('branch_name')
+    ).select_from(WorkItem)\
+    .join(WitPrLinks, WorkItem.id == WitPrLinks.work_item_id)\
+    .join(Pr, and_(
+        WitPrLinks.external_repo_id == Pr.external_repo_id,
+        WitPrLinks.pull_request_number == Pr.number
     ))\
-    .join(Repository, PullRequest.repository_id == Repository.id)\
+    .join(Repository, Pr.repository_id == Repository.id)\
     .filter(
-        Issue.client_id == client_id,
-        Issue.active == True,
-        PullRequest.active == True,
-        JiraPullRequestLinks.active == True
+        WorkItem.tenant_id == tenant_id,
+        WorkItem.active == True,
+        Pr.active == True,
+        WitPrLinks.active == True
     )\
     .limit(limit)\
     .all()
     
     return [
         {
-            'issue_id': row.issue_id,
+            'issue_id': row.work_item_id,
             'issue_key': row.issue_key,
             'issue_title': row.issue_title,
             'issue_status': row.issue_status,
@@ -69,42 +69,42 @@ def get_issues_with_linked_prs(session: Session, client_id: int, limit: int = 10
     ]
 
 
-def get_prs_for_issue(session: Session, issue_key: str, client_id: int) -> List[Dict[str, Any]]:
+def get_prs_for_issue(session: Session, issue_key: str, tenant_id: int) -> List[Dict[str, Any]]:
     """
     Get all pull requests linked to a specific Jira issue.
     
     Args:
         session: Database session
         issue_key: Jira issue key (e.g., 'PROJ-123')
-        client_id: Client ID to filter by
+        tenant_id: Tenant ID to filter by
         
     Returns:
         List of pull request information
     """
     results = session.query(
-        PullRequest.id,
-        PullRequest.number,
-        PullRequest.title,
-        PullRequest.state,
-        PullRequest.created_at,
-        PullRequest.updated_at,
+        Pr.id,
+        Pr.number,
+        Pr.title,
+        Pr.state,
+        Pr.created_at,
+        Pr.updated_at,
         Repository.full_name.label('repo_name'),
-        JiraPullRequestLinks.pr_status.label('link_status'),
-        JiraPullRequestLinks.branch_name,
-        JiraPullRequestLinks.commit_sha
-    ).select_from(Issue)\
-    .join(JiraPullRequestLinks, Issue.id == JiraPullRequestLinks.issue_id)\
-    .join(PullRequest, and_(
-        JiraPullRequestLinks.external_repo_id == PullRequest.external_repo_id,
-        JiraPullRequestLinks.pull_request_number == PullRequest.number
+        WitPrLinks.pr_status.label('link_status'),
+        WitPrLinks.branch_name,
+        WitPrLinks.commit_sha
+    ).select_from(WorkItem)\
+    .join(WitPrLinks, WorkItem.id == WitPrLinks.work_item_id)\
+    .join(Pr, and_(
+        WitPrLinks.external_repo_id == Pr.external_repo_id,
+        WitPrLinks.pull_request_number == Pr.number
     ))\
-    .join(Repository, PullRequest.repository_id == Repository.id)\
+    .join(Repository, Pr.repository_id == Repository.id)\
     .filter(
-        Issue.key == issue_key,
-        Issue.client_id == client_id,
-        Issue.active == True,
-        PullRequest.active == True,
-        JiraPullRequestLinks.active == True
+        WorkItem.key == issue_key,
+        WorkItem.tenant_id == tenant_id,
+        WorkItem.active == True,
+        Pr.active == True,
+        WitPrLinks.active == True
     )\
     .all()
     
@@ -125,39 +125,39 @@ def get_prs_for_issue(session: Session, issue_key: str, client_id: int) -> List[
     ]
 
 
-def get_issues_for_repository(session: Session, repo_full_name: str, client_id: int) -> List[Dict[str, Any]]:
+def get_issues_for_repository(session: Session, repo_full_name: str, tenant_id: int) -> List[Dict[str, Any]]:
     """
     Get all Jira issues that have PRs in a specific repository.
     
     Args:
         session: Database session
         repo_full_name: Repository full name (e.g., 'wexinc/health-api')
-        client_id: Client ID to filter by
+        tenant_id: Tenant ID to filter by
         
     Returns:
         List of issue information with PR counts
     """
     results = session.query(
-        Issue.id,
-        Issue.key,
-        Issue.title,
-        Issue.status,
-        Issue.priority,
-        Issue.created_at,
-        Issue.updated_at
-    ).select_from(Issue)\
-    .join(JiraPullRequestLinks, Issue.id == JiraPullRequestLinks.issue_id)\
-    .join(PullRequest, and_(
-        JiraPullRequestLinks.external_repo_id == PullRequest.external_repo_id,
-        JiraPullRequestLinks.pull_request_number == PullRequest.number
+        WorkItem.id,
+        WorkItem.key,
+        WorkItem.title,
+        WorkItem.status,
+        WorkItem.priority,
+        WorkItem.created_at,
+        WorkItem.updated_at
+    ).select_from(WorkItem)\
+    .join(WitPrLinks, WorkItem.id == WitPrLinks.work_item_id)\
+    .join(Pr, and_(
+        WitPrLinks.external_repo_id == Pr.external_repo_id,
+        WitPrLinks.pull_request_number == Pr.number
     ))\
-    .join(Repository, PullRequest.repository_id == Repository.id)\
+    .join(Repository, Pr.repository_id == Repository.id)\
     .filter(
         Repository.full_name == repo_full_name,
-        Issue.client_id == client_id,
-        Issue.active == True,
-        PullRequest.active == True,
-        JiraPullRequestLinks.active == True
+        WorkItem.tenant_id == tenant_id,
+        WorkItem.active == True,
+        Pr.active == True,
+        WitPrLinks.active == True
     )\
     .distinct()\
     .all()
@@ -176,56 +176,56 @@ def get_issues_for_repository(session: Session, repo_full_name: str, client_id: 
     ]
 
 
-def get_pr_link_statistics(session: Session, client_id: int) -> Dict[str, Any]:
+def get_pr_link_statistics(session: Session, tenant_id: int) -> Dict[str, Any]:
     """
-    Get statistics about PR-Issue links.
+    Get statistics about PR-WorkItem links.
     
     Args:
         session: Database session
-        client_id: Client ID to filter by
+        tenant_id: Tenant ID to filter by
         
     Returns:
         Dictionary with link statistics
     """
     # Total links
-    total_links = session.query(JiraPullRequestLinks).filter(
-        JiraPullRequestLinks.client_id == client_id,
-        JiraPullRequestLinks.active == True
+    total_links = session.query(WitPrLinks).filter(
+        WitPrLinks.tenant_id == tenant_id,
+        WitPrLinks.active == True
     ).count()
     
-    # Issues with PR links
-    issues_with_prs = session.query(Issue.id).distinct()\
-        .join(JiraPullRequestLinks, Issue.id == JiraPullRequestLinks.issue_id)\
+    # WorkItems with PR links
+    issues_with_prs = session.query(WorkItem.id).distinct()\
+        .join(WitPrLinks, WorkItem.id == WitPrLinks.work_item_id)\
         .filter(
-            Issue.client_id == client_id,
-            Issue.active == True,
-            JiraPullRequestLinks.active == True
+            WorkItem.tenant_id == tenant_id,
+            WorkItem.active == True,
+            WitPrLinks.active == True
         ).count()
     
     # PRs with issue links
-    prs_with_issues = session.query(PullRequest.id).distinct()\
-        .join(JiraPullRequestLinks, and_(
-            JiraPullRequestLinks.external_repo_id == PullRequest.external_repo_id,
-            JiraPullRequestLinks.pull_request_number == PullRequest.number
+    prs_with_issues = session.query(Pr.id).distinct()\
+        .join(WitPrLinks, and_(
+            WitPrLinks.external_repo_id == Pr.external_repo_id,
+            WitPrLinks.pull_request_number == Pr.number
         ))\
         .filter(
-            PullRequest.client_id == client_id,
-            PullRequest.active == True,
-            JiraPullRequestLinks.active == True
+            Pr.tenant_id == tenant_id,
+            Pr.active == True,
+            WitPrLinks.active == True
         ).count()
     
     # Repositories with links
     repos_with_links = session.query(Repository.id).distinct()\
-        .join(PullRequest, PullRequest.repository_id == Repository.id)\
-        .join(JiraPullRequestLinks, and_(
-            JiraPullRequestLinks.external_repo_id == PullRequest.external_repo_id,
-            JiraPullRequestLinks.pull_request_number == PullRequest.number
+        .join(Pr, Pr.repository_id == Repository.id)\
+        .join(WitPrLinks, and_(
+            WitPrLinks.external_repo_id == Pr.external_repo_id,
+            WitPrLinks.pull_request_number == Pr.number
         ))\
         .filter(
-            Repository.client_id == client_id,
+            Repository.tenant_id == tenant_id,
             Repository.active == True,
-            PullRequest.active == True,
-            JiraPullRequestLinks.active == True
+            Pr.active == True,
+            WitPrLinks.active == True
         ).count()
     
     return {

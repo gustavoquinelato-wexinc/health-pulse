@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 @router.get("/users")
 async def get_users(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     limit: int = Query(100, le=1000, description="Maximum number of users to return"),
     offset: int = Query(0, ge=0, description="Number of users to skip for pagination"),
@@ -33,14 +33,14 @@ async def get_users(
     """Get users with optional ML fields"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Build query with filters
-        query = db.query(User).filter(User.client_id == client_id)
+        query = db.query(User).filter(User.tenant_id == tenant_id)
         
         if active_only:
             query = query.filter(User.active == True)
@@ -97,7 +97,7 @@ async def get_user(
     try:
         user_obj = db.query(User).filter(
             User.id == user_id,
-            User.client_id == user.client_id,
+            User.tenant_id == user.tenant_id,
             User.active == True
         ).first()
         
@@ -128,7 +128,7 @@ async def get_current_user_profile(
     try:
         user_obj = db.query(User).filter(
             User.id == user.user_id,
-            User.client_id == user.client_id,
+            User.tenant_id == user.tenant_id,
             User.active == True
         ).first()
         
@@ -170,7 +170,7 @@ async def get_user_sessions(
         # Verify user exists and belongs to same client
         user_obj = db.query(User).filter(
             User.id == user_id,
-            User.client_id == user.client_id,
+            User.tenant_id == user.tenant_id,
             User.active == True
         ).first()
         
@@ -233,7 +233,7 @@ async def get_user_permissions(
         # Verify user exists and belongs to same client
         user_obj = db.query(User).filter(
             User.id == user_id,
-            User.client_id == user.client_id,
+            User.tenant_id == user.tenant_id,
             User.active == True
         ).first()
         
@@ -265,17 +265,17 @@ async def get_user_permissions(
 
 @router.get("/users/stats")
 async def get_users_stats(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """Get user statistics for the client (admin only)"""
     try:
         # Ensure client isolation and admin access
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         if not user.is_admin:
@@ -286,17 +286,17 @@ async def get_users_stats(
         
         # Get basic stats
         total_users = db.query(func.count(User.id)).filter(
-            User.client_id == client_id
+            User.tenant_id == tenant_id
         ).scalar()
         
         active_users = db.query(func.count(User.id)).filter(
-            User.client_id == client_id,
+            User.tenant_id == tenant_id,
             User.active == True
         ).scalar()
         
         # Get active sessions count
         active_sessions = db.query(func.count(UserSession.id)).join(User).filter(
-            User.client_id == client_id,
+            User.tenant_id == tenant_id,
             UserSession.active == True
         ).scalar()
         
@@ -305,7 +305,7 @@ async def get_users_stats(
             UserPermission.permission_name,
             func.count(UserPermission.user_id.distinct()).label('user_count')
         ).join(User).filter(
-            User.client_id == client_id,
+            User.tenant_id == tenant_id,
             User.active == True,
             UserPermission.active == True
         ).group_by(UserPermission.permission_name).all()
@@ -316,7 +316,7 @@ async def get_users_stats(
             'inactive_users': total_users - active_users,
             'active_sessions': active_sessions,
             'role_breakdown': [{'role': r.permission_name, 'user_count': r.user_count} for r in role_stats],
-            'client_id': client_id
+            'tenant_id': tenant_id
         }
         
     except HTTPException:

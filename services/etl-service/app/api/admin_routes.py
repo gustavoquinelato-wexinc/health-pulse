@@ -14,11 +14,11 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    Integration, Project, Issue, Client, IssueChangelog,
-    Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
-    JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings,
-    StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
-    ProjectsIssuetypes, ProjectsStatuses
+    Integration, Project, WorkItem, Tenant, WorkItemChangelog,
+    Repository, Pr, PrCommit, PrReview, PrComment,
+    WitPrLinks, Wit, Status, JobSchedule, SystemSettings,
+    StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
+    ProjectWits, ProjectsStatuses
 )
 from app.auth.centralized_auth_middleware import UserData, require_admin_authentication
 from app.core.logging_config import get_logger
@@ -158,31 +158,31 @@ async def get_system_stats(
             # Define ETL-specific tables to count (exclude user management tables)
             try:
                 from app.models.unified_models import (
-                    Integration, Project, Issue, IssueChangelog, Repository,
-                    PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
-                    JiraPullRequestLinks, Issuetype, Status, StatusMapping, Workflow,
-                    IssuetypeMapping, IssuetypeHierarchy, ProjectsIssuetypes, ProjectsStatuses,
+                    Integration, Project, WorkItem, WorkItemChangelog, Repository,
+                    Pr, PrCommit, PrReview, PrComment,
+                    WitPrLinks, Wit, Status, StatusMapping, Workflow,
+                    WitMapping, WitHierarchy, ProjectWits, ProjectsStatuses,
                     JobSchedule, SystemSettings, MigrationHistory
                 )
 
                 table_models = {
                     "integrations": Integration,
                     "projects": Project,
-                    "issues": Issue,
-                    "issue_changelogs": IssueChangelog,
+                    "issues": WorkItem,
+                    "issue_changelogs": WorkItemChangelog,
                     "repositories": Repository,
-                    "pull_requests": PullRequest,
-                    "pull_request_commits": PullRequestCommit,
-                    "pull_request_reviews": PullRequestReview,
-                    "pull_request_comments": PullRequestComment,
-                    "jira_pull_request_links": JiraPullRequestLinks,
-                    "issuetypes": Issuetype,
+                    "pull_requests": Pr,
+                    "pull_request_commits": PrCommit,
+                    "pull_request_reviews": PrReview,
+                    "pull_request_comments": PrComment,
+                    "jira_pull_request_links": WitPrLinks,
+                    "issuetypes": Wit,
                     "statuses": Status,
                     "status_mappings": StatusMapping,
                     "workflows": Workflow,
-                    "issuetype_mappings": IssuetypeMapping,
-                    "issuetype_hierarchies": IssuetypeHierarchy,
-                    "projects_issuetypes": ProjectsIssuetypes,
+                    "issuetype_mappings": WitMapping,
+                    "issuetype_hierarchies": WitHierarchy,
+                    "projects_issuetypes": ProjectWits,
                     "projects_statuses": ProjectsStatuses,
                     "job_schedules": JobSchedule,
                     "system_settings": SystemSettings,
@@ -198,10 +198,10 @@ async def get_system_stats(
                     "system_settings": SystemSettings,
                 }
 
-            # ✅ SECURITY: Count records filtered by client_id
+            # ✅ SECURITY: Count records filtered by tenant_id
             for table_name, model in table_models.items():
                 try:
-                    # Skip tables that don't have client_id (global tables)
+                    # Skip tables that don't have tenant_id (global tables)
                     if table_name in ['migration_history']:
                         # These are global tables - count all records
                         if table_name in ['projects_issuetypes', 'projects_statuses']:
@@ -209,14 +209,14 @@ async def get_system_stats(
                         else:
                             count = session.query(func.count(model.id)).scalar() or 0
                     else:
-                        # Filter by client_id for client-specific tables
-                        if hasattr(model, 'client_id'):
+                        # Filter by tenant_id for client-specific tables
+                        if hasattr(model, 'tenant_id'):
                             if table_name in ['projects_issuetypes', 'projects_statuses']:
-                                count = session.query(model).filter(model.client_id == admin_user.client_id).count() or 0
+                                count = session.query(model).filter(model.tenant_id == admin_user.tenant_id).count() or 0
                             else:
-                                count = session.query(func.count(model.id)).filter(model.client_id == admin_user.client_id).scalar() or 0
+                                count = session.query(func.count(model.id)).filter(model.tenant_id == admin_user.tenant_id).scalar() or 0
                         else:
-                            # For tables without client_id, count all
+                            # For tables without tenant_id, count all
                             if table_name in ['projects_issuetypes', 'projects_statuses']:
                                 count = session.query(model).count() or 0
                             else:
@@ -280,9 +280,9 @@ async def get_integrations(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             integrations = session.query(Integration).filter(
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).order_by(Integration.provider).all()
 
             # Get last sync info from job_schedules for each integration
@@ -325,10 +325,10 @@ async def get_integration_details(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
             if not integration:
                 raise HTTPException(
@@ -372,10 +372,10 @@ async def update_integration(
         database = get_database()
         with database.get_write_session_context() as session:
             # Get the integration
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
             if not integration:
                 raise HTTPException(
@@ -428,7 +428,7 @@ async def activate_integration(
 
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
 
             if not integration:
@@ -468,7 +468,7 @@ async def deactivate_integration(
 
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
 
             if not integration:
@@ -504,11 +504,11 @@ async def delete_integration(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import Project, Issue
+            from app.models.unified_models import Project, WorkItem
 
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).first()
 
             if not integration:
@@ -524,9 +524,9 @@ async def delete_integration(
             ).count()
 
             # Check for dependent issues
-            dependent_issues = session.query(Issue).filter(
-                Issue.integration_id == integration_id,
-                Issue.active == True
+            dependent_issues = session.query(WorkItem).filter(
+                WorkItem.integration_id == integration_id,
+                WorkItem.active == True
             ).count()
 
             if dependent_projects > 0 or dependent_issues > 0:
@@ -574,7 +574,7 @@ async def get_status_mappings(
             ).outerjoin(
                 Integration, StatusMapping.integration_id == Integration.id
             ).filter(
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).order_by(StatusMapping.status_from).all()
 
             return [
@@ -627,7 +627,7 @@ async def create_status_mapping(
                 status_category=create_data.status_category,
                 workflow_id=create_data.workflow_id,
                 integration_id=create_data.integration_id,
-                client_id=user.client_id,
+                tenant_id=user.tenant_id,
                 active=True,
                 created_at=datetime.utcnow(),
                 last_updated_at=datetime.utcnow()
@@ -659,10 +659,10 @@ async def get_status_mapping_details(
         with database.get_read_session_context() as session:
             from app.models.unified_models import StatusMapping
 
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
             if not mapping:
                 raise HTTPException(
@@ -708,10 +708,10 @@ async def update_status_mapping(
         with database.get_write_session_context() as session:
             from app.models.unified_models import StatusMapping
 
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
             if not mapping:
                 raise HTTPException(
@@ -757,10 +757,10 @@ async def delete_status_mapping(
         with database.get_write_session_context() as session:
             from app.models.unified_models import StatusMapping, Status
 
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
             if not mapping:
                 raise HTTPException(
@@ -811,7 +811,7 @@ async def activate_status_mapping(
 
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
@@ -850,11 +850,11 @@ async def get_status_mapping_dependencies(
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import StatusMapping, Issue, Status
+            from app.models.unified_models import StatusMapping, WorkItem, Status
 
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
@@ -864,21 +864,21 @@ async def get_status_mapping_dependencies(
                 )
 
             # Count dependent issues that use this status mapping
-            # Issues are connected through their status_id -> Status -> status_mapping_id -> StatusMapping
-            dependent_issues_count = session.query(Issue).join(
-                Status, Issue.status_id == Status.id
+            # WorkItems are connected through their status_id -> Status -> status_mapping_id -> StatusMapping
+            dependent_issues_count = session.query(WorkItem).join(
+                Status, WorkItem.status_id == Status.id
             ).filter(
                 Status.status_mapping_id == mapping_id,
                 Status.active == True,
-                Issue.active == True,
-                Issue.client_id == user.client_id
+                WorkItem.active == True,
+                WorkItem.tenant_id == user.tenant_id
             ).count()
 
             # Get available reassignment targets (active status mappings, excluding current)
             reassignment_targets = session.query(StatusMapping).filter(
                 StatusMapping.active == True,
                 StatusMapping.id != mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).order_by(StatusMapping.status_from, StatusMapping.status_to).all()
 
             return {
@@ -928,13 +928,13 @@ async def deactivate_status_mapping_with_dependencies(
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import StatusMapping, Issue, Status
+            from app.models.unified_models import StatusMapping, WorkItem, Status
             from datetime import datetime
 
             # Verify mapping exists and belongs to user's client
             mapping = session.query(StatusMapping).filter(
                 StatusMapping.id == mapping_id,
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
@@ -950,13 +950,13 @@ async def deactivate_status_mapping_with_dependencies(
                 )
 
             # Get dependent issues
-            dependent_issues = session.query(Issue).join(
-                Status, Issue.status_id == Status.id
+            dependent_issues = session.query(WorkItem).join(
+                Status, WorkItem.status_id == Status.id
             ).filter(
                 Status.status_mapping_id == mapping_id,
                 Status.active == True,
-                Issue.active == True,
-                Issue.client_id == user.client_id
+                WorkItem.active == True,
+                WorkItem.tenant_id == user.tenant_id
             ).all()
 
             # Handle dependencies based on user choice
@@ -971,7 +971,7 @@ async def deactivate_status_mapping_with_dependencies(
                 target_mapping = session.query(StatusMapping).filter(
                     StatusMapping.id == deactivation_data.target_mapping_id,
                     StatusMapping.active == True,
-                    StatusMapping.client_id == user.client_id
+                    StatusMapping.tenant_id == user.tenant_id
                 ).first()
 
                 if not target_mapping:
@@ -985,7 +985,7 @@ async def deactivate_status_mapping_with_dependencies(
                 dependent_statuses = session.query(Status).filter(
                     Status.status_mapping_id == mapping_id,
                     Status.active == True,
-                    Status.client_id == user.client_id
+                    Status.tenant_id == user.tenant_id
                 ).all()
 
                 for status in dependent_statuses:
@@ -1041,7 +1041,7 @@ async def get_workflows(
             ).outerjoin(
                 Integration, Workflow.integration_id == Integration.id
             ).filter(
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).order_by(Workflow.step_number.nulls_last()).all()
 
             return [
@@ -1078,10 +1078,10 @@ async def get_workflow_details(
         with database.get_read_session_context() as session:
             from app.models.unified_models import Workflow
 
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
             if not workflow:
                 raise HTTPException(
@@ -1121,24 +1121,24 @@ async def get_workflow_stats(
 
             # Get total workflows count
             total_workflows = session.query(func.count(Workflow.id)).filter(
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).scalar() or 0
 
             # Get active workflows count
             active_workflows = session.query(func.count(Workflow.id)).filter(
-                Workflow.client_id == user.client_id,
+                Workflow.tenant_id == user.tenant_id,
                 Workflow.active == True
             ).scalar() or 0
 
             # Get workflows with mappings count
             workflows_with_mappings = session.query(func.count(func.distinct(StatusMapping.workflow_id))).filter(
-                StatusMapping.client_id == user.client_id,
+                StatusMapping.tenant_id == user.tenant_id,
                 StatusMapping.active == True
             ).scalar() or 0
 
             # Get total status mappings count
             total_mappings = session.query(func.count(StatusMapping.id)).filter(
-                StatusMapping.client_id == user.client_id
+                StatusMapping.tenant_id == user.tenant_id
             ).scalar() or 0
 
             return {
@@ -1172,7 +1172,7 @@ async def check_workflow_dependencies(
             # Verify workflow exists and belongs to user's client
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not workflow:
@@ -1181,10 +1181,10 @@ async def check_workflow_dependencies(
                     detail="Workflow not found"
                 )
 
-            # Get dependent status mappings (must include client_id filter)
+            # Get dependent status mappings (must include tenant_id filter)
             dependent_mappings = session.query(StatusMapping).filter(
                 StatusMapping.workflow_id == workflow_id,
-                StatusMapping.client_id == user.client_id,
+                StatusMapping.tenant_id == user.tenant_id,
                 StatusMapping.active == True
             ).all()
 
@@ -1197,7 +1197,7 @@ async def check_workflow_dependencies(
                 # Count statuses using this mapping
                 statuses = session.query(Status).filter(
                     Status.status_mapping_id == mapping.id,
-                    Status.client_id == user.client_id,
+                    Status.tenant_id == user.tenant_id,
                     Status.active == True
                 ).all()
 
@@ -1207,11 +1207,11 @@ async def check_workflow_dependencies(
                 # Count issues using these statuses
                 mapping_issue_count = 0
                 for status in statuses:
-                    from app.models.unified_models import Issue
-                    issue_count = session.query(Issue).filter(
-                        Issue.status_id == status.id,
-                        Issue.client_id == user.client_id,
-                        Issue.active == True
+                    from app.models.unified_models import WorkItem
+                    issue_count = session.query(WorkItem).filter(
+                        WorkItem.status_id == status.id,
+                        WorkItem.tenant_id == user.tenant_id,
+                        WorkItem.active == True
                     ).count()
                     mapping_issue_count += issue_count
 
@@ -1230,7 +1230,7 @@ async def check_workflow_dependencies(
             reassignment_targets = session.query(Workflow).filter(
                 Workflow.active == True,
                 Workflow.id != workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).order_by(Workflow.step_number).all()
 
             return {
@@ -1290,10 +1290,10 @@ async def update_workflow(
         with database.get_write_session_context() as session:
             from app.models.unified_models import Workflow, Integration
 
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
             if not workflow:
                 raise HTTPException(
@@ -1304,7 +1304,7 @@ async def update_workflow(
             # Validate single commitment point constraint before updating
             if update_data.is_commitment_point:
                 existing_commitment_point = session.query(Workflow).filter(
-                    Workflow.client_id == user.client_id,
+                    Workflow.tenant_id == user.tenant_id,
                     Workflow.integration_id == update_data.integration_id,
                     Workflow.is_commitment_point == True,
                     Workflow.active == True,
@@ -1315,10 +1315,10 @@ async def update_workflow(
                     # Get integration name for better error message
                     integration_name = "All Integrations"
                     if update_data.integration_id:
-                        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                        # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
                         integration = session.query(Integration).filter(
                             Integration.id == update_data.integration_id,
-                            Integration.client_id == user.client_id
+                            Integration.tenant_id == user.tenant_id
                         ).first()
                         if integration:
                             integration_name = integration.name
@@ -1371,7 +1371,7 @@ async def deactivate_workflow(
             # Verify workflow exists and belongs to user's client
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not workflow:
@@ -1386,7 +1386,7 @@ async def deactivate_workflow(
             # Get dependent status mappings
             dependent_mappings = session.query(StatusMapping).filter(
                 StatusMapping.workflow_id == workflow_id,
-                StatusMapping.client_id == user.client_id,
+                StatusMapping.tenant_id == user.tenant_id,
                 StatusMapping.active == True
             ).all()
 
@@ -1400,7 +1400,7 @@ async def deactivate_workflow(
                 # Verify target workflow exists and is active
                 target_workflow = session.query(Workflow).filter(
                     Workflow.id == deactivation_data.target_workflow_id,
-                    Workflow.client_id == user.client_id,
+                    Workflow.tenant_id == user.tenant_id,
                     Workflow.active == True
                 ).first()
 
@@ -1464,7 +1464,7 @@ async def activate_workflow(
             # Verify workflow exists and belongs to user's client
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not workflow:
@@ -1505,7 +1505,7 @@ async def delete_workflow(
             # Verify workflow exists and belongs to user's client
             workflow = session.query(Workflow).filter(
                 Workflow.id == workflow_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not workflow:
@@ -1517,7 +1517,7 @@ async def delete_workflow(
             # Check for active dependencies
             dependent_mappings = session.query(StatusMapping).filter(
                 StatusMapping.workflow_id == workflow_id,
-                StatusMapping.client_id == user.client_id,
+                StatusMapping.tenant_id == user.tenant_id,
                 StatusMapping.active == True
             ).count()
 
@@ -1568,7 +1568,7 @@ async def create_workflow(
             # Validate single commitment point constraint before creating
             if create_data.is_commitment_point:
                 existing_commitment_point = session.query(Workflow).filter(
-                    Workflow.client_id == user.client_id,
+                    Workflow.tenant_id == user.tenant_id,
                     Workflow.integration_id == create_data.integration_id,
                     Workflow.is_commitment_point == True,
                     Workflow.active == True
@@ -1578,10 +1578,10 @@ async def create_workflow(
                     # Get integration name for better error message
                     integration_name = "All Integrations"
                     if create_data.integration_id:
-                        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+                        # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
                         integration = session.query(Integration).filter(
                             Integration.id == create_data.integration_id,
-                            Integration.client_id == user.client_id
+                            Integration.tenant_id == user.tenant_id
                         ).first()
                         if integration:
                             integration_name = integration.name
@@ -1598,7 +1598,7 @@ async def create_workflow(
                 step_category=create_data.step_category,
                 is_commitment_point=create_data.is_commitment_point,
                 integration_id=create_data.integration_id,
-                client_id=user.client_id,
+                tenant_id=user.tenant_id,
                 active=True,
                 created_at=datetime.utcnow(),
                 last_updated_at=datetime.utcnow()
@@ -1636,14 +1636,14 @@ async def deactivate_flow_step(
             # Verify flow step exists and belongs to user's client
             step = session.query(Workflow).filter(
                 Workflow.id == step_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
-            # Debug logging for client_id verification
+            # Debug logging for tenant_id verification
             if step:
-                logger.info(f"Flow step found: ID={step.id}, client_id={step.client_id}, user.client_id={user.client_id}")
+                logger.info(f"Flow step found: ID={step.id}, tenant_id={step.tenant_id}, user.tenant_id={user.tenant_id}")
             else:
-                logger.warning(f"Flow step {step_id} not found for user.client_id={user.client_id}")
+                logger.warning(f"Flow step {step_id} not found for user.tenant_id={user.tenant_id}")
 
             if not step:
                 raise HTTPException(
@@ -1680,7 +1680,7 @@ async def deactivate_flow_step(
                 target_step = session.query(Workflow).filter(
                     Workflow.id == deactivation_data.target_workflow_id,
                     Workflow.active == True,
-                    Workflow.client_id == user.client_id
+                    Workflow.tenant_id == user.tenant_id
                 ).first()
 
                 if not target_step:
@@ -1745,7 +1745,7 @@ async def toggle_flow_step_active(
             # Verify flow step exists and belongs to user's client
             step = session.query(Workflow).filter(
                 Workflow.id == step_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not step:
@@ -1791,7 +1791,7 @@ async def delete_flow_step(
 
             step = session.query(Workflow).filter(
                 Workflow.id == step_id,
-                Workflow.client_id == user.client_id
+                Workflow.tenant_id == user.tenant_id
             ).first()
 
             if not step:
@@ -1838,24 +1838,24 @@ async def get_issuetype_mapping_options(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from app.models.unified_models import WitMapping, Wit
             from sqlalchemy import distinct
 
             # Get unique source types from existing mappings
-            source_types = session.query(distinct(IssuetypeMapping.issuetype_from)).filter(
-                IssuetypeMapping.client_id == user.client_id
-            ).order_by(IssuetypeMapping.issuetype_from).all()
+            source_types = session.query(distinct(WitMapping.issuetype_from)).filter(
+                WitMapping.tenant_id == user.tenant_id
+            ).order_by(WitMapping.issuetype_from).all()
 
             # Get unique target types from existing mappings
-            target_types = session.query(distinct(IssuetypeMapping.issuetype_to)).filter(
-                IssuetypeMapping.client_id == user.client_id
-            ).order_by(IssuetypeMapping.issuetype_to).all()
+            target_types = session.query(distinct(WitMapping.issuetype_to)).filter(
+                WitMapping.tenant_id == user.tenant_id
+            ).order_by(WitMapping.issuetype_to).all()
 
-            # Also get unique original names from Issuetype table (raw data from integrations)
-            raw_issuetypes = session.query(distinct(Issuetype.original_name)).filter(
-                Issuetype.client_id == user.client_id,
-                Issuetype.active == True
-            ).order_by(Issuetype.original_name).all()
+            # Also get unique original names from Wit table (raw data from integrations)
+            raw_issuetypes = session.query(distinct(Wit.original_name)).filter(
+                Wit.tenant_id == user.tenant_id,
+                Wit.active == True
+            ).order_by(Wit.original_name).all()
 
             # Combine and deduplicate source options
             all_source_options = set()
@@ -1894,37 +1894,37 @@ async def get_issuetype_mappings(
         database = get_database()
         with database.get_read_session_context() as session:
             # Query issue type mappings with hierarchy and integration information
-            from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy, Integration
+            from app.models.unified_models import WitMapping, WitHierarchy, Integration
 
             issuetype_mappings = session.query(
-                IssuetypeMapping,
-                IssuetypeHierarchy.level_name.label('hierarchy_name'),
-                IssuetypeHierarchy.level_number.label('hierarchy_level'),
-                IssuetypeHierarchy.description.label('hierarchy_description'),
+                WitMapping,
+                WitHierarchy.level_name.label('hierarchy_name'),
+                WitHierarchy.level_number.label('hierarchy_level'),
+                WitHierarchy.description.label('hierarchy_description'),
                 Integration.provider.label('integration_name')
             ).join(
-                IssuetypeHierarchy, IssuetypeMapping.issuetype_hierarchy_id == IssuetypeHierarchy.id
+                WitHierarchy, WitMapping.issuetype_hierarchy_id == WitHierarchy.id
             ).outerjoin(
-                Integration, IssuetypeMapping.integration_id == Integration.id
+                Integration, WitMapping.integration_id == Integration.id
             ).filter(
-                IssuetypeMapping.client_id == user.client_id
+                WitMapping.tenant_id == user.tenant_id
             ).order_by(
-                IssuetypeHierarchy.level_number.desc(),  # Order by hierarchy level descending (highest first)
-                IssuetypeMapping.issuetype_from
+                WitHierarchy.level_number.desc(),  # Order by hierarchy level descending (highest first)
+                WitMapping.issuetype_from
             ).all()
 
             return [
                 {
-                    "id": mapping.IssuetypeMapping.id,
-                    "issuetype_from": mapping.IssuetypeMapping.issuetype_from,
-                    "issuetype_to": mapping.IssuetypeMapping.issuetype_to,
+                    "id": mapping.WitMapping.id,
+                    "issuetype_from": mapping.WitMapping.issuetype_from,
+                    "issuetype_to": mapping.WitMapping.issuetype_to,
                     "hierarchy_level": mapping.hierarchy_level,
                     "hierarchy_name": mapping.hierarchy_name,
                     "hierarchy_description": mapping.hierarchy_description,
-                    "issuetype_hierarchy_id": mapping.IssuetypeMapping.issuetype_hierarchy_id,
+                    "issuetype_hierarchy_id": mapping.WitMapping.issuetype_hierarchy_id,
                     "integration_name": mapping.integration_name,
-                    "integration_id": mapping.IssuetypeMapping.integration_id,
-                    "active": mapping.IssuetypeMapping.active
+                    "integration_id": mapping.WitMapping.integration_id,
+                    "active": mapping.WitMapping.active
                 }
                 for mapping in issuetype_mappings
             ]
@@ -1945,18 +1945,18 @@ async def activate_issuetype_mapping(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping
+            from app.models.unified_models import WitMapping
             from datetime import datetime
 
-            mapping = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.id == mapping_id,
-                IssuetypeMapping.client_id == user.client_id
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type mapping not found"
+                    detail="WorkItem type mapping not found"
                 )
 
             mapping.active = True
@@ -1965,7 +1965,7 @@ async def activate_issuetype_mapping(
 
             logger.info(f"Admin {user.email} activated issue type mapping {mapping_id}")
 
-            return {"message": "Issue type mapping activated successfully"}
+            return {"message": "WorkItem type mapping activated successfully"}
 
     except HTTPException:
         raise
@@ -1977,7 +1977,7 @@ async def activate_issuetype_mapping(
         )
 
 
-class IssuetypeMappingDeactivationRequest(BaseModel):
+class WitMappingDeactivationRequest(BaseModel):
     action: str  # "keep_issuetypes", "reassign_issuetypes"
     target_mapping_id: Optional[int] = None  # Required if action is "reassign_issuetypes"
 
@@ -1985,7 +1985,7 @@ class IssuetypeMappingDeactivationRequest(BaseModel):
 @router.patch("/issuetype-mappings/{mapping_id}/deactivate")
 async def deactivate_issuetype_mapping(
     mapping_id: int,
-    deactivation_data: IssuetypeMappingDeactivationRequest,
+    deactivation_data: WitMappingDeactivationRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate an issue type mapping with options for handling dependencies"""
@@ -1993,25 +1993,25 @@ async def deactivate_issuetype_mapping(
         from fastapi import status
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from app.models.unified_models import WitMapping, Wit
             from datetime import datetime
 
             # Verify mapping exists and belongs to user's client
-            mapping = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.id == mapping_id,
-                IssuetypeMapping.client_id == user.client_id
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
-            # Debug logging for client_id verification
+            # Debug logging for tenant_id verification
             if mapping:
-                logger.info(f"Issuetype mapping found: ID={mapping.id}, client_id={mapping.client_id}, user.client_id={user.client_id}")
+                logger.info(f"Wit mapping found: ID={mapping.id}, tenant_id={mapping.tenant_id}, user.tenant_id={user.tenant_id}")
             else:
-                logger.warning(f"Issuetype mapping {mapping_id} not found for user.client_id={user.client_id}")
+                logger.warning(f"Wit mapping {mapping_id} not found for user.tenant_id={user.tenant_id}")
 
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type mapping not found"
+                    detail="WorkItem type mapping not found"
                 )
 
             # Store original active state for messaging
@@ -2022,13 +2022,13 @@ async def deactivate_issuetype_mapping(
             if not mapping.active and deactivation_data.action != "reassign_issuetypes":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Issue type mapping is already inactive"
+                    detail="WorkItem type mapping is already inactive"
                 )
 
             # Get dependent issue types
-            dependent_issuetypes = session.query(Issuetype).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True
+            dependent_issuetypes = session.query(Wit).filter(
+                Wit.issuetype_mapping_id == mapping_id,
+                Wit.active == True
             ).all()
 
             # Handle dependencies based on user choice
@@ -2040,10 +2040,10 @@ async def deactivate_issuetype_mapping(
                     )
 
                 # Verify target mapping exists and is active
-                target_mapping = session.query(IssuetypeMapping).filter(
-                    IssuetypeMapping.id == deactivation_data.target_mapping_id,
-                    IssuetypeMapping.active == True,
-                    IssuetypeMapping.client_id == user.client_id
+                target_mapping = session.query(WitMapping).filter(
+                    WitMapping.id == deactivation_data.target_mapping_id,
+                    WitMapping.active == True,
+                    WitMapping.tenant_id == user.tenant_id
                 ).first()
 
                 if not target_mapping:
@@ -2057,14 +2057,14 @@ async def deactivate_issuetype_mapping(
                     issuetype.issuetype_mapping_id = deactivation_data.target_mapping_id
 
                 if was_originally_active:
-                    message = f"Issue type mapping deactivated and {len(dependent_issuetypes)} issue types reassigned to '{target_mapping.issuetype_to}'"
+                    message = f"WorkItem type mapping deactivated and {len(dependent_issuetypes)} issue types reassigned to '{target_mapping.issuetype_to}'"
                     logger.info(f"Admin {user.email} deactivated mapping {mapping_id} and reassigned {len(dependent_issuetypes)} issue types to {target_mapping.issuetype_to}")
                 else:
                     message = f"{len(dependent_issuetypes)} issue types reassigned to '{target_mapping.issuetype_to}' (mapping was already inactive)"
                     logger.info(f"Admin {user.email} reassigned {len(dependent_issuetypes)} issue types from inactive mapping {mapping_id} to {target_mapping.issuetype_to}")
 
             elif deactivation_data.action == "keep_issuetypes":
-                message = f"Issue type mapping deactivated ({len(dependent_issuetypes)} issue types will continue to reference this inactive mapping)"
+                message = f"WorkItem type mapping deactivated ({len(dependent_issuetypes)} issue types will continue to reference this inactive mapping)"
                 logger.info(f"Admin {user.email} deactivated mapping {mapping_id}, keeping {len(dependent_issuetypes)} dependent issue types active")
 
             else:
@@ -2104,14 +2104,14 @@ async def create_issuetype_mapping(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy
+            from app.models.unified_models import WitMapping, WitHierarchy
             from datetime import datetime
 
             # Validate hierarchy level exists and is active
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.level_number == create_data['hierarchy_level'],
-                IssuetypeHierarchy.client_id == user.client_id,
-                IssuetypeHierarchy.active == True
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.level_number == create_data['hierarchy_level'],
+                WitHierarchy.tenant_id == user.tenant_id,
+                WitHierarchy.active == True
             ).first()
 
             if not hierarchy:
@@ -2121,9 +2121,9 @@ async def create_issuetype_mapping(
                 )
 
             # Check for duplicate mapping
-            existing = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_from == create_data['issuetype_from'],
-                IssuetypeMapping.client_id == user.client_id
+            existing = session.query(WitMapping).filter(
+                WitMapping.issuetype_from == create_data['issuetype_from'],
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if existing:
@@ -2133,12 +2133,12 @@ async def create_issuetype_mapping(
                 )
 
             # Create new mapping
-            new_mapping = IssuetypeMapping(
+            new_mapping = WitMapping(
                 issuetype_from=create_data['issuetype_from'],
                 issuetype_to=create_data['issuetype_to'],
                 issuetype_hierarchy_id=hierarchy.id,
                 integration_id=create_data.get('integration_id'),
-                client_id=user.client_id,
+                tenant_id=user.tenant_id,
                 active=True,
                 created_at=datetime.utcnow(),
                 last_updated_at=datetime.utcnow()
@@ -2149,7 +2149,7 @@ async def create_issuetype_mapping(
 
             logger.info(f"Admin {user.email} created issue type mapping {new_mapping.id}")
 
-            return {"message": "Issue type mapping created successfully", "id": new_mapping.id}
+            return {"message": "WorkItem type mapping created successfully", "id": new_mapping.id}
 
     except HTTPException:
         raise
@@ -2171,25 +2171,25 @@ async def update_issuetype_mapping(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, IssuetypeHierarchy
+            from app.models.unified_models import WitMapping, WitHierarchy
             from datetime import datetime
 
-            mapping = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.id == mapping_id,
-                IssuetypeMapping.client_id == user.client_id
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type mapping not found"
+                    detail="WorkItem type mapping not found"
                 )
 
             # Validate hierarchy level exists and is active
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.level_number == update_data['hierarchy_level'],
-                IssuetypeHierarchy.client_id == user.client_id,
-                IssuetypeHierarchy.active == True
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.level_number == update_data['hierarchy_level'],
+                WitHierarchy.tenant_id == user.tenant_id,
+                WitHierarchy.active == True
             ).first()
 
             if not hierarchy:
@@ -2199,10 +2199,10 @@ async def update_issuetype_mapping(
                 )
 
             # Check for duplicate mapping (excluding current one)
-            existing = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_from == update_data['issuetype_from'],
-                IssuetypeMapping.client_id == user.client_id,
-                IssuetypeMapping.id != mapping_id
+            existing = session.query(WitMapping).filter(
+                WitMapping.issuetype_from == update_data['issuetype_from'],
+                WitMapping.tenant_id == user.tenant_id,
+                WitMapping.id != mapping_id
             ).first()
 
             if existing:
@@ -2222,7 +2222,7 @@ async def update_issuetype_mapping(
 
             logger.info(f"Admin {user.email} updated issue type mapping {mapping_id}")
 
-            return {"message": "Issue type mapping updated successfully"}
+            return {"message": "WorkItem type mapping updated successfully"}
 
     except HTTPException:
         raise
@@ -2237,31 +2237,31 @@ async def update_issuetype_mapping(
 @router.delete("/issuetype-mappings/{mapping_id}")
 async def delete_issuetype_mapping(
     mapping_id: int,
-    deletion_data: Optional[IssuetypeMappingDeactivationRequest] = None,
+    deletion_data: Optional[WitMappingDeactivationRequest] = None,
     user: UserData = Depends(require_admin_authentication)
 ):
     """Delete an issue type mapping with options for handling dependencies"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, Issuetype
+            from app.models.unified_models import WitMapping, Wit
             from datetime import datetime
 
-            mapping = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.id == mapping_id,
-                IssuetypeMapping.client_id == user.client_id
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type mapping not found"
+                    detail="WorkItem type mapping not found"
                 )
 
             # Get dependent issue types
-            dependent_issuetypes = session.query(Issuetype).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True
+            dependent_issuetypes = session.query(Wit).filter(
+                Wit.issuetype_mapping_id == mapping_id,
+                Wit.active == True
             ).all()
 
             # If there are dependencies and no deletion data provided, block deletion
@@ -2281,10 +2281,10 @@ async def delete_issuetype_mapping(
                         )
 
                     # Verify target mapping exists and is active
-                    target_mapping = session.query(IssuetypeMapping).filter(
-                        IssuetypeMapping.id == deletion_data.target_mapping_id,
-                        IssuetypeMapping.active == True,
-                        IssuetypeMapping.client_id == user.client_id
+                    target_mapping = session.query(WitMapping).filter(
+                        WitMapping.id == deletion_data.target_mapping_id,
+                        WitMapping.active == True,
+                        WitMapping.tenant_id == user.tenant_id
                     ).first()
 
                     if not target_mapping:
@@ -2298,13 +2298,13 @@ async def delete_issuetype_mapping(
                         issuetype.issuetype_mapping_id = deletion_data.target_mapping_id
                         issuetype.last_updated_at = datetime.utcnow()
 
-                    message = f"Issue type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
+                    message = f"WorkItem type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
                     logger.info(f"Admin {user.email} deleted mapping {mapping_id}, reassigned {len(dependent_issuetypes)} issue types to mapping {deletion_data.target_mapping_id}")
 
                 elif deletion_data.action == "keep_issuetypes":
                     # Keep issue types but mark them as orphaned (they'll reference a deleted mapping)
                     # This is generally not recommended but allowed for data preservation
-                    message = f"Issue type mapping deleted ({len(dependent_issuetypes)} issue types will reference deleted mapping)"
+                    message = f"WorkItem type mapping deleted ({len(dependent_issuetypes)} issue types will reference deleted mapping)"
                     logger.info(f"Admin {user.email} deleted mapping {mapping_id}, keeping {len(dependent_issuetypes)} dependent issue types")
 
                 else:
@@ -2313,7 +2313,7 @@ async def delete_issuetype_mapping(
                         detail=f"Invalid action: {deletion_data.action}. Supported actions: keep_issuetypes, reassign_issuetypes"
                     )
             else:
-                message = "Issue type mapping deleted successfully"
+                message = "WorkItem type mapping deleted successfully"
                 logger.info(f"Admin {user.email} deleted issue type mapping {mapping_id}")
 
             # Delete the mapping
@@ -2341,53 +2341,53 @@ async def get_issuetype_mapping_dependencies(
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import IssuetypeMapping, Issue, Issuetype
+            from app.models.unified_models import WitMapping, WorkItem, Wit
 
-            mapping = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.id == mapping_id,
-                IssuetypeMapping.client_id == user.client_id
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if not mapping:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type mapping not found"
+                    detail="WorkItem type mapping not found"
                 )
 
             # Count dependent issue types that use this mapping
-            dependent_issuetypes_count = session.query(Issuetype).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True
+            dependent_issuetypes_count = session.query(Wit).filter(
+                Wit.issuetype_mapping_id == mapping_id,
+                Wit.active == True
             ).count()
 
             # Count dependent issues through the issue types
-            dependent_issues_count = session.query(Issue).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
+            dependent_issues_count = session.query(WorkItem).join(
+                Wit, WorkItem.wit_id == Wit.id
             ).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True,
-                Issue.active == True
+                Wit.issuetype_mapping_id == mapping_id,
+                Wit.active == True,
+                WorkItem.active == True
             ).count()
 
             # Get available reassignment targets (active issue type mappings, excluding current)
-            reassignment_targets = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.active == True,
-                IssuetypeMapping.id != mapping_id,
-                IssuetypeMapping.client_id == user.client_id
-            ).order_by(IssuetypeMapping.issuetype_to).all()
+            reassignment_targets = session.query(WitMapping).filter(
+                WitMapping.active == True,
+                WitMapping.id != mapping_id,
+                WitMapping.tenant_id == user.tenant_id
+            ).order_by(WitMapping.issuetype_to).all()
 
             # Get detailed dependency information
-            dependent_issuetypes = session.query(Issuetype).filter(
-                Issuetype.issuetype_mapping_id == mapping_id,
-                Issuetype.active == True
+            dependent_issuetypes = session.query(Wit).filter(
+                Wit.issuetype_mapping_id == mapping_id,
+                Wit.active == True
             ).all()
 
             issuetype_details = []
             for issuetype in dependent_issuetypes:
                 # Count issues for this issuetype
-                issue_count = session.query(Issue).filter(
-                    Issue.issuetype_id == issuetype.id,
-                    Issue.active == True
+                issue_count = session.query(WorkItem).filter(
+                    WorkItem.wit_id == issuetype.id,
+                    WorkItem.active == True
                 ).count()
 
                 issuetype_details.append({
@@ -2437,26 +2437,26 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, Integration
+            from app.models.unified_models import WitHierarchy, Integration
 
             hierarchies = session.query(
-                IssuetypeHierarchy,
+                WitHierarchy,
                 Integration.provider.label('integration_name')
             ).outerjoin(
-                Integration, IssuetypeHierarchy.integration_id == Integration.id
+                Integration, WitHierarchy.integration_id == Integration.id
             ).filter(
-                IssuetypeHierarchy.client_id == user.client_id
-            ).order_by(IssuetypeHierarchy.level_number.desc()).all()
+                WitHierarchy.tenant_id == user.tenant_id
+            ).order_by(WitHierarchy.level_number.desc()).all()
 
             hierarchies_list = [
                 {
-                    "id": hierarchy.IssuetypeHierarchy.id,
-                    "level_name": hierarchy.IssuetypeHierarchy.level_name,
-                    "level_number": hierarchy.IssuetypeHierarchy.level_number,
-                    "description": hierarchy.IssuetypeHierarchy.description,
+                    "id": hierarchy.WitHierarchy.id,
+                    "level_name": hierarchy.WitHierarchy.level_name,
+                    "level_number": hierarchy.WitHierarchy.level_number,
+                    "description": hierarchy.WitHierarchy.description,
                     "integration_name": hierarchy.integration_name,
-                    "integration_id": hierarchy.IssuetypeHierarchy.integration_id,
-                    "active": hierarchy.IssuetypeHierarchy.active
+                    "integration_id": hierarchy.WitHierarchy.integration_id,
+                    "active": hierarchy.WitHierarchy.active
                 }
                 for hierarchy in hierarchies
             ]
@@ -2474,14 +2474,14 @@ async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authe
         )
 
 
-class IssuetypeHierarchyCreateRequest(BaseModel):
+class WitHierarchyCreateRequest(BaseModel):
     level_name: str
     level_number: int
     description: Optional[str] = None
     integration_id: Optional[int] = None
 
 
-class IssuetypeHierarchyUpdateRequest(BaseModel):
+class WitHierarchyUpdateRequest(BaseModel):
     level_name: str
     level_number: int
     description: Optional[str] = None
@@ -2490,26 +2490,26 @@ class IssuetypeHierarchyUpdateRequest(BaseModel):
 
 @router.post("/issuetype-hierarchies")
 async def create_issuetype_hierarchy(
-    create_data: IssuetypeHierarchyCreateRequest,
+    create_data: WitHierarchyCreateRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
     """Create a new issuetype hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy
+            from app.models.unified_models import WitHierarchy
             from datetime import datetime
 
             # Note: Multiple hierarchies can have the same level_number
             # No uniqueness check needed for level_number
 
             # Create new hierarchy
-            new_hierarchy = IssuetypeHierarchy(
+            new_hierarchy = WitHierarchy(
                 level_name=create_data.level_name,
                 level_number=create_data.level_number,
                 description=create_data.description,
                 integration_id=create_data.integration_id,
-                client_id=user.client_id,
+                tenant_id=user.tenant_id,
                 active=True,
                 created_at=datetime.utcnow(),
                 last_updated_at=datetime.utcnow()
@@ -2520,7 +2520,7 @@ async def create_issuetype_hierarchy(
 
             logger.info(f"Admin {user.email} created issuetype hierarchy {new_hierarchy.id}")
 
-            return {"message": "Issuetype hierarchy created successfully", "id": new_hierarchy.id}
+            return {"message": "Wit hierarchy created successfully", "id": new_hierarchy.id}
 
     except HTTPException:
         raise
@@ -2535,33 +2535,33 @@ async def create_issuetype_hierarchy(
 @router.put("/issuetype-hierarchies/{hierarchy_id}")
 async def update_issuetype_hierarchy(
     hierarchy_id: int,
-    update_data: IssuetypeHierarchyUpdateRequest,
+    update_data: WitHierarchyUpdateRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
     """Update an issuetype hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy
+            from app.models.unified_models import WitHierarchy
             from datetime import datetime
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issuetype hierarchy not found"
+                    detail="Wit hierarchy not found"
                 )
 
             # Check if level_number conflicts with another hierarchy
             if update_data.level_number != hierarchy.level_number:
-                existing = session.query(IssuetypeHierarchy).filter(
-                    IssuetypeHierarchy.level_number == update_data.level_number,
-                    IssuetypeHierarchy.client_id == user.client_id,
-                    IssuetypeHierarchy.id != hierarchy_id
+                existing = session.query(WitHierarchy).filter(
+                    WitHierarchy.level_number == update_data.level_number,
+                    WitHierarchy.tenant_id == user.tenant_id,
+                    WitHierarchy.id != hierarchy_id
                 ).first()
 
                 if existing:
@@ -2581,7 +2581,7 @@ async def update_issuetype_hierarchy(
 
             logger.info(f"Admin {user.email} updated issuetype hierarchy {hierarchy_id}")
 
-            return {"message": "Issuetype hierarchy updated successfully"}
+            return {"message": "Wit hierarchy updated successfully"}
 
     except HTTPException:
         raise
@@ -2602,22 +2602,22 @@ async def delete_issuetype_hierarchy(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping
+            from app.models.unified_models import WitHierarchy, WitMapping
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issuetype hierarchy not found"
+                    detail="Wit hierarchy not found"
                 )
 
             # Check if hierarchy is being used by any mappings
-            mappings_count = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id
+            mappings_count = session.query(WitMapping).filter(
+                WitMapping.issuetype_hierarchy_id == hierarchy_id
             ).count()
 
             if mappings_count > 0:
@@ -2631,7 +2631,7 @@ async def delete_issuetype_hierarchy(
 
             logger.info(f"Admin {user.email} deleted issuetype hierarchy {hierarchy_id}")
 
-            return {"message": "Issuetype hierarchy deleted successfully"}
+            return {"message": "Wit hierarchy deleted successfully"}
 
     except HTTPException:
         raise
@@ -2652,43 +2652,43 @@ async def get_issuetype_hierarchy_dependencies(
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping, Issue, Issuetype
+            from app.models.unified_models import WitHierarchy, WitMapping, WorkItem, Wit
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type hierarchy not found"
+                    detail="WorkItem type hierarchy not found"
                 )
 
             # Count dependent mappings that use this hierarchy
-            dependent_mappings_count = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id,
-                IssuetypeMapping.active == True
+            dependent_mappings_count = session.query(WitMapping).filter(
+                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.active == True
             ).count()
 
             # Count dependent issues through the mappings and issue types
-            dependent_issues_count = session.query(Issue).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
+            dependent_issues_count = session.query(WorkItem).join(
+                Wit, WorkItem.wit_id == Wit.id
             ).join(
-                IssuetypeMapping, Issuetype.issuetype_mapping_id == IssuetypeMapping.id
+                WitMapping, Wit.issuetype_mapping_id == WitMapping.id
             ).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id,
-                IssuetypeMapping.active == True,
-                Issuetype.active == True,
-                Issue.active == True
+                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.active == True,
+                Wit.active == True,
+                WorkItem.active == True
             ).count()
 
             # Get available reassignment targets (active hierarchies, excluding current)
-            reassignment_targets = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.active == True,
-                IssuetypeHierarchy.id != hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
-            ).order_by(IssuetypeHierarchy.level_number.desc()).all()
+            reassignment_targets = session.query(WitHierarchy).filter(
+                WitHierarchy.active == True,
+                WitHierarchy.id != hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
+            ).order_by(WitHierarchy.level_number.desc()).all()
 
             return {
                 "hierarchy_id": hierarchy_id,
@@ -2723,7 +2723,7 @@ async def get_issuetype_hierarchy_dependencies(
         )
 
 
-class IssuetypeHierarchyDeactivationRequest(BaseModel):
+class WitHierarchyDeactivationRequest(BaseModel):
     action: str  # "keep_mappings", "reassign_mappings"
     target_hierarchy_id: Optional[int] = None  # Required if action is "reassign_mappings"
 
@@ -2731,32 +2731,32 @@ class IssuetypeHierarchyDeactivationRequest(BaseModel):
 @router.patch("/issuetype-hierarchies/{hierarchy_id}/deactivate")
 async def deactivate_issuetype_hierarchy(
     hierarchy_id: int,
-    deactivation_data: IssuetypeHierarchyDeactivationRequest,
+    deactivation_data: WitHierarchyDeactivationRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
     """Deactivate an issue type hierarchy with options for handling dependencies"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping
+            from app.models.unified_models import WitHierarchy, WitMapping
             from datetime import datetime
 
             # Verify hierarchy exists and belongs to user's client
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
-            # Debug logging for client_id verification
+            # Debug logging for tenant_id verification
             if hierarchy:
-                logger.info(f"Issuetype hierarchy found: ID={hierarchy.id}, client_id={hierarchy.client_id}, user.client_id={user.client_id}")
+                logger.info(f"Wit hierarchy found: ID={hierarchy.id}, tenant_id={hierarchy.tenant_id}, user.tenant_id={user.tenant_id}")
             else:
-                logger.warning(f"Issuetype hierarchy {hierarchy_id} not found for user.client_id={user.client_id}")
+                logger.warning(f"Wit hierarchy {hierarchy_id} not found for user.tenant_id={user.tenant_id}")
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type hierarchy not found"
+                    detail="WorkItem type hierarchy not found"
                 )
 
             # Store original active state for messaging
@@ -2767,13 +2767,13 @@ async def deactivate_issuetype_hierarchy(
             if not hierarchy.active and deactivation_data.action != "reassign_mappings":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Issue type hierarchy is already inactive"
+                    detail="WorkItem type hierarchy is already inactive"
                 )
 
             # Get dependent mappings
-            dependent_mappings = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id,
-                IssuetypeMapping.active == True
+            dependent_mappings = session.query(WitMapping).filter(
+                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.active == True
             ).all()
 
             # Handle dependencies based on user choice
@@ -2785,10 +2785,10 @@ async def deactivate_issuetype_hierarchy(
                     )
 
                 # Verify target hierarchy exists and is active
-                target_hierarchy = session.query(IssuetypeHierarchy).filter(
-                    IssuetypeHierarchy.id == deactivation_data.target_hierarchy_id,
-                    IssuetypeHierarchy.active == True,
-                    IssuetypeHierarchy.client_id == user.client_id
+                target_hierarchy = session.query(WitHierarchy).filter(
+                    WitHierarchy.id == deactivation_data.target_hierarchy_id,
+                    WitHierarchy.active == True,
+                    WitHierarchy.tenant_id == user.tenant_id
                 ).first()
 
                 if not target_hierarchy:
@@ -2802,14 +2802,14 @@ async def deactivate_issuetype_hierarchy(
                     mapping.issuetype_hierarchy_id = deactivation_data.target_hierarchy_id
 
                 if was_originally_active:
-                    message = f"Issue type hierarchy deactivated and {len(dependent_mappings)} mappings reassigned to '{target_hierarchy.level_name}'"
+                    message = f"WorkItem type hierarchy deactivated and {len(dependent_mappings)} mappings reassigned to '{target_hierarchy.level_name}'"
                     logger.info(f"Admin {user.email} deactivated hierarchy {hierarchy_id} and reassigned {len(dependent_mappings)} mappings to {target_hierarchy.level_name}")
                 else:
                     message = f"{len(dependent_mappings)} mappings reassigned to '{target_hierarchy.level_name}' (hierarchy was already inactive)"
                     logger.info(f"Admin {user.email} reassigned {len(dependent_mappings)} mappings from inactive hierarchy {hierarchy_id} to {target_hierarchy.level_name}")
 
             elif deactivation_data.action == "keep_mappings":
-                message = f"Issue type hierarchy deactivated ({len(dependent_mappings)} mappings will continue to reference this inactive hierarchy)"
+                message = f"WorkItem type hierarchy deactivated ({len(dependent_mappings)} mappings will continue to reference this inactive hierarchy)"
                 logger.info(f"Admin {user.email} deactivated hierarchy {hierarchy_id}, keeping {len(dependent_mappings)} dependent mappings active")
 
             else:
@@ -2851,15 +2851,15 @@ async def activate_issuetype_hierarchy(
         with database.get_write_session_context() as session:
             from datetime import datetime
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type hierarchy not found"
+                    detail="WorkItem type hierarchy not found"
                 )
 
             hierarchy.active = True
@@ -2868,7 +2868,7 @@ async def activate_issuetype_hierarchy(
 
             logger.info(f"Admin {user.email} activated hierarchy {hierarchy_id}")
 
-            return {"message": "Issue type hierarchy activated successfully"}
+            return {"message": "WorkItem type hierarchy activated successfully"}
 
     except HTTPException:
         raise

@@ -5,10 +5,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { PullRequest, PullRequestsResponse } from '../types';
+import { Pr, PrsResponse } from '../types';
 import apiService from '../services/apiService';
 
-interface PullRequestListProps {
+interface PrListProps {
   clientId: number;
   showMlFields?: boolean;
   limit?: number;
@@ -18,7 +18,7 @@ interface PullRequestListProps {
   className?: string;
 }
 
-export const PullRequestList: React.FC<PullRequestListProps> = ({
+export const PrList: React.FC<PrListProps> = ({
   clientId,
   showMlFields = false,
   limit = 50,
@@ -27,17 +27,17 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
   userName,
   className = '',
 }) => {
-  const [prsResponse, setPrsResponse] = useState<PullRequestsResponse | null>(null);
+  const [prsResponse, setPrsResponse] = useState<PrsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchPullRequests = async () => {
+    const fetchPrs = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const response = await apiService.getPullRequests(clientId, {
+        const response = await apiService.getPrs(clientId, {
           limit,
           include_ml_fields: showMlFields,
           repository,
@@ -53,7 +53,7 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
       }
     };
 
-    fetchPullRequests();
+    fetchPrs();
   }, [clientId, showMlFields, limit, repository, status, userName]);
 
   if (loading) {
@@ -280,4 +280,4 @@ export const PullRequestList: React.FC<PullRequestListProps> = ({
   );
 };
 
-export default PullRequestList;
+export default PrList;

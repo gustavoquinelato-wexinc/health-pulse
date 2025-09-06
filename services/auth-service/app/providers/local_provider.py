@@ -24,7 +24,7 @@ class LocalAuthProvider(BaseAuthProvider):
     async def authenticate(self, email: str, password: str) -> AuthenticationResult:
         """Authenticate user against backend service"""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/centralized/validate-credentials",
                     json={"email": email, "password": password},
@@ -55,7 +55,7 @@ class LocalAuthProvider(BaseAuthProvider):
     async def get_user_info(self, provider_user_id: str) -> Optional[Dict[str, Any]]:
         """Get user info from backend service"""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.get(
                     f"{self.backend_service_url}/api/v1/users/{provider_user_id}",
                     timeout=5.0

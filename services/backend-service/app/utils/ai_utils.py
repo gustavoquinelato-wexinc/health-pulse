@@ -41,7 +41,7 @@ class QdrantVectorManager:
         table_name: str,
         entity_id: int,
         text_content: str,
-        client_id: int,
+        tenant_id: int,
         vector_type: str = "content"
     ) -> bool:
         """
@@ -53,7 +53,7 @@ class QdrantVectorManager:
             table_name: Name of the source table
             entity_id: ID of the entity
             text_content: Text content to generate embedding from
-            client_id: Client ID for multi-tenancy
+            tenant_id: Tenant ID for multi-tenancy
             vector_type: Type of vector ('content', 'summary', 'metadata')
 
         Returns:
@@ -68,10 +68,10 @@ class QdrantVectorManager:
 
             # Create Qdrant vector tracking record
             qdrant_vector = QdrantVector(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 table_name=table_name,
                 record_id=entity_id,
-                qdrant_collection=f"client_{client_id}_{table_name}",
+                qdrant_collection=f"client_{tenant_id}_{table_name}",
                 qdrant_point_id=str(uuid.uuid4()),
                 vector_type=vector_type,
                 embedding_model="text-embedding-3-small",  # Phase 3-2 will make this configurable
@@ -94,7 +94,7 @@ class QdrantVectorManager:
         db: Session,
         table_name: str,
         query_embedding: List[float],
-        client_id: int,
+        tenant_id: int,
         limit: int = 10,
         similarity_threshold: float = 0.7
     ) -> List[Dict[str, Any]]:
@@ -106,7 +106,7 @@ class QdrantVectorManager:
             db: Database session
             table_name: Name of the table to search
             query_embedding: Query embedding vector
-            client_id: Client ID for multi-tenancy
+            tenant_id: Tenant ID for multi-tenancy
             limit: Maximum number of results
             similarity_threshold: Minimum similarity score
 
@@ -118,14 +118,14 @@ class QdrantVectorManager:
             query = text("""
                 SELECT record_id, qdrant_point_id, vector_type
                 FROM qdrant_vectors
-                WHERE client_id = :client_id
+                WHERE tenant_id = :tenant_id
                 AND table_name = :table_name
                 ORDER BY last_updated_at DESC
                 LIMIT :limit
             """)
 
             result = db.execute(query, {
-                'client_id': client_id,
+                'tenant_id': tenant_id,
                 'table_name': table_name,
                 'limit': limit
             })
@@ -153,7 +153,7 @@ class AILearningManager:
     @staticmethod
     def log_user_feedback(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         error_type: str,
         user_intent: str,
         failed_query: str,
@@ -168,7 +168,7 @@ class AILearningManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             error_type: Type of error encountered
             user_intent: What the user was trying to accomplish
             failed_query: The query that failed
@@ -183,7 +183,7 @@ class AILearningManager:
         """
         try:
             learning_memory = AILearningMemory(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 error_type=error_type,
                 user_intent=user_intent,
                 failed_query=failed_query,
@@ -198,7 +198,7 @@ class AILearningManager:
             db.commit()
             db.refresh(learning_memory)
             
-            logger.info(f"Logged AI learning feedback for client {client_id}")
+            logger.info(f"Logged AI learning feedback for client {tenant_id}")
             return learning_memory
             
         except Exception as e:
@@ -213,7 +213,7 @@ class AIPredictionManager:
     @staticmethod
     def log_prediction(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         model_name: str,
         input_data: Dict[str, Any],
         prediction_result: Dict[str, Any],
@@ -226,7 +226,7 @@ class AIPredictionManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             model_name: Name of the ML model
             input_data: Input data used for prediction
             prediction_result: Model's prediction result
@@ -239,7 +239,7 @@ class AIPredictionManager:
         """
         try:
             prediction = AIPrediction(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 model_name=model_name,
                 model_version=model_version,
                 input_data=json.dumps(input_data),
@@ -252,7 +252,7 @@ class AIPredictionManager:
             db.commit()
             db.refresh(prediction)
             
-            logger.info(f"Logged AI prediction for client {client_id}, model {model_name}")
+            logger.info(f"Logged AI prediction for client {tenant_id}, model {model_name}")
             return prediction
             
         except Exception as e:
@@ -305,7 +305,7 @@ class AIPerformanceManager:
     @staticmethod
     def log_performance_metric(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         metric_name: str,
         metric_value: float,
         service_name: str = "backend",
@@ -317,7 +317,7 @@ class AIPerformanceManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             metric_name: Name of the metric
             metric_value: Value of the metric
             service_name: Name of the service (backend, etl, ai)
@@ -329,7 +329,7 @@ class AIPerformanceManager:
         """
         try:
             metric = AIPerformanceMetric(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 metric_name=metric_name,
                 metric_value=metric_value,
                 metric_unit=metric_unit,
@@ -341,7 +341,7 @@ class AIPerformanceManager:
             db.commit()
             db.refresh(metric)
             
-            logger.info(f"Logged performance metric {metric_name} for client {client_id}")
+            logger.info(f"Logged performance metric {metric_name} for client {tenant_id}")
             return metric
             
         except Exception as e:

@@ -6,7 +6,7 @@ interface LogData {
   [key: string]: any;
 }
 
-interface ClientLogger {
+interface TenantLogger {
   clientName: string | null;
   clientId: number | null;
   userId: number | null;
@@ -25,9 +25,9 @@ interface ClientLogger {
   logNavigation(from: string, to: string): void;
 
   // Utility methods
-  updateClientContext(): void;
+  updateTenantContext(): void;
   flushLogs(): Promise<void>;
 }
 
-declare const clientLogger: ClientLogger;
+declare const clientLogger: TenantLogger;
 export default clientLogger;

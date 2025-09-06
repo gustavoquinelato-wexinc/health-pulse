@@ -1,14 +1,14 @@
 /**
- * Issue List Component with ML fields support
+ * WorkItem List Component with ML fields support
  * Phase 1-6: Frontend Service Compatibility
  */
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Issue, IssuesResponse } from '../types';
+import { WorkItem, WorkItemsResponse } from '../types';
 import apiService from '../services/apiService';
 
-interface IssueListProps {
+interface WorkItemListProps {
   clientId: number;
   showMlFields?: boolean;
   limit?: number;
@@ -18,7 +18,7 @@ interface IssueListProps {
   className?: string;
 }
 
-export const IssueList: React.FC<IssueListProps> = ({
+export const WorkItemList: React.FC<WorkItemListProps> = ({
   clientId,
   showMlFields = false,
   limit = 50,
@@ -27,17 +27,17 @@ export const IssueList: React.FC<IssueListProps> = ({
   assignee,
   className = '',
 }) => {
-  const [issuesResponse, setIssuesResponse] = useState<IssuesResponse | null>(null);
+  const [issuesResponse, setWorkItemsResponse] = useState<WorkItemsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchIssues = async () => {
+    const fetchWorkItems = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const response = await apiService.getIssues(clientId, {
+        const response = await apiService.getWorkItems(clientId, {
           limit,
           include_ml_fields: showMlFields,
           project_key: projectKey,
@@ -45,7 +45,7 @@ export const IssueList: React.FC<IssueListProps> = ({
           assignee,
         });
 
-        setIssuesResponse(response);
+        setWorkItemsResponse(response);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch issues');
       } finally {
@@ -53,7 +53,7 @@ export const IssueList: React.FC<IssueListProps> = ({
       }
     };
 
-    fetchIssues();
+    fetchWorkItems();
   }, [clientId, showMlFields, limit, projectKey, status, assignee]);
 
   if (loading) {
@@ -103,7 +103,7 @@ export const IssueList: React.FC<IssueListProps> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <h2 className="text-lg font-semibold text-primary">
-            Issues ({issuesResponse.total_count})
+            WorkItems ({issuesResponse.total_count})
           </h2>
           {issuesResponse.ml_fields_included && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -118,7 +118,7 @@ export const IssueList: React.FC<IssueListProps> = ({
         )}
       </div>
 
-      {/* Issues List */}
+      {/* WorkItems List */}
       <div className="space-y-3">
         {issuesResponse.issues.map((issue, index) => (
           <motion.div
@@ -130,7 +130,7 @@ export const IssueList: React.FC<IssueListProps> = ({
           >
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
-                {/* Issue Header */}
+                {/* WorkItem Header */}
                 <div className="flex items-center space-x-2 mb-2">
                   <h3 className="text-sm font-medium text-primary truncate">
                     {issue.key}: {issue.summary}
@@ -144,10 +144,10 @@ export const IssueList: React.FC<IssueListProps> = ({
                   </span>
                 </div>
 
-                {/* Issue Details */}
+                {/* WorkItem Details */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-secondary">
                   <div>
-                    <span className="font-medium">Type:</span> {issue.issuetype_name}
+                    <span className="font-medium">Type:</span> {issue.wit_name}
                   </div>
                   {issue.assignee && (
                     <div>
@@ -198,7 +198,7 @@ export const IssueList: React.FC<IssueListProps> = ({
                 )}
               </div>
 
-              {/* Issue Actions */}
+              {/* WorkItem Actions */}
               <div className="flex items-center space-x-2 ml-4">
                 <button
                   onClick={() => window.open(`/issues/${issue.id}`, '_blank')}
@@ -222,7 +222,7 @@ export const IssueList: React.FC<IssueListProps> = ({
       {issuesResponse.count < issuesResponse.total_count && (
         <div className="text-center pt-4">
           <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-            Load More Issues
+            Load More WorkItems
           </button>
         </div>
       )}
@@ -230,4 +230,4 @@ export const IssueList: React.FC<IssueListProps> = ({
   );
 };
 
-export default IssueList;
+export default WorkItemList;

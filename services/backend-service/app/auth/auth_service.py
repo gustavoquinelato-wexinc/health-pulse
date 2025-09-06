@@ -110,7 +110,7 @@ class AuthService:
                     user.last_name = session_data.get("last_name")
                     user.role = session_data.get("role")
                     user.is_admin = session_data.get("is_admin")
-                    user.client_id = session_data.get("client_id")
+                    user.tenant_id = session_data.get("tenant_id")
                     user.theme_mode = session_data.get("theme_mode", "light")
                     user.active = True  # Redis sessions are always active
 
@@ -158,7 +158,7 @@ class AuthService:
                     detached_user.role = user.role
                     detached_user.is_admin = user.is_admin
                     detached_user.active = user.active
-                    detached_user.client_id = user.client_id
+                    detached_user.tenant_id = user.tenant_id
                     detached_user.auth_provider = user.auth_provider
                     detached_user.theme_mode = user.theme_mode
                     detached_user.last_login_at = user.last_login_at
@@ -177,7 +177,7 @@ class AuthService:
                             "last_name": user.last_name,
                             "role": user.role,
                             "is_admin": user.is_admin,
-                            "client_id": user.client_id,
+                            "tenant_id": user.tenant_id,
                             "theme_mode": user.theme_mode
                         }
                         await self.redis_session_manager.store_session(token_hash, user_data)
@@ -260,7 +260,7 @@ class AuthService:
                 "email": user.email,
                 "role": user.role,
                 "is_admin": user.is_admin,
-                "client_id": user.client_id,  # ✅ CRITICAL: Include client_id for multi-client isolation
+                "tenant_id": user.tenant_id,  # ✅ CRITICAL: Include tenant_id for multi-client isolation
                 "exp": DateTimeHelper.now_default() + self.token_expiry,
                 "iat": DateTimeHelper.now_default()
             }
@@ -279,7 +279,7 @@ class AuthService:
                 expires_at=DateTimeHelper.now_default() + self.token_expiry,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                client_id=user.client_id,
+                tenant_id=user.tenant_id,
                 active=True,
                 created_at=DateTimeHelper.now_default(),
                 last_updated_at=DateTimeHelper.now_default()
@@ -302,7 +302,7 @@ class AuthService:
                     "last_name": user.last_name,
                     "role": user.role,
                     "is_admin": user.is_admin,
-                    "client_id": user.client_id,
+                    "tenant_id": user.tenant_id,
                     "theme_mode": user.theme_mode
                 }
                 ttl_seconds = int(self.token_expiry.total_seconds())
@@ -320,7 +320,7 @@ class AuthService:
                     "last_name": user.last_name,
                     "role": user.role,
                     "is_admin": user.is_admin,
-                    "client_id": user.client_id  # ✅ Added missing client_id
+                    "tenant_id": user.tenant_id  # ✅ Added missing tenant_id
                 }
             }
             
@@ -417,8 +417,8 @@ class AuthService:
 
         Args:
             user_data: User data from centralized auth service
-            ip_address: Client IP address
-            user_agent: Client user agent
+            ip_address: Tenant IP address
+            user_agent: Tenant user agent
 
         Returns:
             Dict with token and user data, or None if failed
@@ -510,7 +510,7 @@ class AuthService:
                         expires_at=expires_at,
                         ip_address=ip_address,
                         user_agent=user_agent,
-                        client_id=user.client_id,
+                        tenant_id=user.tenant_id,
                         active=True,
                         created_at=DateTimeHelper.now_default(),
                         last_updated_at=DateTimeHelper.now_default()
@@ -549,7 +549,7 @@ class AuthService:
         """Hash token for storage (for revocation purposes)"""
         return hashlib.sha256(token.encode('utf-8')).hexdigest()
     
-    async def create_user(self, email: str, password: str, client_id: int, first_name: str = None, last_name: str = None,
+    async def create_user(self, email: str, password: str, tenant_id: int, first_name: str = None, last_name: str = None,
                          role: str = 'user', is_admin: bool = False) -> Optional[User]:
         """Create a new local user"""
         try:
@@ -571,7 +571,7 @@ class AuthService:
                     is_admin=is_admin,
                     auth_provider='local',
                     password_hash=password_hash,
-                    client_id=client_id,
+                    tenant_id=tenant_id,
                     active=True,
                     created_at=DateTimeHelper.now_default(),
                     last_updated_at=DateTimeHelper.now_default()
@@ -580,7 +580,7 @@ class AuthService:
                 session.add(user)
                 session.commit()
 
-                logger.info(f"User created: {email} with role: {role} for client_id: {client_id}")
+                logger.info(f"User created: {email} with role: {role} for tenant_id: {tenant_id}")
                 return user
 
         except Exception as e:

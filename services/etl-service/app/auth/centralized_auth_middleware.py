@@ -28,7 +28,7 @@ class UserData:
         self.role = user_data.get("role")
         self.is_admin = user_data.get("is_admin", False)
         self.active = user_data.get("active", True)
-        self.client_id = user_data.get("client_id")
+        self.tenant_id = user_data.get("tenant_id")
 
 
 async def get_current_user_optional(

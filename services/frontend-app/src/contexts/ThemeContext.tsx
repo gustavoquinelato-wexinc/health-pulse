@@ -592,7 +592,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       try {
         const ETL_SERVICE_URL = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
         await axios.post(`${ETL_SERVICE_URL}/api/v1/internal/color-schema-mode-changed`, {
-          client_id: 1, // TODO: Get actual client ID
+          tenant_id: 1, // TODO: Get actual client ID
           mode: mode
         })
         console.log('🎨 Notified ETL service about color schema mode change:', mode)

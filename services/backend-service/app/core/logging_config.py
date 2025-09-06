@@ -229,7 +229,7 @@ def setup_logging(force_reconfigure=False):
     system_handler.setLevel(logging.INFO)
 
     # We'll add client-specific handlers dynamically as needed
-    # This will be managed by the ClientLoggingManager
+    # This will be managed by the TenantLoggingManager
 
     # Create a clean formatter
     clean_formatter = logging.Formatter(
@@ -289,7 +289,7 @@ def get_client_logger(name: str = None, client_name: str = None) -> structlog.st
 
     Args:
         name: Logger name. If None, uses the calling module name.
-        client_name: Client name for client-specific logging.
+        client_name: Tenant name for client-specific logging.
 
     Returns:
         Configured structured logger with client context.
@@ -304,7 +304,7 @@ def get_client_logger(name: str = None, client_name: str = None) -> structlog.st
 
     if client_name:
         # Ensure client-specific handler exists
-        ClientLoggingManager.get_client_handler(client_name)
+        TenantLoggingManager.get_client_handler(client_name)
         # Bind client context to logger
         logger = logger.bind(client=client_name)
 
@@ -320,7 +320,7 @@ class LoggerMixin:
         return get_logger(self.__class__.__module__ + '.' + self.__class__.__name__)
 
 
-class ClientLoggingManager:
+class TenantLoggingManager:
     """Manages client-specific log handlers dynamically."""
 
     _client_handlers = {}

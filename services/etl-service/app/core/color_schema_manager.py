@@ -118,7 +118,7 @@ class ColorSchemaManager:
         settings = get_settings()
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncTenant(timeout=10.0) as client:
                 # Try user-specific colors first (includes accessibility preferences)
                 user_response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/user/colors",

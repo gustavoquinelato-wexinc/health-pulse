@@ -1,5 +1,5 @@
 """
-Issues API endpoints for Backend Service.
+WorkItems API endpoints for Backend Service.
 Provides CRUD operations for issues with optional ML fields support.
 """
 
@@ -11,47 +11,47 @@ from pydantic import BaseModel
 
 from app.core.database import get_read_session, get_write_session
 from app.core.logging_config import get_logger
-from app.models.unified_models import Issue, Project, Status, Issuetype
+from app.models.unified_models import WorkItem, Project, Status, Wit
 from app.auth.auth_middleware import UserData, require_authentication
 
-router = APIRouter(prefix="/api", tags=["Issues"])
+router = APIRouter(prefix="/api", tags=["WorkItems"])
 logger = get_logger(__name__)
 
 
 # Request/Response Models
-class IssueCreateRequest(BaseModel):
+class WorkItemCreateRequest(BaseModel):
     key: str
     summary: str
     description: Optional[str] = None
     priority: Optional[str] = None
     status_name: Optional[str] = None
-    issuetype_name: Optional[str] = None
+    wit_name: Optional[str] = None
     assignee: Optional[str] = None
     reporter: Optional[str] = None
     story_points: Optional[int] = None
     epic_link: Optional[str] = None
     project_id: Optional[int] = None
     status_id: Optional[int] = None
-    issuetype_id: Optional[int] = None
+    wit_id: Optional[int] = None
 
 
-class IssueUpdateRequest(BaseModel):
+class WorkItemUpdateRequest(BaseModel):
     summary: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[str] = None
     status_name: Optional[str] = None
-    issuetype_name: Optional[str] = None
+    wit_name: Optional[str] = None
     assignee: Optional[str] = None
     reporter: Optional[str] = None
     story_points: Optional[int] = None
     epic_link: Optional[str] = None
     status_id: Optional[int] = None
-    issuetype_id: Optional[int] = None
+    wit_id: Optional[int] = None
 
 
 @router.get("/issues")
 async def get_issues(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     limit: int = Query(100, le=1000, description="Maximum number of issues to return"),
     offset: int = Query(0, ge=0, description="Number of issues to skip for pagination"),
@@ -64,16 +64,16 @@ async def get_issues(
     """Get issues with optional ML fields"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Build query with filters
-        query = db.query(Issue).filter(
-            Issue.client_id == client_id,
-            Issue.active == True
+        query = db.query(WorkItem).filter(
+            WorkItem.tenant_id == tenant_id,
+            WorkItem.active == True
         )
         
         # Apply optional filters
@@ -81,16 +81,16 @@ async def get_issues(
             query = query.join(Project).filter(Project.key == project_key)
         
         if status:
-            query = query.filter(Issue.status_name == status)
+            query = query.filter(WorkItem.status_name == status)
             
         if assignee:
-            query = query.filter(Issue.assignee.ilike(f"%{assignee}%"))
+            query = query.filter(WorkItem.assignee.ilike(f"%{assignee}%"))
         
         # Get total count before pagination
         total_count = query.count()
         
         # Apply pagination and ordering
-        issues = query.order_by(Issue.created_at.desc()).offset(offset).limit(limit).all()
+        issues = query.order_by(WorkItem.created_at.desc()).offset(offset).limit(limit).all()
         
         # Enhanced response with optional ML fields
         result = []
@@ -128,14 +128,14 @@ async def get_issue(
 ):
     """Get single issue with optional ML fields"""
     try:
-        issue = db.query(Issue).filter(
-            Issue.id == issue_id,
-            Issue.client_id == user.client_id,
-            Issue.active == True
+        issue = db.query(WorkItem).filter(
+            WorkItem.id == issue_id,
+            WorkItem.tenant_id == user.tenant_id,
+            WorkItem.active == True
         ).first()
         
         if not issue:
-            raise HTTPException(status_code=404, detail="Issue not found")
+            raise HTTPException(status_code=404, detail="WorkItem not found")
         
         return issue.to_dict(include_ml_fields=include_ml_fields)
         
@@ -148,7 +148,7 @@ async def get_issue(
 
 @router.post("/issues")
 async def create_issue(
-    issue_data: IssueCreateRequest,
+    issue_data: WorkItemCreateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
@@ -157,21 +157,21 @@ async def create_issue(
         from app.core.utils import DateTimeHelper
         
         # Create issue normally - embedding defaults to None in model
-        issue = Issue(
+        issue = WorkItem(
             key=issue_data.key,
             summary=issue_data.summary,
             description=issue_data.description,
             priority=issue_data.priority,
             status_name=issue_data.status_name,
-            issuetype_name=issue_data.issuetype_name,
+            wit_name=issue_data.wit_name,
             assignee=issue_data.assignee,
             reporter=issue_data.reporter,
             story_points=issue_data.story_points,
             epic_link=issue_data.epic_link,
             project_id=issue_data.project_id,
             status_id=issue_data.status_id,
-            issuetype_id=issue_data.issuetype_id,
-            client_id=user.client_id,
+            wit_id=issue_data.wit_id,
+            tenant_id=user.tenant_id,
             active=True,
             created_at=DateTimeHelper.now_utc(),
             last_updated_at=DateTimeHelper.now_utc()
@@ -182,7 +182,7 @@ async def create_issue(
         db.commit()
         db.refresh(issue)
         
-        logger.info(f"Created issue {issue.key} for client {user.client_id}")
+        logger.info(f"Created issue {issue.key} for client {user.tenant_id}")
         return issue.to_dict()
         
     except Exception as e:
@@ -194,7 +194,7 @@ async def create_issue(
 @router.put("/issues/{issue_id}")
 async def update_issue(
     issue_id: int,
-    issue_data: IssueUpdateRequest,
+    issue_data: WorkItemUpdateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
@@ -202,14 +202,14 @@ async def update_issue(
     try:
         from app.core.utils import DateTimeHelper
         
-        issue = db.query(Issue).filter(
-            Issue.id == issue_id,
-            Issue.client_id == user.client_id,
-            Issue.active == True
+        issue = db.query(WorkItem).filter(
+            WorkItem.id == issue_id,
+            WorkItem.tenant_id == user.tenant_id,
+            WorkItem.active == True
         ).first()
 
         if not issue:
-            raise HTTPException(status_code=404, detail="Issue not found")
+            raise HTTPException(status_code=404, detail="WorkItem not found")
 
         # Update existing fields normally
         for field, value in issue_data.dict(exclude_unset=True).items():
@@ -222,7 +222,7 @@ async def update_issue(
         db.commit()
         db.refresh(issue)
 
-        logger.info(f"Updated issue {issue.key} for client {user.client_id}")
+        logger.info(f"Updated issue {issue.key} for client {user.tenant_id}")
         return issue.to_dict()
         
     except HTTPException:
@@ -243,14 +243,14 @@ async def delete_issue(
     try:
         from app.core.utils import DateTimeHelper
         
-        issue = db.query(Issue).filter(
-            Issue.id == issue_id,
-            Issue.client_id == user.client_id,
-            Issue.active == True
+        issue = db.query(WorkItem).filter(
+            WorkItem.id == issue_id,
+            WorkItem.tenant_id == user.tenant_id,
+            WorkItem.active == True
         ).first()
 
         if not issue:
-            raise HTTPException(status_code=404, detail="Issue not found")
+            raise HTTPException(status_code=404, detail="WorkItem not found")
 
         # Soft delete
         issue.active = False
@@ -258,8 +258,8 @@ async def delete_issue(
 
         db.commit()
 
-        logger.info(f"Deleted issue {issue.key} for client {user.client_id}")
-        return {"message": "Issue deleted successfully", "issue_id": issue_id}
+        logger.info(f"Deleted issue {issue.key} for client {user.tenant_id}")
+        return {"message": "WorkItem deleted successfully", "issue_id": issue_id}
         
     except HTTPException:
         raise
@@ -271,48 +271,48 @@ async def delete_issue(
 
 @router.get("/issues/stats")
 async def get_issues_stats(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """Get issue statistics for the client"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Get basic stats
-        total_issues = db.query(func.count(Issue.id)).filter(
-            Issue.client_id == client_id,
-            Issue.active == True
+        total_issues = db.query(func.count(WorkItem.id)).filter(
+            WorkItem.tenant_id == tenant_id,
+            WorkItem.active == True
         ).scalar()
         
         # Get status breakdown
         status_stats = db.query(
-            Issue.status_name,
-            func.count(Issue.id).label('count')
+            WorkItem.status_name,
+            func.count(WorkItem.id).label('count')
         ).filter(
-            Issue.client_id == client_id,
-            Issue.active == True
-        ).group_by(Issue.status_name).all()
+            WorkItem.tenant_id == tenant_id,
+            WorkItem.active == True
+        ).group_by(WorkItem.status_name).all()
         
         # Get priority breakdown
         priority_stats = db.query(
-            Issue.priority,
-            func.count(Issue.id).label('count')
+            WorkItem.priority,
+            func.count(WorkItem.id).label('count')
         ).filter(
-            Issue.client_id == client_id,
-            Issue.active == True
-        ).group_by(Issue.priority).all()
+            WorkItem.tenant_id == tenant_id,
+            WorkItem.active == True
+        ).group_by(WorkItem.priority).all()
         
         return {
             'total_issues': total_issues,
             'status_breakdown': [{'status': s.status_name, 'count': s.count} for s in status_stats],
             'priority_breakdown': [{'priority': p.priority, 'count': p.count} for p in priority_stats],
-            'client_id': client_id
+            'tenant_id': tenant_id
         }
         
     except HTTPException:

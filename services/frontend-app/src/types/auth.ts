@@ -72,7 +72,7 @@ export interface UserSession {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
   
   // NEW: Optional ML fields (Phase 1: Always undefined)
   embedding?: number[];
@@ -90,7 +90,7 @@ export interface CurrentSessionInfo {
   email: string;
   role: string;
   is_admin: boolean;
-  client_id: number;
+  tenant_id: number;
   issued_at: string;
   expires_at: string;
   issuer: string;
@@ -138,7 +138,7 @@ export interface JWTPayload {
   email: string;
   role: string;
   is_admin: boolean;
-  client_id: number;
+  tenant_id: number;
   iat: number;
   exp: number;
   iss?: string;
@@ -221,7 +221,7 @@ export interface AuthStorage {
 }
 
 // Auth API client types
-export interface AuthApiClient {
+export interface AuthApiTenant {
   login: (request: LoginRequest) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   validateCredentials: (request: CredentialValidationRequest) => Promise<CredentialValidationResponse>;

@@ -58,12 +58,12 @@ export default function LoginPage() {
         {/* Left side - Branding */}
         <div className="hidden lg:flex lg:w-1/2 flex-col justify-center items-center p-12 relative">
           <div className="max-w-md text-center">
-            {/* Client Logo */}
+            {/* Tenant Logo */}
             <div className="mb-8">
               <div style={{ width: '300px', height: '120px', position: 'relative', margin: '0 auto' }}>
                 <img
                   src="/logo.png"
-                  alt="Client Logo"
+                  alt="Tenant Logo"
                   style={{
                     width: '100%',
                     height: '100%',
@@ -103,7 +103,7 @@ export default function LoginPage() {
               <div style={{ width: '200px', height: '80px', position: 'relative', margin: '0 auto' }}>
                 <img
                   src="/wex-logo-image.png"
-                  alt="Client Logo"
+                  alt="Tenant Logo"
                   style={{
                     width: '100%',
                     height: '100%',

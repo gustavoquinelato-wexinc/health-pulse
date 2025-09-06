@@ -1,6 +1,6 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import AdminRoute from './components/AdminRoute'
-import ClientErrorBoundary from './components/ClientErrorBoundary'
+import TenantErrorBoundary from './components/TenantErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -12,7 +12,7 @@ import DoraOverviewPage from './pages/DoraOverviewPage'
 import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 
 import AuthCallbackPage from './pages/AuthCallbackPage'
-import ClientManagementPage from './pages/ClientManagementPage'
+import TenantManagementPage from './pages/TenantManagementPage'
 import HomePage from './pages/HomePage'
 import LeadTimeForChangesPage from './pages/LeadTimeForChangesPage'
 import LoginPage from './pages/LoginPage'
@@ -35,7 +35,7 @@ import RecoveryPage from './pages/engineering/Reliability/RecoveryPage'
 
 function App() {
   return (
-    <ClientErrorBoundary>
+    <TenantErrorBoundary>
       <AuthProvider>
         <ThemeProvider>
           <Router
@@ -181,7 +181,7 @@ function App() {
                   path="/admin/client-management"
                   element={
                     <AdminRoute>
-                      <ClientManagementPage />
+                      <TenantManagementPage />
                     </AdminRoute>
                   }
                 />
@@ -208,7 +208,7 @@ function App() {
           </Router>
         </ThemeProvider>
       </AuthProvider>
-    </ClientErrorBoundary >
+    </TenantErrorBoundary >
   )
 }
 

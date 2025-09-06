@@ -121,13 +121,13 @@ class ProjectInfo(BaseModel):
     tool_internal_id: Optional[int] = None
 
 
-class IssueInfo(BaseModel):
+class WorkItemInfo(BaseModel):
     """Information about an issue."""
     id: int
     key: str
     summary: str
     project_id: Optional[int] = None
-    issuetype_id: Optional[int] = None
+    wit_id: Optional[int] = None
     status_id: Optional[int] = None
     assignee: Optional[str] = None
     created: Optional[datetime] = None
@@ -154,7 +154,7 @@ class CommitInfo(BaseModel):
         }
 
 
-class PullRequestInfo(BaseModel):
+class PrInfo(BaseModel):
     """Information about a pull request."""
     id: int
     issue_id: int
@@ -217,9 +217,9 @@ class PaginationParams(BaseModel):
     page_size: int = Field(default=50, ge=1, le=1000, description="Page size")
 
 
-class IssuesListResponse(BaseModel):
+class WorkItemsListResponse(BaseModel):
     """Response for issues listing."""
-    issues: List[IssueInfo]
+    issues: List[WorkItemInfo]
     total_count: int
     page: int
     page_size: int
@@ -233,9 +233,9 @@ class CommitsListResponse(BaseModel):
     page_size: int
 
 
-class PullRequestsListResponse(BaseModel):
+class PrsListResponse(BaseModel):
     """Response for pull requests listing."""
-    pull_requests: List[PullRequestInfo]
+    pull_requests: List[PrInfo]
     total_count: int
     page: int
     page_size: int

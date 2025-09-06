@@ -211,7 +211,7 @@ export default function UserPreferencesPage() {
     setPasswordLoading(true)
     setPasswordMessage(null)
 
-    // Client-side validation
+    // Tenant-side validation
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       setPasswordMessage({ type: 'error', text: 'New password and confirmation do not match' })
       setPasswordLoading(false)

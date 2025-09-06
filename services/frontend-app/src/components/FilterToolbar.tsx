@@ -24,7 +24,7 @@ export default function FilterToolbar({ disabled = true }: FilterToolbarProps) {
         </select>
       </div>
       <div className="flex flex-col">
-        <label className="text-xs text-secondary mb-1">Issue Type</label>
+        <label className="text-xs text-secondary mb-1">WorkItem Type</label>
         <select className="bg-primary border border-default rounded px-2 py-2 text-sm" disabled>
           <option>All types (SOON)</option>
         </select>

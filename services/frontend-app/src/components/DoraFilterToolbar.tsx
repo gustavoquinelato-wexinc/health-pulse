@@ -147,9 +147,9 @@ export default function DoraFilterToolbar({
             ))}
           </select>
         </div>
-        {/* 4. Issue Type */}
+        {/* 4. WorkItem Type */}
         <div className="flex flex-col">
-          <label className="text-xs text-secondary mb-1">Issue Type</label>
+          <label className="text-xs text-secondary mb-1">WorkItem Type</label>
           <select
             className="bg-primary border border-default rounded px-2 py-2 text-sm"
             value={filters.issuetype_to || ''}

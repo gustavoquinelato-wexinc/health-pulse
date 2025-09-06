@@ -22,16 +22,16 @@ def test_client_name_lookup():
     
     try:
         # Import after path setup
-        from app.core.config import get_client_id_from_name
+        from app.core.config import get_tenant_id_from_name
         from app.core.database import get_database
-        from app.models.unified_models import Client
+        from app.models.unified_models import Tenant
         
         database = get_database()
         
         # Step 1: Show available clients
-        print("\n📋 Step 1: Available Clients in Database")
+        print("\n📋 Step 1: Available Tenants in Database")
         with database.get_session() as session:
-            clients = session.query(Client).all()
+            clients = session.query(Tenant).all()
             
             for client in clients:
                 status = "ACTIVE" if client.active else "INACTIVE"
@@ -53,25 +53,25 @@ def test_client_name_lookup():
         
         for test_name in test_cases:
             try:
-                client_id = get_client_id_from_name(test_name)
-                print(f"  ✅ '{test_name}' → Client ID: {client_id}")
+                tenant_id = get_tenant_id_from_name(test_name)
+                print(f"  ✅ '{test_name}' → Tenant ID: {tenant_id}")
             except Exception as e:
                 print(f"  ❌ '{test_name}' → Error: {e}")
         
         # Step 3: Test invalid client names
-        print("\n📋 Step 3: Testing Invalid Client Names")
+        print("\n📋 Step 3: Testing Invalid Tenant Names")
         
         invalid_cases = [
             "NonExistent",
-            "InvalidClient",
+            "InvalidTenant",
             "",
             "   ",
         ]
         
         for test_name in invalid_cases:
             try:
-                client_id = get_client_id_from_name(test_name)
-                print(f"  ⚠️ '{test_name}' → Unexpected success: {client_id}")
+                tenant_id = get_tenant_id_from_name(test_name)
+                print(f"  ⚠️ '{test_name}' → Unexpected success: {tenant_id}")
             except Exception as e:
                 print(f"  ✅ '{test_name}' → Expected error: {str(e)[:80]}...")
         

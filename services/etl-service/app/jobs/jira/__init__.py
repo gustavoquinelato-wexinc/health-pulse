@@ -5,7 +5,7 @@ This package contains all components for Jira data extraction and processing.
 Refactored from the monolithic jira_job.py for better maintainability.
 
 Structure:
-- jira_client.py: JiraAPIClient for API interactions
+- jira_client.py: JiraAPITenant for API interactions
 - jira_processor.py: JiraDataProcessor for data transformation
 - jira_extractors.py: All extraction functions (_extract_*)
 - jira_bulk_operations.py: Bulk database operations
@@ -17,7 +17,7 @@ Structure:
 from .jira_job import run_jira_sync
 
 # Export individual components for advanced usage
-from .jira_client import JiraAPIClient
+from .jira_client import JiraAPITenant
 from .jira_processor import JiraDataProcessor
 from .jira_utils import JobLockManager
 from .jira_extractors import (
@@ -32,7 +32,7 @@ from .jira_bulk_operations import perform_bulk_insert
 
 __all__ = [
     'run_jira_sync',  # New orchestration system entry point
-    'JiraAPIClient',
+    'JiraAPITenant',
     'JiraDataProcessor',
     'JobLockManager',
     'extract_projects_and_issuetypes',  # Combined projects and issue types function

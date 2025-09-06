@@ -94,7 +94,7 @@ async def exchange_authorization_code(request: AuthCodeExchangeRequest):
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
         
         # Call centralized auth service to exchange code for token
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncTenant() as client:
             response = await client.post(
                 f"{auth_service_url}/api/v1/token/exchange",
                 json={
@@ -181,7 +181,7 @@ async def validate_centralized_token(request: TokenValidationRequest):
         # If not valid locally, check with centralized auth service
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncTenant() as client:
             response = await client.post(
                 f"{auth_service_url}/api/v1/token/validate",
                 headers={"Authorization": f"Bearer {token}"},
@@ -230,7 +230,7 @@ async def logout_all_services(user: User = Depends(get_auth_service().require_au
         # Notify centralized auth service to invalidate tokens
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncTenant() as client:
             response = await client.post(
                 f"{auth_service_url}/api/v1/logout",
                 json={"user_id": user.id},
@@ -259,7 +259,7 @@ async def check_auth_service_status():
     try:
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncTenant() as client:
             response = await client.get(f"{auth_service_url}/health", timeout=3.0)
             
             if response.status_code == 200:

@@ -218,7 +218,7 @@ class EnhancedStrategicWorkflow:
                 error_type,
                 state.user_query or "",
                 state.sql_query or "",
-                1  # Default client_id
+                1  # Default tenant_id
             )
             
             # Apply healing suggestions (simplified implementation)
@@ -267,7 +267,7 @@ class EnhancedStrategicWorkflow:
                         "retry_count": state.sql_retry_count + state.semantic_retry_count,
                         "analysis_intent": state.analysis_intent
                     },
-                    client_id=1  # Default client_id
+                    tenant_id=1  # Default tenant_id
                 )
                 
                 await self.healing_memory.record_validation_failure(feedback)

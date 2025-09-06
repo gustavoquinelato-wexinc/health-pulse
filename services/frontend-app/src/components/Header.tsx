@@ -16,7 +16,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import clientLogger from '../utils/clientLogger'
 
-interface Client {
+interface Tenant {
   id: number
   name: string
   website?: string
@@ -43,7 +43,7 @@ export default function Header() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showQuickActions, setShowQuickActions] = useState(false)
   const [showRecentItems, setShowRecentItems] = useState(false)
-  const [currentClient, setCurrentClient] = useState<Client | null>(null)
+  const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null)
   const [userProfileImage, setUserProfileImage] = useState<string | null>(null)
 
   // Function to get authentication token from localStorage or cookies
@@ -64,7 +64,7 @@ export default function Header() {
   }
 
   // Fetch current user's client information
-  const fetchCurrentClient = async () => {
+  const fetchCurrentTenant = async () => {
     try {
       const token = getAuthToken()
       if (!token) return
@@ -77,7 +77,7 @@ export default function Header() {
 
       // Assuming the API returns the current user's client (should be filtered by backend)
       if (response.data && response.data.length > 0) {
-        setCurrentClient(response.data[0])
+        setCurrentTenant(response.data[0])
       }
     } catch (error) {
       console.error('Failed to fetch client information:', error)
@@ -87,7 +87,7 @@ export default function Header() {
   // Load client data when component mounts or user changes
   useEffect(() => {
     if (user) {
-      fetchCurrentClient()
+      fetchCurrentTenant()
       loadUserProfileImage()
     }
   }, [user])
@@ -96,8 +96,8 @@ export default function Header() {
   useEffect(() => {
     const handleLogoUpdate = (event: CustomEvent) => {
       const { clientId, assets_folder, logo_filename } = event.detail
-      if (currentClient && currentClient.id === clientId) {
-        setCurrentClient(prev => prev ? {
+      if (currentTenant && currentTenant.id === clientId) {
+        setCurrentTenant(prev => prev ? {
           ...prev,
           assets_folder,
           logo_filename
@@ -109,7 +109,7 @@ export default function Header() {
     return () => {
       window.removeEventListener('logoUpdated', handleLogoUpdate as EventListener)
     }
-  }, [currentClient])
+  }, [currentTenant])
 
   // Listen for profile image updates
   useEffect(() => {
@@ -125,10 +125,10 @@ export default function Header() {
 
   // Function to get logo URL with cache busting
   const getLogoUrl = () => {
-    if (currentClient?.assets_folder && currentClient?.logo_filename) {
+    if (currentTenant?.assets_folder && currentTenant?.logo_filename) {
       // Add timestamp to prevent browser caching issues
       const timestamp = Date.now()
-      return `/assets/${currentClient.assets_folder}/${currentClient.logo_filename}?t=${timestamp}`
+      return `/assets/${currentTenant.assets_folder}/${currentTenant.logo_filename}?t=${timestamp}`
     }
     // Fallback to default WEX logo
     return '/wex-logo-image.png'
@@ -276,11 +276,11 @@ export default function Header() {
     <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
       {/* Logo and Title */}
       <div className="flex items-center space-x-4">
-        {/* Client Logo */}
+        {/* Tenant Logo */}
         <div className="h-8">
           <img
             src={getLogoUrl()}
-            alt={`${currentClient?.name || 'Client'} Logo`}
+            alt={`${currentTenant?.name || 'Tenant'} Logo`}
             className="h-full object-contain"
           />
         </div>

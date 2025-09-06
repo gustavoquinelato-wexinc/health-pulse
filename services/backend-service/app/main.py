@@ -21,7 +21,7 @@ from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
 )
-from app.core.client_logging_middleware import ClientLoggingMiddleware
+from app.core.client_logging_middleware import TenantLoggingMiddleware
 # Import Backend Service API routers
 from app.api.health import router as health_router
 
@@ -144,7 +144,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             settings = get_settings()
             auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{auth_service_url}/api/v1/token/validate",
                     headers={"Authorization": f"Bearer {token}"},
@@ -306,7 +306,7 @@ app.add_middleware(
 
 # Other middleware (after CORS)
 app.add_middleware(ErrorHandlingMiddleware)
-app.add_middleware(ClientLoggingMiddleware)  # Client-aware logging
+app.add_middleware(TenantLoggingMiddleware)  # Tenant-aware logging
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(SecurityValidationMiddleware)
 app.add_middleware(HealthCheckMiddleware)
@@ -325,7 +325,7 @@ app.include_router(user_router, tags=["User Preferences"])
 app.include_router(admin_router, tags=["Administration"])  # admin_router already has /api/v1/admin prefix
 
 # Include Core API routes with ML support
-app.include_router(issues_router, prefix="/api/v1", tags=["Issues"])
+app.include_router(issues_router, prefix="/api/v1", tags=["WorkItems"])
 app.include_router(pull_requests_router, prefix="/api/v1", tags=["Pull Requests"])
 app.include_router(projects_router, prefix="/api/v1", tags=["Projects"])
 app.include_router(users_router, prefix="/api/v1", tags=["Users"])

@@ -17,7 +17,7 @@ class OktaAuthProvider(BaseAuthProvider):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.okta_domain = config.get("okta_domain")  # e.g., "dev-123456.okta.com"
-        self.client_id = config.get("client_id")
+        self.tenant_id = config.get("tenant_id")
         self.client_secret = config.get("client_secret")
         # Import settings to get environment variables
         from app.core.config import get_settings
@@ -25,7 +25,7 @@ class OktaAuthProvider(BaseAuthProvider):
 
         self.backend_service_url = config.get("backend_service_url", settings.BACKEND_SERVICE_URL)
         
-        if not all([self.okta_domain, self.client_id, self.client_secret]):
+        if not all([self.okta_domain, self.tenant_id, self.client_secret]):
             logger.warning("OKTA provider not fully configured")
     
     async def authenticate(self, email: str, password: str) -> AuthenticationResult:
@@ -51,11 +51,11 @@ class OktaAuthProvider(BaseAuthProvider):
     
     def get_oauth_url(self, state: str, redirect_uri: str) -> str:
         """Get OKTA OAuth authorization URL"""
-        if not self.okta_domain or not self.client_id:
+        if not self.okta_domain or not self.tenant_id:
             raise ValueError("OKTA not properly configured")
         
         params = {
-            "client_id": self.client_id,
+            "tenant_id": self.tenant_id,
             "response_type": "code",
             "scope": "openid profile email",
             "redirect_uri": redirect_uri,
@@ -68,7 +68,7 @@ class OktaAuthProvider(BaseAuthProvider):
     async def handle_oauth_callback(self, code: str, state: str) -> AuthenticationResult:
         """Handle OAuth callback from OKTA"""
         try:
-            if not all([self.okta_domain, self.client_id, self.client_secret]):
+            if not all([self.okta_domain, self.tenant_id, self.client_secret]):
                 return AuthenticationResult(
                     success=False,
                     error_message="OKTA not properly configured"
@@ -77,12 +77,12 @@ class OktaAuthProvider(BaseAuthProvider):
             # Exchange authorization code for access token
             token_url = f"https://{self.okta_domain}/oauth2/default/v1/token"
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 token_response = await client.post(
                     token_url,
                     data={
                         "grant_type": "authorization_code",
-                        "client_id": self.client_id,
+                        "tenant_id": self.tenant_id,
                         "client_secret": self.client_secret,
                         "code": code,
                         "redirect_uri": settings.OKTA_REDIRECT_URI  # From environment variable
@@ -152,7 +152,7 @@ class OktaAuthProvider(BaseAuthProvider):
         """Ensure user exists in local system, create if not"""
         try:
             # Call backend service to create/update user from OKTA data
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/centralized/sync-okta-user",
                     json=mapped_user_data,

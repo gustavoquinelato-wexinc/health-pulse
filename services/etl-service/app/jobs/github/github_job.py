@@ -8,7 +8,7 @@ This job:
 3. On success: Sets Jira job to PENDING, itself to FINISHED
 4. On failure: Sets itself to PENDING with appropriate checkpoint data
 
-Note: PR-Issue linking is now handled via join queries on JiraPullRequestLinks table.
+Note: PR-WorkItem linking is now handled via join queries on WitPrLinks table.
 """
 
 from sqlalchemy.orm import Session
@@ -18,8 +18,8 @@ from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 from app.core.job_manager import CancellableJob
-from app.models.unified_models import JobSchedule, Integration, Repository, PullRequest
-from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+from app.models.unified_models import JobSchedule, Integration, Repository, Pr
+from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_extractor import (
     process_repository_prs_with_graphql, process_repository_prs_with_graphql_recovery
@@ -126,7 +126,7 @@ async def execute_github_extraction_by_mode(
 
 
 async def execute_github_extraction_session_free(
-    client_id: int,
+    tenant_id: int,
     integration_id: int,
     github_token: str,
     job_schedule_id: int,
@@ -156,7 +156,7 @@ async def execute_github_extraction_session_free(
                     return {'success': False, 'error': 'Job schedule not found'}
 
                 integration = session.query(Integration).filter(
-                    Integration.client_id == client_id,
+                    Integration.tenant_id == tenant_id,
                     func.upper(Integration.provider) == 'GITHUB'
                 ).first()
 
@@ -167,7 +167,7 @@ async def execute_github_extraction_session_free(
             else:
                 integration = session.query(Integration).filter(
                     Integration.id == integration_id,
-                    Integration.client_id == client_id
+                    Integration.tenant_id == tenant_id
                 ).first()
 
             if not integration:
@@ -191,13 +191,13 @@ async def execute_github_extraction_session_free(
                 return {'success': False, 'error': 'Single repo mode requires a target repository'}
 
             return await extract_github_single_repo_prs_session_free(
-                client_id, integration_id, github_token, job_schedule_id, target_repository
+                tenant_id, integration_id, github_token, job_schedule_id, target_repository
             )
 
         elif execution_mode == GitHubExecutionMode.ALL:
             logger.info("Executing ALL mode - session-free approach")
             return await process_github_data_with_graphql_session_free(
-                client_id, integration_id, github_token, job_schedule_id
+                tenant_id, integration_id, github_token, job_schedule_id
             )
 
         else:
@@ -247,7 +247,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
         # Get all repositories from database
         repositories = session.query(Repository).filter(
             Repository.integration_id == github_integration.id,
-            Repository.client_id == github_integration.client_id
+            Repository.tenant_id == github_integration.tenant_id
         ).all()
 
         if not repositories:
@@ -256,7 +256,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
         logger.info(f"Found {len(repositories)} repositories for PR extraction")
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
+        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
 
         # Initialize queue for PR processing
         job_schedule.initialize_repo_queue(repositories)
@@ -322,14 +322,14 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
         repository = session.query(Repository).filter(
             Repository.full_name == target_repository,
             Repository.integration_id == github_integration.id,
-            Repository.client_id == github_integration.client_id
+            Repository.tenant_id == github_integration.tenant_id
         ).first()
 
         if not repository:
             return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
+        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
 
         # Process PRs for this specific repository
         owner, repo_name = target_repository.split('/', 1)
@@ -407,17 +407,17 @@ async def run_github_sync(
         if job_schedule.integration_id:
             github_integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id,
-                Integration.client_id == job_schedule.client_id  # Double-check client isolation
+                Integration.tenant_id == job_schedule.tenant_id  # Double-check client isolation
             ).first()
         else:
-            # Fallback: Get by name and client_id (for backward compatibility)
+            # Fallback: Get by name and tenant_id (for backward compatibility)
             github_integration = session.query(Integration).filter(
                 func.upper(Integration.provider) == "GITHUB",
-                Integration.client_id == job_schedule.client_id
+                Integration.tenant_id == job_schedule.tenant_id
             ).first()
 
         if not github_integration:
-            error_msg = f"No GitHub integration found for client {job_schedule.client_id}. Please check integration setup."
+            error_msg = f"No GitHub integration found for client {job_schedule.tenant_id}. Please check integration setup."
             logger.error(f"ERROR: {error_msg}")
             await websocket_manager.send_exception("GitHub", "ERROR", error_msg)
             job_schedule.set_pending_with_checkpoint(error_msg)
@@ -503,15 +503,15 @@ async def run_github_sync(
         )
         
         if result['success']:
-            # Step 3: PR-Issue linking is now handled by Jira job via JiraPullRequestLinks table
-            logger.info("Step 3: PR-Issue linking handled by Jira job (via JiraPullRequestLinks table)")
+            # Step 3: PR-WorkItem linking is now handled by Jira job via WitPrLinks table
+            logger.info("Step 3: PR-WorkItem linking handled by Jira job (via WitPrLinks table)")
             await websocket_manager.send_progress_update("GitHub", 98.0, "GitHub sync completed - PR linking handled by Jira job")
 
             # Get current link statistics for reporting
             from app.utils.pr_link_queries import get_pr_link_statistics
-            link_stats = get_pr_link_statistics(session, github_integration.client_id)
+            link_stats = get_pr_link_statistics(session, github_integration.tenant_id)
             result['pr_links_total'] = link_stats['total_pr_links']
-            logger.info(f"Current PR-Issue links in database: {link_stats['total_pr_links']}")
+            logger.info(f"Current PR-WorkItem links in database: {link_stats['total_pr_links']}")
 
             # Check if this was a complete success (not partial or rate limited)
             is_complete_success = (
@@ -550,7 +550,7 @@ async def run_github_sync(
                 if update_job_schedule:
                     # Find next ready job using centralized logic
                     from app.jobs.orchestrator import find_next_ready_job
-                    next_job = find_next_ready_job(session, job_schedule.client_id, job_schedule.execution_order)
+                    next_job = find_next_ready_job(session, job_schedule.tenant_id, job_schedule.execution_order)
 
                     if next_job:
                         # Set next job to PENDING and current job to FINISHED
@@ -613,7 +613,7 @@ async def run_github_sync(
                     database = get_database()
                     with database.get_read_session_context() as check_session:
                         first_job = check_session.query(JobSchedule).filter(
-                            JobSchedule.client_id == job_schedule.client_id,
+                            JobSchedule.tenant_id == job_schedule.tenant_id,
                             JobSchedule.active == True,
                             JobSchedule.status != 'PAUSED'
                         ).order_by(JobSchedule.execution_order.asc()).first()
@@ -635,7 +635,7 @@ async def run_github_sync(
                 logger.info("GitHub sync completed successfully")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
                 logger.info(f"   • Pull requests processed: {result['prs_processed']}")
-                logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                logger.info(f"   • PR-WorkItem links created: {result.get('pr_links_created', 0)}")
                 logger.info(f"   • Staging table cleared")
                 logger.info(f"   • Jira job set to PENDING (cycle complete)")
 
@@ -698,7 +698,7 @@ async def run_github_sync(
                 logger.info("GitHub sync partially completed")
                 logger.info(f"   • Repositories processed: {result['repos_processed']}")
                 logger.info(f"   • Pull requests processed: {result['prs_processed']}")
-                logger.info(f"   • PR-Issue links created: {result.get('pr_links_created', 0)}")
+                logger.info(f"   • PR-WorkItem links created: {result.get('pr_links_created', 0)}")
                 logger.info(f"   • Staging data preserved for next run")
                 logger.info(f"   • GitHub job remains PENDING")
                 if fast_retry_scheduled:
@@ -762,7 +762,7 @@ async def run_github_sync(
                 )
 
             # Send final progress update for error case (short message for progress bar)
-            await websocket_manager.send_progress_update("GitHub", 100.0, "[ERROR] GitHub sync failed - check Issues & Warnings below")
+            await websocket_manager.send_progress_update("GitHub", 100.0, "[ERROR] GitHub sync failed - check WorkItems & Warnings below")
 
             # Send failure completion notification
             await websocket_manager.send_completion(
@@ -812,7 +812,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         Dictionary with discovery results containing repositories list
     """
     try:
-        from app.jobs.github import GitHubClient
+        from app.jobs.github import GitHubTenant
         from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
         from app.models.unified_models import Repository
         from datetime import datetime
@@ -825,7 +825,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         from app.core.config import AppConfig
         key = AppConfig.load_key()
         github_token = AppConfig.decrypt_token(integration.password, key)
-        github_client = GitHubClient(github_token)
+        github_client = GitHubTenant(github_token)
 
         # Get organization from environment
         org = os.getenv('GITHUB_ORG', 'wexinc')
@@ -835,23 +835,23 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         # Step 1: Get repositories from Jira PR links (non-health repos)
         logger.info("Step 1: Extracting repositories from Jira PR links...")
 
-        from app.models.unified_models import JiraPullRequestLinks
+        from app.models.unified_models import WitPrLinks
 
         # Check if we have any PR links at all
-        # SECURITY: Filter by client_id to prevent cross-client data access
-        total_pr_links = session.query(JiraPullRequestLinks).filter(
-            JiraPullRequestLinks.client_id == integration.client_id
+        # SECURITY: Filter by tenant_id to prevent cross-client data access
+        total_pr_links = session.query(WitPrLinks).filter(
+            WitPrLinks.tenant_id == integration.tenant_id
         ).count()
-        logger.info(f"Total PR links in database for client {integration.client_id}: {total_pr_links}")
+        logger.info(f"Total PR links in database for client {integration.tenant_id}: {total_pr_links}")
 
         if total_pr_links == 0:
             logger.warning("No Jira PR links found - run Jira job first to populate data")
 
         # Get unique repository full names from PR links
         try:
-            # SECURITY: Filter by client_id to prevent cross-client data access
-            jira_repo_names = session.query(JiraPullRequestLinks.repo_full_name).filter(
-                JiraPullRequestLinks.client_id == integration.client_id
+            # SECURITY: Filter by tenant_id to prevent cross-client data access
+            jira_repo_names = session.query(WitPrLinks.repo_full_name).filter(
+                WitPrLinks.tenant_id == integration.tenant_id
             ).distinct().all()
         except Exception as e:
             logger.error(f"Error querying repo_full_name column: {e}")
@@ -966,7 +966,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         # Get existing repositories to avoid duplicates
         existing_repos = {
             repo.external_id: repo for repo in session.query(Repository).filter(
-                Repository.client_id == integration.client_id
+                Repository.tenant_id == integration.tenant_id
             ).all()
         }
 
@@ -1055,7 +1055,7 @@ async def discover_all_repositories(session: Session, integration: Integration, 
 
         # Get all repositories for return
         repositories = session.query(Repository).filter(
-            Repository.client_id == integration.client_id,
+            Repository.tenant_id == integration.tenant_id,
             Repository.active == True
         ).all()
 
@@ -1082,8 +1082,8 @@ def link_pull_requests_with_jira_issues(session: Session, integration: Integrati
     """
     Legacy function for backward compatibility with test scripts.
 
-    In the new architecture, PR-Issue linking is handled by the Jira job
-    via the JiraPullRequestLinks table. This function just returns current
+    In the new architecture, PR-WorkItem linking is handled by the Jira job
+    via the WitPrLinks table. This function just returns current
     statistics for compatibility.
 
     Args:
@@ -1097,12 +1097,12 @@ def link_pull_requests_with_jira_issues(session: Session, integration: Integrati
         from app.utils.pr_link_queries import get_pr_link_statistics
 
         # Get current link statistics
-        link_stats = get_pr_link_statistics(session, integration.client_id)
+        link_stats = get_pr_link_statistics(session, integration.tenant_id)
 
         return {
             'success': True,
             'links_created': link_stats['total_pr_links'],
-            'message': 'PR-Issue linking is now handled by Jira job via JiraPullRequestLinks table'
+            'message': 'PR-WorkItem linking is now handled by Jira job via WitPrLinks table'
         }
 
     except Exception as e:
@@ -1114,7 +1114,7 @@ def link_pull_requests_with_jira_issues(session: Session, integration: Integrati
         }
 
 
-# Note: PR-Issue linking is now handled via join queries on JiraPullRequestLinks table.
+# Note: PR-WorkItem linking is now handled via join queries on WitPrLinks table.
 # The above function is kept for backward compatibility with test scripts.
 
 
@@ -1140,7 +1140,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
             websocket_manager = get_websocket_manager()
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
+        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
 
         # Determine processing mode and get repositories
         full_queue = job_schedule.get_repo_queue()
@@ -1156,7 +1156,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                 # Get repository from database using external_id
                 repo = session.query(Repository).filter(
                     Repository.external_id == repo_data["repo_id"],
-                    Repository.client_id == integration.client_id
+                    Repository.tenant_id == integration.tenant_id
                 ).first()
                 if repo:
                     repositories.append(repo)
@@ -1365,7 +1365,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
 
 
 async def extract_github_single_repo_prs_session_free(
-    client_id: int,
+    tenant_id: int,
     integration_id: int,
     github_token: str,
     job_schedule_id: int,
@@ -1377,7 +1377,7 @@ async def extract_github_single_repo_prs_session_free(
     """
     from app.core.database import get_database
     from app.core.websocket_manager import get_websocket_manager
-    from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+    from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
 
     try:
         database = get_database()
@@ -1390,14 +1390,14 @@ async def extract_github_single_repo_prs_session_free(
 
             repository = session.query(Repository).filter(
                 Repository.name == target_repository,
-                Repository.client_id == client_id
+                Repository.tenant_id == tenant_id
             ).first()
 
             if not repository:
                 return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
 
         # Initialize GraphQL client
-        graphql_client = GitHubGraphQLClient(github_token)
+        graphql_client = GitHubGraphQLTenant(github_token)
 
         # Process PRs for this specific repository
         owner, repo_name = target_repository.split('/', 1)
@@ -1412,7 +1412,7 @@ async def extract_github_single_repo_prs_session_free(
             job_schedule = session.query(JobSchedule).get(job_schedule_id)
             repository = session.query(Repository).filter(
                 Repository.name == target_repository,
-                Repository.client_id == client_id
+                Repository.tenant_id == tenant_id
             ).first()
 
             from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
@@ -1436,7 +1436,7 @@ async def extract_github_single_repo_prs_session_free(
 
 
 async def process_github_data_with_graphql_session_free(
-    client_id: int,
+    tenant_id: int,
     integration_id: int,
     github_token: str,
     job_schedule_id: int
@@ -1462,7 +1462,7 @@ async def process_github_data_with_graphql_session_free(
         # Get repository list with a quick session
         with database.get_read_session_context() as session:
             repositories = session.query(Repository).filter(
-                Repository.client_id == client_id
+                Repository.tenant_id == tenant_id
             ).all()
 
             repo_list = [(repo.id, repo.name, repo.external_id) for repo in repositories]
@@ -1497,10 +1497,10 @@ async def process_github_data_with_graphql_session_free(
                             owner, repo_name_only = repo_name.split('/', 1)
 
                             # Process this repository
-                            from app.jobs.github.github_graphql_client import GitHubGraphQLClient
+                            from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
                             from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
 
-                            graphql_client = GitHubGraphQLClient(github_token)
+                            graphql_client = GitHubGraphQLTenant(github_token)
 
                             result = await process_repository_prs_with_graphql(
                                 session, graphql_client, repository, owner, repo_name_only,
@@ -1568,14 +1568,14 @@ async def run_github_sync_optimized(
                 return {'success': False, 'error': 'Job schedule not found'}
 
             # Store job details for session-free operations
-            client_id = job_schedule.client_id
+            tenant_id = job_schedule.tenant_id
 
         # Add periodic yielding to prevent blocking
         await asyncio.sleep(0)
 
         # Use session-free execution to prevent connection timeouts
         result = await execute_github_extraction_session_free(
-            client_id, None, None, job_schedule_id,  # integration details will be fetched inside
+            tenant_id, None, None, job_schedule_id,  # integration details will be fetched inside
             execution_mode, target_repository, target_repositories,
             update_sync_timestamp, update_job_schedule
         )

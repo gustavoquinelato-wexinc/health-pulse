@@ -1,5 +1,5 @@
 """
-GitHub GraphQL Client for efficient data fetching with cursor-based pagination.
+GitHub GraphQL Tenant for efficient data fetching with cursor-based pagination.
 Replaces multiple REST API calls with single GraphQL queries.
 """
 
@@ -16,8 +16,8 @@ class GitHubRateLimitException(Exception):
     pass
 
 
-class GitHubGraphQLClient:
-    """Client for GitHub GraphQL API interactions with cursor-based pagination."""
+class GitHubGraphQLTenant:
+    """Tenant for GitHub GraphQL API interactions with cursor-based pagination."""
     
     def __init__(self, token: str, db_session=None):
         """
@@ -167,7 +167,7 @@ class GitHubGraphQLClient:
         from app.core.settings_manager import get_github_graphql_batch_size
         batch_size = get_github_graphql_batch_size()
         query = f"""
-        query getPullRequestBatchWithDetails(
+        query getPrBatchWithDetails(
           $owner: String!,
           $repoName: String!,
           $prCursor: String
@@ -284,7 +284,7 @@ class GitHubGraphQLClient:
             GraphQL response with additional commits
         """
         query = """
-        query getMoreCommitsForPullRequest(
+        query getMoreCommitsForPr(
           $prNodeId: ID!, 
           $commitCursor: String
         ) {
@@ -293,7 +293,7 @@ class GitHubGraphQLClient:
             resetAt
           }
           node(id: $prNodeId) {
-            ... on PullRequest {
+            ... on Pr {
               commits(first: 100, after: $commitCursor) {
                 pageInfo {
                   endCursor
@@ -333,7 +333,7 @@ class GitHubGraphQLClient:
             GraphQL response with additional reviews
         """
         query = """
-        query getMoreReviewsForPullRequest(
+        query getMoreReviewsForPr(
           $prNodeId: ID!,
           $reviewCursor: String
         ) {
@@ -342,7 +342,7 @@ class GitHubGraphQLClient:
             resetAt
           }
           node(id: $prNodeId) {
-            ... on PullRequest {
+            ... on Pr {
               reviews(first: 100, after: $reviewCursor) {
                 pageInfo {
                   endCursor
@@ -381,7 +381,7 @@ class GitHubGraphQLClient:
             GraphQL response with additional comments
         """
         query = """
-        query getMoreCommentsForPullRequest(
+        query getMoreCommentsForPr(
           $prNodeId: ID!,
           $commentCursor: String
         ) {
@@ -390,7 +390,7 @@ class GitHubGraphQLClient:
             resetAt
           }
           node(id: $prNodeId) {
-            ... on PullRequest {
+            ... on Pr {
               comments(first: 100, after: $commentCursor) {
                 pageInfo {
                   endCursor
@@ -429,7 +429,7 @@ class GitHubGraphQLClient:
             GraphQL response with additional review threads
         """
         query = """
-        query getMoreReviewThreadsForPullRequest(
+        query getMoreReviewThreadsForPr(
           $prNodeId: ID!,
           $reviewThreadCursor: String
         ) {
@@ -438,7 +438,7 @@ class GitHubGraphQLClient:
             resetAt
           }
           node(id: $prNodeId) {
-            ... on PullRequest {
+            ... on Pr {
               reviewThreads(first: 50, after: $reviewThreadCursor) {
                 pageInfo {
                   endCursor

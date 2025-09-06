@@ -189,7 +189,7 @@ class WebSocketService {
   public disconnect(): void {
     this.shouldReconnect = false
     if (this.ws) {
-      this.ws.close(1000, 'Client disconnect')
+      this.ws.close(1000, 'Tenant disconnect')
       this.ws = null
     }
   }

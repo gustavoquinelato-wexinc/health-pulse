@@ -30,14 +30,14 @@ router = APIRouter()
 class SQLValidationRequest(BaseModel):
     """Request model for SQL syntax validation"""
     sql_query: str = Field(..., description="SQL query to validate")
-    client_id: Optional[int] = Field(None, description="Client context for validation")
+    tenant_id: Optional[int] = Field(None, description="Tenant context for validation")
 
 class SemanticValidationRequest(BaseModel):
     """Request model for semantic validation"""
     sql_query: str = Field(..., description="SQL query to validate")
     user_intent: str = Field(..., description="Original user query/intent")
     analysis_context: Optional[Dict[str, Any]] = Field(None, description="Additional context")
-    client_id: Optional[int] = Field(None, description="Client context for validation")
+    tenant_id: Optional[int] = Field(None, description="Tenant context for validation")
 
 class ValidationFeedbackRequest(BaseModel):
     """Request model for recording validation feedback"""
@@ -48,14 +48,14 @@ class ValidationFeedbackRequest(BaseModel):
     suggested_fix: str = Field(..., description="Suggested fix for the issue")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence in the feedback")
     learning_context: Dict[str, Any] = Field(..., description="Context for learning")
-    client_id: int = Field(..., description="Client ID for the feedback")
+    tenant_id: int = Field(..., description="Tenant ID for the feedback")
 
 class HealingSuggestionsRequest(BaseModel):
     """Request model for getting healing suggestions"""
     error_type: str = Field(..., description="Type of validation error")
     user_intent: str = Field(..., description="Original user intent")
     failed_query: str = Field(..., description="Query that failed validation")
-    client_id: int = Field(..., description="Client context")
+    tenant_id: int = Field(..., description="Tenant context")
 
 class DataValidationRequest(BaseModel):
     """Request model for data structure validation"""
@@ -80,7 +80,7 @@ async def validate_sql_syntax(
         ValidationResult with syntax validation outcome
     """
     try:
-        logger.info(f"Validating SQL syntax for client {request.client_id}")
+        logger.info(f"Validating SQL syntax for client {request.tenant_id}")
         
         result = validate_sql_syntax_service(request.sql_query)
         
@@ -110,7 +110,7 @@ async def validate_sql_semantics(
         ValidationResult with semantic validation outcome
     """
     try:
-        logger.info(f"Validating SQL semantics for client {request.client_id}")
+        logger.info(f"Validating SQL semantics for client {request.tenant_id}")
         
         result = await validate_sql_semantics_service(
             request.sql_query,
@@ -189,7 +189,7 @@ async def record_validation_feedback(
         Success response
     """
     try:
-        logger.info(f"Recording validation feedback for client {request.client_id}")
+        logger.info(f"Recording validation feedback for client {request.tenant_id}")
         
         # Convert string error_type to enum
         try:
@@ -208,7 +208,7 @@ async def record_validation_feedback(
             suggested_fix=request.suggested_fix,
             confidence=request.confidence,
             learning_context=request.learning_context,
-            client_id=request.client_id
+            tenant_id=request.tenant_id
         )
         
         healing_memory = SelfHealingMemory(db)
@@ -248,7 +248,7 @@ async def get_healing_suggestions(
         List of healing suggestions
     """
     try:
-        logger.info(f"Getting healing suggestions for client {request.client_id}")
+        logger.info(f"Getting healing suggestions for client {request.tenant_id}")
         
         # Convert string error_type to enum
         try:
@@ -264,7 +264,7 @@ async def get_healing_suggestions(
             error_type,
             request.user_intent,
             request.failed_query,
-            request.client_id
+            request.tenant_id
         )
         
         logger.info(f"Generated {len(suggestions)} healing suggestions")

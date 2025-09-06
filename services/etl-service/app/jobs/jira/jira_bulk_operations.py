@@ -134,7 +134,7 @@ def perform_bulk_delete_relationships(session, table_name, relationships_to_dele
 
     # Determine column names based on table
     if table_name == 'projects_issuetypes':
-        col1, col2 = 'project_id', 'issuetype_id'
+        col1, col2 = 'project_id', 'wit_id'
     elif table_name == 'projects_statuses':
         col1, col2 = 'project_id', 'status_id'
     else:

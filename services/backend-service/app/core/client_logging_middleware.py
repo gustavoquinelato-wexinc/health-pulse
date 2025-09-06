@@ -1,5 +1,5 @@
 """
-Client-aware logging middleware for Backend Service.
+Tenant-aware logging middleware for Backend Service.
 Extracts client context from JWT tokens and enables client-specific logging.
 """
 
@@ -12,7 +12,7 @@ from app.core.logging_config import get_client_logger, RequestLogger
 from app.auth.auth_service import get_auth_service
 
 
-class ClientLoggingMiddleware(BaseHTTPMiddleware):
+class TenantLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware that extracts client context and enables client-specific logging."""
     
     async def dispatch(self, request: Request, call_next):
@@ -46,11 +46,11 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
 
             # Determine client identifier for logging (avoid "anonymous" for security)
             if client_context and client_context.get('client_name'):
-                client_identifier = client_context['client_name']
+                tenant_identifier = client_context['client_name']
             elif client_context:
-                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
             else:
-                client_identifier = 'unauthenticated'  # No authentication context
+                tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.info(
                 "Request completed",
@@ -58,7 +58,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                 url=str(request.url),
                 status_code=response.status_code,
                 process_time=process_time,
-                client=client_identifier
+                client=tenant_identifier
             )
             
             return response
@@ -69,11 +69,11 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
 
             # Determine client identifier for logging (avoid "anonymous" for security)
             if client_context and client_context.get('client_name'):
-                client_identifier = client_context['client_name']
+                tenant_identifier = client_context['client_name']
             elif client_context:
-                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
             else:
-                client_identifier = 'unauthenticated'  # No authentication context
+                tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.error(
                 "Request failed",
@@ -82,7 +82,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                 error=str(exc),
                 error_type=type(exc).__name__,
                 process_time=process_time,
-                client=client_identifier
+                client=tenant_identifier
             )
             raise
     
@@ -113,20 +113,20 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
             
             # Get client name from database
             from app.core.database import get_database
-            from app.models.unified_models import Client
+            from app.models.unified_models import Tenant
             
             database = get_database()
             with database.get_session() as session:
-                client = session.query(Client).filter(
-                    Client.id == user.client_id,
-                    Client.active == True
+                client = session.query(Tenant).filter(
+                    Tenant.id == user.tenant_id,
+                    Tenant.active == True
                 ).first()
                 
                 if not client:
                     return None
                 
                 return {
-                    'client_id': client.id,
+                    'tenant_id': client.id,
                     'client_name': client.name,
                     'user_id': user.id,
                     # Don't include email in context to avoid PII in logs

@@ -18,8 +18,8 @@ class FrontendLogEntry(BaseModel):
     timestamp: str = Field(..., description="ISO timestamp of the log entry")
     level: str = Field(..., description="Log level (DEBUG, INFO, WARN, ERROR)")
     message: str = Field(..., description="Log message")
-    client: str = Field(None, description="Client name")
-    clientId: int = Field(None, description="Client ID")
+    client: str = Field(None, description="Tenant name")
+    clientId: int = Field(None, description="Tenant ID")
     userId: int = Field(None, description="User ID")
     url: str = Field(None, description="Page URL where log occurred")
     userAgent: str = Field(None, description="Browser user agent")
@@ -53,14 +53,14 @@ async def receive_frontend_log(
         logger = get_client_logger_from_request(request, "frontend_logs")
         
         # Validate that the log entry matches the authenticated user's client
-        if log_entry.clientId and log_entry.clientId != current_user.client_id:
+        if log_entry.clientId and log_entry.clientId != current_user.tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot log for different client"
             )
         
         # Ensure client context matches authenticated user
-        log_entry.clientId = current_user.client_id
+        log_entry.clientId = current_user.tenant_id
         log_entry.userId = current_user.id
         
         # Convert log entry to structured log
@@ -71,7 +71,7 @@ async def receive_frontend_log(
             "frontend_user_agent": log_entry.userAgent,
             "frontend_type": log_entry.type,
             "user_id": current_user.id,
-            "client_id": current_user.client_id
+            "tenant_id": current_user.tenant_id
         }
         
         # Add error details if present
@@ -129,12 +129,12 @@ async def receive_frontend_log_batch(
         for log_entry in log_batch.logs:
             try:
                 # Validate client context
-                if log_entry.clientId and log_entry.clientId != current_user.client_id:
+                if log_entry.clientId and log_entry.clientId != current_user.tenant_id:
                     error_count += 1
                     continue
                 
                 # Ensure client context matches authenticated user
-                log_entry.clientId = current_user.client_id
+                log_entry.clientId = current_user.tenant_id
                 log_entry.userId = current_user.id
                 
                 # Convert log entry to structured log
@@ -145,7 +145,7 @@ async def receive_frontend_log_batch(
                     "frontend_user_agent": log_entry.userAgent,
                     "frontend_type": log_entry.type,
                     "user_id": current_user.id,
-                    "client_id": current_user.client_id,
+                    "tenant_id": current_user.tenant_id,
                     "batch_processing": True
                 }
                 
@@ -181,7 +181,7 @@ async def receive_frontend_log_batch(
             processed=processed_count,
             errors=error_count,
             user_id=current_user.id,
-            client_id=current_user.client_id
+            tenant_id=current_user.tenant_id
         )
         
         return {
@@ -223,7 +223,7 @@ async def get_frontend_logging_status(
             "status": "active",
             "client_logging_enabled": True,
             "client_context": {
-                "client_id": current_user.client_id,
+                "tenant_id": current_user.tenant_id,
                 "client_name": client_context.get('client_name') if client_context else None,
                 "user_id": current_user.id
                 # Email removed to avoid PII in logs

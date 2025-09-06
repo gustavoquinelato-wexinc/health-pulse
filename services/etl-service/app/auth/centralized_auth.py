@@ -51,7 +51,7 @@ class CentralizedAuthManager:
             state_token, redirect_after_login = state_parts
             
             # Exchange authorization code for access token
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/centralized/exchange-code",
                     json={
@@ -90,7 +90,7 @@ class CentralizedAuthManager:
     async def validate_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Validate token with backend service"""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/validate",
                     headers={"Authorization": f"Bearer {token}"},
@@ -111,7 +111,7 @@ class CentralizedAuthManager:
     async def logout_all_services(self, token: str) -> bool:
         """Logout user from all services"""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/centralized/logout-all-services",
                     headers={"Authorization": f"Bearer {token}"},

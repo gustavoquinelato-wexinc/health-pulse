@@ -9,11 +9,11 @@ from sqlalchemy import func, desc
 from typing import Optional, List
 from app.core.database import get_db_read_session, get_db_session
 from app.models.unified_models import (
-    Issue, PullRequestCommit, PullRequest, Project, Client, Repository
+    WorkItem, PrCommit, Pr, Project, Tenant, Repository
 )
 from app.schemas.api_schemas import (
-    DataSummaryResponse, IssuesListResponse, CommitsListResponse,
-    PullRequestsListResponse, IssueInfo, CommitInfo, PullRequestInfo
+    DataSummaryResponse, WorkItemsListResponse, CommitsListResponse,
+    PrsListResponse, WorkItemInfo, CommitInfo, PrInfo
 )
 # ✅ SECURITY: Add authentication for client isolation
 from app.auth.centralized_auth_middleware import UserData, require_authentication
@@ -33,36 +33,36 @@ async def get_data_summary(
         DataSummaryResponse: Counts and statistics for all data types
     """
     try:
-        # ✅ SECURITY: Get counts filtered by client_id
-        issues_count = db.query(func.count(Issue.id)).filter(Issue.client_id == user.client_id).scalar() or 0
+        # ✅ SECURITY: Get counts filtered by tenant_id
+        issues_count = db.query(func.count(WorkItem.id)).filter(WorkItem.tenant_id == user.tenant_id).scalar() or 0
 
-        # For commits and PRs, filter through repository -> integration -> client_id
-        commits_count = db.query(func.count(PullRequestCommit.id)).join(
-            PullRequest, PullRequestCommit.pull_request_id == PullRequest.id
+        # For commits and PRs, filter through repository -> integration -> tenant_id
+        commits_count = db.query(func.count(PrCommit.id)).join(
+            Pr, PrCommit.pr_id == Pr.id
         ).join(
-            Repository, PullRequest.repository_id == Repository.id
-        ).filter(Repository.client_id == user.client_id).scalar() or 0
+            Repository, Pr.repository_id == Repository.id
+        ).filter(Repository.tenant_id == user.tenant_id).scalar() or 0
 
-        pull_requests_count = db.query(func.count(PullRequest.id)).join(
-            Repository, PullRequest.repository_id == Repository.id
-        ).filter(Repository.client_id == user.client_id).scalar() or 0
+        pull_requests_count = db.query(func.count(Pr.id)).join(
+            Repository, Pr.repository_id == Repository.id
+        ).filter(Repository.tenant_id == user.tenant_id).scalar() or 0
 
         users_count = 0  # No User model currently - could be derived from assignees/authors
-        projects_count = db.query(func.count(Project.id)).filter(Project.client_id == user.client_id).scalar() or 0
+        projects_count = db.query(func.count(Project.id)).filter(Project.tenant_id == user.tenant_id).scalar() or 0
         clients_count = 1  # Current user can only see their own client
 
-        # ✅ SECURITY: Get latest update timestamps filtered by client_id
-        latest_issue = db.query(func.max(Issue.last_updated_at)).filter(Issue.client_id == user.client_id).scalar()
+        # ✅ SECURITY: Get latest update timestamps filtered by tenant_id
+        latest_issue = db.query(func.max(WorkItem.last_updated_at)).filter(WorkItem.tenant_id == user.tenant_id).scalar()
 
-        latest_commit = db.query(func.max(PullRequestCommit.last_updated_at)).join(
-            PullRequest, PullRequestCommit.pull_request_id == PullRequest.id
+        latest_commit = db.query(func.max(PrCommit.last_updated_at)).join(
+            Pr, PrCommit.pr_id == Pr.id
         ).join(
-            Repository, PullRequest.repository_id == Repository.id
-        ).filter(Repository.client_id == user.client_id).scalar()
+            Repository, Pr.repository_id == Repository.id
+        ).filter(Repository.tenant_id == user.tenant_id).scalar()
 
-        latest_pr = db.query(func.max(PullRequest.last_updated_at)).join(
-            Repository, PullRequest.repository_id == Repository.id
-        ).filter(Repository.client_id == user.client_id).scalar()
+        latest_pr = db.query(func.max(Pr.last_updated_at)).join(
+            Repository, Pr.repository_id == Repository.id
+        ).filter(Repository.tenant_id == user.tenant_id).scalar()
         
         return DataSummaryResponse(
             integrations_count=0,  # TODO: Add integrations count when needed
@@ -77,7 +77,7 @@ async def get_data_summary(
         raise HTTPException(status_code=500, detail=f"Failed to get data summary: {str(e)}")
 
 
-@router.get("/etl/data/issues", response_model=IssuesListResponse)
+@router.get("/etl/data/issues", response_model=WorkItemsListResponse)
 async def get_issues(
     limit: int = Query(100, ge=1, le=1000, description="Number of issues to return"),
     offset: int = Query(0, ge=0, description="Number of issues to skip"),
@@ -97,27 +97,27 @@ async def get_issues(
         db: Database session
         
     Returns:
-        IssuesListResponse: List of issues with metadata
+        WorkItemsListResponse: List of issues with metadata
     """
     try:
-        # ✅ SECURITY: Build query filtered by client_id
-        query = db.query(Issue).filter(Issue.client_id == user.client_id)
+        # ✅ SECURITY: Build query filtered by tenant_id
+        query = db.query(WorkItem).filter(WorkItem.tenant_id == user.tenant_id)
 
         # Apply additional filters
         if project_key:
-            query = query.filter(Issue.project_key == project_key)
+            query = query.filter(WorkItem.project_key == project_key)
         if status:
-            query = query.filter(Issue.status == status)
+            query = query.filter(WorkItem.status == status)
 
         # Get total count before pagination
         total_count = query.count()
 
         # Apply pagination and ordering
-        issues = query.order_by(desc(Issue.updated_at)).offset(offset).limit(limit).all()
+        issues = query.order_by(desc(WorkItem.updated_at)).offset(offset).limit(limit).all()
         
         # Convert to response format
         issue_list = [
-            IssueInfo(
+            WorkItemInfo(
                 id=issue.id,
                 key=issue.key,
                 summary=issue.summary,
@@ -129,7 +129,7 @@ async def get_issues(
             for issue in issues
         ]
         
-        return IssuesListResponse(
+        return WorkItemsListResponse(
             issues=issue_list,
             total_count=total_count,
             limit=limit,
@@ -161,9 +161,9 @@ async def get_commits(
         CommitsListResponse: List of commits with metadata
     """
     try:
-        # ✅ SECURITY: Build query filtered by client_id through repository
-        query = db.query(PullRequestCommit).join(PullRequest).join(Repository).filter(
-            Repository.client_id == user.client_id
+        # ✅ SECURITY: Build query filtered by tenant_id through repository
+        query = db.query(PrCommit).join(Pr).join(Repository).filter(
+            Repository.tenant_id == user.tenant_id
         )
 
         # Apply additional filters
@@ -174,13 +174,13 @@ async def get_commits(
         total_count = query.count()
 
         # Apply pagination and ordering
-        commits = query.order_by(desc(PullRequestCommit.committed_date)).offset(offset).limit(limit).all()
+        commits = query.order_by(desc(PrCommit.committed_date)).offset(offset).limit(limit).all()
 
         # Convert to response format
         commit_list = [
             CommitInfo(
                 sha=commit.external_id,  # external_id is the SHA
-                issue_id=commit.pull_request.issue_id if commit.pull_request.issue_id else 0,
+                work_item_id=commit.pull_request.work_item_id if commit.pull_request.work_item_id else 0,
                 repository_url=commit.pull_request.repository.url if commit.pull_request.repository else None,
                 author_name=commit.author_name,
                 message=commit.message,
@@ -200,7 +200,7 @@ async def get_commits(
         raise HTTPException(status_code=500, detail=f"Failed to get commits: {str(e)}")
 
 
-@router.get("/etl/data/pull-requests", response_model=PullRequestsListResponse)
+@router.get("/etl/data/pull-requests", response_model=PrsListResponse)
 async def get_pull_requests(
     limit: int = Query(100, ge=1, le=1000, description="Number of PRs to return"),
     offset: int = Query(0, ge=0, description="Number of PRs to skip"),
@@ -220,29 +220,29 @@ async def get_pull_requests(
         db: Database session
         
     Returns:
-        PullRequestsListResponse: List of pull requests with metadata
+        PrsListResponse: List of pull requests with metadata
     """
     try:
-        # ✅ SECURITY: Build query filtered by client_id through repository
-        query = db.query(PullRequest).join(Repository).filter(
-            Repository.client_id == user.client_id
+        # ✅ SECURITY: Build query filtered by tenant_id through repository
+        query = db.query(Pr).join(Repository).filter(
+            Repository.tenant_id == user.tenant_id
         )
 
         # Apply additional filters
         if repository:
             query = query.filter(Repository.name == repository)
         if state:
-            query = query.filter(PullRequest.state == state)
+            query = query.filter(Pr.state == state)
 
         # Get total count before pagination
         total_count = query.count()
 
         # Apply pagination and ordering
-        pull_requests = query.order_by(desc(PullRequest.updated_at)).offset(offset).limit(limit).all()
+        pull_requests = query.order_by(desc(Pr.updated_at)).offset(offset).limit(limit).all()
         
         # Convert to response format
         pr_list = [
-            PullRequestInfo(
+            PrInfo(
                 id=pr.id,
                 number=pr.number,
                 title=pr.title,
@@ -255,7 +255,7 @@ async def get_pull_requests(
             for pr in pull_requests
         ]
         
-        return PullRequestsListResponse(
+        return PrsListResponse(
             pull_requests=pr_list,
             total_count=total_count,
             limit=limit,

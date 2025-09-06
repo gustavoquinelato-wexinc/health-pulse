@@ -18,7 +18,7 @@ if root_dir not in sys.path:
     sys.path.append(root_dir)
 
 from helper import MappingHelper
-from jira_client import JiraAPIClient
+from jira_client import JiraAPITenant
 from app_config import AppConfig
 from env_loader import get_env_var
 
@@ -67,7 +67,7 @@ class EpicAnalyzer:
         # Jira Projects to Query
         self.benefits_project_keys = ['bex', 'ben', 'bst', 'eppv', 'hba', 'hdo', 'hds', 'fg', 'epe']
 
-        # --- Initialized Clients ---
+        # --- Initialized Tenants ---
         self.jira_client = self._initialize_jira_client()
         self.ai_client = self._initialize_ai_client()
 
@@ -98,10 +98,10 @@ class EpicAnalyzer:
         # Add validation for other required keys if necessary
 
     def _initialize_jira_client(self):
-        """Initializes the JiraAPIClient."""
+        """Initializes the JiraAPITenant."""
         print("Initializing Jira client...")
         try:
-            client = JiraAPIClient(
+            client = JiraAPITenant(
                 jira_scope=self.jira_scope,
                 jira_url=self.jira_url,
                 username=self.jira_username,
@@ -111,7 +111,7 @@ class EpicAnalyzer:
             print("Jira client initialized successfully.")
             return client
         except Exception as e:
-            print(f"FATAL ERROR: Failed to initialize JiraAPIClient: {e}")
+            print(f"FATAL ERROR: Failed to initialize JiraAPITenant: {e}")
             exit()
 
     def _initialize_ai_client(self):

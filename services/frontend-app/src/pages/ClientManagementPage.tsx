@@ -6,7 +6,7 @@ import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
 import useDocumentTitle from '../hooks/useDocumentTitle'
 
-interface Client {
+interface Tenant {
   id: number
   name: string
   website?: string
@@ -19,24 +19,24 @@ interface Client {
 
 
 
-interface UpdateClientRequest {
+interface UpdateTenantRequest {
   name?: string
   website?: string
   active?: boolean
 }
 
-export default function ClientManagementPage() {
+export default function TenantManagementPage() {
   const navigate = useNavigate()
-  const [clients, setClients] = useState<Client[]>([])
+  const [clients, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Modal states
   const [showEditModal, setShowEditModal] = useState(false)
-  const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
 
   // Form states
-  const [updateForm, setUpdateForm] = useState<UpdateClientRequest>({})
+  const [updateForm, setUpdateForm] = useState<UpdateTenantRequest>({})
 
   // Logo upload states
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -44,19 +44,19 @@ export default function ClientManagementPage() {
   const [uploading, setUploading] = useState(false)
 
   // Set document title
-  useDocumentTitle('Client Management - Settings')
+  useDocumentTitle('Tenant Management - Settings')
 
   useEffect(() => {
-    loadClients()
+    loadTenants()
   }, [])
 
-  const loadClients = async () => {
+  const loadTenants = async () => {
     try {
       setLoading(true)
       setError(null)
 
       const response = await axios.get('/api/v1/admin/clients')
-      setClients(response.data)
+      setTenants(response.data)
     } catch (error: any) {
       console.error('Error loading clients:', error)
       setError(error.response?.data?.detail || 'Failed to load clients')
@@ -67,8 +67,8 @@ export default function ClientManagementPage() {
 
 
 
-  const handleUpdateClient = async () => {
-    if (!editingClient) return
+  const handleUpdateTenant = async () => {
+    if (!editingTenant) return
 
     try {
       let hasChanges = false
@@ -83,17 +83,17 @@ export default function ClientManagementPage() {
       const cleanedForm: any = {}
 
       // Only include name if it's different from current and not empty
-      if (updateForm.name !== undefined && updateForm.name.trim() !== editingClient.name) {
+      if (updateForm.name !== undefined && updateForm.name.trim() !== editingTenant.name) {
         cleanedForm.name = updateForm.name.trim()
       }
 
       // Only include website if it's different from current
-      if (updateForm.website !== undefined && updateForm.website !== editingClient.website) {
+      if (updateForm.website !== undefined && updateForm.website !== editingTenant.website) {
         cleanedForm.website = updateForm.website || null
       }
 
       // Only include active if it's different from current
-      if (updateForm.active !== undefined && updateForm.active !== editingClient.active) {
+      if (updateForm.active !== undefined && updateForm.active !== editingTenant.active) {
         cleanedForm.active = updateForm.active
       }
 
@@ -101,23 +101,23 @@ export default function ClientManagementPage() {
 
       // Update profile fields if there are changes
       if (Object.keys(cleanedForm).length > 0) {
-        await axios.put(`/api/v1/admin/clients/${editingClient.id}`, cleanedForm)
+        await axios.put(`/api/v1/admin/clients/${editingTenant.id}`, cleanedForm)
         hasChanges = true
       }
 
       // If no changes were made at all, just close the modal
       if (!hasChanges) {
         setShowEditModal(false)
-        setEditingClient(null)
+        setEditingTenant(null)
         setUpdateForm({})
         return
       }
 
       // Success - close modal and refresh
       setShowEditModal(false)
-      setEditingClient(null)
+      setEditingTenant(null)
       setUpdateForm({})
-      await loadClients()
+      await loadTenants()
     } catch (error: any) {
       console.error('Update client error:', error.response?.data)
       if (error.response?.status === 403) {
@@ -133,7 +133,7 @@ export default function ClientManagementPage() {
 
 
   const handleLogoUpload = async () => {
-    if (!selectedFile || !editingClient) return
+    if (!selectedFile || !editingTenant) return
 
     try {
       setUploading(true)
@@ -143,7 +143,7 @@ export default function ClientManagementPage() {
       formData.append('logo', selectedFile)
 
       const response = await axios.post(
-        `/api/v1/admin/clients/${editingClient.id}/logo`,
+        `/api/v1/admin/clients/${editingTenant.id}/logo`,
         formData,
         {
           headers: {
@@ -158,17 +158,17 @@ export default function ClientManagementPage() {
         }
       )
       // Update the editing client with new logo info - use both assets_folder and logo_filename
-      const updatedClient = {
-        ...editingClient,
+      const updatedTenant = {
+        ...editingTenant,
         assets_folder: response.data.assets_folder,
         logo_filename: response.data.logo_filename
       }
-      setEditingClient(updatedClient)
+      setEditingTenant(updatedTenant)
 
       // Also update the client in the main clients list for immediate UI update
-      setClients(prevClients =>
-        prevClients.map(client =>
-          client.id === editingClient.id
+      setTenants(prevTenants =>
+        prevTenants.map(client =>
+          client.id === editingTenant.id
             ? { ...client, assets_folder: response.data.assets_folder, logo_filename: response.data.logo_filename }
             : client
         )
@@ -177,7 +177,7 @@ export default function ClientManagementPage() {
       // Dispatch custom event to notify other components (like Header) of logo update
       const logoUpdateEvent = new CustomEvent('logoUpdated', {
         detail: {
-          clientId: editingClient.id,
+          clientId: editingTenant.id,
           assets_folder: response.data.assets_folder,
           logo_filename: response.data.logo_filename
         }
@@ -200,8 +200,8 @@ export default function ClientManagementPage() {
     }
   }
 
-  const openEditModal = (client: Client) => {
-    setEditingClient(client)
+  const openEditModal = (client: Tenant) => {
+    setEditingTenant(client)
     setUpdateForm({
       name: client.name,
       website: client.website || '',
@@ -220,7 +220,7 @@ export default function ClientManagementPage() {
 
 
 
-  const getLogoUrl = (client: Client) => {
+  const getLogoUrl = (client: Tenant) => {
     if (client.assets_folder && client.logo_filename) {
       // Use the client-specific assets folder path with cache busting
       const timestamp = Date.now()
@@ -284,7 +284,7 @@ export default function ClientManagementPage() {
                   </button>
                 </div>
                 <h1 className="text-3xl font-bold text-primary">
-                  Client Profile
+                  Tenant Profile
                 </h1>
                 <p className="text-secondary">
                   Manage your organization's profile, branding, and settings
@@ -293,7 +293,7 @@ export default function ClientManagementPage() {
 
             </div>
 
-            {/* Client Profile */}
+            {/* Tenant Profile */}
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -305,7 +305,7 @@ export default function ClientManagementPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-6"
               >
-                {/* Client Profile Card */}
+                {/* Tenant Profile Card */}
                 <div className="card p-8">
                   <div className="flex items-start justify-between mb-6">
                     <div className="flex items-center space-x-6">
@@ -326,7 +326,7 @@ export default function ClientManagementPage() {
                         )}
                       </div>
 
-                      {/* Client Info */}
+                      {/* Tenant Info */}
                       <div className="flex-1">
                         <h2 className="text-2xl font-bold text-primary mb-2">{clients[0].name}</h2>
                         <div className="space-y-2">
@@ -376,8 +376,8 @@ export default function ClientManagementPage() {
 
 
 
-      {/* Edit Client Modal */}
-      {showEditModal && editingClient && (
+      {/* Edit Tenant Modal */}
+      {showEditModal && editingTenant && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -417,7 +417,7 @@ export default function ClientManagementPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-secondary mb-1">Client Name *</label>
+                <label className="block text-sm font-medium text-secondary mb-1">Tenant Name *</label>
                 <input
                   type="text"
                   value={updateForm.name || ''}
@@ -438,17 +438,17 @@ export default function ClientManagementPage() {
               </div>
 
               {/* Current Logo */}
-              {getLogoUrl(editingClient) && (
+              {getLogoUrl(editingTenant) && (
                 <div>
                   <label className="block text-sm font-medium text-secondary mb-2">Current Logo</label>
                   <div className="flex items-center space-x-3">
                     <img
-                      src={getLogoUrl(editingClient)!}
-                      alt={`${editingClient.name} current logo`}
+                      src={getLogoUrl(editingTenant)!}
+                      alt={`${editingTenant.name} current logo`}
                       className="h-16 w-16 rounded object-contain border border-tertiary"
                     />
                     <div className="text-sm text-secondary">
-                      <p>Filename: {editingClient.logo_filename}</p>
+                      <p>Filename: {editingTenant.logo_filename}</p>
                     </div>
                   </div>
                 </div>
@@ -457,7 +457,7 @@ export default function ClientManagementPage() {
               {/* File Upload */}
               <div>
                 <label className="block text-sm font-medium text-secondary mb-2">
-                  {getLogoUrl(editingClient) ? 'Replace Logo' : 'Upload Logo'}
+                  {getLogoUrl(editingTenant) ? 'Replace Logo' : 'Upload Logo'}
                 </label>
                 <input
                   type="file"
@@ -513,7 +513,7 @@ export default function ClientManagementPage() {
                     onChange={(e) => setUpdateForm({ ...updateForm, active: e.target.checked })}
                     className="rounded border-tertiary focus:ring-2 focus:ring-blue-500"
                   />
-                  <span className="text-sm font-medium text-secondary">Active Client</span>
+                  <span className="text-sm font-medium text-secondary">Active Tenant</span>
                 </label>
               </div>
             </div>
@@ -527,7 +527,7 @@ export default function ClientManagementPage() {
                 Cancel
               </button>
               <button
-                onClick={handleUpdateClient}
+                onClick={handleUpdateTenant}
                 className="btn-crud-edit"
                 disabled={!updateForm.name?.trim() || uploading}
               >

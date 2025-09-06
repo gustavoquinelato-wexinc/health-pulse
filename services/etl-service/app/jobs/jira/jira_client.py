@@ -1,5 +1,5 @@
 """
-Jira API Client
+Jira API Tenant
 
 Handles all interactions with the Jira REST API for ETL operations.
 """
@@ -13,8 +13,8 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 
 
-class JiraAPIClient:
-    """Client for Jira API."""
+class JiraAPITenant:
+    """Tenant for Jira API."""
     
     def __init__(self, username: str, token: str, base_url: str):
         self.username = username
@@ -435,7 +435,7 @@ class JiraAPIClient:
                         success = True
                         break  # Break retry loop, continue pagination
                     elif response.status_code == 404:
-                        logger.warning(f"Issue {issue_key} not found")
+                        logger.warning(f"WorkItem {issue_key} not found")
                         return []
                     else:
                         logger.warning(f"Attempt {attempt + 1}: HTTP {response.status_code} for issue {issue_key}")

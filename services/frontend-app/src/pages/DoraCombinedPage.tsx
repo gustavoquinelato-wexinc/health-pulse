@@ -34,7 +34,7 @@ export default function DoraCombinedPage() {
                     <div className="h-24 bg-tertiary rounded flex items-center justify-center text-secondary">0</div>
                   </div>
                   <div className="bg-secondary border border-default rounded-lg p-4">
-                    <div className="text-sm text-secondary mb-2">Lead Time (Issues)</div>
+                    <div className="text-sm text-secondary mb-2">Lead Time (WorkItems)</div>
                     <div className="h-24 bg-tertiary rounded flex items-center justify-center text-secondary">0</div>
                   </div>
                 </div>

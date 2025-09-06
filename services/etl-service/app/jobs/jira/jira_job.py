@@ -17,7 +17,7 @@ from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 
-from app.models.unified_models import JobSchedule, Integration, Issue, Client
+from app.models.unified_models import JobSchedule, Integration, WorkItem, Tenant
 from typing import Dict, Any, Optional, List
 from enum import Enum
 import asyncio
@@ -105,7 +105,7 @@ async def execute_jira_extraction_by_mode(
 
 
 async def execute_jira_extraction_session_free(
-    client_id: int,
+    tenant_id: int,
     integration_id: int,
     jira_client,
     job_schedule_id: int,
@@ -135,7 +135,7 @@ async def execute_jira_extraction_session_free(
                     return {'success': False, 'error': 'Job schedule not found'}
 
                 integration = session.query(Integration).filter(
-                    Integration.client_id == client_id,
+                    Integration.tenant_id == tenant_id,
                     func.upper(Integration.provider) == 'JIRA'
                 ).first()
 
@@ -146,7 +146,7 @@ async def execute_jira_extraction_session_free(
             else:
                 integration = session.query(Integration).filter(
                     Integration.id == integration_id,
-                Integration.client_id == client_id
+                Integration.tenant_id == tenant_id
             ).first()
 
             if not integration:
@@ -159,13 +159,13 @@ async def execute_jira_extraction_session_free(
 
         # Create jira_client if not provided
         if jira_client is None:
-            from app.jobs.jira import JiraAPIClient
+            from app.jobs.jira import JiraAPITenant
             from app.core.config import AppConfig
             from app.core.config import get_settings
 
             key = AppConfig.load_key()
             jira_token = AppConfig.decrypt_token(integration_password, key)
-            jira_client = JiraAPIClient(
+            jira_client = JiraAPITenant(
                 username=integration_username,
                 token=jira_token,
                 base_url=integration_url
@@ -202,7 +202,7 @@ async def execute_jira_extraction_session_free(
 
             # Use session-free extraction to prevent connection timeouts
             result = await extract_work_items_and_changelogs_session_free(
-                client_id, integration_id, jira_client, job_logger,
+                tenant_id, integration_id, jira_client, job_logger,
                 websocket_manager=websocket_manager,
                 update_sync_timestamp=update_sync_timestamp
             )
@@ -378,17 +378,17 @@ async def run_jira_sync(
         if job_schedule.integration_id:
             jira_integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id,
-                Integration.client_id == job_schedule.client_id  # Double-check client isolation
+                Integration.tenant_id == job_schedule.tenant_id  # Double-check client isolation
             ).first()
         else:
-            # Fallback: Get by name and client_id (for backward compatibility)
+            # Fallback: Get by name and tenant_id (for backward compatibility)
             jira_integration = session.query(Integration).filter(
                 func.upper(Integration.provider) == "JIRA",
-                Integration.client_id == job_schedule.client_id
+                Integration.tenant_id == job_schedule.tenant_id
             ).first()
 
         if not jira_integration:
-            error_msg = f"No Jira integration found for client {job_schedule.client_id}. Please check integration setup."
+            error_msg = f"No Jira integration found for client {job_schedule.tenant_id}. Please check integration setup."
             logger.error(f"ERROR: {error_msg}")
             job_schedule.set_pending_with_checkpoint(error_msg)
             session.commit()
@@ -399,15 +399,15 @@ async def run_jira_sync(
         integration_username = jira_integration.username
         integration_password = jira_integration.password
         integration_url = jira_integration.base_url
-        client_id = job_schedule.client_id
+        tenant_id = job_schedule.tenant_id
         job_schedule_id = job_schedule.id
 
         # Setup Jira client
-        from app.jobs.jira import JiraAPIClient
+        from app.jobs.jira import JiraAPITenant
 
         key = AppConfig.load_key()
         jira_token = AppConfig.decrypt_token(integration_password, key)
-        jira_client = JiraAPIClient(
+        jira_client = JiraAPITenant(
             username=integration_username,
             token=jira_token,
             base_url=integration_url
@@ -423,7 +423,7 @@ async def run_jira_sync(
 
         # Execute data fetching without an open session
         result = await execute_jira_extraction_session_free(
-            client_id, integration_id, jira_client, job_schedule_id,
+            tenant_id, integration_id, jira_client, job_schedule_id,
             execution_mode, custom_query, target_projects,
             update_sync_timestamp, update_job_schedule
         )
@@ -448,7 +448,7 @@ async def run_jira_sync(
 
                 # Find next ready job (skips paused jobs)
                 from app.jobs.orchestrator import find_next_ready_job
-                next_job = find_next_ready_job(fresh_session, client_id, current_order)
+                next_job = find_next_ready_job(fresh_session, tenant_id, current_order)
 
                 # Reset retry attempts first
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
@@ -461,7 +461,7 @@ async def run_jira_sync(
 
                     # Check if this is cycling back to the first job (restart)
                     first_job = fresh_session.query(JobSchedule).filter(
-                        JobSchedule.client_id == client_id,
+                        JobSchedule.tenant_id == tenant_id,
                         JobSchedule.active == True,
                         JobSchedule.status != 'PAUSED'
                     ).order_by(JobSchedule.execution_order.asc()).first()
@@ -491,7 +491,7 @@ async def run_jira_sync(
 
                 # Session will be committed automatically by context manager
             logger.info(f"Jira sync completed successfully")
-            logger.info(f"   • Issues processed: {result.get('issues_processed', 0)}")
+            logger.info(f"   • WorkItems processed: {result.get('issues_processed', 0)}")
             logger.info(f"   • PR links created: {result.get('pr_links_created', 0)}")
 
         else:
@@ -523,7 +523,7 @@ async def run_jira_sync(
             )
 
             # Send error progress update (short message for progress bar)
-            await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync failed - check Issues & Warnings below")
+            await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync failed - check WorkItems & Warnings below")
 
             # Send detailed error via exception message (like GitHub job does)
             await websocket_manager.send_exception("Jira", "ERROR", f"Jira sync failed: {error_msg}", error_msg)
@@ -555,7 +555,7 @@ async def run_jira_sync(
         # Send error progress update (short message for progress bar)
         from app.core.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
-        await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync error - check Issues & Warnings below")
+        await websocket_manager.send_progress_update("Jira", 100.0, "[ERROR] Jira sync error - check WorkItems & Warnings below")
 
         # Send detailed error via exception message (like GitHub job does)
         await websocket_manager.send_exception("Jira", "ERROR", f"Jira sync error: {str(e)}", str(e))
@@ -664,7 +664,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         if not issues_result['success']:
             return {
                 'success': False,
-                'error': f"Issues extraction failed: {issues_result.get('error', 'Unknown error')}",
+                'error': f"WorkItems extraction failed: {issues_result.get('error', 'Unknown error')}",
                 'issues_processed': 0,
                 'pr_links_created': 0
             }
@@ -678,7 +678,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             f"Completed processing {issues_processed:,} issues and {changelogs_processed:,} changelogs"
         )
 
-        # Step 3.5: Issues and changelogs completed
+        # Step 3.5: WorkItems and changelogs completed
         await websocket_manager.send_progress_update("Jira", 45.0, f"Processed {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs")
 
         # Step 4: Extract dev_status and create PR links
@@ -692,20 +692,20 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         # Get recently updated issues with code changes (since last sync)
         recent_code_changed_issues = []
         if job_schedule.last_success_at:
-            recent_code_changed_issues = session.query(Issue.key).filter(
-                Issue.integration_id == integration.id,
-                Issue.code_changed == True,
-                Issue.last_updated_at > job_schedule.last_success_at
+            recent_code_changed_issues = session.query(WorkItem.key).filter(
+                WorkItem.integration_id == integration.id,
+                WorkItem.code_changed == True,
+                WorkItem.last_updated_at > job_schedule.last_success_at
             ).all()
 
         recent_keys = {issue.key for issue in recent_code_changed_issues}
         all_keys_to_process = current_issue_keys | recent_keys
 
-        # Get the actual Issue objects for processing
-        issues_with_code_changes = session.query(Issue).filter(
-            Issue.integration_id == integration.id,
-            Issue.key.in_(all_keys_to_process),
-            Issue.code_changed == True
+        # Get the actual WorkItem objects for processing
+        issues_with_code_changes = session.query(WorkItem).filter(
+            WorkItem.integration_id == integration.id,
+            WorkItem.key.in_(all_keys_to_process),
+            WorkItem.code_changed == True
         ).all()
 
         logger.info(f"Found {len(issues_with_code_changes)} issues with code changes")
@@ -720,20 +720,20 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         for issue in issues_with_code_changes:
             try:
                 if not issue.external_id:
-                    logger.warning(f"Issue {issue.key} has no external_id, skipping")
+                    logger.warning(f"WorkItem {issue.key} has no external_id, skipping")
                     continue
 
                 # Delete existing PR links for this issue (as per your requirement)
-                from app.models.unified_models import JiraPullRequestLinks
-                existing_links_count = session.query(JiraPullRequestLinks).filter(
-                    JiraPullRequestLinks.issue_id == issue.id
+                from app.models.unified_models import WitPrLinks
+                existing_links_count = session.query(WitPrLinks).filter(
+                    WitPrLinks.work_item_id == issue.id
                 ).count()
 
                 if existing_links_count > 0:
-                    logger.debug(f"Issue {issue.key}: Deleting {existing_links_count} existing PR links")
+                    logger.debug(f"WorkItem {issue.key}: Deleting {existing_links_count} existing PR links")
 
-                session.query(JiraPullRequestLinks).filter(
-                    JiraPullRequestLinks.issue_id == issue.id
+                session.query(WitPrLinks).filter(
+                    WitPrLinks.work_item_id == issue.id
                 ).delete()
 
                 # Fetch dev_status data from Jira (non-blocking)
@@ -763,20 +763,20 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                     if has_useful_dev_status_data(dev_details):
                         # Debug: Log the dev_status structure for the first few issues (DEBUG level only)
                         if issues_processed < 3:
-                            logger.debug(f"Issue {issue.key} dev_status structure: {dev_details}")
+                            logger.debug(f"WorkItem {issue.key} dev_status structure: {dev_details}")
 
                         # Extract PR links from dev_status data
                         pr_links = extract_pr_links_from_dev_status(dev_details)
 
                         # Log only every 10th issue to reduce noise
                         if issues_processed % 10 == 0 or len(pr_links) > 0:
-                            logger.debug(f"Issue {issue.key}: Extracted {len(pr_links)} PR links from dev_status")
+                            logger.debug(f"WorkItem {issue.key}: Extracted {len(pr_links)} PR links from dev_status")
 
-                        # Create JiraPullRequestLinks records
+                        # Create WitPrLinks records
                         for pr_link in pr_links:
-                            logger.debug(f"Creating PR link: Issue {issue.key} -> Repo {pr_link['repo_full_name']} PR #{pr_link['pr_number']}")
-                            link_record = JiraPullRequestLinks(
-                                issue_id=issue.id,
+                            logger.debug(f"Creating PR link: WorkItem {issue.key} -> Repo {pr_link['repo_full_name']} PR #{pr_link['pr_number']}")
+                            link_record = WitPrLinks(
+                                work_item_id=issue.id,
                                 external_repo_id=pr_link['repo_id'],
                                 repo_full_name=pr_link['repo_full_name'],
                                 pull_request_number=pr_link['pr_number'],
@@ -784,7 +784,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                                 commit_sha=pr_link.get('commit'),
                                 pr_status=pr_link.get('status'),
                                 integration_id=integration.id,
-                                client_id=integration.client_id,
+                                tenant_id=integration.tenant_id,
                                 active=True
                             )
                             session.add(link_record)
@@ -838,11 +838,11 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         logger.info(f"Dev_status processing complete: {issues_processed} issues processed, {pr_links_created} PR links created, {dev_status_skipped} issues skipped")
 
         # Verify PR links were saved
-        from app.models.unified_models import JiraPullRequestLinks
-        total_pr_links_in_db = session.query(JiraPullRequestLinks).filter(
-            JiraPullRequestLinks.client_id == integration.client_id
+        from app.models.unified_models import WitPrLinks
+        total_pr_links_in_db = session.query(WitPrLinks).filter(
+            WitPrLinks.tenant_id == integration.tenant_id
         ).count()
-        logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.client_id}")
+        logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.tenant_id}")
 
         # Step 5: All processing completed - send final progress update
         await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
@@ -863,7 +863,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         )
 
         logger.info(f"Jira extraction completed")
-        logger.info(f"   • Issues processed: {issues_result['issues_processed']}")
+        logger.info(f"   • WorkItems processed: {issues_result['issues_processed']}")
         logger.info(f"   • Changelogs processed: {issues_result['changelogs_processed']}")
         logger.info(f"   • PR links created: {pr_links_created}")
         logger.info(f"   • Dev status items skipped (empty): {dev_status_skipped}")
@@ -914,14 +914,14 @@ async def run_jira_sync_optimized(
                 return {'success': False, 'error': 'Job schedule not found'}
 
             # Store job details for session-free operations
-            client_id = job_schedule.client_id
+            tenant_id = job_schedule.tenant_id
 
         # Add periodic yielding to prevent blocking
         await asyncio.sleep(0)
 
         # Use session-free execution to prevent connection timeouts
         result = await execute_jira_extraction_session_free(
-            client_id, None, None, job_schedule_id,  # integration details will be fetched inside
+            tenant_id, None, None, job_schedule_id,  # integration details will be fetched inside
             execution_mode, custom_query, target_projects,
             update_sync_timestamp, update_job_schedule
         )

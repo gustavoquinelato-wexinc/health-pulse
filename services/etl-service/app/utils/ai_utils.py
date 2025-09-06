@@ -41,7 +41,7 @@ class QdrantVectorManager:
         table_name: str,
         entity_id: int,
         text_content: str,
-        client_id: int,
+        tenant_id: int,
         vector_type: str = "content"
     ) -> bool:
         """
@@ -53,7 +53,7 @@ class QdrantVectorManager:
             table_name: Name of the source table
             entity_id: ID of the entity
             text_content: Text content to generate embedding from
-            client_id: Client ID for multi-tenancy
+            tenant_id: Tenant ID for multi-tenancy
             vector_type: Type of vector ('content', 'summary', 'metadata')
 
         Returns:
@@ -68,10 +68,10 @@ class QdrantVectorManager:
 
             # Create Qdrant vector tracking record
             qdrant_vector = QdrantVector(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 table_name=table_name,
                 record_id=entity_id,
-                qdrant_collection=f"client_{client_id}_{table_name}",
+                qdrant_collection=f"client_{tenant_id}_{table_name}",
                 qdrant_point_id=str(uuid.uuid4()),
                 vector_type=vector_type,
                 embedding_model="text-embedding-3-small",  # Phase 3-2 will make this configurable
@@ -94,7 +94,7 @@ class QdrantVectorManager:
         db: Session,
         table_name: str,
         query_embedding: List[float],
-        client_id: int,
+        tenant_id: int,
         limit: int = 10,
         similarity_threshold: float = 0.7
     ) -> List[Dict[str, Any]]:
@@ -106,7 +106,7 @@ class QdrantVectorManager:
             db: Database session
             table_name: Name of the table to search
             query_embedding: Query embedding vector
-            client_id: Client ID for multi-tenancy
+            tenant_id: Tenant ID for multi-tenancy
             limit: Maximum number of results
             similarity_threshold: Minimum similarity score
 
@@ -118,14 +118,14 @@ class QdrantVectorManager:
             query = text("""
                 SELECT record_id, qdrant_point_id, vector_type
                 FROM qdrant_vectors
-                WHERE client_id = :client_id
+                WHERE tenant_id = :tenant_id
                 AND table_name = :table_name
                 ORDER BY last_updated_at DESC
                 LIMIT :limit
             """)
 
             result = db.execute(query, {
-                'client_id': client_id,
+                'tenant_id': tenant_id,
                 'table_name': table_name,
                 'limit': limit
             })
@@ -156,7 +156,7 @@ class AIDataProcessingManager:
         table_name: str,
         entities: List[Dict[str, Any]],
         text_field: str,
-        client_id: int,
+        tenant_id: int,
         vector_type: str = "content"
     ) -> int:
         """
@@ -168,7 +168,7 @@ class AIDataProcessingManager:
             table_name: Name of the table being processed
             entities: List of entity dictionaries
             text_field: Field name containing text to embed
-            client_id: Client ID for multi-tenancy
+            tenant_id: Tenant ID for multi-tenancy
             vector_type: Type of vector ('content', 'summary', 'metadata')
 
         Returns:
@@ -184,7 +184,7 @@ class AIDataProcessingManager:
                         table_name=table_name,
                         entity_id=entity['id'],
                         text_content=entity[text_field],
-                        client_id=client_id,
+                        tenant_id=tenant_id,
                         vector_type=vector_type
                     )
                     if success:
@@ -200,7 +200,7 @@ class AIDataProcessingManager:
     @staticmethod
     def log_etl_performance_metrics(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         operation_name: str,
         records_processed: int,
         processing_time_seconds: float,
@@ -212,7 +212,7 @@ class AIDataProcessingManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             operation_name: Name of the ETL operation
             records_processed: Number of records processed
             processing_time_seconds: Time taken for processing
@@ -249,7 +249,7 @@ class AIDataProcessingManager:
             
             for metric_data in metrics:
                 metric = AIPerformanceMetric(
-                    client_id=client_id,
+                    tenant_id=tenant_id,
                     metric_name=metric_data['metric_name'],
                     metric_value=metric_data['metric_value'],
                     metric_unit=metric_data['metric_unit'],
@@ -274,7 +274,7 @@ class AILearningManager:
     @staticmethod
     def log_data_quality_issue(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         data_source: str,
         issue_description: str,
         affected_records: int,
@@ -286,7 +286,7 @@ class AILearningManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             data_source: Source of the data issue
             issue_description: Description of the issue
             affected_records: Number of affected records
@@ -298,7 +298,7 @@ class AILearningManager:
         """
         try:
             learning_memory = AILearningMemory(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 error_type='data_quality',
                 user_intent=f'Process data from {data_source}',
                 failed_query=f'Data processing for {data_source}',
@@ -311,7 +311,7 @@ class AILearningManager:
             db.commit()
             db.refresh(learning_memory)
             
-            logger.info(f"Logged data quality issue for client {client_id}")
+            logger.info(f"Logged data quality issue for client {tenant_id}")
             return learning_memory
             
         except Exception as e:
@@ -326,7 +326,7 @@ class AIPredictionManager:
     @staticmethod
     def predict_data_processing_complexity(
         db: Session,
-        client_id: int,
+        tenant_id: int,
         data_source: str,
         record_count: int,
         data_characteristics: Dict[str, Any]
@@ -336,7 +336,7 @@ class AIPredictionManager:
         
         Args:
             db: Database session
-            client_id: Client ID
+            tenant_id: Tenant ID
             data_source: Source of the data
             record_count: Number of records to process
             data_characteristics: Characteristics of the data
@@ -357,7 +357,7 @@ class AIPredictionManager:
             }
             
             prediction = AIPrediction(
-                client_id=client_id,
+                tenant_id=tenant_id,
                 model_name='etl_complexity_predictor',
                 model_version='1.0',
                 input_data=json.dumps({

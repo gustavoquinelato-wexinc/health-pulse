@@ -1,5 +1,5 @@
 /**
- * Client-aware Error Boundary component.
+ * Tenant-aware Error Boundary component.
  * Catches React errors and logs them with client context.
  * Updated to TypeScript for better type safety.
  */
@@ -17,7 +17,7 @@ interface State {
     errorInfo: React.ErrorInfo | null;
 }
 
-class ClientErrorBoundary extends React.Component<Props, State> {
+class TenantErrorBoundary extends React.Component<Props, State> {
     constructor(props: Props) {
         super(props);
         this.state = { hasError: false, error: null, errorInfo: null };
@@ -136,4 +136,4 @@ class ClientErrorBoundary extends React.Component<Props, State> {
     }
 }
 
-export default ClientErrorBoundary;
+export default TenantErrorBoundary;

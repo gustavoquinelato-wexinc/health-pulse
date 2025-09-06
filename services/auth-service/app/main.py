@@ -104,7 +104,7 @@ def generate_jwt_token(user_data: Dict[str, Any]) -> str:
         "email": user_data["email"],
         "role": user_data["role"],
         "is_admin": user_data["is_admin"],
-        "client_id": user_data["client_id"],
+        "tenant_id": user_data["tenant_id"],
         "exp": exp_timestamp,
         "iat": iat_timestamp,
         "iss": "pulse-auth-service"
@@ -154,7 +154,7 @@ async def validate_credentials(request: CredentialValidationRequest):
         logger.info(f"Validating credentials for user: {request.email}")
 
         # Call backend service to validate credentials with ML fields support
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncTenant() as client:
             auth_response = await client.post(
                 f"{settings.BACKEND_SERVICE_URL}/api/v1/auth/centralized/validate-credentials",
                 json={
@@ -272,7 +272,7 @@ async def validate_token(request: Request):
                 "email": payload["email"],
                 "role": payload["role"],
                 "is_admin": payload["is_admin"],
-                "client_id": payload["client_id"]
+                "tenant_id": payload["tenant_id"]
             }
 
             return TokenValidationResponse(valid=True, user=user_data)
@@ -322,7 +322,7 @@ async def get_user_info(request: UserInfoRequest, http_request: Request):
                 )
 
             # Get user data from backend service with ML fields if requested
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 user_response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}",
                     params={"include_ml_fields": request.include_ml_fields},
@@ -384,7 +384,7 @@ async def get_session_info(request: SessionInfoRequest, http_request: Request):
                 )
 
             # Get session data from backend service with ML fields if requested
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncTenant() as client:
                 session_response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}/sessions",
                     params={"include_ml_fields": request.include_ml_fields, "active_only": True},
@@ -455,7 +455,7 @@ async def get_current_session(
                 "email": payload["email"],
                 "role": payload["role"],
                 "is_admin": payload["is_admin"],
-                "client_id": payload["client_id"],
+                "tenant_id": payload["tenant_id"],
                 "issued_at": datetime.fromtimestamp(payload["iat"], tz=timezone.utc).isoformat(),
                 "expires_at": datetime.fromtimestamp(payload["exp"], tz=timezone.utc).isoformat(),
                 "issuer": payload.get("iss", "pulse-auth-service")

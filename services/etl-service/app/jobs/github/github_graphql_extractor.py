@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
-from app.models.unified_models import Repository, PullRequest, PullRequestReview, PullRequestCommit, PullRequestComment, Integration, JobSchedule
-from app.jobs.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
+from app.models.unified_models import Repository, Pr, PrReview, PrCommit, PrComment, Integration, JobSchedule
+from app.jobs.github.github_graphql_client import GitHubGraphQLTenant, GitHubRateLimitException
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_pagination import (
     paginate_commits, paginate_reviews, paginate_comments, paginate_review_threads, resume_pr_nested_pagination
@@ -19,7 +19,7 @@ from app.jobs.github.github_graphql_pagination import (
 logger = get_logger(__name__)
 
 
-async def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLClient,
+async def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLTenant,
                                        repository: Repository, owner: str, repo_name: str,
                                        integration: Integration, job_schedule: JobSchedule,
                                        websocket_manager=None) -> Dict[str, Any]:
@@ -328,7 +328,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         }
 
 
-async def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLClient,
+async def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLTenant,
                                                 repository: Repository, owner: str, repo_name: str,
                                                 integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -569,7 +569,7 @@ async def process_repository_prs_with_graphql_recovery(session: Session, graphql
         }
 
 
-def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubGraphQLClient,
+def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubGraphQLTenant,
                                       pr_node: Dict[str, Any], repository: Repository,
                                       processor: GitHubGraphQLProcessor, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -605,9 +605,9 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         pr_data['external_repo_id'] = repository.external_id
 
         # Check if PR already exists
-        existing_pr = session.query(PullRequest).filter(
-            PullRequest.external_id == str(pr_number),
-            PullRequest.repository_id == repository.id
+        existing_pr = session.query(Pr).filter(
+            Pr.external_id == str(pr_number),
+            Pr.repository_id == repository.id
         ).first()
 
         if existing_pr:
@@ -619,7 +619,7 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         else:
             # Create new PR - Phase 3-1 clean architecture
             try:
-                pull_request = PullRequest(**pr_data)
+                pull_request = Pr(**pr_data)
                 session.add(pull_request)
             except Exception as e:
                 logger.error(f"❌ Error creating PR {pr_data.get('number', 'unknown')}: {e}")
@@ -667,7 +667,7 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         }
 
 
-def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient,
+def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLTenant,
                           pr_node: Dict[str, Any], pull_request_id: int,
                           processor: GitHubGraphQLProcessor, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -861,7 +861,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'authored_date': commit.authored_date,
                     'committed_date': commit.committed_date,
                     'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
-                    'client_id': commit.client_id,
+                    'tenant_id': commit.tenant_id,
                     'active': commit.active,
                     'created_at': commit.created_at,
                     'last_updated_at': commit.last_updated_at
@@ -881,7 +881,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'body': review.body,
                     'submitted_at': review.submitted_at,
                     'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
-                    'client_id': review.client_id,
+                    'tenant_id': review.tenant_id,
                     'active': review.active,
                     'created_at': review.created_at,
                     'last_updated_at': review.last_updated_at
@@ -902,7 +902,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'created_at_github': comment.created_at_github,
                     'updated_at_github': comment.updated_at_github,
                     'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
-                    'client_id': comment.client_id,
+                    'tenant_id': comment.tenant_id,
                     'active': comment.active,
                     'created_at': comment.created_at,
                     'last_updated_at': comment.last_updated_at
@@ -923,7 +923,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
                     'created_at_github': comment.created_at_github,
                     'updated_at_github': comment.updated_at_github,
                     'integration_id': getattr(processor.integration, 'id', None) if processor.integration else None,
-                    'client_id': comment.client_id,
+                    'tenant_id': comment.tenant_id,
                     'active': comment.active,
                     'created_at': comment.created_at,
                     'last_updated_at': comment.last_updated_at
@@ -958,7 +958,7 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
         bulk_comments: List of comment data dictionaries
     """
     try:
-        from app.models.unified_models import PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment
+        from app.models.unified_models import Pr, PrCommit, PrReview, PrComment
 
         # Step 1: UPSERT PRs (update existing, insert new)
         if bulk_prs:
@@ -969,9 +969,9 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
             pr_external_ids = [pr['external_id'] for pr in bulk_prs]
 
             # Find existing PRs
-            existing_prs = session.query(PullRequest).filter(
-                PullRequest.external_id.in_(pr_external_ids),
-                PullRequest.repository_id.in_([pr['repository_id'] for pr in bulk_prs])
+            existing_prs = session.query(Pr).filter(
+                Pr.external_id.in_(pr_external_ids),
+                Pr.repository_id.in_([pr['repository_id'] for pr in bulk_prs])
             ).all()
 
             existing_pr_map = {(pr.external_id, pr.repository_id): pr for pr in existing_prs}
@@ -996,7 +996,7 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
             try:
                 if prs_to_insert:
                     logger.info(f"{context_prefix}Bulk inserting {len(prs_to_insert)} new PRs...")
-                    session.bulk_insert_mappings(PullRequest, prs_to_insert)
+                    session.bulk_insert_mappings(Pr, prs_to_insert)
 
                 if prs_to_update:
                     logger.info(f"{context_prefix}Updated {len(prs_to_update)} existing PRs...")
@@ -1014,8 +1014,8 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
             pr_external_ids = [str(pr['external_id']) for pr in bulk_prs]
             if pr_external_ids:
                 pr_mappings = {}
-                prs_from_db = session.query(PullRequest.id, PullRequest.external_id).filter(
-                    PullRequest.external_id.in_(pr_external_ids)
+                prs_from_db = session.query(Pr.id, Pr.external_id).filter(
+                    Pr.external_id.in_(pr_external_ids)
                 ).all()
                 for pr_id, external_id in prs_from_db:
                     pr_mappings[external_id] = pr_id
@@ -1041,18 +1041,18 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                     logger.info(f"{context_prefix}Cleaning existing nested data for {len(pr_ids_to_clean)} PRs...")
 
                     # Delete existing commits
-                    deleted_commits = session.query(PullRequestCommit).filter(
-                        PullRequestCommit.pull_request_id.in_(pr_ids_to_clean)
+                    deleted_commits = session.query(PrCommit).filter(
+                        PrCommit.pr_id.in_(pr_ids_to_clean)
                     ).delete(synchronize_session=False)
 
                     # Delete existing reviews
-                    deleted_reviews = session.query(PullRequestReview).filter(
-                        PullRequestReview.pull_request_id.in_(pr_ids_to_clean)
+                    deleted_reviews = session.query(PrReview).filter(
+                        PrReview.pr_id.in_(pr_ids_to_clean)
                     ).delete(synchronize_session=False)
 
                     # Delete existing comments
-                    deleted_comments = session.query(PullRequestComment).filter(
-                        PullRequestComment.pull_request_id.in_(pr_ids_to_clean)
+                    deleted_comments = session.query(PrComment).filter(
+                        PrComment.pr_id.in_(pr_ids_to_clean)
                     ).delete(synchronize_session=False)
 
                     logger.info(f"{context_prefix}Deleted existing data: {deleted_commits} commits, {deleted_reviews} reviews, {deleted_comments} comments")
@@ -1062,15 +1062,15 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
         try:
             if bulk_commits:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_commits)} commits...")
-                session.bulk_insert_mappings(PullRequestCommit, bulk_commits)
+                session.bulk_insert_mappings(PrCommit, bulk_commits)
 
             if bulk_reviews:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_reviews)} reviews...")
-                session.bulk_insert_mappings(PullRequestReview, bulk_reviews)
+                session.bulk_insert_mappings(PrReview, bulk_reviews)
 
             if bulk_comments:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_comments)} comments...")
-                session.bulk_insert_mappings(PullRequestComment, bulk_comments)
+                session.bulk_insert_mappings(PrComment, bulk_comments)
 
         except Exception as e:
             logger.error(f"{context_prefix}Error during bulk insert operations: {e}")
