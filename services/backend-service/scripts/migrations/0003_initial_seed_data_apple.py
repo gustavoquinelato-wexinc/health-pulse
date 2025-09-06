@@ -993,7 +993,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM prs_reviews WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
         cursor.execute("DELETE FROM prs_commits WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
         cursor.execute("DELETE FROM prs_comments WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
-        cursor.execute("DELETE FROM wits_changelogs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        cursor.execute("DELETE FROM changelogs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
         cursor.execute("DELETE FROM wits_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         # Second: Remove tables that depend on work_items/repositories
