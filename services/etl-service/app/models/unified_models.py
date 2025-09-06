@@ -57,6 +57,8 @@ class Tenant(Base):
     ai_learning_memories = relationship("AILearningMemory", back_populates="tenant")
     ai_predictions = relationship("AIPrediction", back_populates="tenant")
     ai_performance_metrics = relationship("AIPerformanceMetric", back_populates="tenant")
+    ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="tenant")
+    ai_usage_trackings = relationship("AIUsageTracking", back_populates="tenant")
 
 
 class BaseEntity:
@@ -896,8 +898,8 @@ class TenantColors(Base, BaseEntity):
 # ===================================
 
 class AILearningMemory(Base, BaseEntity):
-    """AI Learning Memory table - stores user feedback and corrections for ML improvement."""
-    __tablename__ = 'ai_learning_memory'
+    """AI Learning Memories table - stores user feedback and corrections for ML improvement."""
+    __tablename__ = 'ai_learning_memories'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -949,3 +951,40 @@ class AIPerformanceMetric(Base, BaseEntity):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="ai_performance_metrics")
+
+
+class MLAnomalyAlert(Base, BaseEntity):
+    """ML Anomaly Alerts table - tracks anomalies detected by ML monitoring systems."""
+    __tablename__ = 'ml_anomaly_alerts'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    model_name = Column(String(100), nullable=False, quote=False, name="model_name")
+    severity = Column(String(20), nullable=False, quote=False, name="severity")  # 'low', 'medium', 'high', 'critical'
+    alert_data = Column(JSON, nullable=False, quote=False, name="alert_data")
+    acknowledged = Column(Boolean, default=False, quote=False, name="acknowledged")
+    acknowledged_by = Column(Integer, quote=False, name="acknowledged_by")
+    acknowledged_at = Column(DateTime(timezone=True), quote=False, name="acknowledged_at")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="ml_anomaly_alerts")
+
+
+class AIUsageTracking(Base, BaseEntity):
+    """AI usage trackings table (inspired by WrenAI's cost monitoring)."""
+    __tablename__ = 'ai_usage_trackings'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'openai', 'azure', 'sentence_transformers'
+    operation = Column(String(50), nullable=False, quote=False, name="operation")  # 'embedding', 'text_generation', 'analysis'
+    model_name = Column(String(100), nullable=True, quote=False, name="model_name")
+    input_count = Column(Integer, default=0, quote=False, name="input_count")
+    input_tokens = Column(Integer, default=0, quote=False, name="input_tokens")
+    output_tokens = Column(Integer, default=0, quote=False, name="output_tokens")
+    total_tokens = Column(Integer, default=0, quote=False, name="total_tokens")
+    cost = Column(Float, default=0.0, quote=False, name="cost")
+    request_metadata = Column(JSON, default={}, quote=False, name="request_metadata")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="ai_usage_trackings")

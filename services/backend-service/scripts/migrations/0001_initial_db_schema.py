@@ -655,9 +655,9 @@ def apply(connection):
 
         # AI tables removed - tenant_ai_preferences and tenant_ai_configuration not needed yet
 
-        # 29. AI usage tracking table (inspired by WrenAI's cost monitoring)
+        # 29. AI usage trackings table (inspired by WrenAI's cost monitoring)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_usage_tracking (
+            CREATE TABLE IF NOT EXISTS ai_usage_trackings (
                 id SERIAL PRIMARY KEY,
                 tenant_id INTEGER NOT NULL,
                 provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
@@ -804,9 +804,9 @@ def apply(connection):
 
         print("📋 Creating ML monitoring tables...")
 
-        # AI Learning Memory table - stores user feedback and corrections (Phase 3-1 Clean)
+        # AI Learning Memories table - stores user feedback and corrections (Phase 3-1 Clean)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_learning_memory (
+            CREATE TABLE IF NOT EXISTS ai_learning_memories (
                 id SERIAL PRIMARY KEY,
                 error_type VARCHAR(50) NOT NULL,
                 user_intent TEXT NOT NULL,
@@ -862,9 +862,9 @@ def apply(connection):
             );
         """)
 
-        # ML Anomaly Alert table - tracks anomalies detected by ML monitoring
+        # ML Anomaly Alerts table - tracks anomalies detected by ML monitoring
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ml_anomaly_alert (
+            CREATE TABLE IF NOT EXISTS ml_anomaly_alerts (
                 id SERIAL PRIMARY KEY,
                 model_name VARCHAR(100) NOT NULL,
                 severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
@@ -1189,9 +1189,9 @@ def rollback(connection):
             'ai_performance_metrics',
             'ai_predictions',
             'ai_validation_patterns',
-            'ai_learning_memory',
-            'ai_usage_tracking',  # Added missing AI table
-            'ml_anomaly_alert',
+            'ai_learning_memories',
+            'ai_usage_trackings',  # Added missing AI table
+            'ml_anomaly_alerts',
 
             # Vector and reference tables (no dependencies)
             'qdrant_vectors',  # Added missing vector table

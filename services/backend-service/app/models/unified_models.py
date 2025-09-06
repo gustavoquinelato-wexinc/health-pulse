@@ -61,7 +61,7 @@ class Tenant(Base):
 
     # Phase 3-1: New AI architecture relationships
     qdrant_vectors = relationship("QdrantVector", back_populates="tenant")
-    ai_usage_tracking = relationship("AIUsageTracking", back_populates="tenant")
+    ai_usage_trackings = relationship("AIUsageTracking", back_populates="tenant")
 
 
 class BaseEntity:
@@ -1027,8 +1027,8 @@ class TenantColors(Base, BaseEntity):
 # ===================================
 
 class AILearningMemory(Base, BaseEntity):
-    """AI Learning Memory table - stores user feedback and corrections for ML improvement."""
-    __tablename__ = 'ai_learning_memory'
+    """AI Learning Memories table - stores user feedback and corrections for ML improvement."""
+    __tablename__ = 'ai_learning_memories'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -1083,8 +1083,8 @@ class AIPerformanceMetric(Base, BaseEntity):
 
 
 class MLAnomalyAlert(Base, BaseEntity):
-    """ML Anomaly Alert table - tracks anomalies detected by ML monitoring systems."""
-    __tablename__ = 'ml_anomaly_alert'
+    """ML Anomaly Alerts table - tracks anomalies detected by ML monitoring systems."""
+    __tablename__ = 'ml_anomaly_alerts'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -1127,8 +1127,8 @@ class QdrantVector(Base, BaseEntity):
 
 
 class AIUsageTracking(Base, BaseEntity):
-    """AI usage tracking table (inspired by WrenAI's cost monitoring)."""
-    __tablename__ = 'ai_usage_tracking'
+    """AI usage trackings table (inspired by WrenAI's cost monitoring)."""
+    __tablename__ = 'ai_usage_trackings'
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'openai', 'azure', 'sentence_transformers'
@@ -1142,4 +1142,4 @@ class AIUsageTracking(Base, BaseEntity):
     request_metadata = Column(JSON, default={}, quote=False, name="request_metadata")
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="ai_usage_tracking")
+    tenant = relationship("Tenant", back_populates="ai_usage_trackings")
