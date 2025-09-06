@@ -786,8 +786,7 @@ def apply(connection):
 
         # Phase 3-1: New table primary keys
         ensure_primary_key('qdrant_vectors', 'pk_qdrant_vectors')
-        # Removed AI table primary keys - tenant_ai_preferences and tenant_ai_configuration not needed yet
-        ensure_primary_key('ai_usage_tracking', 'pk_ai_usage_tracking')
+        # Note: AI/ML table primary keys are added after the tables are created
 
         # Check if migration_history table already has a primary key (from migration runner)
         cursor.execute("""
@@ -882,6 +881,15 @@ def apply(connection):
         """)
 
         print("✅ ML monitoring tables created")
+
+        print("📋 Adding AI/ML table primary key constraints...")
+        # AI/ML monitoring table primary keys (added after tables are created)
+        ensure_primary_key('ai_usage_trackings', 'pk_ai_usage_trackings')
+        ensure_primary_key('ai_learning_memories', 'pk_ai_learning_memories')
+        ensure_primary_key('ai_predictions', 'pk_ai_predictions')
+        ensure_primary_key('ai_performance_metrics', 'pk_ai_performance_metrics')
+        ensure_primary_key('ml_anomaly_alerts', 'pk_ml_anomaly_alerts')
+        print("✅ AI/ML table primary key constraints created")
 
         print("📋 Creating foreign key constraints...")
 
@@ -979,8 +987,12 @@ def apply(connection):
 
         # Phase 3-1: New table foreign keys
         add_constraint_if_not_exists('fk_qdrant_vectors_tenant_id', 'qdrant_vectors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
-        # Removed AI table foreign keys - tenant_ai_preferences and tenant_ai_configuration not needed yet
-        add_constraint_if_not_exists('fk_ai_usage_tracking_tenant_id', 'ai_usage_tracking', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        # AI/ML monitoring table foreign key constraints
+        add_constraint_if_not_exists('fk_ai_usage_trackings_tenant_id', 'ai_usage_trackings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_learning_memories_tenant_id', 'ai_learning_memories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_predictions_tenant_id', 'ai_predictions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_performance_metrics_tenant_id', 'ai_performance_metrics', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ml_anomaly_alerts_tenant_id', 'ml_anomaly_alerts', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
 
         print("✅ Data table foreign key constraints created")
         print("📋 Creating relationship table constraints...")
@@ -1116,20 +1128,20 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenant_colors_unified ON tenant_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
 
         # ML monitoring table indexes (Phase 3-1 Clean Architecture)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_tenant_id ON ai_learning_memory(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_error_type ON ai_learning_memory(error_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_message_id ON ai_learning_memory(message_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_tenant_id ON ai_learning_memories(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_error_type ON ai_learning_memories(error_type);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_message_id ON ai_learning_memories(message_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_tenant_id ON ai_predictions(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_tenant_id ON ai_performance_metrics(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_tenant_id ON ml_anomaly_alert(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_model ON ml_anomaly_alert(model_name);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_tenant_id ON ml_anomaly_alerts(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_model ON ml_anomaly_alerts(model_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_severity ON ml_anomaly_alerts(severity);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_acknowledged ON ml_anomaly_alerts(acknowledged);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_created_at ON ml_anomaly_alerts(created_at);")
 
         # Phase 3-1: Qdrant and AI configuration table indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
@@ -1137,11 +1149,11 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
-        # Removed AI table indexes - tenant_ai_preferences and tenant_ai_configuration not needed yet
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_tenant ON ai_usage_tracking(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_provider ON ai_usage_tracking(provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_operation ON ai_usage_tracking(operation);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_created_at ON ai_usage_tracking(created_at);")
+        # AI usage tracking table indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 
