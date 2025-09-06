@@ -243,13 +243,13 @@ class JiraDataProcessor:
             tenant_id = getattr(self.integration, 'tenant_id', None) if self.integration else None
 
             if original_name and tenant_id:
-                # Look up issuetype mapping in database (case-insensitive on both sides)
+                # Look up work item type mapping in database (case-insensitive on both sides)
                 # Include the hierarchy relationship to avoid lazy loading issues
                 from sqlalchemy.orm import joinedload
-                issuetype_mapping = self.session.query(WitMapping).options(
-                    joinedload(WitMapping.issuetype_hierarchy)
+                wit_mapping = self.session.query(WitMapping).options(
+                    joinedload(WitMapping.wit_hierarchy)
                 ).filter(
-                    func.lower(WitMapping.issuetype_from) == original_name.lower(),
+                    func.lower(WitMapping.wit_from) == original_name.lower(),
                     WitMapping.tenant_id == tenant_id
                 ).first()
 

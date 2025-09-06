@@ -501,7 +501,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPITenant
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
                     'original_name': safe_unicode_string(obj.original_name),
-                    'issuetype_mapping_id': getattr(obj, 'issuetype_mapping_id', None),
+                    'wit_mapping_id': getattr(obj, 'wit_mapping_id', None),
                     'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'hierarchy_level': obj.hierarchy_level,
                     'tenant_id': obj.tenant_id,
@@ -509,10 +509,10 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPITenant
                     'last_updated_at': obj.last_updated_at
                 })
             session.bulk_update_mappings(Wit, update_data)
-            job_logger.progress(f"Updated {len(issuetypes_to_update)} existing issue types")
+            job_logger.progress(f"Updated {len(issuetypes_to_update)} existing work item types")
 
         if issuetypes_to_insert:
-            perform_bulk_insert(session, Wit, issuetypes_to_insert, "issuetypes", job_logger)
+            perform_bulk_insert(session, Wit, issuetypes_to_insert, "wits", job_logger)
 
         # Get updated issue types for relationship creation
         all_issuetypes = session.query(Wit).filter(
@@ -559,24 +559,24 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPITenant
             from app.jobs.jira.jira_bulk_operations import perform_bulk_delete_relationships
             perform_bulk_delete_relationships(session, "projects_issuetypes", relationships_to_delete, job_logger)
 
-        # Mark issue types as inactive if they're no longer used in any project
-        inactive_issuetypes = [
+        # Mark work item types as inactive if they're no longer used in any project
+        inactive_wits = [
             it for it in existing_issuetypes.values()
             if it.external_id not in all_issuetypes_from_projects and getattr(it, 'active', True)
         ]
 
-        if inactive_issuetypes:
-            job_logger.progress(f"Marking {len(inactive_issuetypes)} issue types as inactive")
-            for issuetype in inactive_issuetypes:
-                issuetype.active = False
+        if inactive_wits:
+            job_logger.progress(f"Marking {len(inactive_wits)} work item types as inactive")
+            for wit in inactive_wits:
+                wit.active = False
             session.commit()
 
         session.commit()
-        job_logger.progress("Combined projects and issue types extraction completed successfully")
+        job_logger.progress("Combined projects and work item types extraction completed successfully")
 
         return {
             'projects_processed': projects_processed,
-            'issuetypes_processed': issuetypes_processed,
+            'wits_processed': issuetypes_processed,
             'relationships_processed': relationships_processed
         }
 

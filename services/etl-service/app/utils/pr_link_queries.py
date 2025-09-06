@@ -53,10 +53,10 @@ def get_issues_with_linked_prs(session: Session, tenant_id: int, limit: int = 10
     
     return [
         {
-            'issue_id': row.work_item_id,
-            'issue_key': row.issue_key,
-            'issue_title': row.issue_title,
-            'issue_status': row.issue_status,
+            'work_item_id': row.issue_id,
+            'work_item_key': row.issue_key,
+            'work_item_title': row.issue_title,
+            'work_item_status': row.issue_status,
             'pr_id': row.pr_id,
             'pr_number': row.pr_number,
             'pr_title': row.pr_title,
@@ -69,15 +69,15 @@ def get_issues_with_linked_prs(session: Session, tenant_id: int, limit: int = 10
     ]
 
 
-def get_prs_for_issue(session: Session, issue_key: str, tenant_id: int) -> List[Dict[str, Any]]:
+def get_prs_for_work_item(session: Session, work_item_key: str, tenant_id: int) -> List[Dict[str, Any]]:
     """
-    Get all pull requests linked to a specific Jira issue.
-    
+    Get all pull requests linked to a specific work item.
+
     Args:
         session: Database session
-        issue_key: Jira issue key (e.g., 'PROJ-123')
+        work_item_key: Work item key (e.g., 'PROJ-123')
         tenant_id: Tenant ID to filter by
-        
+
     Returns:
         List of pull request information
     """
@@ -100,7 +100,7 @@ def get_prs_for_issue(session: Session, issue_key: str, tenant_id: int) -> List[
     ))\
     .join(Repository, Pr.repository_id == Repository.id)\
     .filter(
-        WorkItem.key == issue_key,
+        WorkItem.key == work_item_key,
         WorkItem.tenant_id == tenant_id,
         WorkItem.active == True,
         Pr.active == True,

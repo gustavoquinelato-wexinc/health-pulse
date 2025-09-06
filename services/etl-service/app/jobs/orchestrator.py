@@ -386,24 +386,24 @@ async def run_orchestrator():
     """
     Main orchestrator function that runs on schedule.
 
-    Checks for PENDING jobs across ALL clients and triggers them asynchronously.
-    Each client's jobs are processed independently.
+    Checks for PENDING jobs across ALL tenants and triggers them asynchronously.
+    Each tenant's jobs are processed independently.
     """
     try:
         logger.info("STARTING: ETL Orchestrator starting...")
 
         database = get_database()
 
-        # SECURITY: Get all clients and process their jobs independently
+        # SECURITY: Get all tenants and process their jobs independently
         with database.get_session() as session:
             from app.models.unified_models import Tenant
-            clients = session.query(Tenant).filter(Tenant.active == True).all()
+            tenants = session.query(Tenant).filter(Tenant.active == True).all()
 
-            if not clients:
-                logger.warning("No active clients found")
+            if not tenants:
+                logger.warning("No active tenants found")
                 return
 
-            logger.info(f"Processing jobs for {len(clients)} active clients")
+            logger.info(f"Processing jobs for {len(tenants)} active tenants")
 
         # Process each client's jobs independently based on their individual settings
         for client in clients:
@@ -968,7 +968,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
             if not fabric_job:
                 return {
                     'status': 'error',
-                    'message': f'WEX Fabric sync job not found for client {tenant_id}'
+                    'message': f'WEX Fabric sync job not found for tenant {tenant_id}'
                 }
 
             if force_manual:
@@ -1033,7 +1033,7 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
             if not ad_job:
                 return {
                     'status': 'error',
-                    'message': f'WEX AD sync job not found for client {tenant_id}'
+                    'message': f'WEX AD sync job not found for tenant {tenant_id}'
                 }
 
             if force_manual:

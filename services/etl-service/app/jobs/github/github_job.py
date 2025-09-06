@@ -329,7 +329,7 @@ async def extract_github_single_repo_prs(session, github_integration, github_tok
             return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Process PRs for this specific repository
         owner, repo_name = target_repository.split('/', 1)

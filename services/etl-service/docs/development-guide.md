@@ -37,7 +37,7 @@ python scripts/reset_database.py --backup --all
 ### **Available Options**
 - `--all`: Complete database reset with sample data and integrations
 - `--recreate-tables`: Drop and recreate all tables (preserves database)
-- `--sample-data`: Insert sample clients, users, and projects
+- `--sample-data`: Insert sample tenants, users, and projects
 - `--integrations`: Set up Jira and GitHub integration configurations (uses base_search for project filtering)
 - `--backup`: Create backup before making changes
 - `--force`: Skip confirmation prompts (use with caution)
