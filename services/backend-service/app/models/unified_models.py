@@ -242,7 +242,7 @@ class Project(Base, IntegrationBaseEntity):
     # Relationships
     tenant = relationship("Tenant", back_populates="projects")
     integration = relationship("Integration", back_populates="project_objects")
-    wits = relationship("Wit", secondary="project_wits", back_populates="projects")
+    wits = relationship("Wit", secondary="projects_wits", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     work_items = relationship("WorkItem", back_populates="project")
 
@@ -277,7 +277,7 @@ class Wit(Base, IntegrationBaseEntity):
     # Relationships
     tenant = relationship("Tenant", back_populates="wits")
     integration = relationship("Integration", back_populates="wits")
-    projects = relationship("Project", secondary="project_wits", back_populates="wits")
+    projects = relationship("Project", secondary="projects_wits", back_populates="wits")
     wit_mappings = relationship("WitMapping", back_populates="wit")
     work_items = relationship("WorkItem", back_populates="wit")
 

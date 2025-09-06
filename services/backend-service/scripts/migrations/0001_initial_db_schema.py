@@ -331,7 +331,7 @@ def apply(connection):
 
         # 13. Projects-Work itemtypes relationship table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_wits (
+            CREATE TABLE IF NOT EXISTS projects_wits (
                 project_id INTEGER NOT NULL,
                 wit_id INTEGER NOT NULL
             );
@@ -986,8 +986,8 @@ def apply(connection):
         print("📋 Creating relationship table constraints...")
 
         # Relationship tables (many-to-many)
-        add_constraint_if_not_exists('fk_project_wits_project_id', 'project_wits', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
-        add_constraint_if_not_exists('fk_project_wits_wit_id', 'project_wits', 'FOREIGN KEY (wit_id) REFERENCES wits(id)')
+        add_constraint_if_not_exists('fk_projects_wits_project_id', 'projects_wits', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
+        add_constraint_if_not_exists('fk_projects_wits_wit_id', 'projects_wits', 'FOREIGN KEY (wit_id) REFERENCES wits(id)')
         add_constraint_if_not_exists('fk_projects_statuses_project_id', 'projects_statuses', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
         add_constraint_if_not_exists('fk_projects_statuses_status_id', 'projects_statuses', 'FOREIGN KEY (status_id) REFERENCES statuses(id)')
 
@@ -1221,7 +1221,7 @@ def rollback(connection):
 
             # Project relationship tables
             'projects_statuses',
-            'project_wits',
+            'projects_wits',
 
             # Core configuration tables
             'statuses',
