@@ -35,47 +35,47 @@ from app.core.config import settings
 
 logger = get_logger(__name__)
 
-# Helper function to get current user's client information
-async def get_user_client_info(token: str) -> dict:
-    """Get current user's client information for template rendering"""
+# Helper function to get current user's tenant information
+async def get_user_tenant_info(token: str) -> dict:
+    """Get current user's tenant information for template rendering"""
     try:
         if not token:
-            return {"client_logo": None, "client_name": "Tenant"}
+            return {"tenant_logo": None, "tenant_name": "Tenant"}
 
         # Validate token and get user data
         auth_service = get_centralized_auth_service()
         user_data = await auth_service.verify_token(token)
 
         if not user_data:
-            return {"client_logo": None, "client_name": "Tenant"}
+            return {"tenant_logo": None, "tenant_name": "Tenant"}
 
-        # Get client information from database
+        # Get tenant information from database
         from app.core.database import get_database
         from app.models.unified_models import Tenant
 
         database = get_database()
         with database.get_session() as session:
-            client = session.query(Tenant).filter(
+            tenant = session.query(Tenant).filter(
                 Tenant.id == user_data.get('tenant_id'),
                 Tenant.active == True
             ).first()
 
-            if client:
+            if tenant:
                 # Combine assets_folder and logo_filename for the full path
                 logo_path = None
-                if client.assets_folder and client.logo_filename:
-                    logo_path = f"{client.assets_folder}/{client.logo_filename}"
+                if tenant.assets_folder and tenant.logo_filename:
+                    logo_path = f"{tenant.assets_folder}/{tenant.logo_filename}"
 
                 return {
-                    "client_logo": logo_path,
-                    "client_name": client.name
+                    "tenant_logo": logo_path,
+                    "tenant_name": tenant.name
                 }
 
-        return {"client_logo": None, "client_name": "Tenant"}
+        return {"tenant_logo": None, "tenant_name": "Tenant"}
 
     except Exception as e:
-        logger.warning(f"Failed to get client info: {e}")
-        return {"client_logo": None, "client_name": "Tenant"}
+        logger.warning(f"Failed to get tenant info: {e}")
+        return {"tenant_logo": None, "tenant_name": "Tenant"}
 
 # Setup templates
 templates_dir = Path(__file__).parent.parent / "templates"
@@ -282,7 +282,7 @@ async def home_page(request: Request, token: Optional[str] = None):
 
     if auth_token:
         try:
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 # Get color schema from backend (unified API)
                 response_color = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
@@ -355,9 +355,9 @@ async def home_page(request: Request, token: Optional[str] = None):
     # Check if this is an embedded request (iframe)
     embedded = request.query_params.get("embedded") == "true"
 
-    # Get client information for header
+    # Get tenant information for header
     auth_token = request.cookies.get("pulse_token")
-    client_info = await get_user_client_info(auth_token)
+    tenant_info = await get_user_tenant_info(auth_token)
 
     # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
@@ -365,8 +365,8 @@ async def home_page(request: Request, token: Optional[str] = None):
         "request": request,
         "color_schema": color_schema_data,
         "embedded": embedded,
-        "client_logo": client_info["client_logo"],
-        "client_name": client_info["client_name"]
+        "tenant_logo": tenant_info["tenant_logo"],
+        "tenant_name": tenant_info["tenant_name"]
     })
 
 
@@ -987,7 +987,7 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncTenant() as client:
+                async with httpx.AsyncClient() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {auth_token}"}
@@ -1160,7 +1160,7 @@ async def issuetype_hierarchies_page(request: Request):
 
         if token:
             try:
-                async with httpx.AsyncTenant() as client:
+                async with httpx.AsyncClient() as client:
                     # Get color schema from backend (unified API)
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
@@ -1310,16 +1310,16 @@ async def workflows_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
-        # Get client information for header
-        client_info = await get_user_client_info(token)
+        # Get tenant information for header
+        tenant_info = await get_user_tenant_info(token)
 
         return templates.TemplateResponse("workflows.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
             "embedded": embedded,
-            "client_logo": client_info["client_logo"],
-            "client_name": client_info["client_name"]
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
 
     except Exception as e:
@@ -1809,7 +1809,7 @@ async def get_github_rate_limits(user: UserData = Depends(require_admin_authenti
             ).first()
 
             if not github_integration:
-                raise HTTPException(status_code=404, detail=f"GitHub integration not found for client {user.tenant_id}")
+                raise HTTPException(status_code=404, detail=f"GitHub integration not found for tenant {user.tenant_id}")
 
             # Decrypt GitHub token
             key = AppConfig.load_key()
@@ -2021,7 +2021,7 @@ async def handle_color_schema_change(request: Request):
             "timestamp": datetime.utcnow().isoformat()
         })
 
-        logger.info(f"Color schema cache invalidated and clients notified for client {tenant_id}")
+        logger.info(f"Color schema cache invalidated and clients notified for tenant {tenant_id}")
 
         return {
             "success": True,
@@ -2045,14 +2045,14 @@ async def handle_color_schema_mode_change(request: Request):
         tenant_id = data.get("tenant_id")
         mode = data.get("mode")
 
-        logger.info(f"Color schema mode change notification received for client {tenant_id}: {mode}")
+        logger.info(f"Color schema mode change notification received for tenant {tenant_id}: {mode}")
 
         # Invalidate color schema cache to force refresh on next page load
         from app.core.color_schema_manager import get_color_schema_manager
         color_manager = get_color_schema_manager()
         color_manager.invalidate_cache()
 
-        logger.info(f"Color schema cache invalidated for client {tenant_id}")
+        logger.info(f"Color schema cache invalidated for tenant {tenant_id}")
 
         return {
             "success": True,
@@ -2134,7 +2134,7 @@ async def start_job(
             ))
             result = {
                 'status': 'triggered',
-                'message': f'Jira sync job triggered successfully for client {user.tenant_id}',
+                'message': f'Jira sync job triggered successfully for tenant {user.tenant_id}',
                 'job_name': job_name
             }
         elif job_name_lower == 'github':
@@ -2145,7 +2145,7 @@ async def start_job(
             ))
             result = {
                 'status': 'triggered',
-                'message': f'GitHub sync job triggered successfully for client {user.tenant_id}',
+                'message': f'GitHub sync job triggered successfully for tenant {user.tenant_id}',
                 'job_name': job_name
             }
         elif job_name_lower == 'wex fabric':

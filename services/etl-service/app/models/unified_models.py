@@ -144,7 +144,7 @@ class Project(Base, IntegrationBaseEntity):
 
 class ProjectWits(Base):
     """Relationship table between projects and work item types"""
-    __tablename__ = 'project_wits'
+    __tablename__ = 'projects_wits'
     __table_args__ = (PrimaryKeyConstraint('project_id', 'wit_id'), {'quote': False})
 
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")

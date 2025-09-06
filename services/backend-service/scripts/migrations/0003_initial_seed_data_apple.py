@@ -1005,7 +1005,7 @@ def rollback(connection):
         # Fourth: Remove many-to-many relationship tables
         print("📋 Removing relationship tables...")
         cursor.execute("""
-            DELETE FROM project_wits
+            DELETE FROM projects_wits
             WHERE project_id IN (SELECT id FROM projects WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple'))
         """)
         cursor.execute("""

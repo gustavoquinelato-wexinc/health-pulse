@@ -28,14 +28,14 @@ def test_client_name_lookup():
         
         database = get_database()
         
-        # Step 1: Show available clients
+        # Step 1: Show available tenants
         print("\n📋 Step 1: Available Tenants in Database")
         with database.get_session() as session:
-            clients = session.query(Tenant).all()
-            
-            for client in clients:
-                status = "ACTIVE" if client.active else "INACTIVE"
-                print(f"  • {client.name} (ID: {client.id}): {status}")
+            tenants = session.query(Tenant).all()
+
+            for tenant in tenants:
+                status = "ACTIVE" if tenant.active else "INACTIVE"
+                print(f"  • {tenant.name} (ID: {tenant.id}): {status}")
         
         # Step 2: Test case-insensitive lookup
         print("\n📋 Step 2: Testing Case-Insensitive Lookup")

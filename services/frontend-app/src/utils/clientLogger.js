@@ -5,15 +5,15 @@
 
 class ClientLogger {
     constructor() {
-        this.clientName = null;
-        this.clientId = null;
+        this.tenantName = null;
+        this.tenantId = null;
         this.userId = null;
         this.initialized = false;
         this.logBuffer = [];
         this.maxBufferSize = 100;
 
-        // Initialize client context
-        this.initializeClientContext();
+        // Initialize tenant context
+        this.initializeTenantContext();
     }
 
     /**
@@ -74,8 +74,8 @@ class ClientLogger {
         const logEntry = {
             timestamp,
             level: level.toUpperCase(),
-            client: this.clientName,
-            clientId: this.clientId,
+            tenant: this.tenantName,
+            tenantId: this.tenantId,
             userId: this.userId,
             message,
             url: window.location.href,
@@ -83,14 +83,14 @@ class ClientLogger {
             ...data
         };
 
-        // Console logging with client prefix
-        const clientPrefix = `[${this.clientName.toUpperCase()}]`;
+        // Console logging with tenant prefix
+        const tenantPrefix = `[${this.tenantName.toUpperCase()}]`;
         const consoleMethod = console[level] || console.log;
 
         if (data && Object.keys(data).length > 0) {
-            consoleMethod(clientPrefix, message, logEntry);
+            consoleMethod(tenantPrefix, message, logEntry);
         } else {
-            consoleMethod(clientPrefix, message);
+            consoleMethod(tenantPrefix, message);
         }
 
         // Add to buffer for potential backend transmission
