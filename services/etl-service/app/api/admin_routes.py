@@ -14,7 +14,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    Integration, Project, WorkItem, Tenant, WorkItemChangelog,
+    Integration, Project, WorkItem, Tenant, Changelog,
     Repository, Pr, PrCommit, PrReview, PrComment,
     WitPrLinks, Wit, Status, JobSchedule, SystemSettings,
     StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
@@ -158,7 +158,7 @@ async def get_system_stats(
             # Define ETL-specific tables to count (exclude user management tables)
             try:
                 from app.models.unified_models import (
-                    Integration, Project, WorkItem, WorkItemChangelog, Repository,
+                    Integration, Project, WorkItem, Changelog, Repository,
                     Pr, PrCommit, PrReview, PrComment,
                     WitPrLinks, Wit, Status, StatusMapping, Workflow,
                     WitMapping, WitHierarchy, ProjectWits, ProjectsStatuses,
@@ -168,21 +168,21 @@ async def get_system_stats(
                 table_models = {
                     "integrations": Integration,
                     "projects": Project,
-                    "issues": WorkItem,
-                    "issue_changelogs": WorkItemChangelog,
+                    "work_items": WorkItem,
+                    "changelogs": Changelog,
                     "repositories": Repository,
-                    "pull_requests": Pr,
-                    "pull_request_commits": PrCommit,
-                    "pull_request_reviews": PrReview,
-                    "pull_request_comments": PrComment,
-                    "jira_pull_request_links": WitPrLinks,
-                    "issuetypes": Wit,
+                    "prs": Pr,
+                    "prs_commits": PrCommit,
+                    "prs_reviews": PrReview,
+                    "prs_comments": PrComment,
+                    "wits_prs_links": WitPrLinks,
+                    "wits": Wit,
                     "statuses": Status,
                     "status_mappings": StatusMapping,
                     "workflows": Workflow,
-                    "issuetype_mappings": WitMapping,
-                    "issuetype_hierarchies": WitHierarchy,
-                    "projects_issuetypes": ProjectWits,
+                    "wits_mappings": WitMapping,
+                    "wits_hierarchies": WitHierarchy,
+                    "projects_wits": ProjectWits,
                     "projects_statuses": ProjectsStatuses,
                     "job_schedules": JobSchedule,
                     "system_settings": SystemSettings,

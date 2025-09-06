@@ -25,7 +25,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, WorkItemChangelog,
+    User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, Changelog,
     Repository, Pr, PrCommit, PrReview, PrComment,
     WitPrLinks, Wit, Status, JobSchedule, SystemSettings, TenantColors,
     StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
@@ -622,24 +622,24 @@ async def get_system_stats(
             table_models = {
                 "user_sessions": UserSession,
                 "user_permissions": UserPermission,
-                "clients": Tenant,
+                "tenants": Tenant,
                 "integrations": Integration,
                 "projects": Project,
-                "issues": WorkItem,
-                "issue_changelogs": WorkItemChangelog,
+                "work_items": WorkItem,
+                "changelogs": Changelog,
                 "repositories": Repository,
-                "pull_requests": Pr,
-                "pull_request_commits": PrCommit,
-                "pull_request_reviews": PrReview,
-                "pull_request_comments": PrComment,
-                "jira_pull_request_links": WitPrLinks,
-                "issuetypes": Wit,
+                "prs": Pr,
+                "prs_commits": PrCommit,
+                "prs_reviews": PrReview,
+                "prs_comments": PrComment,
+                "wits_prs_links": WitPrLinks,
+                "wits": Wit,
                 "statuses": Status,
                 "status_mappings": StatusMapping,
                 "workflows": Workflow,
-                "issuetype_mappings": WitMapping,
-                "issuetype_hierarchies": WitHierarchy,
-                "projects_issuetypes": ProjectWits,
+                "wits_mappings": WitMapping,
+                "wits_hierarchies": WitHierarchy,
+                "projects_wits": ProjectWits,
                 "projects_statuses": ProjectsStatuses,
                 "job_schedules": JobSchedule,
                 "system_settings": SystemSettings,
@@ -653,8 +653,8 @@ async def get_system_stats(
                     if table_name in ['migration_history']:
                         # Global tables - count all records
                         count = session.query(func.count(model.id)).scalar() or 0
-                    elif table_name == 'clients':
-                        # Tenants table - count all clients (no tenant_id filtering)
+                    elif table_name == 'tenants':
+                        # Tenants table - count all tenants (no tenant_id filtering)
                         count = session.query(func.count(model.id)).scalar() or 0
                     elif table_name in ['user_sessions', 'user_permissions']:
                         # User-related tables - filter by user's tenant_id through user relationship
@@ -730,14 +730,14 @@ async def get_system_stats(
 
                 # Focus on main data tables that have created_at fields
                 growth_tables = {
-                    'issues': WorkItem,
-                    'pull_requests': Pr,
+                    'work_items': WorkItem,
+                    'prs': Pr,
                     'repositories': Repository,
-                    'issue_changelogs': WorkItemChangelog,
-                    'pull_request_comments': PrComment,
-                    'pull_request_commits': PrCommit,
-                    'pull_request_reviews': PrReview,
-                    'jira_pull_request_links': WitPrLinks
+                    'changelogs': Changelog,
+                    'prs_comments': PrComment,
+                    'prs_commits': PrCommit,
+                    'prs_reviews': PrReview,
+                    'wits_prs_links': WitPrLinks
                 }
 
                 for table_name, model in growth_tables.items():
@@ -801,9 +801,9 @@ async def get_system_stats(
                     "projects": table_counts.get('projects', 0)
                 },
                 "WorkItems & Workflow": {
-                    "issues": table_counts.get('issues', 0),
-                    "issue_changelogs": table_counts.get('issue_changelogs', 0),
-                    "issuetypes": table_counts.get('issuetypes', 0),
+                    "work_items": table_counts.get('work_items', 0),
+                    "changelogs": table_counts.get('changelogs', 0),
+                    "wits": table_counts.get('wits', 0),
                     "statuses": table_counts.get('statuses', 0),
                     "status_mappings": table_counts.get('status_mappings', 0),
                     "workflows": table_counts.get('workflows', 0),
@@ -1473,8 +1473,8 @@ def darken_color_for_accessibility(hex_color: str, factor: float) -> str:
 # CLIENT MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@router.get("/clients", response_model=List[TenantResponse])
-async def get_all_clients(
+@router.get("/tenants", response_model=List[TenantResponse])
+async def get_all_tenants(
     skip: int = 0,
     limit: int = 100,
     user: User = Depends(require_authentication)
@@ -1483,33 +1483,33 @@ async def get_all_clients(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Only show the current user's client
-            clients = session.query(Tenant).filter(
+            # ✅ SECURITY: Only show the current user's tenant
+            tenants = session.query(Tenant).filter(
                 Tenant.id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
                 TenantResponse(
-                    id=client.id,
-                    name=client.name,
-                    website=client.website,
-                    active=client.active,
-                    assets_folder=client.assets_folder,
-                    logo_filename=client.logo_filename
+                    id=tenant.id,
+                    name=tenant.name,
+                    website=tenant.website,
+                    active=tenant.active,
+                    assets_folder=tenant.assets_folder,
+                    logo_filename=tenant.logo_filename
                 )
-                for client in clients
+                for tenant in tenants
             ]
     except Exception as e:
-        logger.error(f"Error fetching clients: {e}")
+        logger.error(f"Error fetching tenants: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch clients"
         )
 
 
-@router.post("/clients", response_model=TenantResponse)
-async def create_client(
-    client_data: TenantCreateRequest,
+@router.post("/tenants", response_model=TenantResponse)
+async def create_tenant(
+    tenant_data: TenantCreateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
     """Create a new client"""
@@ -1562,8 +1562,8 @@ async def create_client(
         )
 
 
-@router.put("/clients/{tenant_id}", response_model=TenantResponse)
-async def update_client(
+@router.put("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
     tenant_id: int,
     client_data: TenantUpdateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "admin"))
@@ -1629,8 +1629,8 @@ async def update_client(
         )
 
 
-@router.delete("/clients/{tenant_id}")
-async def delete_client(
+@router.delete("/tenants/{tenant_id}")
+async def delete_tenant(
     tenant_id: int,
     admin_user: User = Depends(require_permission("admin_panel", "delete"))
 ):
@@ -1678,8 +1678,8 @@ async def delete_client(
         )
 
 
-@router.post("/clients/{tenant_id}/logo")
-async def upload_client_logo(
+@router.post("/tenants/{tenant_id}/logo")
+async def upload_tenant_logo(
     tenant_id: int,
     logo: UploadFile = File(...),
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
