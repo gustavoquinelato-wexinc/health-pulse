@@ -154,7 +154,7 @@ async def validate_credentials(request: CredentialValidationRequest):
         logger.info(f"Validating credentials for user: {request.email}")
 
         # Call backend service to validate credentials with ML fields support
-        async with httpx.AsyncTenant() as client:
+        async with httpx.AsyncClient() as client:
             auth_response = await client.post(
                 f"{settings.BACKEND_SERVICE_URL}/api/v1/auth/centralized/validate-credentials",
                 json={
@@ -322,7 +322,7 @@ async def get_user_info(request: UserInfoRequest, http_request: Request):
                 )
 
             # Get user data from backend service with ML fields if requested
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 user_response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}",
                     params={"include_ml_fields": request.include_ml_fields},
@@ -384,7 +384,7 @@ async def get_session_info(request: SessionInfoRequest, http_request: Request):
                 )
 
             # Get session data from backend service with ML fields if requested
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 session_response = await client.get(
                     f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{payload['user_id']}/sessions",
                     params={"include_ml_fields": request.include_ml_fields, "active_only": True},
