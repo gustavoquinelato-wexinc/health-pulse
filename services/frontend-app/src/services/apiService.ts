@@ -67,7 +67,7 @@ class ApiService {
    * WorkItems API
    */
   async getWorkItems(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       project_key?: string;
       status?: string;
@@ -77,37 +77,37 @@ class ApiService {
   ): Promise<WorkItemsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      tenant_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.project_key) additionalParams.append('project_key', params.project_key);
     if (params.status) additionalParams.append('status', params.status);
     if (params.assignee) additionalParams.append('assignee', params.assignee);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiTenant.get(`/api/v1/issues?${allParams}`);
+    return apiTenant.get(`/api/v1/work-items?${allParams}`);
   }
 
-  async getWorkItem(issueId: number, includeMlFields?: boolean): Promise<WorkItem> {
+  async getWorkItem(workItemId: number, includeMlFields?: boolean): Promise<WorkItem> {
     const params = new URLSearchParams();
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
-    
-    return apiTenant.get(`/api/v1/issues/${issueId}?${params.toString()}`);
+
+    return apiTenant.get(`/api/v1/work-items/${workItemId}?${params.toString()}`);
   }
 
-  async createWorkItem(issueData: Partial<WorkItem>): Promise<WorkItem> {
-    return apiTenant.post('/api/v1/issues', issueData);
+  async createWorkItem(workItemData: Partial<WorkItem>): Promise<WorkItem> {
+    return apiTenant.post('/api/v1/work-items', workItemData);
   }
 
-  async updateWorkItem(issueId: number, issueData: Partial<WorkItem>): Promise<WorkItem> {
-    return apiTenant.put(`/api/v1/issues/${issueId}`, issueData);
+  async updateWorkItem(workItemId: number, workItemData: Partial<WorkItem>): Promise<WorkItem> {
+    return apiTenant.put(`/api/v1/work-items/${workItemId}`, workItemData);
   }
 
-  async deleteWorkItem(issueId: number): Promise<{ message: string; issue_id: number }> {
-    return apiTenant.delete(`/api/v1/issues/${issueId}`);
+  async deleteWorkItem(workItemId: number): Promise<{ message: string; work_item_id: number }> {
+    return apiTenant.delete(`/api/v1/work-items/${workItemId}`);
   }
 
   async getWorkItemsStats(clientId: number): Promise<any> {

@@ -197,7 +197,7 @@ export interface MLAnomalyAlert {
 
 // API Response types with ML field indicators
 export interface WorkItemsResponse {
-  issues: WorkItem[];
+  work_items: WorkItem[];
   count: number;
   total_count: number;
   offset: number;

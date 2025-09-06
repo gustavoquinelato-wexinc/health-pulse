@@ -17,30 +17,30 @@ class ClientLogger {
     }
 
     /**
-     * Initialize client context from authentication token
+     * Initialize tenant context from authentication token
      */
-    initializeClientContext() {
+    initializeTenantContext() {
         try {
             const token = this.getAuthToken();
             if (token) {
                 const payload = JSON.parse(atob(token.split('.')[1]));
-                // Use client_id as client name since client_name is not in JWT
-                this.clientName = payload.client_id ? `client_${payload.client_id}` : 'unknown';
-                this.clientId = payload.client_id || null;
+                // Use tenant_id as tenant name since tenant_name is not in JWT
+                this.tenantName = payload.tenant_id ? `tenant_${payload.tenant_id}` : 'unknown';
+                this.tenantId = payload.tenant_id || null;
                 this.userId = payload.user_id || null;
                 this.initialized = true;
             } else {
-                this.clientName = 'anonymous';
-                this.clientId = null;
+                this.tenantName = 'anonymous';
+                this.tenantId = null;
                 this.userId = null;
                 this.initialized = false;
             }
         } catch (error) {
-            this.clientName = 'error';
-            this.clientId = null;
+            this.tenantName = 'error';
+            this.tenantId = null;
             this.userId = null;
             this.initialized = false;
-            console.error('Failed to initialize client logger:', error);
+            console.error('Failed to initialize tenant logger:', error);
         }
     }
 

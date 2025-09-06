@@ -385,14 +385,14 @@ async def old_dashboard_page(request: Request, token: Optional[str] = None):
         # Get color schema (use default for old dashboard)
         color_schema_data = {"mode": "default"}
 
-        # Get client information for header
-        client_info = await get_user_client_info(auth_token)
+        # Get tenant information for header
+        tenant_info = await get_user_tenant_info(auth_token)
 
         return templates.TemplateResponse("old_dashboard.html", {
             "request": request,
             "color_schema": color_schema_data,
-            "client_logo": client_info["client_logo"],
-            "client_name": client_info["client_name"]
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
 
     except Exception as e:
@@ -2000,7 +2000,7 @@ async def handle_color_schema_change(request: Request):
         colors = data.get("colors", {})
         event_type = data.get("event_type", "color_update")
 
-        logger.info(f"[COLOR] Received color schema change notification for client {tenant_id}")
+        logger.info(f"[COLOR] Received color schema change notification for tenant {tenant_id}")
         logger.debug(f"Colors: {colors}")
 
         # Invalidate color schema cache to force refresh

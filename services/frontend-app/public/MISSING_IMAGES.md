@@ -9,7 +9,7 @@ All required images have been successfully copied from the ETL service to the fr
 - **Source**: Copied from ETL service static assets
 - **Purpose**: Default fallback logo shown in the header
 
-### 2. Client-Specific Logos ✅
+### 2. Tenant-Specific Logos ✅
 - **WEX Logo**: `/assets/wex/logo.png` ✅ COPIED
 - **Apple Logo**: `/assets/apple/logo.png` ✅ COPIED
 - **Google Logo**: `/assets/google/logo.png` ✅ COPIED
@@ -36,12 +36,12 @@ copy "services\etl-service\static\assets\google\google-logo.png" "services\front
 ## Frontend Image References
 
 The frontend code references these paths:
-1. **Header Logo**: `/assets/${client.assets_folder}/${client.logo_filename}` or fallback to `/wex-logo-image.png`
+1. **Header Logo**: `/assets/${tenant.assets_folder}/${tenant.logo_filename}` or fallback to `/wex-logo-image.png`
 2. **Profile Images**: `/assets/wex/users/${userFolder}/${filename}`
 
 ## Status
 
 ✅ **All images now available** - Frontend should display logos correctly
 ✅ **No more broken image icons**
-✅ **Client-specific branding working**
+✅ **Tenant-specific branding working**
 🔄 **Favicon optional** - Can be added later if needed

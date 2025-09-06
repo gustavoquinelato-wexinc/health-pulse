@@ -9,7 +9,7 @@ import { WorkItem, WorkItemsResponse } from '../types';
 import apiService from '../services/apiService';
 
 interface WorkItemListProps {
-  clientId: number;
+  tenantId: number;
   showMlFields?: boolean;
   limit?: number;
   projectKey?: string;
@@ -19,7 +19,7 @@ interface WorkItemListProps {
 }
 
 export const WorkItemList: React.FC<WorkItemListProps> = ({
-  clientId,
+  tenantId,
   showMlFields = false,
   limit = 50,
   projectKey,
@@ -27,7 +27,7 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
   assignee,
   className = '',
 }) => {
-  const [issuesResponse, setWorkItemsResponse] = useState<WorkItemsResponse | null>(null);
+  const [workItemsResponse, setWorkItemsResponse] = useState<WorkItemsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +37,7 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
         setLoading(true);
         setError(null);
 
-        const response = await apiService.getWorkItems(clientId, {
+        const response = await apiService.getWorkItems(tenantId, {
           limit,
           include_ml_fields: showMlFields,
           project_key: projectKey,
@@ -47,20 +47,20 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
 
         setWorkItemsResponse(response);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch issues');
+        setError(err instanceof Error ? err.message : 'Failed to fetch work items');
       } finally {
         setLoading(false);
       }
     };
 
     fetchWorkItems();
-  }, [clientId, showMlFields, limit, projectKey, status, assignee]);
+  }, [tenantId, showMlFields, limit, projectKey, status, assignee]);
 
   if (loading) {
     return (
       <div className={`flex items-center justify-center p-8 ${className}`}>
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-2 text-secondary">Loading issues...</span>
+        <span className="ml-2 text-secondary">Loading work items...</span>
       </div>
     );
   }
@@ -83,14 +83,14 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
     );
   }
 
-  if (!issuesResponse || issuesResponse.issues.length === 0) {
+  if (!workItemsResponse || workItemsResponse.work_items.length === 0) {
     return (
       <div className={`text-center p-8 ${className}`}>
         <div className="text-secondary">
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-secondary">No issues found</h3>
+          <h3 className="mt-2 text-sm font-medium text-secondary">No work items found</h3>
           <p className="mt-1 text-sm text-tertiary">Try adjusting your filters or check back later.</p>
         </div>
       </div>
@@ -103,26 +103,26 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <h2 className="text-lg font-semibold text-primary">
-            WorkItems ({issuesResponse.total_count})
+            WorkItems ({workItemsResponse.total_count})
           </h2>
-          {issuesResponse.ml_fields_included && (
+          {workItemsResponse.ml_fields_included && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
               ML Enhanced
             </span>
           )}
         </div>
-        {issuesResponse.count < issuesResponse.total_count && (
+        {workItemsResponse.count < workItemsResponse.total_count && (
           <span className="text-sm text-tertiary">
-            Showing {issuesResponse.count} of {issuesResponse.total_count}
+            Showing {workItemsResponse.count} of {workItemsResponse.total_count}
           </span>
         )}
       </div>
 
       {/* WorkItems List */}
       <div className="space-y-3">
-        {issuesResponse.issues.map((issue, index) => (
+        {workItemsResponse.work_items.map((workItem, index) => (
           <motion.div
-            key={issue.id}
+            key={workItem.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: index * 0.05 }}
@@ -133,64 +133,64 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
                 {/* WorkItem Header */}
                 <div className="flex items-center space-x-2 mb-2">
                   <h3 className="text-sm font-medium text-primary truncate">
-                    {issue.key}: {issue.summary}
+                    {workItem.key}: {workItem.summary}
                   </h3>
                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    issue.status_name === 'Done' ? 'bg-green-100 text-green-800' :
-                    issue.status_name === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                    workItem.status_name === 'Done' ? 'bg-green-100 text-green-800' :
+                    workItem.status_name === 'In Progress' ? 'bg-blue-100 text-blue-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
-                    {issue.status_name}
+                    {workItem.status_name}
                   </span>
                 </div>
 
                 {/* WorkItem Details */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-secondary">
                   <div>
-                    <span className="font-medium">Type:</span> {issue.wit_name}
+                    <span className="font-medium">Type:</span> {workItem.wit_name}
                   </div>
-                  {issue.assignee && (
+                  {workItem.assignee && (
                     <div>
-                      <span className="font-medium">Assignee:</span> {issue.assignee}
+                      <span className="font-medium">Assignee:</span> {workItem.assignee}
                     </div>
                   )}
-                  {issue.story_points && (
+                  {workItem.story_points && (
                     <div>
-                      <span className="font-medium">Story Points:</span> {issue.story_points}
+                      <span className="font-medium">Story Points:</span> {workItem.story_points}
                     </div>
                   )}
-                  {issue.priority && (
+                  {workItem.priority && (
                     <div>
-                      <span className="font-medium">Priority:</span> {issue.priority}
+                      <span className="font-medium">Priority:</span> {workItem.priority}
                     </div>
                   )}
                 </div>
 
                 {/* Description */}
-                {issue.description && (
+                {workItem.description && (
                   <p className="mt-2 text-sm text-tertiary line-clamp-2">
-                    {issue.description}
+                    {workItem.description}
                   </p>
                 )}
 
                 {/* ML Fields - Only show if enabled and data exists */}
-                {showMlFields && (issue.ml_estimated_story_points || issue.ml_estimation_confidence || issue.embedding) && (
+                {showMlFields && (workItem.ml_estimated_story_points || workItem.ml_estimation_confidence || workItem.embedding) && (
                   <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
                     <h4 className="text-xs font-medium text-blue-800 mb-2">ML Insights</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-blue-700">
-                      {issue.ml_estimated_story_points && (
+                      {workItem.ml_estimated_story_points && (
                         <div>
-                          <span className="font-medium">ML Estimated Points:</span> {issue.ml_estimated_story_points}
+                          <span className="font-medium">ML Estimated Points:</span> {workItem.ml_estimated_story_points}
                         </div>
                       )}
-                      {issue.ml_estimation_confidence && (
+                      {workItem.ml_estimation_confidence && (
                         <div>
-                          <span className="font-medium">Confidence:</span> {issue.ml_estimation_confidence}
+                          <span className="font-medium">Confidence:</span> {workItem.ml_estimation_confidence}
                         </div>
                       )}
-                      {issue.embedding && (
+                      {workItem.embedding && (
                         <div>
-                          <span className="font-medium">Vector Embedding:</span> Available ({issue.embedding.length} dimensions)
+                          <span className="font-medium">Vector Embedding:</span> Available ({workItem.embedding.length} dimensions)
                         </div>
                       )}
                     </div>
@@ -201,7 +201,7 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
               {/* WorkItem Actions */}
               <div className="flex items-center space-x-2 ml-4">
                 <button
-                  onClick={() => window.open(`/issues/${issue.id}`, '_blank')}
+                  onClick={() => window.open(`/work-items/${workItem.id}`, '_blank')}
                   className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                 >
                   View
@@ -211,15 +211,15 @@ export const WorkItemList: React.FC<WorkItemListProps> = ({
 
             {/* Timestamps */}
             <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-tertiary">
-              <span>Created: {new Date(issue.created_at).toLocaleDateString()}</span>
-              <span>Updated: {new Date(issue.updated_at).toLocaleDateString()}</span>
+              <span>Created: {new Date(workItem.created_at).toLocaleDateString()}</span>
+              <span>Updated: {new Date(workItem.updated_at).toLocaleDateString()}</span>
             </div>
           </motion.div>
         ))}
       </div>
 
       {/* Load More Button */}
-      {issuesResponse.count < issuesResponse.total_count && (
+      {workItemsResponse.count < workItemsResponse.total_count && (
         <div className="text-center pt-4">
           <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
             Load More WorkItems
