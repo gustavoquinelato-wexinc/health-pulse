@@ -1,6 +1,6 @@
 /**
- * Client-aware logging utility for Frontend Application.
- * Provides client-specific logging with optional backend transmission.
+ * Tenant-aware logging utility for Frontend Application.
+ * Provides tenant-specific logging with optional backend transmission.
  */
 
 class ClientLogger {

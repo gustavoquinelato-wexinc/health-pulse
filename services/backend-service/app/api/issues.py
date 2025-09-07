@@ -49,8 +49,8 @@ class WorkItemUpdateRequest(BaseModel):
     wit_id: Optional[int] = None
 
 
-@router.get("/issues")
-async def get_issues(
+@router.get("/work_items")
+async def get_work_items(
     tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     limit: int = Query(100, le=1000, description="Maximum number of issues to return"),
@@ -119,30 +119,30 @@ async def get_issues(
         raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
 
-@router.get("/issues/{issue_id}")
-async def get_issue(
-    issue_id: int,
+@router.get("/work_items/{work_item_id}")
+async def get_work_item(
+    work_item_id: int,
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """Get single issue with optional ML fields"""
     try:
-        issue = db.query(WorkItem).filter(
-            WorkItem.id == issue_id,
+        work_item = db.query(WorkItem).filter(
+            WorkItem.id == work_item_id,
             WorkItem.tenant_id == user.tenant_id,
             WorkItem.active == True
         ).first()
         
-        if not issue:
+        if not work_item:
             raise HTTPException(status_code=404, detail="WorkItem not found")
-        
-        return issue.to_dict(include_ml_fields=include_ml_fields)
+
+        return work_item.to_dict(include_ml_fields=include_ml_fields)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching issue {issue_id}: {e}")
+        logger.error(f"Error fetching work item {work_item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch issue")
 
 

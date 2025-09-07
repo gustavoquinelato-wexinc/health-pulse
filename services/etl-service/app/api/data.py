@@ -77,8 +77,8 @@ async def get_data_summary(
         raise HTTPException(status_code=500, detail=f"Failed to get data summary: {str(e)}")
 
 
-@router.get("/etl/data/issues", response_model=WorkItemsListResponse)
-async def get_issues(
+@router.get("/etl/data/work_items", response_model=WorkItemsListResponse)
+async def get_work_items(
     limit: int = Query(100, ge=1, le=1000, description="Number of issues to return"),
     offset: int = Query(0, ge=0, description="Number of issues to skip"),
     project_key: Optional[str] = Query(None, description="Filter by project key"),

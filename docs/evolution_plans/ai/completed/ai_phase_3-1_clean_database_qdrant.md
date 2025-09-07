@@ -84,12 +84,12 @@ python scripts/migration_runner.py --rollback-all
 -- REMOVE embedding vector(1536) from ALL 24 tables
 -- Clean approach - no backward compatibility
 
--- Example: Clean issues table (apply to all 24 tables)
-CREATE TABLE IF NOT EXISTS issues (
+-- Example: Clean work_items table (apply to all 24 tables)
+CREATE TABLE IF NOT EXISTS work_items (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     project_id INTEGER REFERENCES projects(id),
-    issue_key VARCHAR(50) NOT NULL,
+    key VARCHAR(50) NOT NULL,
     summary TEXT,
     description TEXT,
     -- ... all existing business fields ...
@@ -97,8 +97,8 @@ CREATE TABLE IF NOT EXISTS issues (
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    UNIQUE(client_id, issue_key)
+
+    UNIQUE(tenant_id, key)
 );
 
 -- Apply same pattern to all 24 tables:
@@ -164,36 +164,36 @@ CREATE TABLE IF NOT EXISTS integrations (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 ```
 
 ### **Task 3-1.5: AI Configuration Tables (WrenAI-Inspired)**
 ```sql
--- Client AI preferences (inspired by WrenAI's configuration system)
-CREATE TABLE IF NOT EXISTS client_ai_preferences (
+-- Tenant AI preferences (inspired by WrenAI's configuration system)
+CREATE TABLE IF NOT EXISTS tenant_ai_preferences (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
     preference_type VARCHAR(50) NOT NULL, -- 'default_models', 'performance', 'cost_limits'
     configuration JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
-    UNIQUE(client_id, preference_type)
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    UNIQUE(tenant_id, preference_type)
 );
 
--- Client AI configuration (inspired by WrenAI's pipeline configuration)
-CREATE TABLE IF NOT EXISTS client_ai_configuration (
+-- Tenant AI configuration (inspired by WrenAI's pipeline configuration)
+CREATE TABLE IF NOT EXISTS tenant_ai_configuration (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
     config_category VARCHAR(50) NOT NULL, -- 'embedding_models', 'llm_models', 'pipeline_config'
     configuration JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
-    UNIQUE(client_id, config_category)
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    UNIQUE(tenant_id, config_category)
 );
 
 -- AI usage tracking (inspired by WrenAI's cost monitoring)

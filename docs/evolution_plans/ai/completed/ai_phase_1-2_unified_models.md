@@ -11,7 +11,7 @@
 1. **Backend Models Update**: Add vector columns and ML models to unified_models.py
 2. **ETL Models Synchronization**: Mirror backend models in ETL service
 3. **Serialization Enhancement**: Handle new fields in to_dict() methods
-4. **Relationship Updates**: Add ML monitoring relationships to Client model
+4. **Relationship Updates**: Add ML monitoring relationships to Tenant model
 5. **Backward Compatibility**: Ensure existing functionality unchanged
 
 ## 📋 Implementation Tasks
@@ -24,7 +24,7 @@
 **Changes Required**:
 - Add `embedding: Optional[List[float]]` to all 24 existing models
 - Create 3 new ML monitoring models
-- Update Client model with ML relationships
+- Update Tenant model with ML relationships
 - Enhance serialization methods
 
 ### Task 1-2.2: ETL Service Models
@@ -47,8 +47,8 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.sql import func
 
 # Pattern for all existing models
-class Issue(Base):
-    __tablename__ = 'issues'
+class WorkItem(Base):
+    __tablename__ = 'work_items'
     
     # All existing fields (unchanged)
     id = Column(Integer, primary_key=True)
@@ -57,7 +57,7 @@ class Issue(Base):
     description = Column(Text)
     priority = Column(String(50))
     status_name = Column(String(100))
-    issuetype_name = Column(String(100))
+    wit_name = Column(String(100))
     assignee = Column(String(100))
     assignee_id = Column(Integer)
     reporter = Column(String(100))

@@ -7,8 +7,8 @@ interface LogData {
 }
 
 interface TenantLogger {
-  clientName: string | null;
-  clientId: number | null;
+  tenantName: string | null;
+  tenantId: number | null;
   userId: number | null;
   initialized: boolean;
 

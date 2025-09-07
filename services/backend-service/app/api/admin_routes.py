@@ -1512,18 +1512,18 @@ async def create_tenant(
     tenant_data: TenantCreateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
-    """Create a new client"""
+    """Create a new tenant"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # Check if client name already exists
-            existing_client = session.query(Tenant).filter(
-                Tenant.name == client_data.name
+            # Check if tenant name already exists
+            existing_tenant = session.query(Tenant).filter(
+                Tenant.name == tenant_data.name
             ).first()
 
-            if existing_client:
+            if existing_tenant:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Tenant with this name already exists"
@@ -1565,21 +1565,21 @@ async def create_tenant(
 @router.put("/tenants/{tenant_id}", response_model=TenantResponse)
 async def update_tenant(
     tenant_id: int,
-    client_data: TenantUpdateRequest,
+    tenant_data: TenantUpdateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Update an existing client"""
+    """Update an existing tenant"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # Find the client to update
-            client_to_update = session.query(Tenant).filter(
+            # Find the tenant to update
+            tenant_to_update = session.query(Tenant).filter(
                 Tenant.id == tenant_id
             ).first()
 
-            if not client_to_update:
+            if not tenant_to_update:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Tenant not found"
