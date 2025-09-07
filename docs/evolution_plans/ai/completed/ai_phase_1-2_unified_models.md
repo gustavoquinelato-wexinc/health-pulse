@@ -93,15 +93,15 @@ class Issue(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     active = Column(Boolean, default=True)
-    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
     
     # NEW: Vector column (matches database schema)
     embedding: Optional[List[float]] = Column(ARRAY(Float), nullable=True)
     
     # Relationships
-    client = relationship("Client", back_populates="issues")
-    project = relationship("Project", back_populates="issues")
-    parent = relationship("Issue", remote_side=[id])
+    tenant = relationship("Tenant", back_populates="work_items")
+    project = relationship("Project", back_populates="work_items")
+    parent = relationship("WorkItem", remote_side=[id])
     
     def to_dict(self, include_ml_fields: bool = False):
         """Enhanced serialization with optional ML fields"""

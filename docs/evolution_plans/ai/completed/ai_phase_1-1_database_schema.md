@@ -71,12 +71,12 @@ CREATE EXTENSION IF NOT EXISTS pgvector;
 CREATE EXTENSION IF NOT EXISTS postgresml;  -- Optional for Phase 1
 
 -- 2. All existing tables (with vector columns in CREATE statements)
-CREATE TABLE IF NOT EXISTS clients (
+CREATE TABLE IF NOT EXISTS tenants (
     -- all existing fields
     embedding vector(1536)  -- included in creation
 );
 
-CREATE TABLE IF NOT EXISTS issues (
+CREATE TABLE IF NOT EXISTS work_items (
     -- all existing fields
     embedding vector(1536)  -- included in creation
 );
@@ -94,24 +94,24 @@ CREATE TABLE IF NOT EXISTS ml_anomaly_alerts (...);
 ```
 
 ### Tables with Vector Columns (All 24)
-1. clients
+1. tenants
 2. users
 3. projects
-4. issues
+4. work_items
 5. repositories
-6. pull_requests
-7. pull_request_comments
-8. pull_request_reviews
-9. pull_request_commits
+6. prs
+7. prs_comments
+8. prs_reviews
+9. prs_commits
 10. statuses
-11. status_mappings
-12. issuetypes
-13. issuetype_mappings
-14. issuetype_hierarchies
+11. statuses_mappings
+12. wits
+13. wits_mappings
+14. wits_hierarchies
 15. workflows
-16. issue_changelogs
-17. jira_pull_request_links
-18. projects_issuetypes
+16. changelogs
+17. wits_prs_links
+18. projects_wits
 19. projects_statuses
 20. user_permissions
 21. user_sessions

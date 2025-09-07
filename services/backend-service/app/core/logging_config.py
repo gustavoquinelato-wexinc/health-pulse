@@ -283,16 +283,16 @@ def get_logger(name: str = None) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
 
 
-def get_client_logger(name: str = None, client_name: str = None) -> structlog.stdlib.BoundLogger:
+def get_tenant_logger(name: str = None, tenant_name: str = None) -> structlog.stdlib.BoundLogger:
     """
-    Returns a client-aware structured logger.
+    Returns a tenant-aware structured logger.
 
     Args:
         name: Logger name. If None, uses the calling module name.
-        client_name: Tenant name for client-specific logging.
+        tenant_name: Tenant name for tenant-specific logging.
 
     Returns:
-        Configured structured logger with client context.
+        Configured structured logger with tenant context.
     """
     if name is None:
         # Get calling module name
@@ -302,13 +302,18 @@ def get_client_logger(name: str = None, client_name: str = None) -> structlog.st
 
     logger = structlog.get_logger(name)
 
-    if client_name:
-        # Ensure client-specific handler exists
-        TenantLoggingManager.get_client_handler(client_name)
-        # Bind client context to logger
-        logger = logger.bind(client=client_name)
+    if tenant_name:
+        # Ensure tenant-specific handler exists
+        TenantLoggingManager.get_client_handler(tenant_name)
+        # Bind tenant context to logger
+        logger = logger.bind(tenant=tenant_name)
 
     return logger
+
+# Keep backward compatibility alias
+def get_client_logger(name: str = None, client_name: str = None) -> structlog.stdlib.BoundLogger:
+    """Backward compatibility alias for get_tenant_logger."""
+    return get_tenant_logger(name, client_name)
 
 
 class LoggerMixin:

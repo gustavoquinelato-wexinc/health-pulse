@@ -122,7 +122,7 @@ dora_metric_insights   - DORA metric analysis and insights
 
 #### 🔗 **RELATIONSHIPS** (Data Connections)
 ```
-jira_pull_request_links - Links between Jira issues and GitHub PRs
+wits_prs_links - Links between work items and GitHub PRs
 ```
 **Rationale**: Cross-system data relationships and integrations
 **Note**: Junction tables are managed through structured queries for optimal performance

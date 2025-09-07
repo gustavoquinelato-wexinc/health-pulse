@@ -58,28 +58,28 @@ BEGIN
         ALTER TABLE pull_request_comments ADD CONSTRAINT pk_pull_request_comments PRIMARY KEY (id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_jira_pull_request_links') THEN
-        ALTER TABLE jira_pull_request_links ADD CONSTRAINT pk_jira_pull_request_links PRIMARY KEY (id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_wits_prs_links') THEN
+        ALTER TABLE wits_prs_links ADD CONSTRAINT pk_wits_prs_links PRIMARY KEY (id);
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_workflows') THEN
         ALTER TABLE workflows ADD CONSTRAINT pk_workflows PRIMARY KEY (id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_status_mappings') THEN
-        ALTER TABLE status_mappings ADD CONSTRAINT pk_status_mappings PRIMARY KEY (id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_statuses_mappings') THEN
+        ALTER TABLE statuses_mappings ADD CONSTRAINT pk_statuses_mappings PRIMARY KEY (id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_issuetype_mappings') THEN
-        ALTER TABLE issuetype_mappings ADD CONSTRAINT pk_issuetype_mappings PRIMARY KEY (id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_wits_mappings') THEN
+        ALTER TABLE wits_mappings ADD CONSTRAINT pk_wits_mappings PRIMARY KEY (id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_issuetype_hierarchies') THEN
-        ALTER TABLE issuetype_hierarchies ADD CONSTRAINT pk_issuetype_hierarchies PRIMARY KEY (id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_wits_hierarchies') THEN
+        ALTER TABLE wits_hierarchies ADD CONSTRAINT pk_wits_hierarchies PRIMARY KEY (id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_projects_issuetypes') THEN
-        ALTER TABLE projects_issuetypes ADD CONSTRAINT pk_projects_issuetypes PRIMARY KEY (project_id, issuetype_id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_projects_wits') THEN
+        ALTER TABLE projects_wits ADD CONSTRAINT pk_projects_wits PRIMARY KEY (project_id, wit_id);
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pk_projects_statuses') THEN
@@ -164,17 +164,17 @@ BEGIN
         ALTER TABLE issues ADD CONSTRAINT fk_issues_project_id FOREIGN KEY (project_id) REFERENCES projects(id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_issues_issuetype_id') THEN
-        ALTER TABLE issues ADD CONSTRAINT fk_issues_issuetype_id FOREIGN KEY (issuetype_id) REFERENCES issuetypes(id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_work_items_wit_id') THEN
+        ALTER TABLE work_items ADD CONSTRAINT fk_work_items_wit_id FOREIGN KEY (wit_id) REFERENCES wits(id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_issues_status_id') THEN
-        ALTER TABLE issues ADD CONSTRAINT fk_issues_status_id FOREIGN KEY (status_id) REFERENCES statuses(id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_work_items_status_id') THEN
+        ALTER TABLE work_items ADD CONSTRAINT fk_work_items_status_id FOREIGN KEY (status_id) REFERENCES statuses(id);
     END IF;
 
-    -- Issue changelogs foreign keys
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_issue_changelogs_issue_id') THEN
-        ALTER TABLE issue_changelogs ADD CONSTRAINT fk_issue_changelogs_issue_id FOREIGN KEY (issue_id) REFERENCES issues(id);
+    -- Changelogs foreign keys
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_changelogs_work_item_id') THEN
+        ALTER TABLE changelogs ADD CONSTRAINT fk_changelogs_work_item_id FOREIGN KEY (work_item_id) REFERENCES work_items(id);
     END IF;
 
     -- Repositories foreign keys
@@ -204,14 +204,14 @@ BEGIN
         ALTER TABLE pull_request_comments ADD CONSTRAINT fk_pull_request_comments_pull_request_id FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id);
     END IF;
 
-    -- Jira PR links
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_jira_pull_request_links_issue_id') THEN
-        ALTER TABLE jira_pull_request_links ADD CONSTRAINT fk_jira_pull_request_links_issue_id FOREIGN KEY (issue_id) REFERENCES issues(id);
+    -- Work item PR links
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_wits_prs_links_work_item_id') THEN
+        ALTER TABLE wits_prs_links ADD CONSTRAINT fk_wits_prs_links_work_item_id FOREIGN KEY (work_item_id) REFERENCES work_items(id);
     END IF;
 
     -- Workflows foreign keys
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_workflows_client_id') THEN
-        ALTER TABLE workflows ADD CONSTRAINT fk_workflows_client_id FOREIGN KEY (client_id) REFERENCES clients(id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_workflows_tenant_id') THEN
+        ALTER TABLE workflows ADD CONSTRAINT fk_workflows_tenant_id FOREIGN KEY (tenant_id) REFERENCES tenants(id);
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_workflows_integration_id') THEN
@@ -237,12 +237,12 @@ BEGIN
     END IF;
 
     -- Relationship tables
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_projects_issuetypes_project_id') THEN
-        ALTER TABLE projects_issuetypes ADD CONSTRAINT fk_projects_issuetypes_project_id FOREIGN KEY (project_id) REFERENCES projects(id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_projects_wits_project_id') THEN
+        ALTER TABLE projects_wits ADD CONSTRAINT fk_projects_wits_project_id FOREIGN KEY (project_id) REFERENCES projects(id);
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_projects_issuetypes_issuetype_id') THEN
-        ALTER TABLE projects_issuetypes ADD CONSTRAINT fk_projects_issuetypes_issuetype_id FOREIGN KEY (issuetype_id) REFERENCES issuetypes(id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_projects_wits_wit_id') THEN
+        ALTER TABLE projects_wits ADD CONSTRAINT fk_projects_wits_wit_id FOREIGN KEY (wit_id) REFERENCES wits(id);
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_projects_statuses_project_id') THEN

@@ -384,16 +384,16 @@ class JiraAPIClient:
             logger.warning(f"Failed to get approximate count for JQL '{jql}': {e}")
             return 0
 
-    def get_issue_changelogs(self, issue_key: str, max_results: int = 100) -> List[Dict]:
+    def get_work_item_changelogs(self, work_item_key: str, max_results: int = 100) -> List[Dict]:
         """
-        Fetch all changelogs for a specific issue with pagination and retry logic.
+        Fetch all changelogs for a specific work item with pagination and retry logic.
 
         NOTE: This method is kept for backward compatibility and fallback scenarios.
         The preferred approach is to use expand=changelog in get_issues() to fetch
-        changelogs together with issues in a single API call.
+        changelogs together with work items in a single API call.
 
         Args:
-            issue_key: The issue key (e.g., 'PROJ-123')
+            work_item_key: The work item key (e.g., 'PROJ-123')
             max_results: Maximum number of changelogs to fetch per request
 
         Returns:
@@ -405,7 +405,7 @@ class JiraAPIClient:
 
         while True:
             # Use API v3 for better compatibility
-            url = f"{self.base_url}/rest/api/3/issue/{issue_key}/changelog"
+            url = f"{self.base_url}/rest/api/3/issue/{work_item_key}/changelog"
             params = {
                 'startAt': start_at,
                 'maxResults': max_results

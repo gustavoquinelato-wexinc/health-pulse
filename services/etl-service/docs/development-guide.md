@@ -75,15 +75,15 @@ python scripts/test_jobs.py --breakpoint
 ```
 📋 AVAILABLE TEST OPTIONS:
 🎫 JIRA JOBS:
-   1. Extract issue types and projects (ISSUETYPES mode)
-   2. Extract statuses and project links (STATUSES mode)  
-   3. Extract issues, changelogs, dev_status (ISSUES mode)
+   1. Extract work item types and projects (WITS mode)
+   2. Extract statuses and project links (STATUSES mode)
+   3. Extract work items, changelogs, dev_status (WORK_ITEMS mode)
    4. Execute custom JQL query (CUSTOM_QUERY mode)
    5. Full Jira extraction (ALL mode)
 
 🐙 GITHUB JOBS:
    6. Extract repositories and basic info (REPOS mode)
-   7. Extract pull requests and reviews (PULL_REQUESTS mode)
+   7. Extract pull requests and reviews (PRS mode)
    8. Full GitHub extraction (ALL mode)
 
 🔗 CONNECTION TESTS:

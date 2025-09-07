@@ -58,12 +58,12 @@ class TestDatabaseIntegration:
     def test_vector_columns_exist(self):
         """Test that all tables have vector columns"""
         vector_tables = [
-            'clients', 'users', 'projects', 'issues', 'repositories',
-            'pull_requests', 'pull_request_comments', 'pull_request_reviews',
-            'pull_request_commits', 'statuses', 'status_mappings',
-            'issuetypes', 'issuetype_mappings', 'issuetype_hierarchies',
-            'workflows', 'issue_changelogs', 'jira_pull_request_links',
-            'projects_issuetypes', 'projects_statuses', 'user_permissions',
+            'tenants', 'users', 'projects', 'work_items', 'repositories',
+            'prs', 'prs_comments', 'prs_reviews',
+            'prs_commits', 'statuses', 'statuses_mappings',
+            'wits', 'wits_mappings', 'wits_hierarchies',
+            'workflows', 'changelogs', 'wits_prs_links',
+            'projects_wits', 'projects_statuses', 'user_permissions',
             'user_sessions', 'system_settings', 'dora_market_benchmarks',
             'dora_metric_insights'
         ]

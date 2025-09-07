@@ -1,14 +1,14 @@
 <!-- Modern Header Component -->
-{% macro header(title='Pulse ETL Management', show_user_menu=true, show_theme_toggle=true, client_logo=none, client_name='Client') %}
+{% macro header(title='Pulse ETL Management', show_user_menu=true, show_theme_toggle=true, tenant_logo=none, tenant_name='Tenant') %}
 <header class="modern-header header-enhanced flex items-center justify-between px-6">
     <!-- Logo and Title -->
     <div class="flex items-center space-x-4">
-        <!-- Client Logo -->
+        <!-- Tenant Logo -->
         <div class="h-8">
-            {% if client_logo %}
-                <img src="/static/assets/{{ client_logo }}" alt="{{ client_name }} Logo" class="h-full object-contain">
+            {% if tenant_logo %}
+                <img src="/static/assets/{{ tenant_logo }}" alt="{{ tenant_name }} Logo" class="h-full object-contain">
             {% else %}
-                <img src="/static/logo.png" alt="{{ client_name }} Logo" class="h-full object-contain">
+                <img src="/static/logo.png" alt="{{ tenant_name }} Logo" class="h-full object-contain">
             {% endif %}
         </div>
 

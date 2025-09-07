@@ -549,15 +549,15 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
 
         # Bulk insert new relationships
         if relationships_to_insert:
-            perform_bulk_insert(session, ProjectWits, relationships_to_insert, "projects_issuetypes", job_logger)
+            perform_bulk_insert(session, ProjectWits, relationships_to_insert, "projects_wits", job_logger)
 
         # Handle deletions - remove relationships that exist in DB but not in source
         relationships_to_delete = existing_relationships_set - current_relationships_jira
 
         if relationships_to_delete:
-            job_logger.progress(f"Deleting {len(relationships_to_delete)} obsolete project-issuetype relationships")
+            job_logger.progress(f"Deleting {len(relationships_to_delete)} obsolete project-wit relationships")
             from app.jobs.jira.jira_bulk_operations import perform_bulk_delete_relationships
-            perform_bulk_delete_relationships(session, "projects_issuetypes", relationships_to_delete, job_logger)
+            perform_bulk_delete_relationships(session, "projects_wits", relationships_to_delete, job_logger)
 
         # Mark work item types as inactive if they're no longer used in any project
         inactive_wits = [
@@ -1270,19 +1270,19 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
 
 
-def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, integration: Integration,
-                                 issue_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
-                                 issue_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
-    """Process changelogs for a list of issues and calculate enhanced workflow metrics.
+def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClient, integration: Integration,
+                                     work_item_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
+                                     work_item_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
+    """Process changelogs for a list of work items and calculate enhanced workflow metrics.
 
     Args:
         session: Database session
-        jira_client: Jira API client (kept for compatibility, not used when issue_changelogs provided)
+        jira_client: Jira API client (kept for compatibility, not used when work_item_changelogs provided)
         integration: Integration object
-        issue_keys: List of issue keys to process changelogs for
+        work_item_keys: List of work item keys to process changelogs for
         statuses_dict: Dictionary mapping status external_ids to status objects
         job_logger: Logger for progress tracking
-        issue_changelogs: Optional dict of changelog data by issue key (from expand=changelog)
+        work_item_changelogs: Optional dict of changelog data by work item key (from expand=changelog)
 
     Returns:
         Number of changelogs processed

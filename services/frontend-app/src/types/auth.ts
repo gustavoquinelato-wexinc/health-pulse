@@ -221,7 +221,7 @@ export interface AuthStorage {
 }
 
 // Auth API client types
-export interface AuthApiTenant {
+export interface AuthApiClient {
   login: (request: LoginRequest) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   validateCredentials: (request: CredentialValidationRequest) => Promise<CredentialValidationResponse>;
