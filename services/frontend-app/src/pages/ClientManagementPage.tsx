@@ -55,7 +55,7 @@ export default function TenantManagementPage() {
       setLoading(true)
       setError(null)
 
-      const response = await axios.get('/api/v1/admin/clients')
+      const response = await axios.get('/api/v1/admin/tenants')
       setTenants(response.data)
     } catch (error: any) {
       console.error('Error loading clients:', error)
@@ -101,7 +101,7 @@ export default function TenantManagementPage() {
 
       // Update profile fields if there are changes
       if (Object.keys(cleanedForm).length > 0) {
-        await axios.put(`/api/v1/admin/clients/${editingTenant.id}`, cleanedForm)
+        await axios.put(`/api/v1/admin/tenants/${editingTenant.id}`, cleanedForm)
         hasChanges = true
       }
 
@@ -143,7 +143,7 @@ export default function TenantManagementPage() {
       formData.append('logo', selectedFile)
 
       const response = await axios.post(
-        `/api/v1/admin/clients/${editingTenant.id}/logo`,
+        `/api/v1/admin/tenants/${editingTenant.id}/logo`,
         formData,
         {
           headers: {

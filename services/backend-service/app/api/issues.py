@@ -146,31 +146,31 @@ async def get_work_item(
         raise HTTPException(status_code=500, detail="Failed to fetch issue")
 
 
-@router.post("/issues")
-async def create_issue(
-    issue_data: WorkItemCreateRequest,
+@router.post("/work-items")
+async def create_work_item(
+    work_item_data: WorkItemCreateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
-    """Create issue - models handle new fields automatically"""
+    """Create work item - models handle new fields automatically"""
     try:
         from app.core.utils import DateTimeHelper
         
-        # Create issue normally - embedding defaults to None in model
-        issue = WorkItem(
-            key=issue_data.key,
-            summary=issue_data.summary,
-            description=issue_data.description,
-            priority=issue_data.priority,
-            status_name=issue_data.status_name,
-            wit_name=issue_data.wit_name,
-            assignee=issue_data.assignee,
-            reporter=issue_data.reporter,
-            story_points=issue_data.story_points,
-            epic_link=issue_data.epic_link,
-            project_id=issue_data.project_id,
-            status_id=issue_data.status_id,
-            wit_id=issue_data.wit_id,
+        # Create work item normally - embedding defaults to None in model
+        work_item = WorkItem(
+            key=work_item_data.key,
+            summary=work_item_data.summary,
+            description=work_item_data.description,
+            priority=work_item_data.priority,
+            status_name=work_item_data.status_name,
+            wit_name=work_item_data.wit_name,
+            assignee=work_item_data.assignee,
+            reporter=work_item_data.reporter,
+            story_points=work_item_data.story_points,
+            epic_link=work_item_data.epic_link,
+            project_id=work_item_data.project_id,
+            status_id=work_item_data.status_id,
+            wit_id=work_item_data.wit_id,
             tenant_id=user.tenant_id,
             active=True,
             created_at=DateTimeHelper.now_utc(),
@@ -178,104 +178,104 @@ async def create_issue(
             # embedding automatically defaults to None in model
         )
         
-        db.add(issue)
+        db.add(work_item)
         db.commit()
-        db.refresh(issue)
-        
-        logger.info(f"Created issue {issue.key} for client {user.tenant_id}")
-        return issue.to_dict()
-        
+        db.refresh(work_item)
+
+        logger.info(f"Created work item {work_item.key} for tenant {user.tenant_id}")
+        return work_item.to_dict()
+
     except Exception as e:
-        logger.error(f"Error creating issue: {e}")
+        logger.error(f"Error creating work item: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create issue")
+        raise HTTPException(status_code=500, detail="Failed to create work item")
 
 
-@router.put("/issues/{issue_id}")
-async def update_issue(
-    issue_id: int,
-    issue_data: WorkItemUpdateRequest,
+@router.put("/work-items/{work_item_id}")
+async def update_work_item(
+    work_item_id: int,
+    work_item_data: WorkItemUpdateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
-    """Update issue - models handle new fields automatically"""
+    """Update work item - models handle new fields automatically"""
     try:
         from app.core.utils import DateTimeHelper
         
-        issue = db.query(WorkItem).filter(
-            WorkItem.id == issue_id,
+        work_item = db.query(WorkItem).filter(
+            WorkItem.id == work_item_id,
             WorkItem.tenant_id == user.tenant_id,
             WorkItem.active == True
         ).first()
 
-        if not issue:
+        if not work_item:
             raise HTTPException(status_code=404, detail="WorkItem not found")
 
         # Update existing fields normally
-        for field, value in issue_data.dict(exclude_unset=True).items():
-            if hasattr(issue, field):
-                setattr(issue, field, value)
+        for field, value in work_item_data.dict(exclude_unset=True).items():
+            if hasattr(work_item, field):
+                setattr(work_item, field, value)
         
         # Update timestamp
-        issue.last_updated_at = DateTimeHelper.now_utc()
+        work_item.last_updated_at = DateTimeHelper.now_utc()
 
         db.commit()
-        db.refresh(issue)
+        db.refresh(work_item)
 
-        logger.info(f"Updated issue {issue.key} for client {user.tenant_id}")
-        return issue.to_dict()
-        
+        logger.info(f"Updated work item {work_item.key} for tenant {user.tenant_id}")
+        return work_item.to_dict()
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating issue {issue_id}: {e}")
+        logger.error(f"Error updating work item {work_item_id}: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to update issue")
+        raise HTTPException(status_code=500, detail="Failed to update work item")
 
 
-@router.delete("/issues/{issue_id}")
-async def delete_issue(
-    issue_id: int,
+@router.delete("/work-items/{work_item_id}")
+async def delete_work_item(
+    work_item_id: int,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
-    """Soft delete issue (set active=False)"""
+    """Soft delete work item (set active=False)"""
     try:
         from app.core.utils import DateTimeHelper
         
-        issue = db.query(WorkItem).filter(
-            WorkItem.id == issue_id,
+        work_item = db.query(WorkItem).filter(
+            WorkItem.id == work_item_id,
             WorkItem.tenant_id == user.tenant_id,
             WorkItem.active == True
         ).first()
 
-        if not issue:
+        if not work_item:
             raise HTTPException(status_code=404, detail="WorkItem not found")
 
         # Soft delete
-        issue.active = False
-        issue.last_updated_at = DateTimeHelper.now_utc()
+        work_item.active = False
+        work_item.last_updated_at = DateTimeHelper.now_utc()
 
         db.commit()
 
-        logger.info(f"Deleted issue {issue.key} for client {user.tenant_id}")
-        return {"message": "WorkItem deleted successfully", "issue_id": issue_id}
-        
+        logger.info(f"Deleted work item {work_item.key} for tenant {user.tenant_id}")
+        return {"message": "WorkItem deleted successfully", "work_item_id": work_item_id}
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting issue {issue_id}: {e}")
+        logger.error(f"Error deleting work item {work_item_id}: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete issue")
+        raise HTTPException(status_code=500, detail="Failed to delete work item")
 
 
-@router.get("/issues/stats")
-async def get_issues_stats(
+@router.get("/work-items/stats")
+async def get_work_items_stats(
     tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
-    """Get issue statistics for the client"""
+    """Get work item statistics for the tenant"""
     try:
         # Ensure client isolation
         if user.tenant_id != tenant_id:

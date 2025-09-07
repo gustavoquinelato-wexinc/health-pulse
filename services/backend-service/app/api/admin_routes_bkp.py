@@ -39,7 +39,7 @@ async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
         # Get ETL service URL (assuming it runs on port 8000)
         etl_url = f"http://localhost:8000/api/v1/internal/color-schema-changed"
 
-        async with httpx.AsyncTenant(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
                 "tenant_id": tenant_id,
                 "colors": colors,
@@ -62,7 +62,7 @@ async def notify_etl_color_schema_mode_change(tenant_id: int, mode: str):
         # Get ETL service URL
         etl_url = f"http://localhost:8000/api/v1/internal/color-schema-mode-changed"
 
-        async with httpx.AsyncTenant(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
                 "tenant_id": tenant_id,
                 "mode": mode,
@@ -851,7 +851,7 @@ async def delete_issuetype_hierarchy(
 
             # Check if hierarchy is being used by any mappings
             mappings_count = session.query(WitMapping).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id
+                WitMapping.wits_hierarchy_id == hierarchy_id
             ).count()
 
             if mappings_count > 0:
@@ -903,7 +903,7 @@ async def get_issuetype_hierarchy_dependencies(
 
             # Count dependent mappings that use this hierarchy
             dependent_mappings_count = session.query(WitMapping).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True
             ).count()
 
@@ -911,9 +911,9 @@ async def get_issuetype_hierarchy_dependencies(
             dependent_issues_count = session.query(WorkItem).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).join(
-                WitMapping, Wit.issuetype_mapping_id == WitMapping.id
+                WitMapping, Wit.wit_mapping_id == WitMapping.id
             ).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True,
                 Wit.active == True,
                 WorkItem.active == True

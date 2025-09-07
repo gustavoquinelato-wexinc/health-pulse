@@ -121,41 +121,41 @@ Pulse Platform implements **complete client isolation** at multiple levels:
 
 #### Database Level Isolation
 ```sql
--- All tables include client_id for tenant separation
+-- All tables include tenant_id for tenant separation
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     email VARCHAR(255) NOT NULL,
     -- ... other fields
-    UNIQUE(client_id, email)
+    UNIQUE(tenant_id, email)
 );
 
--- Every query filters by client_id
-SELECT * FROM users WHERE client_id = ? AND active = true;
+-- Every query filters by tenant_id
+SELECT * FROM users WHERE tenant_id = ? AND active = true;
 ```
 
 #### Application Level Isolation
-- **JWT Tokens**: Include client_id in token payload
-- **API Endpoints**: All endpoints validate client ownership
-- **Session Management**: Client-scoped session storage
-- **Job Processing**: Background jobs respect client boundaries
+- **JWT Tokens**: Include tenant_id in token payload
+- **API Endpoints**: All endpoints validate tenant ownership
+- **Session Management**: Tenant-scoped session storage
+- **Job Processing**: Background jobs respect tenant boundaries
 
 #### Configuration Isolation
-- **Client-Specific Settings**: Stored in system_settings table (color schemas, branding)
+- **Tenant-Specific Settings**: Stored in system_settings table (color schemas, branding)
 - **User-Specific Settings**: Stored in users table (theme_mode preferences)
-- **Custom Branding**: Per-client logos and color schemes
-- **Integration Configs**: Separate API credentials per client
-- **Feature Flags**: Client-specific feature enablement
+- **Custom Branding**: Per-tenant logos and color schemes
+- **Integration Configs**: Separate API credentials per tenant
+- **Feature Flags**: Tenant-specific feature enablement
 
 ### Multi-Instance Deployment
 
-For handling multiple clients simultaneously:
+For handling multiple tenants simultaneously:
 
 ```bash
-# Multiple ETL instances for different clients
-CLIENT_NAME=wex python -m uvicorn app.main:app --port 8000
-CLIENT_NAME=techcorp python -m uvicorn app.main:app --port 8001
-CLIENT_NAME=enterprise python -m uvicorn app.main:app --port 8002
+# Multiple ETL instances for different tenants
+TENANT_NAME=wex python -m uvicorn app.main:app --port 8000
+TENANT_NAME=techcorp python -m uvicorn app.main:app --port 8001
+TENANT_NAME=enterprise python -m uvicorn app.main:app --port 8002
 ```
 
 ## 🗄️ Database Architecture
@@ -229,7 +229,7 @@ CREATE TABLE ai_learning_memory (
     user_feedback TEXT,
     user_correction TEXT,
     message_id VARCHAR(255),
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     created_at TIMESTAMP DEFAULT NOW(),
     last_updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -244,7 +244,7 @@ CREATE TABLE ai_predictions (
     accuracy_score FLOAT,
     prediction_type VARCHAR(50) NOT NULL,
     validated_at TIMESTAMP,
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     embedding vector(1536),
     created_at TIMESTAMP DEFAULT NOW(),
     last_updated_at TIMESTAMP DEFAULT NOW()
@@ -259,7 +259,7 @@ CREATE TABLE ai_performance_metrics (
     measurement_timestamp TIMESTAMP NOT NULL,
     context_data TEXT,
     service_name VARCHAR(50),
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     embedding vector(1536),
     created_at TIMESTAMP DEFAULT NOW(),
     last_updated_at TIMESTAMP DEFAULT NOW()
@@ -274,7 +274,7 @@ CREATE TABLE ml_anomaly_alert (
     acknowledged BOOLEAN DEFAULT FALSE,
     acknowledged_by INTEGER,
     acknowledged_at TIMESTAMP,
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     embedding vector(1536),
     created_at TIMESTAMP DEFAULT NOW(),
     last_updated_at TIMESTAMP DEFAULT NOW()
@@ -290,8 +290,8 @@ CREATE TABLE ml_anomaly_alert (
 **Vector Indexes**: HNSW indexes on embedding columns for efficient similarity search:
 ```sql
 -- Example vector indexes
-CREATE INDEX idx_issues_embedding_hnsw ON issues USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX idx_pull_requests_embedding_hnsw ON pull_requests USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_work_items_embedding_hnsw ON work_items USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_prs_embedding_hnsw ON prs USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX idx_projects_embedding_hnsw ON projects USING hnsw (embedding vector_cosine_ops);
 ```
 
@@ -314,15 +314,15 @@ Pulse Platform has been enhanced with comprehensive AI capabilities as part of t
 **Supported Operations**:
 ```sql
 -- Similarity search (when embeddings are populated)
-SELECT * FROM issues
-WHERE client_id = ?
+SELECT * FROM work_items
+WHERE tenant_id = ?
 ORDER BY embedding <-> ?::vector
 LIMIT 10;
 
 -- Vector distance calculations
 SELECT id, summary, embedding <-> ?::vector AS distance
-FROM issues
-WHERE client_id = ? AND embedding IS NOT NULL;
+FROM work_items
+WHERE tenant_id = ? AND embedding IS NOT NULL;
 ```
 
 ### ML Monitoring Infrastructure

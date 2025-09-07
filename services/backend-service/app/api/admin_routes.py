@@ -55,7 +55,7 @@ async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
         # Get ETL service URL from configuration
         etl_url = f"{settings.ETL_SERVICE_URL}/api/v1/internal/color-schema-changed"
 
-        async with httpx.AsyncTenant(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
                 "tenant_id": tenant_id,
                 "colors": colors,
@@ -77,7 +77,7 @@ async def notify_etl_color_schema_mode_change(tenant_id: int, mode: str):
         # Get ETL service URL from configuration
         etl_url = f"{settings.ETL_SERVICE_URL}/api/v1/internal/color-schema-mode-changed"
 
-        async with httpx.AsyncTenant(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
                 "tenant_id": tenant_id,
                 "mode": mode,
@@ -1141,7 +1141,7 @@ async def terminate_user_session(
                     'Content-Type': 'application/json'
                 }
                 payload = { 'token_hash': token_hash, 'tenant_id': user.tenant_id }
-                async with httpx.AsyncTenant(timeout=3.0, follow_redirects=True) as client:
+                async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
                     resp = await client.post(etl_url, headers=headers, json=payload)
                     if resp.status_code != 200:
                         logger.warning(f"ETL invalidate-token returned {resp.status_code}: {resp.text}")
@@ -1178,7 +1178,7 @@ async def get_permission_matrix(
         from app.core.config import get_settings
         settings = get_settings()
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
-        async with httpx.AsyncTenant() as client:
+        async with httpx.AsyncClient() as client:
             resp = await client.get(f"{auth_service_url}/api/v1/permissions/matrix", timeout=5.0)
             if resp.status_code == 200:
                 data = resp.json()

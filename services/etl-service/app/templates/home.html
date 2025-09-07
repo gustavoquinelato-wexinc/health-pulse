@@ -1131,8 +1131,8 @@
         const integrationType = jobData.integration_type || 'unknown';
         let jobIcon, jobIconClass, jobColor;
 
-        // Use the actual job_name from database as the title
-        const jobTitle = jobName;
+        // Use the actual job_name from database as the title, converted to uppercase
+        const jobTitle = jobName.toUpperCase();
 
         switch (integrationType) {
             case 'jira':
@@ -1409,15 +1409,22 @@
                 setTimeout(refreshData, 500);
             } else {
                 const result = await response.json();
-                showNotification(`Failed to toggle ${jobName}: ${result.detail}`, 'error');
+                showNotification(`Failed to toggle ${jobName.toUpperCase()}: ${result.detail}`, 'error');
             }
         } catch (error) {
             console.error(`Error toggling ${jobName} status: ${error.message}`);
-            showNotification(`Error toggling ${jobName} status: ${error.message}`, 'error');
+            showNotification(`Error toggling ${jobName.toUpperCase()} status: ${error.message}`, 'error');
         }
     }
 
     async function showLogManagement() {
+        // Check if jobs are running and prevent access
+        const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
+        if (logsBtn && logsBtn.disabled) {
+            showNotification('Log management is unavailable while jobs are running', 'warning');
+            return;
+        }
+
         try {
             // Show loading state
             document.getElementById('logManagementContent').innerHTML = `
@@ -1500,8 +1507,8 @@
 
     async function populateLogFiles() {
         try {
-            // Determine client-specific log files based on CLIENT_NAME
-            // For now, we'll try both legacy and client-specific file names
+            // Determine tenant-specific log files based on TENANT_NAME
+            // For now, we'll try both legacy and tenant-specific file names
             const possibleLogFiles = [
                 'etl_service_wex.log',
                 'orchestrator_wex.log',
@@ -1851,7 +1858,7 @@
 
     // Job action functions
     async function forceStart(jobName) {
-        if (!confirm(`Are you sure you want to force start ${jobName}?`)) return;
+        if (!confirm(`Are you sure you want to force start ${jobName.toUpperCase()}?`)) return;
 
         try {
             // Clear any existing error messages when starting a job
@@ -1882,7 +1889,7 @@
     }
 
     async function forceStop(jobName) {
-        if (!confirm(`Are you sure you want to force stop ${jobName}?`)) return;
+        if (!confirm(`Are you sure you want to force stop ${jobName.toUpperCase()}?`)) return;
 
         try {
             const token = getAuthToken();
@@ -2151,6 +2158,8 @@
         const statusDot = document.getElementById('orchestratorStatusDot');
         const pauseBtn = document.getElementById('pauseOrchestratorBtn');
         const runNowBtn = document.getElementById('forceStartOrchestratorBtn');
+        const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
+        const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
         const countdownTimer = document.getElementById('countdownTimer');
 
         if (statusDot) {
@@ -2169,6 +2178,17 @@
                     runNowBtn.disabled = false;
                     runNowBtn.className = 'action-icon-btn force-pending';
                     runNowBtn.title = 'Run Now';
+                }
+                // Enable logs and settings buttons when paused
+                if (logsBtn) {
+                    logsBtn.disabled = false;
+                    logsBtn.className = 'btn-neutral-secondary';
+                    logsBtn.title = 'Logs';
+                }
+                if (settingsBtn) {
+                    settingsBtn.disabled = false;
+                    settingsBtn.className = 'btn-neutral-primary-sm';
+                    settingsBtn.title = 'Settings';
                 }
                 stopCountdownTimer();
             } else {
@@ -2200,6 +2220,31 @@
                         runNowBtn.disabled = false;
                         runNowBtn.className = 'action-icon-btn force-pending';
                         runNowBtn.title = 'Run Now';
+                    }
+                }
+
+                // Disable/enable logs and settings buttons based on job status
+                if (logsBtn) {
+                    if (jobsRunning) {
+                        logsBtn.disabled = true;
+                        logsBtn.className = 'btn-neutral-secondary opacity-50 cursor-not-allowed';
+                        logsBtn.title = 'Logs unavailable while jobs are running';
+                    } else {
+                        logsBtn.disabled = false;
+                        logsBtn.className = 'btn-neutral-secondary';
+                        logsBtn.title = 'Logs';
+                    }
+                }
+
+                if (settingsBtn) {
+                    if (jobsRunning) {
+                        settingsBtn.disabled = true;
+                        settingsBtn.className = 'btn-neutral-primary-sm opacity-50 cursor-not-allowed';
+                        settingsBtn.title = 'Settings unavailable while jobs are running';
+                    } else {
+                        settingsBtn.disabled = false;
+                        settingsBtn.className = 'btn-neutral-primary-sm';
+                        settingsBtn.title = 'Settings';
                     }
                 }
 
@@ -2289,6 +2334,13 @@
 
     // Orchestrator Settings Functions
     async function showOrchestratorSettings() {
+        // Check if jobs are running and prevent access
+        const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
+        if (settingsBtn && settingsBtn.disabled) {
+            showNotification('Orchestrator settings are unavailable while jobs are running', 'warning');
+            return;
+        }
+
         try {
             const response = await fetch('/api/v1/settings', {
                 headers: {

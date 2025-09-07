@@ -446,7 +446,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     needs_update = False
 
                     # Check each field for changes (excluding external_id)
-                    for field in ['original_name', 'issuetype_mapping_id', 'hierarchy_level', 'description']:
+                    for field in ['original_name', 'wit_mapping_id', 'hierarchy_level', 'description']:
                         new_value = processed_issuetype.get(field)
                         current_value = getattr(existing_issuetype, field, None)
                         if current_value != new_value:
@@ -466,7 +466,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                         'integration_id': integration.id,
                         'external_id': issuetype_external_id,
                         'original_name': processed_issuetype.get('original_name', ''),
-                        'issuetype_mapping_id': processed_issuetype.get('issuetype_mapping_id'),
+                        'wits_mapping_id': processed_issuetype.get('wit_mapping_id'),
                         'description': processed_issuetype.get('description'),
                         'hierarchy_level': processed_issuetype.get('hierarchy_level', 2),
                         'tenant_id': integration.tenant_id,
@@ -501,7 +501,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
                     'original_name': safe_unicode_string(obj.original_name),
-                    'wit_mapping_id': getattr(obj, 'wit_mapping_id', None),
+                    'wits_mapping_id': getattr(obj, 'wit_mapping_id', None),
                     'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'hierarchy_level': obj.hierarchy_level,
                     'tenant_id': obj.tenant_id,
@@ -1211,7 +1211,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
             for i in range(0, len(issues_to_insert), commit_batch_size):
                 chunk = issues_to_insert[i:i + commit_batch_size]
-                perform_bulk_insert(session, WorkItem, chunk, "issues", job_logger, batch_size=100)
+                perform_bulk_insert(session, WorkItem, chunk, "work_items", job_logger, batch_size=100)
 
                 total_processed += len(chunk)
 
@@ -1237,7 +1237,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         changelogs_processed = 0
         if processed_issue_keys:
-            changelogs_processed = process_changelogs_for_issues(
+            changelogs_processed = process_changelogs_for_work_items(
                 session, jira_client, integration, processed_issue_keys,
                 statuses_dict, job_logger, issue_changelogs, websocket_manager
             )
@@ -1294,8 +1294,8 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
         from app.core.settings_manager import get_jira_database_batch_size
         issues_in_db = []
         batch_size = get_jira_database_batch_size()  # Configurable batch size
-        for i in range(0, len(issue_keys), batch_size):
-            batch_keys = issue_keys[i:i + batch_size]
+        for i in range(0, len(work_item_keys), batch_size):
+            batch_keys = work_item_keys[i:i + batch_size]
             batch_issues = session.query(WorkItem).filter(
                 WorkItem.integration_id == integration.id,
                 WorkItem.key.in_(batch_keys)
@@ -1352,8 +1352,8 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
                 issue_key = issue.key
 
                 # Use embedded changelog data if available, otherwise fall back to API call
-                if issue_changelogs and issue_key in issue_changelogs:
-                    changelogs_data = issue_changelogs[issue_key]
+                if work_item_changelogs and issue_key in work_item_changelogs:
+                    changelogs_data = work_item_changelogs[issue_key]
                 else:
                     # Only log fallback API calls since they're less common and more important
                     job_logger.progress(f"[FETCHING] Fetching changelogs for issue {issue_key} (fallback)")
@@ -1395,7 +1395,7 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
 
                         changelog_entry = {
                             'integration_id': integration.id,
-                            'issue_id': issue.id,
+                            'work_item_id': issue.id,
                             'external_id': changelog_external_id,
                             'from_status_id': from_status_id,
                             'to_status_id': to_status_id,
@@ -1521,7 +1521,7 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
                 if batch_num % 10 == 0 or batch_num == total_batches:
                     job_logger.progress(f"[DATABASE] Processed workflow metrics batch {batch_num}/{total_batches}")
 
-            # Group changelogs by issue_id
+            # Group changelogs by work_item_id
             changelogs_by_issue = {}
             for changelog in all_changelogs:
                 if changelog.work_item_id not in changelogs_by_issue:

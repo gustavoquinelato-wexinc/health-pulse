@@ -77,7 +77,7 @@ class OktaAuthProvider(BaseAuthProvider):
             # Exchange authorization code for access token
             token_url = f"https://{self.okta_domain}/oauth2/default/v1/token"
             
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 token_response = await client.post(
                     token_url,
                     data={
@@ -152,7 +152,7 @@ class OktaAuthProvider(BaseAuthProvider):
         """Ensure user exists in local system, create if not"""
         try:
             # Call backend service to create/update user from OKTA data
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.backend_service_url}/api/v1/auth/centralized/sync-okta-user",
                     json=mapped_user_data,

@@ -237,8 +237,8 @@ class JiraDataProcessor:
 
             original_name = safe_unicode_string(issuetype_data.get('name', None))
 
-            # Find issuetype mapping for this issue type from database
-            issuetype_mapping_id = None
+            # Find wit mapping for this issue type from database
+            wit_mapping_id = None
             hierarchy_level = issuetype_data.get('hierarchyLevel', 0)  # Default hierarchy level
             tenant_id = getattr(self.integration, 'tenant_id', None) if self.integration else None
 
@@ -253,23 +253,23 @@ class JiraDataProcessor:
                     WitMapping.tenant_id == tenant_id
                 ).first()
 
-                if issuetype_mapping:
-                    issuetype_mapping_id = issuetype_mapping.id
+                if wit_mapping:
+                    wit_mapping_id = wit_mapping.id
                     # Get hierarchy level from the related hierarchy record
-                    hierarchy_level = issuetype_mapping.wits_hierarchy.level_number if issuetype_mapping.wits_hierarchy else 0
-                    logger.debug(f"Mapped issuetype '{original_name}' to '{issuetype_mapping.wit_to}' (hierarchy: {hierarchy_level}) via issuetype mapping")
+                    hierarchy_level = wit_mapping.wit_hierarchy.level_number if wit_mapping.wit_hierarchy else 0
+                    logger.debug(f"Mapped issuetype '{original_name}' to '{wit_mapping.wit_to}' (hierarchy: {hierarchy_level}) via wit mapping")
                 else:
-                    logger.warning(f"No issuetype mapping found in database for issuetype '{original_name}' and client {tenant_id}")
+                    logger.warning(f"No wit mapping found in database for issuetype '{original_name}' and client {tenant_id}")
             else:
                 if not original_name:
                     logger.warning("No issuetype name provided for mapping")
                 if not tenant_id:
-                    logger.warning("No tenant_id available for issuetype mapping")
+                    logger.warning("No tenant_id available for wit mapping")
 
             return {
                 'external_id': issuetype_data.get('id', None),
                 'original_name': original_name,
-                'wit_mapping_id': issuetype_mapping_id,  # Foreign key relationship to WitMapping
+                'wit_mapping_id': wit_mapping_id,  # Foreign key relationship to WitMapping
                 'description': safe_unicode_string(issuetype_data.get('description', None)),
                 'hierarchy_level': hierarchy_level,
                 'active': True  # Default to active for new issue types

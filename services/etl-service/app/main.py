@@ -879,7 +879,7 @@ async def clear_all_user_sessions():
         # Verify we can connect to Backend Service
         import httpx
         try:
-            async with httpx.AsyncTenant(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{auth_service.backend_service_url}/api/v1/health")
                 if response.status_code == 401:
                     logger.info("Backend Service is running and authentication is required (expected)")

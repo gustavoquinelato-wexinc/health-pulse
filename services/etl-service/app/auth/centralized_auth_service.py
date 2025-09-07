@@ -255,7 +255,7 @@ class CentralizedAuthService:
             logger.info(f"Backend URL: {self.backend_service_url}")
             logger.info(f"Token (first 20 chars): {token[:20]}...")
 
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 url = f"{self.backend_service_url}/api/v1/auth/logout"
                 logger.info(f"POST {url}")
 

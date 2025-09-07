@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, distinct
 from app.core.database import get_db_session
 from app.models.unified_models import (
-    JobSchedule, Project, Wit, Status, WorkItem, WorkItemChangelog, WitPrLinks
+    JobSchedule, Project, Wit, Status, WorkItem, Changelog, WitPrLinks
 )
 from app.schemas.api_schemas import (
     JobRunRequest, JobRunResponse, JobStatusResponse, JobStatus
@@ -403,20 +403,20 @@ async def get_jira_summary(
         }
 
         # ✅ SECURITY: Changelogs summary filtered by tenant_id
-        changelogs_count = db.query(func.count(WorkItemChangelog.id)).filter(WorkItemChangelog.tenant_id == user.tenant_id).scalar() or 0
-        active_changelogs = db.query(func.count(WorkItemChangelog.id)).filter(
-            WorkItemChangelog.tenant_id == user.tenant_id,
-            WorkItemChangelog.active == True
+        changelogs_count = db.query(func.count(Changelog.id)).filter(Changelog.tenant_id == user.tenant_id).scalar() or 0
+        active_changelogs = db.query(func.count(Changelog.id)).filter(
+            Changelog.tenant_id == user.tenant_id,
+            Changelog.active == True
         ).scalar() or 0
 
         # ✅ SECURITY: Recent changelog activity (last 30 days) filtered by tenant_id
         from datetime import timedelta
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_changelogs = db.query(func.count(WorkItemChangelog.id))\
+        recent_changelogs = db.query(func.count(Changelog.id))\
             .filter(
-                WorkItemChangelog.tenant_id == user.tenant_id,
-                WorkItemChangelog.created_at >= thirty_days_ago,
-                WorkItemChangelog.active == True
+                Changelog.tenant_id == user.tenant_id,
+                Changelog.created_at >= thirty_days_ago,
+                Changelog.active == True
             ).scalar() or 0
 
         summary["tables"]["changelogs"] = {

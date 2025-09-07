@@ -1,17 +1,17 @@
 """
 Shared Async HTTP client for ETL service.
-Reuses a single httpx.AsyncTenant with keep-alive to reduce latency.
+Reuses a single httpx.AsyncClient with keep-alive to reduce latency.
 """
 from typing import Optional
 import httpx
 
-_client: Optional[httpx.AsyncTenant] = None
+_client: Optional[httpx.AsyncClient] = None
 
 
-def get_async_client() -> httpx.AsyncTenant:
+def get_async_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncTenant(
+        _client = httpx.AsyncClient(
             timeout=5.0,
             verify=False,  # local dev
             follow_redirects=True,

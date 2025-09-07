@@ -85,8 +85,8 @@ class WorkItem(Base):
     # Relationships
     project_id = Column(Integer, ForeignKey('projects.id'))
     status_id = Column(Integer)
-    issuetype_id = Column(Integer)
-    parent_id = Column(Integer, ForeignKey('issues.id'))
+    wit_id = Column(Integer)
+    parent_id = Column(Integer, ForeignKey('work_items.id'))
     
     # Metadata
     comment_count = Column(Integer, default=0)
@@ -112,7 +112,7 @@ class WorkItem(Base):
             'description': self.description,
             'priority': self.priority,
             'status_name': self.status_name,
-            'issuetype_name': self.issuetype_name,
+            'wit_name': self.wit_name,
             'assignee': self.assignee,
             'assignee_id': self.assignee_id,
             'reporter': self.reporter,
@@ -131,13 +131,13 @@ class WorkItem(Base):
             'total_lead_time_seconds': self.total_lead_time_seconds,
             'project_id': self.project_id,
             'status_id': self.status_id,
-            'issuetype_id': self.issuetype_id,
+            'wit_id': self.wit_id,
             'parent_id': self.parent_id,
             'comment_count': self.comment_count,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'active': self.active,
-            'client_id': self.client_id
+            'tenant_id': self.tenant_id
         }
         
         # Add custom fields
@@ -169,10 +169,10 @@ class AILearningMemory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     active = Column(Boolean, default=True)
-    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
-    
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
     # Relationships
-    client = relationship("Client", back_populates="ai_learning_memories")
+    tenant = relationship("Tenant", back_populates="ai_learning_memories")
     
     def to_dict(self):
         return {
@@ -187,7 +187,7 @@ class AILearningMemory(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'active': self.active,
-            'client_id': self.client_id
+            'tenant_id': self.tenant_id
         }
 
 class MLPredictionLog(Base):
@@ -203,10 +203,10 @@ class MLPredictionLog(Base):
     response_time_ms = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     active = Column(Boolean, default=True)
-    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
-    
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
     # Relationships
-    client = relationship("Client", back_populates="ml_prediction_logs")
+    tenant = relationship("Tenant", back_populates="ml_prediction_logs")
     
     def to_dict(self):
         return {
@@ -220,7 +220,7 @@ class MLPredictionLog(Base):
             'response_time_ms': self.response_time_ms,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'active': self.active,
-            'client_id': self.client_id
+            'tenant_id': self.tenant_id
         }
 
 class MLAnomalyAlert(Base):
@@ -236,10 +236,10 @@ class MLAnomalyAlert(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     active = Column(Boolean, default=True)
-    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
-    
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
     # Relationships
-    client = relationship("Client", back_populates="ml_anomaly_alerts")
+    tenant = relationship("Tenant", back_populates="ml_anomaly_alerts")
     acknowledged_user = relationship("User")
     
     def to_dict(self):
@@ -254,33 +254,33 @@ class MLAnomalyAlert(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'active': self.active,
-            'client_id': self.client_id
+            'tenant_id': self.tenant_id
         }
 ```
 
-### Enhanced Client Model
+### Enhanced Tenant Model
 ```python
-class Client(Base):
-    __tablename__ = 'clients'
-    
+class Tenant(Base):
+    __tablename__ = 'tenants'
+
     # All existing fields (unchanged)
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False, unique=True)
     # ... all existing fields ...
-    
+
     # NEW: Vector column
     embedding: Optional[List[float]] = Column(ARRAY(Float), nullable=True)
-    
+
     # Existing relationships (all preserved)
-    users = relationship("User", back_populates="client")
-    projects = relationship("Project", back_populates="client")
-    issues = relationship("Issue", back_populates="client")
+    users = relationship("User", back_populates="tenant")
+    projects = relationship("Project", back_populates="tenant")
+    work_items = relationship("WorkItem", back_populates="tenant")
     # ... all existing relationships ...
-    
+
     # NEW: ML monitoring relationships
-    ai_learning_memories = relationship("AILearningMemory", back_populates="client")
-    ml_prediction_logs = relationship("MLPredictionLog", back_populates="client")
-    ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="client")
+    ai_learning_memories = relationship("AILearningMemory", back_populates="tenant")
+    ml_prediction_logs = relationship("MLPredictionLog", back_populates="tenant")
+    ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="tenant")
 ```
 
 ### ETL Models Synchronization
@@ -288,8 +288,8 @@ class Client(Base):
 # services/etl-service/app/models/unified_models.py
 
 # Mirror all backend models exactly
-class Issue(Base):
-    __tablename__ = 'issues'
+class WorkItem(Base):
+    __tablename__ = 'work_items'
     
     # All fields identical to backend model
     # Including: embedding: Optional[List[float]] = Column(ARRAY(Float), nullable=True)
@@ -314,7 +314,7 @@ class Issue(Base):
 2. **ML Models**: 3 new ML monitoring models created
 3. **Serialization**: to_dict() methods handle new fields
 4. **ETL Sync**: ETL models mirror backend exactly
-5. **Relationships**: Client model has ML relationships
+5. **Relationships**: Tenant model has ML relationships
 6. **Compatibility**: Existing functionality unchanged
 7. **Testing**: All models instantiate without errors
 
@@ -322,7 +322,7 @@ class Issue(Base):
 
 - [ ] All 24 backend models updated with vector columns
 - [ ] ML monitoring models created and functional
-- [ ] Client model relationships updated
+- [ ] Tenant model relationships updated
 - [ ] ETL models synchronized with backend
 - [ ] Model instantiation works without errors
 - [ ] Serialization methods handle new fields

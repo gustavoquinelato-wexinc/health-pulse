@@ -1,5 +1,5 @@
 """
-Jira API Tenant
+Jira API Client
 
 Handles all interactions with the Jira REST API for ETL operations.
 """

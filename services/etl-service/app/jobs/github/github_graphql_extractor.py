@@ -1023,17 +1023,17 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
                 # Update commits with actual PR IDs
                 for commit in bulk_commits:
                     pr_external_id = commit.pop('pull_request_external_id')
-                    commit['pull_request_id'] = pr_mappings.get(pr_external_id)
+                    commit['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # Update reviews with actual PR IDs
                 for review in bulk_reviews:
                     pr_external_id = review.pop('pull_request_external_id')
-                    review['pull_request_id'] = pr_mappings.get(pr_external_id)
+                    review['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # Update comments with actual PR IDs
                 for comment in bulk_comments:
                     pr_external_id = comment.pop('pull_request_external_id')
-                    comment['pull_request_id'] = pr_mappings.get(pr_external_id)
+                    comment['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # DELETE existing nested data for full refresh approach
                 pr_ids_to_clean = list(pr_mappings.values())

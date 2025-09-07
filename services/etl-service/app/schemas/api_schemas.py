@@ -122,7 +122,7 @@ class ProjectInfo(BaseModel):
 
 
 class WorkItemInfo(BaseModel):
-    """Information about an issue."""
+    """Information about a work item."""
     id: int
     key: str
     summary: str
@@ -142,7 +142,7 @@ class WorkItemInfo(BaseModel):
 class CommitInfo(BaseModel):
     """Information about a commit."""
     sha: str
-    issue_id: int
+    work_item_id: int
     repository_url: Optional[str] = None
     author_name: Optional[str] = None
     message: Optional[str] = None

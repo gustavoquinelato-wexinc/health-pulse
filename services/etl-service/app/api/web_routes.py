@@ -536,7 +536,7 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
         from app.core.database import get_database
         from app.models.unified_models import (
             Project, Wit, Status, WorkItem,
-            WorkItemChangelog, WitPrLinks
+            Changelog, WitPrLinks
         )
         from sqlalchemy import func, desc
 
@@ -590,10 +590,10 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
             ).group_by(Status.original_name).order_by(desc('count')).limit(10).all()
 
             # Changelogs summary
-            changelogs_total = session.query(WorkItemChangelog).filter(WorkItemChangelog.tenant_id == user.tenant_id).count()
-            changelogs_active = session.query(WorkItemChangelog).filter(
-                WorkItemChangelog.tenant_id == user.tenant_id,
-                WorkItemChangelog.active == True
+            changelogs_total = session.query(Changelog).filter(Changelog.tenant_id == user.tenant_id).count()
+            changelogs_active = session.query(Changelog).filter(
+                Changelog.tenant_id == user.tenant_id,
+                Changelog.active == True
             ).count()
 
             # PR Links summary
@@ -1091,7 +1091,7 @@ async def issuetype_mappings_page(request: Request):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncTenant() as client:
+                async with httpx.AsyncClient() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
@@ -1256,7 +1256,7 @@ async def workflows_page(request: Request):
                 from app.core.config import get_settings
                 settings = get_settings()
 
-                async with httpx.AsyncTenant() as client:
+                async with httpx.AsyncClient() as client:
                     response_color = await client.get(
                         f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
                         headers={"Authorization": f"Bearer {token}"}
@@ -2109,11 +2109,11 @@ async def start_job(
 ):
     """Force start a specific job with optional execution parameters"""
     try:
-        valid_jobs = ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD']
-        if job_name not in valid_jobs:
+        valid_jobs = ['jira', 'github', 'wex fabric', 'wex ad']
+        if job_name.lower() not in valid_jobs:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid job name. Must be one of: {', '.join(valid_jobs)}"
+                detail=f"Invalid job name. Must be one of: Jira, GitHub, WEX Fabric, WEX AD"
             )
         
         # Log execution parameters
@@ -2207,7 +2207,7 @@ async def start_job(
 async def stop_job(job_name: str, user: UserData = Depends(require_admin_authentication)):
     """Force stop a specific job - requires admin privileges"""
     try:
-        if job_name not in ['Jira', 'GitHub']:
+        if job_name.lower() not in ['jira', 'github']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid job name"
@@ -2334,7 +2334,7 @@ async def get_jobs_status(user: UserData = Depends(require_admin_authentication)
 async def toggle_job_active(job_name: str, request: JobToggleRequest, user: UserData = Depends(require_admin_authentication)):
     """Toggle job active/inactive status - requires admin privileges"""
     try:
-        if job_name not in ['Jira', 'GitHub']:
+        if job_name.lower() not in ['jira', 'github']:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid job name"

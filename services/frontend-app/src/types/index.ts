@@ -81,7 +81,7 @@ export type {
   AuthStorage,
   
   // API client types
-  AuthApiTenant,
+  AuthApiClient,
 } from './auth';
 
 // Common utility types

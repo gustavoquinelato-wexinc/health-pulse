@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    Integration, Project, WorkItem, WorkItemChangelog, Repository,
+    Integration, Project, WorkItem, Changelog, Repository,
     Pr, JobSchedule, SystemSettings
 )
 from app.auth.centralized_auth_middleware import UserData, require_admin_authentication

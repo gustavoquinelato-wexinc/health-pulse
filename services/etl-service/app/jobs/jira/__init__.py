@@ -5,7 +5,7 @@ This package contains all components for Jira data extraction and processing.
 Refactored from the monolithic jira_job.py for better maintainability.
 
 Structure:
-- jira_client.py: JiraAPITenant for API interactions
+- jira_client.py: JiraAPIClient for API interactions
 - jira_processor.py: JiraDataProcessor for data transformation
 - jira_extractors.py: All extraction functions (_extract_*)
 - jira_bulk_operations.py: Bulk database operations

@@ -566,7 +566,7 @@ async def notify_etl_user_theme_change(user_id: int, theme_mode: str):
             logger.warning("ETL_SERVICE_URL not configured, skipping theme change notification")
             return
 
-        async with httpx.AsyncTenant(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
                 f"{etl_service_url}/api/v1/internal/user-theme-changed",
                 json={

@@ -57,7 +57,7 @@ async def get_current_user(
         settings = get_settings()
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-        async with httpx.AsyncTenant() as client:
+        async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{auth_service_url}/api/v1/token/validate",
                 headers={"Authorization": f"Bearer {credentials.credentials}"},
@@ -294,7 +294,7 @@ def require_web_permission(resource: str, action: str):
                 token = auth_header.split(" ")[1]
 
         try:
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 headers = {"Authorization": f"Bearer {token}"} if token else {}
                 response = await client.post(
                     f"{auth_service_url}/api/v1/permissions/check",

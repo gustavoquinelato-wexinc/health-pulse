@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.logging_config import get_client_logger, RequestLogger
+from app.core.logging_config import get_client_logger, get_tenant_logger, RequestLogger
 from app.auth.auth_service import get_auth_service
 
 

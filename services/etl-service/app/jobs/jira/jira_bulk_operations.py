@@ -53,7 +53,7 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
             param_prefix = f"p{i}_{idx}_"
             
             # Handle primary key columns (use sequence only for actual primary keys)
-            # Foreign key columns (like project_id in issues table) should use actual values, not sequences
+            # Foreign key columns (like project_id in work_items table) should use actual values, not sequences
             value_placeholders = []
             for col in columns:
                 # Only use sequences for actual primary key columns in their respective tables

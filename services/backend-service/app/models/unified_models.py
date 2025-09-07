@@ -270,7 +270,7 @@ class Wit(Base, IntegrationBaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
-    wit_mapping_id = Column(Integer, ForeignKey('wits_mappings.id'), quote=False, nullable=True, name="wit_mapping_id")
+    wit_mapping_id = Column(Integer, ForeignKey('wits_mappings.id'), quote=False, nullable=True, name="wits_mapping_id")
     description = Column(String, quote=False, name="description")
     hierarchy_level = Column(Integer, quote=False, nullable=False, name="hierarchy_level")
 
@@ -463,7 +463,7 @@ class Changelog(Base, IntegrationBaseEntity):
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    work_item_id = Column(Integer, ForeignKey('work_items.id'), quote=False, nullable=False, name="issue_id")
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), quote=False, nullable=False, name="work_item_id")
     external_id = Column(String, quote=False, name="external_id")  # e.g., "BEX-123-456"
 
     # Status transition information
@@ -518,7 +518,7 @@ class Pr(Base, IntegrationBaseEntity):
     external_id = Column(String, quote=False, name="external_id")
     external_repo_id = Column(String, quote=False, name="external_repo_id")  # GitHub repository ID for linking
     repository_id = Column(Integer, ForeignKey('repositories.id'), nullable=False, quote=False, name="repository_id")
-    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=True, quote=False, name="issue_id")
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=True, quote=False, name="work_item_id")
     number = Column(Integer, quote=False, name="number")
     name = Column(String, quote=False, name="name")
     user_name = Column(String, quote=False, name="user_name")
@@ -924,7 +924,7 @@ class WitPrLinks(Base, IntegrationBaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # Foreign keys
-    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=False, quote=False, name="issue_id")
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=False, quote=False, name="work_item_id")
 
     # PR identification (for joining with pull_requests table)
     external_repo_id = Column(String, nullable=False, quote=False, name="external_repo_id")  # GitHub repo ID

@@ -144,7 +144,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             settings = get_settings()
             auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-            async with httpx.AsyncTenant() as client:
+            async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{auth_service_url}/api/v1/token/validate",
                     headers={"Authorization": f"Bearer {token}"},

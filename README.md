@@ -2,7 +2,7 @@
 
 **Enterprise-Grade DevOps Analytics & Project Intelligence Platform**
 
-Pulse Platform is a comprehensive, multi-tenant SaaS solution designed for senior leadership and C-level executives to gain deep insights into their software development lifecycle. Built with enterprise-scale architecture, the platform provides real-time analytics, DORA metrics, and intelligent project tracking across multiple clients and teams.
+Pulse Platform is a comprehensive, multi-tenant SaaS solution designed for senior leadership and C-level executives to gain deep insights into their software development lifecycle. Built with enterprise-scale architecture, the platform provides real-time analytics, DORA metrics, and intelligent project tracking across multiple tenants and teams.
 
 ## 🚀 Platform Overview
 
@@ -15,14 +15,14 @@ Pulse Platform transforms raw development data into actionable business intellig
 - **Project Intelligence**: Real-time project status, risk assessment, delivery predictions
 - **Multi-Source Integration**: Seamless data aggregation from Jira, GitHub, and other tools
 - **Executive Dashboards**: C-level friendly visualizations and KPIs
-- **Multi-Tenant Architecture**: Secure client isolation with enterprise-grade security
+- **Multi-Tenant Architecture**: Secure tenant isolation with enterprise-grade security
 ### Why Pulse Platform?
 
 **🏢 Enterprise-Ready**
-- Multi-tenant SaaS architecture with complete client isolation
+- Multi-tenant SaaS architecture with complete tenant isolation
 - Primary-replica database setup for high availability and performance
 - Comprehensive RBAC system with granular permissions
-- Client-specific logging and audit trails
+- Tenant-specific logging and audit trails
 
 **📊 Business Intelligence**
 - Transform development metrics into business insights
@@ -38,7 +38,7 @@ Pulse Platform transforms raw development data into actionable business intellig
 
 **🎨 Executive Experience**
 - Clean, professional UI designed for senior leadership
-- Customizable color schemes and branding per client
+- Customizable color schemes and branding per tenant
 - User-specific light/dark mode preferences with enterprise aesthetics
 - Mobile-responsive design for on-the-go access
 
@@ -69,7 +69,7 @@ Pulse Platform transforms raw development data into actionable business intellig
 - **Secure API-only authentication service**
 - **Cross-service authentication and OKTA integration ready**
 - JWT-based authentication with session management
-- Client-specific data isolation and security
+- Tenant-specific data isolation and security
 - Real-time job monitoring and recovery capabilities
 
 ## 📚 Documentation
@@ -81,7 +81,7 @@ This platform includes comprehensive documentation to help you understand, deplo
 | Document | Description |
 |----------|-------------|
 | **[Architecture Guide](docs/architecture.md)** | System design, topology, multi-tenancy, database setup, Docker configurations |
-| **[Security & Authentication](docs/security-authentication.md)** | RBAC, JWT tokens, permissions, client isolation, security best practices |
+| **[Security & Authentication](docs/security-authentication.md)** | RBAC, JWT tokens, permissions, tenant isolation, security best practices |
 | **[Jobs & Orchestration](docs/jobs-orchestration.md)** | ETL jobs, orchestrator, recovery strategies, Jira/GitHub integrations |
 | **[System Settings](docs/system-settings.md)** | Configuration reference, settings explanation, customization options |
 | **[Installation & Setup](docs/installation-setup.md)** | Requirements, deployment, database setup, getting started guide |
@@ -112,7 +112,7 @@ The platform provides comprehensive API documentation through OpenAPI/Swagger:
 ## 🌟 Key Differentiators
 
 **Enterprise-Grade Security**
-- Multi-tenant architecture with complete client isolation
+- Multi-tenant architecture with complete tenant isolation
 - Comprehensive audit logging and compliance features
 - Role-based access control with granular permissions
 
@@ -170,7 +170,7 @@ For detailed setup instructions, see our [Installation & Setup Guide](docs/insta
 1. **Prerequisites**: System requirements and dependencies
 2. **Database Setup**: PostgreSQL primary-replica configuration
 3. **Service Deployment**: Docker-based deployment strategies
-4. **Initial Configuration**: Client setup and system settings
+4. **Initial Configuration**: Tenant setup and system settings
 5. **Integration Setup**: Connecting Jira and GitHub
 
 ## 📞 Support & Maintenance
@@ -179,7 +179,7 @@ Pulse Platform is designed for enterprise reliability with comprehensive monitor
 
 - **Health Monitoring**: Real-time system health checks
 - **Automated Recovery**: Self-healing job orchestration and AI validation
-- **Comprehensive Logging**: Client-specific audit trails
+- **Comprehensive Logging**: Tenant-specific audit trails
 - **Performance Metrics**: Built-in performance monitoring
 
 ---

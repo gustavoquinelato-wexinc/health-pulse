@@ -3,7 +3,7 @@
 🚨 CRITICAL SECURITY TEST: Tenant Isolation Validation
 
 This script tests that all database operations properly filter by tenant_id
-to prevent cross-client data access vulnerabilities.
+to prevent cross-tenant data access vulnerabilities.
 
 IMPORTANT: Run this test regularly to ensure no security regressions.
 """
@@ -14,8 +14,8 @@ import os
 # Add the services directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services', 'etl-service'))
 
-def test_client_isolation_security():
-    """Test client isolation across all critical functions."""
+def test_tenant_isolation_security():
+    """Test tenant isolation across all critical functions."""
     
     print("🚨 CRITICAL SECURITY TEST: Tenant Isolation Validation")
     print("=" * 60)
@@ -31,50 +31,50 @@ def test_client_isolation_security():
         
         database = get_database()
         
-        # Step 1: Verify multiple clients exist
+        # Step 1: Verify multiple tenants exist
         print("\n📋 Step 1: Verifying Multi-Tenant Setup")
         with database.get_session() as session:
-            clients = session.query(Tenant).filter(Tenant.active == True).all()
-            
-            if len(clients) < 2:
-                print("❌ Need at least 2 active clients for security testing")
-                print("Available clients:")
-                for client in clients:
-                    print(f"  • {client.name} (ID: {client.id}) - {'ACTIVE' if client.active else 'INACTIVE'}")
+            tenants = session.query(Tenant).filter(Tenant.active == True).all()
+
+            if len(tenants) < 2:
+                print("❌ Need at least 2 active tenants for security testing")
+                print("Available tenants:")
+                for tenant in tenants:
+                    print(f"  • {tenant.name} (ID: {tenant.id}) - {'ACTIVE' if tenant.active else 'INACTIVE'}")
                 return False
-                
-            print(f"✅ Found {len(clients)} active clients for testing")
-            for client in clients:
-                print(f"  • {client.name} (ID: {client.id})")
+
+            print(f"✅ Found {len(tenants)} active tenants for testing")
+            for tenant in tenants:
+                print(f"  • {tenant.name} (ID: {tenant.id})")
         
         # Step 2: Test Metrics Helpers Security
         print("\n📋 Step 2: Testing Metrics Helpers Tenant Isolation")
         
-        client1_id = clients[0].id
-        client2_id = clients[1].id
-        
+        tenant1_id = tenants[0].id
+        tenant2_id = tenants[1].id
+
         with database.get_session() as session:
-            # Test get_active_issues_query
+            # Test get_active_work_items_query
             try:
-                client1_issues = get_active_issues_query(session, client1_id).count()
-                client2_issues = get_active_issues_query(session, client2_id).count()
-                print(f"  ✅ get_active_issues_query: Tenant {client1_id} = {client1_issues}, Tenant {client2_id} = {client2_issues}")
+                tenant1_work_items = get_active_work_items_query(session, tenant1_id).count()
+                tenant2_work_items = get_active_work_items_query(session, tenant2_id).count()
+                print(f"  ✅ get_active_work_items_query: Tenant {tenant1_id} = {tenant1_work_items}, Tenant {tenant2_id} = {tenant2_work_items}")
             except Exception as e:
-                print(f"  ❌ get_active_issues_query failed: {e}")
-            
+                print(f"  ❌ get_active_work_items_query failed: {e}")
+
             # Test get_workflow_metrics
             try:
-                client1_metrics = get_workflow_metrics(session, client1_id)
-                client2_metrics = get_workflow_metrics(session, client2_id)
-                print(f"  ✅ get_workflow_metrics: Tenant {client1_id} = {len(client1_metrics)} workflows, Tenant {client2_id} = {len(client2_metrics)} workflows")
+                tenant1_metrics = get_workflow_metrics(session, tenant1_id)
+                tenant2_metrics = get_workflow_metrics(session, tenant2_id)
+                print(f"  ✅ get_workflow_metrics: Tenant {tenant1_id} = {len(tenant1_metrics)} workflows, Tenant {tenant2_id} = {len(tenant2_metrics)} workflows")
             except Exception as e:
                 print(f"  ❌ get_workflow_metrics failed: {e}")
-            
+
             # Test get_data_quality_report
             try:
-                client1_quality = get_data_quality_report(session, client1_id)
-                client2_quality = get_data_quality_report(session, client2_id)
-                print(f"  ✅ get_data_quality_report: Tenant {client1_id} = {client1_quality['total_issues']} issues, Tenant {client2_id} = {client2_quality['total_issues']} issues")
+                tenant1_quality = get_data_quality_report(session, tenant1_id)
+                tenant2_quality = get_data_quality_report(session, tenant2_id)
+                print(f"  ✅ get_data_quality_report: Tenant {tenant1_id} = {tenant1_quality['total_work_items']} work items, Tenant {tenant2_id} = {tenant2_quality['total_work_items']} work items")
             except Exception as e:
                 print(f"  ❌ get_data_quality_report failed: {e}")
         
@@ -82,19 +82,19 @@ def test_client_isolation_security():
         print("\n📋 Step 3: Testing Cross-Tenant Data Isolation")
         
         with database.get_session() as session:
-            # Count total issues per client
-            for client in clients:
-                issue_count = session.query(WorkItem).filter(WorkItem.tenant_id == client.id).count()
-                print(f"  • {client.name} (ID: {client.id}): {issue_count} issues")
-            
-            # Verify no cross-client data leakage
-            total_issues_all = session.query(WorkItem).count()
-            total_issues_sum = sum(session.query(WorkItem).filter(WorkItem.tenant_id == client.id).count() for client in clients)
-            
-            if total_issues_all == total_issues_sum:
-                print(f"  ✅ Data integrity check passed: {total_issues_all} total issues = sum of client issues")
+            # Count total work items per tenant
+            for tenant in tenants:
+                work_item_count = session.query(WorkItem).filter(WorkItem.tenant_id == tenant.id).count()
+                print(f"  • {tenant.name} (ID: {tenant.id}): {work_item_count} work items")
+
+            # Verify no cross-tenant data leakage
+            total_work_items_all = session.query(WorkItem).count()
+            total_work_items_sum = sum(session.query(WorkItem).filter(WorkItem.tenant_id == tenant.id).count() for tenant in tenants)
+
+            if total_work_items_all == total_work_items_sum:
+                print(f"  ✅ Data integrity check passed: {total_work_items_all} total work items = sum of tenant work items")
             else:
-                print(f"  ⚠️ Data integrity warning: {total_issues_all} total ≠ {total_issues_sum} sum (orphaned data?)")
+                print(f"  ⚠️ Data integrity warning: {total_work_items_all} total ≠ {total_work_items_sum} sum (orphaned data?)")
         
         # Step 4: Test Function Parameter Requirements
         print("\n📋 Step 4: Testing Function Parameter Requirements")
@@ -118,9 +118,9 @@ def test_client_isolation_security():
         print("\n✅ Tenant Isolation Security Test Complete!")
         print("\n🎯 Security Status:")
         print("  • All metrics functions require tenant_id parameter")
-        print("  • Cross-client data isolation verified")
+        print("  • Cross-tenant data isolation verified")
         print("  • No unauthorized data access detected")
-        print("\n🔒 SECURITY: Multi-instance architecture prevents cross-client access")
+        print("\n🔒 SECURITY: Multi-instance architecture prevents cross-tenant access")
         
         return True
         
@@ -131,7 +131,7 @@ def test_client_isolation_security():
         return False
 
 if __name__ == "__main__":
-    success = test_client_isolation_security()
+    success = test_tenant_isolation_security()
     if not success:
         print("\n🚨 SECURITY TEST FAILED - REVIEW IMMEDIATELY")
         sys.exit(1)

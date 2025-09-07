@@ -110,15 +110,15 @@ class ApiService {
     return apiTenant.delete(`/api/v1/work-items/${workItemId}`);
   }
 
-  async getWorkItemsStats(clientId: number): Promise<any> {
-    return apiTenant.get(`/api/v1/issues/stats?tenant_id=${clientId}`);
+  async getWorkItemsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/work-items/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Pull Requests API
    */
   async getPrs(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       repository?: string;
       status?: string;
@@ -128,14 +128,14 @@ class ApiService {
   ): Promise<PrsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      tenant_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.repository) additionalParams.append('repository', params.repository);
     if (params.status) additionalParams.append('status', params.status);
     if (params.user_name) additionalParams.append('user_name', params.user_name);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/pull-requests?${allParams}`);
@@ -161,15 +161,15 @@ class ApiService {
     return apiTenant.delete(`/api/v1/pull-requests/${prId}`);
   }
 
-  async getPrsStats(clientId: number): Promise<any> {
-    return apiTenant.get(`/api/v1/pull-requests/stats?tenant_id=${clientId}`);
+  async getPrsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/pull-requests/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Projects API
    */
   async getProjects(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       project_type?: string;
       include_ml_fields?: boolean;
@@ -177,12 +177,12 @@ class ApiService {
   ): Promise<ProjectsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      tenant_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.project_type) additionalParams.append('project_type', params.project_type);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/projects?${allParams}`);
@@ -221,18 +221,18 @@ class ApiService {
     params: PaginationParams & { include_ml_fields?: boolean } = {}
   ): Promise<any> {
     const queryParams = this.buildQueryParams(params);
-    return apiTenant.get(`/api/v1/projects/${projectId}/issues?${queryParams}`);
+    return apiTenant.get(`/api/v1/projects/${projectId}/work-items?${queryParams}`);
   }
 
-  async getProjectsStats(clientId: number): Promise<any> {
-    return apiTenant.get(`/api/v1/projects/stats?tenant_id=${clientId}`);
+  async getProjectsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/projects/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Users API
    */
   async getUsers(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       active_only?: boolean;
       include_ml_fields?: boolean;
@@ -240,12 +240,12 @@ class ApiService {
   ): Promise<UsersResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      tenant_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.active_only !== undefined) additionalParams.append('active_only', params.active_only.toString());
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/users?${allParams}`);
@@ -283,8 +283,8 @@ class ApiService {
     return apiTenant.get(`/api/v1/users/${userId}/permissions`);
   }
 
-  async getUsersStats(clientId: number): Promise<any> {
-    return apiTenant.get(`/api/v1/users/stats?tenant_id=${clientId}`);
+  async getUsersStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/users/stats?tenant_id=${tenantId}`);
   }
 
   /**
@@ -310,52 +310,52 @@ class ApiService {
    * ML Monitoring APIs (Admin only)
    */
   async getLearningMemory(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { error_type?: string } = {}
   ): Promise<LearningMemoryResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.error_type) additionalParams.append('error_type', params.error_type);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/ml/learning-memory?${allParams}`);
   }
 
   async getPredictions(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { model_name?: string; prediction_type?: string } = {}
   ): Promise<PredictionsResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.model_name) additionalParams.append('model_name', params.model_name);
     if (params.prediction_type) additionalParams.append('prediction_type', params.prediction_type);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/ml/predictions?${allParams}`);
   }
 
   async getAnomalyAlerts(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { acknowledged?: boolean; severity?: string } = {}
   ): Promise<AnomalyAlertsResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.acknowledged !== undefined) additionalParams.append('acknowledged', params.acknowledged.toString());
     if (params.severity) additionalParams.append('severity', params.severity);
-    additionalParams.append('tenant_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
     return apiTenant.get(`/api/v1/ml/anomaly-alerts?${allParams}`);
   }
 
-  async getMLStats(clientId: number, days: number = 30): Promise<MLStatsResponse> {
-    return apiTenant.get(`/api/v1/ml/stats?tenant_id=${clientId}&days=${days}`);
+  async getMLStats(tenantId: number, days: number = 30): Promise<MLStatsResponse> {
+    return apiTenant.get(`/api/v1/ml/stats?tenant_id=${tenantId}&days=${days}`);
   }
 
-  async getMLMonitoringHealth(clientId: number): Promise<any> {
-    return apiTenant.get(`/api/v1/ml/health?tenant_id=${clientId}`);
+  async getMLMonitoringHealth(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/ml/health?tenant_id=${tenantId}`);
   }
 
   /**

@@ -2027,7 +2027,7 @@ async def deactivate_issuetype_mapping(
 
             # Get dependent issue types
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.issuetype_mapping_id == mapping_id,
+                Wit.wit_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2054,14 +2054,14 @@ async def deactivate_issuetype_mapping(
 
                 # Reassign all dependent issue types
                 for issuetype in dependent_issuetypes:
-                    issuetype.issuetype_mapping_id = deactivation_data.target_mapping_id
+                    issuetype.wit_mapping_id = deactivation_data.target_mapping_id
 
                 if was_originally_active:
-                    message = f"WorkItem type mapping deactivated and {len(dependent_issuetypes)} issue types reassigned to '{target_mapping.issuetype_to}'"
-                    logger.info(f"Admin {user.email} deactivated mapping {mapping_id} and reassigned {len(dependent_issuetypes)} issue types to {target_mapping.issuetype_to}")
+                    message = f"WorkItem type mapping deactivated and {len(dependent_issuetypes)} issue types reassigned to '{target_mapping.wit_to}'"
+                    logger.info(f"Admin {user.email} deactivated mapping {mapping_id} and reassigned {len(dependent_issuetypes)} issue types to {target_mapping.wit_to}")
                 else:
-                    message = f"{len(dependent_issuetypes)} issue types reassigned to '{target_mapping.issuetype_to}' (mapping was already inactive)"
-                    logger.info(f"Admin {user.email} reassigned {len(dependent_issuetypes)} issue types from inactive mapping {mapping_id} to {target_mapping.issuetype_to}")
+                    message = f"{len(dependent_issuetypes)} issue types reassigned to '{target_mapping.wit_to}' (mapping was already inactive)"
+                    logger.info(f"Admin {user.email} reassigned {len(dependent_issuetypes)} issue types from inactive mapping {mapping_id} to {target_mapping.wit_to}")
 
             elif deactivation_data.action == "keep_issuetypes":
                 message = f"WorkItem type mapping deactivated ({len(dependent_issuetypes)} issue types will continue to reference this inactive mapping)"
@@ -2260,7 +2260,7 @@ async def delete_issuetype_mapping(
 
             # Get dependent issue types
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.issuetype_mapping_id == mapping_id,
+                Wit.wit_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2295,7 +2295,7 @@ async def delete_issuetype_mapping(
 
                     # Reassign all dependent issue types to the target mapping
                     for issuetype in dependent_issuetypes:
-                        issuetype.issuetype_mapping_id = deletion_data.target_mapping_id
+                        issuetype.wit_mapping_id = deletion_data.target_mapping_id
                         issuetype.last_updated_at = datetime.utcnow()
 
                     message = f"WorkItem type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
@@ -2356,7 +2356,7 @@ async def get_issuetype_mapping_dependencies(
 
             # Count dependent issue types that use this mapping
             dependent_issuetypes_count = session.query(Wit).filter(
-                Wit.issuetype_mapping_id == mapping_id,
+                Wit.wit_mapping_id == mapping_id,
                 Wit.active == True
             ).count()
 
@@ -2364,7 +2364,7 @@ async def get_issuetype_mapping_dependencies(
             dependent_issues_count = session.query(WorkItem).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).filter(
-                Wit.issuetype_mapping_id == mapping_id,
+                Wit.wit_mapping_id == mapping_id,
                 Wit.active == True,
                 WorkItem.active == True
             ).count()
@@ -2378,7 +2378,7 @@ async def get_issuetype_mapping_dependencies(
 
             # Get detailed dependency information
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.issuetype_mapping_id == mapping_id,
+                Wit.wit_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2617,7 +2617,7 @@ async def delete_issuetype_hierarchy(
 
             # Check if hierarchy is being used by any mappings
             mappings_count = session.query(WitMapping).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id
+                WitMapping.wits_hierarchy_id == hierarchy_id
             ).count()
 
             if mappings_count > 0:
@@ -2667,7 +2667,7 @@ async def get_issuetype_hierarchy_dependencies(
 
             # Count dependent mappings that use this hierarchy
             dependent_mappings_count = session.query(WitMapping).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True
             ).count()
 
@@ -2675,9 +2675,9 @@ async def get_issuetype_hierarchy_dependencies(
             dependent_issues_count = session.query(WorkItem).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).join(
-                WitMapping, Wit.issuetype_mapping_id == WitMapping.id
+                WitMapping, Wit.wit_mapping_id == WitMapping.id
             ).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True,
                 Wit.active == True,
                 WorkItem.active == True
@@ -2772,7 +2772,7 @@ async def deactivate_issuetype_hierarchy(
 
             # Get dependent mappings
             dependent_mappings = session.query(WitMapping).filter(
-                WitMapping.issuetype_hierarchy_id == hierarchy_id,
+                WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True
             ).all()
 
@@ -2799,7 +2799,7 @@ async def deactivate_issuetype_hierarchy(
 
                 # Reassign all dependent mappings
                 for mapping in dependent_mappings:
-                    mapping.issuetype_hierarchy_id = deactivation_data.target_hierarchy_id
+                    mapping.wits_hierarchy_id = deactivation_data.target_hierarchy_id
 
                 if was_originally_active:
                     message = f"WorkItem type hierarchy deactivated and {len(dependent_mappings)} mappings reassigned to '{target_hierarchy.level_name}'"

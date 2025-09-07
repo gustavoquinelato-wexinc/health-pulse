@@ -74,7 +74,7 @@ async def lead_time_trend(
             INNER JOIN statuses s               ON i.status_id = s.id
             INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
             INNER JOIN wits it                  ON i.wit_id = it.id
-            INNER JOIN wits_mappings im         ON it.wit_mapping_id = im.id
+            INNER JOIN wits_mappings im         ON it.wits_mapping_id = im.id
             INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'
@@ -404,7 +404,7 @@ async def get_filter_options(
             INNER JOIN statuses s               ON i.status_id = s.id
             INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
             INNER JOIN wits it                  ON i.wit_id = it.id
-            INNER JOIN wits_mappings im         ON it.wit_mapping_id = im.id
+            INNER JOIN wits_mappings im         ON it.wits_mapping_id = im.id
             INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'

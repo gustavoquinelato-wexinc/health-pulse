@@ -403,11 +403,11 @@ async def run_jira_sync(
         job_schedule_id = job_schedule.id
 
         # Setup Jira client
-        from app.jobs.jira import JiraAPITenant
+        from app.jobs.jira import JiraAPIClient
 
         key = AppConfig.load_key()
         jira_token = AppConfig.decrypt_token(integration_password, key)
-        jira_client = JiraAPITenant(
+        jira_client = JiraAPIClient(
             username=integration_username,
             token=jira_token,
             base_url=integration_url
