@@ -159,13 +159,13 @@ async def execute_jira_extraction_session_free(
 
         # Create jira_client if not provided
         if jira_client is None:
-            from app.jobs.jira import JiraAPITenant
+            from app.jobs.jira import JiraAPIClient
             from app.core.config import AppConfig
             from app.core.config import get_settings
 
             key = AppConfig.load_key()
             jira_token = AppConfig.decrypt_token(integration_password, key)
-            jira_client = JiraAPITenant(
+            jira_client = JiraAPIClient(
                 username=integration_username,
                 token=jira_token,
                 base_url=integration_url

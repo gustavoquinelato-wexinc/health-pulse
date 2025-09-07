@@ -218,9 +218,9 @@ class WitMapping(Base, IntegrationBaseEntity):
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    issuetype_from = Column(String, quote=False, nullable=False, name="issuetype_from")
-    issuetype_to = Column(String, quote=False, nullable=False, name="issuetype_to")
-    wit_hierarchy_id = Column(Integer, ForeignKey('wits_hierarchies.id'), quote=False, nullable=False, name="wit_hierarchy_id")
+    wit_from = Column(String, quote=False, nullable=False, name="wit_from")
+    wit_to = Column(String, quote=False, nullable=False, name="wit_to")
+    wits_hierarchy_id = Column(Integer, ForeignKey('wits_hierarchies.id'), quote=False, nullable=False, name="wits_hierarchy_id")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="wit_mappings")

@@ -481,8 +481,8 @@
                 </button>`;
 
             row.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.issuetype_from || 'N/A'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.issuetype_to || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_from || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_to || 'N/A'}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.hierarchy_name || 'N/A'}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${mapping.hierarchy_level !== null && mapping.hierarchy_level !== undefined ? mapping.hierarchy_level : 'N/A'}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">${integrationIcon}</td>
@@ -581,8 +581,8 @@
 
         // Set form fields based on API response format
         // For dropdowns, ensure the value exists in options, if not add it temporarily
-        const sourceValue = mapping.issuetype_from || '';
-        const targetValue = mapping.issuetype_to || '';
+        const sourceValue = mapping.wit_from || '';
+        const targetValue = mapping.wit_to || '';
 
         // Add missing source type option if needed
         if (sourceValue && !issuetypeOptions.source_types.includes(sourceValue)) {
@@ -779,7 +779,7 @@
             dependencies.reassignment_targets.forEach(target => {
                 const option = document.createElement('option');
                 option.value = target.id;
-                option.textContent = `${target.issuetype_from} → ${target.issuetype_to}`;
+                option.textContent = `${target.wit_from} → ${target.wit_to}`;
                 reassignSelect.appendChild(option);
             });
 
@@ -904,8 +904,8 @@
         e.preventDefault();
         
         const formData = {
-            issuetype_from: document.getElementById('sourceType').value,
-            issuetype_to: document.getElementById('targetType').value,
+            wit_from: document.getElementById('sourceType').value,
+            wit_to: document.getElementById('targetType').value,
             hierarchy_level: parseInt(document.getElementById('mappingHierarchyLevel').value),
             description: document.getElementById('mappingDescription').value,
             active: document.getElementById('mappingActive').checked

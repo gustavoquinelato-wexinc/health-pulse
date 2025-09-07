@@ -1842,9 +1842,9 @@ async def get_issuetype_mapping_options(
             from sqlalchemy import distinct
 
             # Get unique source types from existing mappings
-            source_types = session.query(distinct(WitMapping.issuetype_from)).filter(
+            source_types = session.query(distinct(WitMapping.wit_from)).filter(
                 WitMapping.tenant_id == user.tenant_id
-            ).order_by(WitMapping.issuetype_from).all()
+            ).order_by(WitMapping.wit_from).all()
 
             # Get unique target types from existing mappings
             target_types = session.query(distinct(WitMapping.issuetype_to)).filter(
@@ -1903,25 +1903,25 @@ async def get_issuetype_mappings(
                 WitHierarchy.description.label('hierarchy_description'),
                 Integration.provider.label('integration_name')
             ).join(
-                WitHierarchy, WitMapping.issuetype_hierarchy_id == WitHierarchy.id
+                WitHierarchy, WitMapping.wits_hierarchy_id == WitHierarchy.id
             ).outerjoin(
                 Integration, WitMapping.integration_id == Integration.id
             ).filter(
                 WitMapping.tenant_id == user.tenant_id
             ).order_by(
                 WitHierarchy.level_number.desc(),  # Order by hierarchy level descending (highest first)
-                WitMapping.issuetype_from
+                WitMapping.wit_from
             ).all()
 
             return [
                 {
                     "id": mapping.WitMapping.id,
-                    "issuetype_from": mapping.WitMapping.issuetype_from,
-                    "issuetype_to": mapping.WitMapping.issuetype_to,
+                    "wit_from": mapping.WitMapping.wit_from,
+                    "wit_to": mapping.WitMapping.wit_to,
                     "hierarchy_level": mapping.hierarchy_level,
                     "hierarchy_name": mapping.hierarchy_name,
                     "hierarchy_description": mapping.hierarchy_description,
-                    "issuetype_hierarchy_id": mapping.WitMapping.issuetype_hierarchy_id,
+                    "wits_hierarchy_id": mapping.WitMapping.wits_hierarchy_id,
                     "integration_name": mapping.integration_name,
                     "integration_id": mapping.WitMapping.integration_id,
                     "active": mapping.WitMapping.active
@@ -2122,21 +2122,21 @@ async def create_issuetype_mapping(
 
             # Check for duplicate mapping
             existing = session.query(WitMapping).filter(
-                WitMapping.issuetype_from == create_data['issuetype_from'],
+                WitMapping.wit_from == create_data['wit_from'],
                 WitMapping.tenant_id == user.tenant_id
             ).first()
 
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Mapping for this issue type already exists"
+                    detail="Mapping for this work item type already exists"
                 )
 
             # Create new mapping
             new_mapping = WitMapping(
-                issuetype_from=create_data['issuetype_from'],
-                issuetype_to=create_data['issuetype_to'],
-                issuetype_hierarchy_id=hierarchy.id,
+                wit_from=create_data['wit_from'],
+                wit_to=create_data['wit_to'],
+                wits_hierarchy_id=hierarchy.id,
                 integration_id=create_data.get('integration_id'),
                 tenant_id=user.tenant_id,
                 active=True,
@@ -2200,7 +2200,7 @@ async def update_issuetype_mapping(
 
             # Check for duplicate mapping (excluding current one)
             existing = session.query(WitMapping).filter(
-                WitMapping.issuetype_from == update_data['issuetype_from'],
+                WitMapping.wit_from == update_data['wit_from'],
                 WitMapping.tenant_id == user.tenant_id,
                 WitMapping.id != mapping_id
             ).first()
@@ -2208,13 +2208,13 @@ async def update_issuetype_mapping(
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Mapping for this issue type already exists"
+                    detail="Mapping for this work item type already exists"
                 )
 
             # Update mapping
-            mapping.issuetype_from = update_data['issuetype_from']
-            mapping.issuetype_to = update_data['issuetype_to']
-            mapping.issuetype_hierarchy_id = hierarchy.id
+            mapping.wit_from = update_data['wit_from']
+            mapping.wit_to = update_data['wit_to']
+            mapping.wits_hierarchy_id = hierarchy.id
             mapping.integration_id = update_data.get('integration_id')
             mapping.last_updated_at = datetime.utcnow()
 

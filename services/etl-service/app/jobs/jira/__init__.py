@@ -17,7 +17,7 @@ Structure:
 from .jira_job import run_jira_sync
 
 # Export individual components for advanced usage
-from .jira_client import JiraAPITenant
+from .jira_client import JiraAPIClient
 from .jira_processor import JiraDataProcessor
 from .jira_utils import JobLockManager
 from .jira_extractors import (
@@ -32,7 +32,7 @@ from .jira_bulk_operations import perform_bulk_insert
 
 __all__ = [
     'run_jira_sync',  # New orchestration system entry point
-    'JiraAPITenant',
+    'JiraAPIClient',
     'JiraDataProcessor',
     'JobLockManager',
     'extract_projects_and_issuetypes',  # Combined projects and issue types function

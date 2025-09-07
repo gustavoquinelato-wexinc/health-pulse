@@ -14,7 +14,7 @@ Main Components:
 """
 
 from .github_client import GitHubTenant  # Keep for testing
-from .github_graphql_client import GitHubGraphQLTenant
+from .github_graphql_client import GitHubGraphQLClient
 from .github_graphql_processor import GitHubGraphQLProcessor
 from .github_graphql_extractor import (
     process_repository_prs_with_graphql,
@@ -23,7 +23,7 @@ from .github_graphql_extractor import (
 
 __all__ = [
     'GitHubTenant',  # Legacy REST client for testing
-    'GitHubGraphQLTenant',
+    'GitHubGraphQLClient',
     'GitHubGraphQLProcessor',
     'process_repository_prs_with_graphql',
     'process_repository_prs_with_graphql_recovery'

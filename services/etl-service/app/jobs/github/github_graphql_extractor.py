@@ -10,7 +10,7 @@ from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 from app.models.unified_models import Repository, Pr, PrReview, PrCommit, PrComment, Integration, JobSchedule
-from app.jobs.github.github_graphql_client import GitHubGraphQLTenant, GitHubRateLimitException
+from app.jobs.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_pagination import (
     paginate_commits, paginate_reviews, paginate_comments, paginate_review_threads, resume_pr_nested_pagination
@@ -19,7 +19,7 @@ from app.jobs.github.github_graphql_pagination import (
 logger = get_logger(__name__)
 
 
-async def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLTenant,
+async def process_repository_prs_with_graphql(session: Session, graphql_client: GitHubGraphQLClient,
                                        repository: Repository, owner: str, repo_name: str,
                                        integration: Integration, job_schedule: JobSchedule,
                                        websocket_manager=None) -> Dict[str, Any]:
@@ -328,7 +328,7 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         }
 
 
-async def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLTenant,
+async def process_repository_prs_with_graphql_recovery(session: Session, graphql_client: GitHubGraphQLClient,
                                                 repository: Repository, owner: str, repo_name: str,
                                                 integration: Integration, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -569,7 +569,7 @@ async def process_repository_prs_with_graphql_recovery(session: Session, graphql
         }
 
 
-def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubGraphQLTenant,
+def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubGraphQLClient,
                                       pr_node: Dict[str, Any], repository: Repository,
                                       processor: GitHubGraphQLProcessor, job_schedule: JobSchedule) -> Dict[str, Any]:
     """
@@ -667,7 +667,7 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         }
 
 
-def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLTenant,
+def process_pr_nested_data(session: Session, graphql_client: GitHubGraphQLClient,
                           pr_node: Dict[str, Any], pull_request_id: int,
                           processor: GitHubGraphQLProcessor, job_schedule: JobSchedule) -> Dict[str, Any]:
     """

@@ -6,14 +6,14 @@ Handles nested pagination for commits, reviews, comments, and review threads.
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
-from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
+from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.models.unified_models import Pr
 
 logger = get_logger(__name__)
 
 
-def paginate_commits(session: Session, graphql_client: GitHubGraphQLTenant, pr_node_id: str,
+def paginate_commits(session: Session, graphql_client: GitHubGraphQLClient, pr_node_id: str,
                     cursor: str, pull_request_id: int, processor: GitHubGraphQLProcessor) -> Dict[str, Any]:
     """
     Paginate through additional commits for a PR.
@@ -87,7 +87,7 @@ def paginate_commits(session: Session, graphql_client: GitHubGraphQLTenant, pr_n
         }
 
 
-def paginate_reviews(session: Session, graphql_client: GitHubGraphQLTenant, pr_node_id: str,
+def paginate_reviews(session: Session, graphql_client: GitHubGraphQLClient, pr_node_id: str,
                     cursor: str, pull_request_id: int, processor: GitHubGraphQLProcessor) -> Dict[str, Any]:
     """
     Paginate through additional reviews for a PR.
@@ -161,7 +161,7 @@ def paginate_reviews(session: Session, graphql_client: GitHubGraphQLTenant, pr_n
         }
 
 
-def paginate_comments(session: Session, graphql_client: GitHubGraphQLTenant, pr_node_id: str,
+def paginate_comments(session: Session, graphql_client: GitHubGraphQLClient, pr_node_id: str,
                      cursor: str, pull_request_id: int, processor: GitHubGraphQLProcessor) -> Dict[str, Any]:
     """
     Paginate through additional comments for a PR.
@@ -235,7 +235,7 @@ def paginate_comments(session: Session, graphql_client: GitHubGraphQLTenant, pr_
         }
 
 
-def paginate_review_threads(session: Session, graphql_client: GitHubGraphQLTenant, pr_node_id: str,
+def paginate_review_threads(session: Session, graphql_client: GitHubGraphQLClient, pr_node_id: str,
                            cursor: str, pull_request_id: int, processor: GitHubGraphQLProcessor) -> Dict[str, Any]:
     """
     Paginate through additional review threads for a PR.
@@ -309,7 +309,7 @@ def paginate_review_threads(session: Session, graphql_client: GitHubGraphQLTenan
         }
 
 
-def resume_pr_nested_pagination(session: Session, graphql_client: GitHubGraphQLTenant, pr_node_id: str,
+def resume_pr_nested_pagination(session: Session, graphql_client: GitHubGraphQLClient, pr_node_id: str,
                                repository, processor: GitHubGraphQLProcessor, job_schedule) -> Dict[str, Any]:
     """
     Resume nested pagination for a specific PR that was interrupted.

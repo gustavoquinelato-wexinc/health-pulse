@@ -16,10 +16,10 @@ from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import (
     Integration, Wit, Project, ProjectWits, Status, ProjectsStatuses,
-    WorkItem, WorkItemChangelog
+    WorkItem, Changelog
 )
 
-from .jira_client import JiraAPITenant
+from .jira_client import JiraAPIClient
 from .jira_processor import JiraDataProcessor
 from .jira_bulk_operations import perform_bulk_insert
 from sqlalchemy import text
@@ -237,7 +237,7 @@ def extract_pr_links_from_dev_status(dev_details: Dict) -> List[Dict]:
     return pr_links
 
 
-def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPITenant, integration: Integration, job_logger) -> Dict[str, Any]:
+def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated issue types from Jira in a combined operation.
     This combines project extraction with project-issuetype relationship extraction.
@@ -586,7 +586,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPITenant
         return {'projects_processed': 0, 'issuetypes_processed': 0, 'relationships_processed': 0}
 
 
-def extract_projects_and_statuses(session: Session, jira_client: JiraAPITenant, integration: Integration, job_logger) -> Dict[str, Any]:
+def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated statuses from Jira in a combined operation.
     This goes directly to get_project_statuses to extract both statuses and relationships efficiently.
@@ -812,7 +812,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPITenant, 
         return {'statuses_processed': 0, 'relationships_processed': 0}
 
 
-async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPITenant, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None, job_schedule=None) -> Dict[str, Any]:
+async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None, job_schedule=None) -> Dict[str, Any]:
     """Extract and process Jira work items and their changelogs together using bulk operations with batching for performance.
 
     Returns:
@@ -1270,7 +1270,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
 
 
-def process_changelogs_for_issues(session: Session, jira_client: JiraAPITenant, integration: Integration,
+def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, integration: Integration,
                                  issue_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
                                  issue_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
     """Process changelogs for a list of issues and calculate enhanced workflow metrics.
@@ -1325,8 +1325,8 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPITenant, 
                 job_logger.error(f"[CONNECTION] Connection health check failed for changelog batch {batch_num}")
                 raise Exception(f"Database connection lost during changelog processing at batch {batch_num}")
 
-            batch_changelogs = session.query(WorkItemChangelog).filter(
-                WorkItemChangelog.work_item_id.in_(batch_ids)
+            batch_changelogs = session.query(Changelog).filter(
+                Changelog.work_item_id.in_(batch_ids)
             ).all()
             existing_changelogs.extend(batch_changelogs)
 
@@ -1481,7 +1481,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPITenant, 
             total_inserted = 0
             for i in range(0, len(changelogs_to_insert), commit_batch_size):
                 chunk = changelogs_to_insert[i:i + commit_batch_size]
-                perform_bulk_insert(session, WorkItemChangelog, chunk, "issue_changelogs", job_logger, batch_size=100)
+                perform_bulk_insert(session, Changelog, chunk, "changelogs", job_logger, batch_size=100)
 
                 total_inserted += len(chunk)
 
@@ -1512,9 +1512,9 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPITenant, 
                     job_logger.error(f"[CONNECTION] Connection health check failed for workflow metrics batch {batch_num}")
                     raise Exception(f"Database connection lost during workflow metrics calculation at batch {batch_num}")
 
-                batch_changelogs = session.query(WorkItemChangelog).filter(
-                    WorkItemChangelog.work_item_id.in_(batch_ids)
-                ).order_by(WorkItemChangelog.work_item_id, WorkItemChangelog.transition_change_date).all()
+                batch_changelogs = session.query(Changelog).filter(
+                    Changelog.work_item_id.in_(batch_ids)
+                ).order_by(Changelog.work_item_id, Changelog.transition_change_date).all()
                 all_changelogs.extend(batch_changelogs)
 
                 # Log progress every 10 batches
@@ -1605,12 +1605,12 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPITenant, 
 # Legacy calculate_issue_dates function removed - replaced by calculate_enhanced_workflow_metrics
 
 
-def calculate_enhanced_workflow_metrics(changelogs: List[WorkItemChangelog], statuses_dict: Dict[str, Any]) -> Dict[str, Any]:
+def calculate_enhanced_workflow_metrics(changelogs: List[Changelog], statuses_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Calculate comprehensive workflow metrics from changelog data.
 
     Args:
-        changelogs: List of WorkItemChangelog database objects (sorted by transition_change_date DESC)
+        changelogs: List of Changelog database objects (sorted by transition_change_date DESC)
         statuses_dict: Dictionary mapping status external_ids to status objects
 
     Returns:

@@ -13,8 +13,8 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 
 
-class JiraAPITenant:
-    """Tenant for Jira API."""
+class JiraAPIClient:
+    """Client for Jira API."""
     
     def __init__(self, username: str, token: str, base_url: str):
         self.username = username

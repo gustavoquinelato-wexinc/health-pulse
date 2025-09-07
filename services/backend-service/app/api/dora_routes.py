@@ -51,8 +51,8 @@ async def lead_time_trend(
                 i.key                                           AS issue_key,
                 p.key                                           AS project_key,
                 i.team,
-                im.issuetype_from,
-                im.issuetype_to,
+                im.wit_from,
+                im.wit_to,
                 sm.status_to,
                 i.story_points,
                 i.priority,
@@ -69,17 +69,17 @@ async def lead_time_trend(
                 i.custom_field_05                               AS aha_milestone,
                 i.tenant_id
             FROM
-                issues i
+                work_items i
             INNER JOIN projects p               ON i.project_id = p.id
             INNER JOIN statuses s               ON i.status_id = s.id
-            INNER JOIN status_mappings sm       ON s.status_mapping_id = sm.id
-            INNER JOIN issuetypes it            ON i.wit_id = it.id
-            INNER JOIN issuetype_mappings im    ON it.issuetype_mapping_id = im.id
-            INNER JOIN issuetype_hierarchies ih ON im.issuetype_hierarchy_id = ih.id
+            INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
+            INNER JOIN wits it                  ON i.wit_id = it.id
+            INNER JOIN wits_mappings im         ON it.wit_mapping_id = im.id
+            INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'
                 AND ih.level_number = 0
-                AND im.issuetype_to IN ('Story', 'Tech Enhancement')
+                AND im.wit_to IN ('Story', 'Tech Enhancement')
                 AND i.total_lead_time_seconds > 0
                 AND i.tenant_id = :tenant_id
                 AND i.work_last_completed_at >= NOW() - INTERVAL '365 days'
@@ -226,8 +226,8 @@ async def lead_time_metrics(
                 WorkItem.key.label('issue_key'),
                 Project.key.label('project_key'),
                 WorkItem.team,
-                WitMapping.issuetype_from,
-                WitMapping.issuetype_to,
+                WitMapping.wit_from,
+                WitMapping.wit_to,
                 StatusMapping.status_to,
                 WorkItem.story_points,
                 WorkItem.priority,
@@ -254,15 +254,15 @@ async def lead_time_metrics(
             ).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).join(
-                WitMapping, Wit.issuetype_mapping_id == WitMapping.id
+                WitMapping, Wit.wit_mapping_id == WitMapping.id
             ).join(
                 Project, WorkItem.project_id == Project.id
             ).join(
-                WitHierarchy, WitMapping.issuetype_hierarchy_id == WitHierarchy.id
+                WitHierarchy, WitMapping.wits_hierarchy_id == WitHierarchy.id
             ).filter(
                 StatusMapping.status_to == 'Done',
                 WitHierarchy.level_number == 0,
-                WitMapping.issuetype_to.in_(['Story', 'Tech Enhancement']),
+                WitMapping.wit_to.in_(['Story', 'Tech Enhancement']),
                 WitPrLinks.pr_status == 'MERGED',
                 WorkItem.total_lead_time_seconds > 0,
                 WorkItem.tenant_id == user.tenant_id,
@@ -394,27 +394,27 @@ async def get_filter_options(
             SELECT DISTINCT
                 i.team,
                 p.key                                           AS project_key,
-                im.issuetype_to,
+                im.wit_to,
                 i.custom_field_02                               AS aha_initiative,
                 i.custom_field_03                               AS aha_project_code,
                 i.custom_field_05                               AS aha_milestone
             FROM
-                issues i
+                work_items i
             INNER JOIN projects p               ON i.project_id = p.id
             INNER JOIN statuses s               ON i.status_id = s.id
-            INNER JOIN status_mappings sm       ON s.status_mapping_id = sm.id
-            INNER JOIN issuetypes it            ON i.wit_id = it.id
-            INNER JOIN issuetype_mappings im    ON it.issuetype_mapping_id = im.id
-            INNER JOIN issuetype_hierarchies ih ON im.issuetype_hierarchy_id = ih.id
+            INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
+            INNER JOIN wits it                  ON i.wit_id = it.id
+            INNER JOIN wits_mappings im         ON it.wit_mapping_id = im.id
+            INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'
                 AND ih.level_number = 0
-                AND im.issuetype_to IN ('Story', 'Tech Enhancement')
+                AND im.wit_to IN ('Story', 'Tech Enhancement')
                 AND i.total_lead_time_seconds > 0
                 AND i.tenant_id = :tenant_id
                 AND EXISTS (
                     SELECT 1
-                    FROM jira_pull_request_links jprl
+                    FROM wits_prs_links jprl
                     WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here
@@ -428,7 +428,7 @@ async def get_filter_options(
                 AND im.active = true
                 AND ih.active = true
             ORDER BY
-                i.team, p.key, im.issuetype_to,
+                i.team, p.key, im.wit_to,
                 i.custom_field_02, i.custom_field_03, i.custom_field_05
             """
 

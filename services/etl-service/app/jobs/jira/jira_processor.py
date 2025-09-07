@@ -256,8 +256,8 @@ class JiraDataProcessor:
                 if issuetype_mapping:
                     issuetype_mapping_id = issuetype_mapping.id
                     # Get hierarchy level from the related hierarchy record
-                    hierarchy_level = issuetype_mapping.issuetype_hierarchy.level_number if issuetype_mapping.issuetype_hierarchy else 0
-                    logger.debug(f"Mapped issuetype '{original_name}' to '{issuetype_mapping.issuetype_to}' (hierarchy: {hierarchy_level}) via issuetype mapping")
+                    hierarchy_level = issuetype_mapping.wits_hierarchy.level_number if issuetype_mapping.wits_hierarchy else 0
+                    logger.debug(f"Mapped issuetype '{original_name}' to '{issuetype_mapping.wit_to}' (hierarchy: {hierarchy_level}) via issuetype mapping")
                 else:
                     logger.warning(f"No issuetype mapping found in database for issuetype '{original_name}' and client {tenant_id}")
             else:
@@ -269,7 +269,7 @@ class JiraDataProcessor:
             return {
                 'external_id': issuetype_data.get('id', None),
                 'original_name': original_name,
-                'issuetype_mapping_id': issuetype_mapping_id,  # Foreign key relationship to WitMapping
+                'wit_mapping_id': issuetype_mapping_id,  # Foreign key relationship to WitMapping
                 'description': safe_unicode_string(issuetype_data.get('description', None)),
                 'hierarchy_level': hierarchy_level,
                 'active': True  # Default to active for new issue types

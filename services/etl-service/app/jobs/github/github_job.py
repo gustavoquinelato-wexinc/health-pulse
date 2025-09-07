@@ -19,7 +19,7 @@ from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 from app.core.job_manager import CancellableJob
 from app.models.unified_models import JobSchedule, Integration, Repository, Pr
-from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
+from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_extractor import (
     process_repository_prs_with_graphql, process_repository_prs_with_graphql_recovery
@@ -256,7 +256,7 @@ async def extract_github_pull_requests_only(session, github_integration, github_
         logger.info(f"Found {len(repositories)} repositories for PR extraction")
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Initialize queue for PR processing
         job_schedule.initialize_repo_queue(repositories)
@@ -1140,7 +1140,7 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
             websocket_manager = get_websocket_manager()
 
         # Initialize GraphQL client with database session for heartbeat
-        graphql_client = GitHubGraphQLTenant(github_token, db_session=session)
+        graphql_client = GitHubGraphQLClient(github_token, db_session=session)
 
         # Determine processing mode and get repositories
         full_queue = job_schedule.get_repo_queue()
@@ -1377,7 +1377,7 @@ async def extract_github_single_repo_prs_session_free(
     """
     from app.core.database import get_database
     from app.core.websocket_manager import get_websocket_manager
-    from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
+    from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 
     try:
         database = get_database()
@@ -1397,7 +1397,7 @@ async def extract_github_single_repo_prs_session_free(
                 return {'success': False, 'error': f'Repository {target_repository} not found in database. Run repository discovery first.'}
 
         # Initialize GraphQL client
-        graphql_client = GitHubGraphQLTenant(github_token)
+        graphql_client = GitHubGraphQLClient(github_token)
 
         # Process PRs for this specific repository
         owner, repo_name = target_repository.split('/', 1)
@@ -1497,10 +1497,10 @@ async def process_github_data_with_graphql_session_free(
                             owner, repo_name_only = repo_name.split('/', 1)
 
                             # Process this repository
-                            from app.jobs.github.github_graphql_client import GitHubGraphQLTenant
+                            from app.jobs.github.github_graphql_client import GitHubGraphQLClient
                             from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
 
-                            graphql_client = GitHubGraphQLTenant(github_token)
+                            graphql_client = GitHubGraphQLClient(github_token)
 
                             result = await process_repository_prs_with_graphql(
                                 session, graphql_client, repository, owner, repo_name_only,

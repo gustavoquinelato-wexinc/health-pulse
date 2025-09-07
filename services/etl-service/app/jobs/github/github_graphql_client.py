@@ -16,8 +16,8 @@ class GitHubRateLimitException(Exception):
     pass
 
 
-class GitHubGraphQLTenant:
-    """Tenant for GitHub GraphQL API interactions with cursor-based pagination."""
+class GitHubGraphQLClient:
+    """Client for GitHub GraphQL API interactions with cursor-based pagination."""
     
     def __init__(self, token: str, db_session=None):
         """
