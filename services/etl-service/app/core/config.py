@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=False, env="DEBUG")
     LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
 
-    # 🎯 CLIENT-SPECIFIC CONFIGURATION (Multi-Instance Approach)
+    # 🎯 TENANT-SPECIFIC CONFIGURATION (Multi-Instance Approach)
     CLIENT_NAME: str = Field(env="CLIENT_NAME", description="Tenant name this ETL instance serves (case-insensitive)")
 
     # API Settings
@@ -197,7 +197,7 @@ def get_settings() -> Settings:
 
 def get_tenant_id_from_name(client_name: str) -> int:
     """
-    Get client ID from client name using case-insensitive lookup.
+    Get tenant ID from tenant name using case-insensitive lookup.
 
     Args:
         client_name: Tenant name to look up
@@ -206,7 +206,7 @@ def get_tenant_id_from_name(client_name: str) -> int:
         Tenant ID
 
     Raises:
-        Exception: If client not found or inactive
+        Exception: If tenant not found or inactive
     """
     from app.core.database import get_database
     from app.models.unified_models import Tenant
@@ -214,21 +214,21 @@ def get_tenant_id_from_name(client_name: str) -> int:
     database = get_database()
     with database.get_session() as session:
         # Case-insensitive lookup with whitespace handling
-        client = session.query(Tenant).filter(
+        tenant = session.query(Tenant).filter(
             Tenant.name.ilike(client_name.strip()),  # Case-insensitive
             Tenant.active == True
         ).first()
 
-        if not client:
-            # Get available clients for error message
-            available_clients = [c.name for c in session.query(Tenant).filter(Tenant.active == True).all()]
-            raise Exception(f"Tenant '{client_name}' not found or inactive. Available active clients: {available_clients}")
+        if not tenant:
+            # Get available tenants for error message
+            available_tenants = [c.name for c in session.query(Tenant).filter(Tenant.active == True).all()]
+            raise Exception(f"Tenant '{client_name}' not found or inactive. Available active tenants: {available_tenants}")
 
-        return client.id
+        return tenant.id
 
 
 def get_current_tenant_id() -> int:
-    """Get the current ETL instance's client ID from configuration."""
+    """Get the current ETL instance's tenant ID from configuration."""
     settings = get_settings()
     return get_tenant_id_from_name(settings.CLIENT_NAME)
 

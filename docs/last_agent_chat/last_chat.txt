@@ -26,10 +26,10 @@ Augment
 I can see the issue! The code is trying to import JiraProject, JiraIssueType, JiraStatus, JiraIssue, JiraChangelog, and JiraPullRequestLink from unified_models.py, but these models don't exist in that file. Looking at the unified_models.py file, I can see that the models are named differently:
 
 JiraProject should be Project
-JiraIssueType should be Issuetype
+JiraIssueType should be Wit
 JiraStatus should be Status
-JiraIssue should be Issue
-JiraChangelog should be IssueChangelog
+JiraIssue should be WorkItem
+JiraChangelog should be Changelog
 JiraPullRequestLink should be JiraPullRequestLinks
 Let me check more of the function to understand the full scope of the changes needed:
 
