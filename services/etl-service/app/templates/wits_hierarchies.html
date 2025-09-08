@@ -33,9 +33,10 @@
                     <thead>
                         <tr>
                             <th>ID</th>
-                            <th>Parent Type</th>
-                            <th>Child Type</th>
-                            <th>Level</th>
+                            <th>Level Name</th>
+                            <th>Level Number</th>
+                            <th>Description</th>
+                            <th>Integration</th>
                             <th>Active</th>
                             <th>Actions</th>
                         </tr>
@@ -61,24 +62,26 @@
                 <input type="hidden" id="hierarchyId" name="id">
                 
                 <div class="form-group">
-                    <label for="parentType">Parent Type:</label>
-                    <select id="parentType" name="parent_type" required>
-                        <option value="">Select Parent Type</option>
+                    <label for="levelName">Level Name:</label>
+                    <input type="text" id="levelName" name="level_name" required placeholder="e.g., Epic, Story, Task">
+                </div>
+
+                <div class="form-group">
+                    <label for="levelNumber">Level Number:</label>
+                    <input type="number" id="levelNumber" name="level_number" min="1" max="10" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description:</label>
+                    <input type="text" id="description" name="description" placeholder="Optional description">
+                </div>
+
+                <div class="form-group">
+                    <label for="integration">Integration:</label>
+                    <select id="integration" name="integration_id">
+                        <option value="">Select Integration</option>
                         <!-- Options will be loaded dynamically -->
                     </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="childType">Child Type:</label>
-                    <select id="childType" name="child_type" required>
-                        <option value="">Select Child Type</option>
-                        <!-- Options will be loaded dynamically -->
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="level">Level:</label>
-                    <input type="number" id="level" name="level" min="1" max="10" required>
                 </div>
                 
                 <div class="form-group">
@@ -99,12 +102,12 @@
 
 <script>
 let hierarchies = [];
-let workItemTypes = [];
+let integrations = [];
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadHierarchies();
-    loadWorkItemTypes();
+    loadIntegrations();
 });
 
 async function loadHierarchies() {
@@ -125,36 +128,32 @@ async function loadHierarchies() {
     }
 }
 
-async function loadWorkItemTypes() {
+async function loadIntegrations() {
     try {
-        const response = await fetch('/api/v1/admin/wits', {
+        const response = await fetch('/api/v1/admin/integrations', {
             credentials: 'include'
         });
         if (response.ok) {
-            workItemTypes = await response.json();
-            populateTypeSelects();
+            integrations = await response.json();
+            populateIntegrationSelect();
         } else {
-            showError('Failed to load work item types');
+            showError('Failed to load integrations');
         }
     } catch (error) {
-        console.error('Error loading work item types:', error);
-        showError('Error loading work item types');
+        console.error('Error loading integrations:', error);
+        showError('Error loading integrations');
     }
 }
 
-function populateTypeSelects() {
-    const parentSelect = document.getElementById('parentType');
-    const childSelect = document.getElementById('childType');
-    
+function populateIntegrationSelect() {
+    const integrationSelect = document.getElementById('integration');
+
     // Clear existing options (except first)
-    parentSelect.innerHTML = '<option value="">Select Parent Type</option>';
-    childSelect.innerHTML = '<option value="">Select Child Type</option>';
-    
-    workItemTypes.forEach(type => {
-        const option1 = new Option(type.name, type.id);
-        const option2 = new Option(type.name, type.id);
-        parentSelect.add(option1);
-        childSelect.add(option2);
+    integrationSelect.innerHTML = '<option value="">Select Integration</option>';
+
+    integrations.forEach(integration => {
+        const option = new Option(integration.provider, integration.id);
+        integrationSelect.add(option);
     });
 }
 
@@ -166,9 +165,10 @@ function renderHierarchiesTable() {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${hierarchy.id}</td>
-            <td>${hierarchy.parent_type_name || 'N/A'}</td>
-            <td>${hierarchy.child_type_name || 'N/A'}</td>
-            <td>${hierarchy.level}</td>
+            <td>${hierarchy.level_name || 'N/A'}</td>
+            <td>${hierarchy.level_number || 'N/A'}</td>
+            <td>${hierarchy.description || 'N/A'}</td>
+            <td>${hierarchy.integration_name || 'N/A'}</td>
             <td>
                 <span class="status-badge ${hierarchy.active ? 'status-active' : 'status-inactive'}">
                     ${hierarchy.active ? 'Active' : 'Inactive'}
@@ -200,9 +200,10 @@ function editHierarchy(id) {
     if (hierarchy) {
         document.getElementById('modalTitle').textContent = 'Edit Work Item Type Hierarchy';
         document.getElementById('hierarchyId').value = hierarchy.id;
-        document.getElementById('parentType').value = hierarchy.parent_type_id || '';
-        document.getElementById('childType').value = hierarchy.child_type_id || '';
-        document.getElementById('level').value = hierarchy.level;
+        document.getElementById('levelName').value = hierarchy.level_name || '';
+        document.getElementById('levelNumber').value = hierarchy.level_number || '';
+        document.getElementById('description').value = hierarchy.description || '';
+        document.getElementById('integration').value = hierarchy.integration_id || '';
         document.getElementById('active').checked = hierarchy.active;
         showModal();
     }
@@ -214,9 +215,10 @@ async function saveHierarchy() {
     const id = formData.get('id');
     
     const data = {
-        parent_type_id: parseInt(formData.get('parent_type')) || null,
-        child_type_id: parseInt(formData.get('child_type')) || null,
-        level: parseInt(formData.get('level')),
+        level_name: formData.get('level_name'),
+        level_number: parseInt(formData.get('level_number')),
+        description: formData.get('description') || null,
+        integration_id: parseInt(formData.get('integration_id')) || null,
         active: formData.has('active')
     };
     
