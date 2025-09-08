@@ -13,7 +13,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Frontend Application                         │
-│                   (React/TypeScript - Port 3000)               │
+│                   (React/TypeScript - Port 5173)               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  📊 Executive Dashboards    🎨 Client Branding                  │
@@ -24,23 +24,25 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 └─────────────────────────────────────────────────────────────────┘
                     │                       │
                     ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Backend        │    │  ETL Service    │    │  AI Service     │    │  AI Agent       │
-│  Service        │◄──►│  (FastAPI)      │◄──►│  (FastAPI)      │◄──►│  Service        │
-│  (FastAPI)      │    │  Port: 8000     │    │  Port: 5000     │    │  (FastAPI)      │
-│  Port: 3001     │    │                 │    │                 │    │  Port: 5002     │
-│                 │    │ • Data Extract  │    │ • ML Models     │    │                 │
-│ • User Mgmt     │    │ • Job Control   │    │ • Embeddings    │    │ • LangGraph     │
-│ • Session Mgmt  │    │ • Orchestration │    │ • Predictions   │    │ • Strategic AI  │
-│ • API Gateway   │    │ • Recovery      │    │ • Validation    │    │ • Query Planning│
-│ • Client Mgmt   │    │ • Admin APIs    │    │ • Monitoring    │    │ • Context Mgmt  │
-│ • ML Monitoring │    │ • ML Data Prep  │    │ • Inference     │    │ • Business Intel│
-│ • Integration   │    │ • Integration   │    │ • Vector Ops    │    │ • Semantic Search│
-└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
-                    │                       │                       │                   │
-                    └───────────────────────┼───────────────────────┼───────────────────────┼─────┐
-                                           │                       │                       │     │
-                                           ▼                       ▼                       ▼     ▼
+┌─────────────────┐              ┌─────────────────┐
+│  Backend        │              │  ETL Service    │
+│  Service        │◄────────────►│  (FastAPI)      │
+│  (FastAPI)      │              │  Port: 8000     │
+│  Port: 3001     │              │                 │
+│                 │              │ • Data Extract  │
+│ • Authentication│              │ • Job Control   │
+│ • User Mgmt     │              │ • Orchestration │
+│ • Session Mgmt  │              │ • Recovery      │
+│ • API Gateway   │              │ • Admin APIs    │
+│ • Client Mgmt   │              │ • ML Data Prep  │
+│ • ML Monitoring │              │ • Integration   │
+│ • Integration   │              │ • AI Agent      │
+│ • RBAC & JWT    │              │ • LangGraph     │
+└─────────────────┘              └─────────────────┘
+                    │                       │
+                    └───────────────────────┼─────┐
+                                           │     │
+                                           ▼     ▼
                         ┌─────────────────┐    ┌─────────────────┐         │
                         │  PostgreSQL     │───►│  PostgreSQL     │         │
                         │  PRIMARY        │    │  REPLICA        │         │
@@ -60,34 +62,36 @@ Pulse Platform follows a modern microservices architecture with centralized auth
                                                                           │
                         ┌─────────────────────────────────────────────────┘
                         ▼
-                ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-                │  Auth Service   │    │  Qdrant Vector  │    │  Redis Cache    │
-                │  (FastAPI)      │    │  Database       │    │  Port: 6379     │
-                │  Port: 4000     │    │  Port: 6333     │    │                 │
-                │                 │    │                 │    │ • Session Store │
-                │ • Centralized   │    │ • Vector Store  │    │ • API Cache     │
-                │   Authentication│    │ • Embeddings    │    │ • Job Queue     │
-                │ • RBAC          │    │ • Similarity    │    │ • Rate Limiting │
-                │ • JWT Tokens    │    │ • Collections   │    │ • Color Cache   │
-                │ • SSO           │    │ • Tenant Isolation │ │ • Performance   │
-                │ • OKTA Ready    │    │ • HNSW Indexes  │    │ • LRU Eviction  │
-                └─────────────────┘    └─────────────────┘    └─────────────────┘
+                ┌─────────────────┐    ┌─────────────────┐
+                │  Qdrant Vector  │    │  Redis Cache    │
+                │  Database       │    │  Port: 6379     │
+                │  Port: 6333     │    │                 │
+                │                 │    │ • Session Store │
+                │ • Vector Store  │    │ • API Cache     │
+                │ • Embeddings    │    │ • Job Queue     │
+                │ • Similarity    │    │ • Rate Limiting │
+                │ • Collections   │    │ • Color Cache   │
+                │ • Tenant Isolation │ │ • Performance   │
+                │ • HNSW Indexes  │    │ • LRU Eviction  │
+                │ • Semantic Search│   │                 │
+                └─────────────────┘    └─────────────────┘
 ```
 
 ### Service Responsibilities
 
-#### Frontend Application (Port 3000)
+#### Frontend Application (Port 5173)
 - **Executive Dashboards**: C-level friendly visualizations and KPIs
 - **DORA Metrics**: Lead time, deployment frequency, change failure rate, MTTR
 - **User Interface**: Responsive design with client-specific branding
 - **Authentication Flow**: JWT token management and session handling
 - **Real-time Updates**: WebSocket integration for live data
 
-#### Auth Service (Port 4000)
-- **Centralized Authentication & RBAC**: OAuth-like flow, RBAC source of truth
-- **Cross-Domain SSO**: Single sign-on across all services
-- **Provider Abstraction**: Local database and OKTA integration ready
-- **Token Authority**: JWT generation and validation
+#### Backend Service (Port 3001)
+- **Authentication & RBAC**: JWT token management and role-based access control
+- **User Management**: User accounts, sessions, and permissions
+- **API Gateway**: Central API routing and request handling
+- **Client Management**: Multi-tenant client configuration and isolation
+- **ML Monitoring**: AI performance tracking and analytics integration
 
 #### Qdrant Vector Database (Port 6333)
 - **Vector Storage**: High-performance vector database for embeddings
@@ -121,23 +125,11 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Logo Management**: Tenant-based asset organization with file upload
 - **Real-time Monitoring**: WebSocket updates and progress tracking
 - **Admin Interface**: Configuration and management tools
-- **ML Data Preparation**: Data preprocessing for AI models (Phase 2+)
+- **AI Agent Integration**: LangGraph workflows for strategic business intelligence
+- **Semantic Search**: Vector-based content discovery and analysis
+- **ML Data Preparation**: Data preprocessing for AI models
 
-#### AI Service (Port 5000) - Core AI Infrastructure
-- **ML Model Management**: Model training, validation, and inference
-- **Embedding Generation**: Text-to-vector conversion for semantic search
-- **Prediction Services**: Story point estimation, timeline forecasting
-- **Validation Layer**: Smart data validation using ML models
-- **Monitoring Integration**: Performance metrics and anomaly detection
-- **Vector Operations**: Similarity search and content analysis
 
-#### AI Agent Service (Port 5002) - Strategic Intelligence
-- **LangGraph Workflows**: Complex multi-step AI reasoning and analysis
-- **Strategic Analysis**: Business intelligence and strategic insights
-- **Query Planning**: Intelligent query decomposition and execution
-- **Context Management**: Conversation history and multi-source context assembly
-- **Semantic Search**: Vector-based content discovery across all data sources
-- **Business Intelligence**: Executive-level insights and recommendations
 
 ## 🏢 Multi-Tenant Architecture
 
@@ -402,10 +394,9 @@ WHERE tenant_id = ? AND embedding IS NOT NULL;
 
 ### AI Service Integration Points
 
-**Backend Service**: Enhanced with ML monitoring APIs and vector-aware models
-**ETL Service**: Prepared for embedding generation and ML data processing
-**Frontend**: Ready for AI feature toggles and ML insights display
-**Auth Service**: Unchanged - maintains existing authentication flow
+**Backend Service**: Enhanced with ML monitoring APIs and authentication for AI features
+**ETL Service**: Integrated AI Agent with LangGraph workflows, embedding generation, and ML data processing
+**Frontend**: Ready for AI feature toggles, ML insights display, and semantic search interface
 
 ### Phase 3 Completion Status
 
@@ -434,12 +425,9 @@ WHERE tenant_id = ? AND embedding IS NOT NULL;
 The platform uses Docker Compose for local development and can be adapted for production deployment:
 
 **Core Services:**
-- **Frontend**: React/TypeScript application (Port 3000)
+- **Frontend**: React/TypeScript application (Port 5173)
 - **Backend Service**: FastAPI authentication and user management (Port 3001)
-- **ETL Service**: FastAPI data processing and job orchestration (Port 8000)
-- **AI Service**: FastAPI ML models and inference (Port 5000)
-- **AI Agent Service**: FastAPI strategic intelligence (Port 5002)
-- **Auth Service**: FastAPI centralized authentication (Port 4000)
+- **ETL Service**: FastAPI data processing, job orchestration, and AI agent (Port 8000)
 
 **Data Layer:**
 - **PostgreSQL Primary**: PostgresML image with pgvector (Port 5432)
