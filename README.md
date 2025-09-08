@@ -83,6 +83,7 @@ This platform includes comprehensive documentation to help you understand, deplo
 | **[Architecture Guide](docs/architecture.md)** | System design, topology, multi-tenancy, database setup, Docker configurations |
 | **[Security & Authentication](docs/security-authentication.md)** | RBAC, JWT tokens, permissions, tenant isolation, security best practices |
 | **[Jobs & Orchestration](docs/jobs-orchestration.md)** | ETL jobs, orchestrator, recovery strategies, Jira/GitHub integrations |
+| **[Integration Management](docs/integration-management.md)** | External system connections, AI providers, logo management, tenant isolation |
 | **[System Settings](docs/system-settings.md)** | Configuration reference, settings explanation, customization options |
 | **[Installation & Setup](docs/installation-setup.md)** | Requirements, deployment, database setup, getting started guide |
 

@@ -100,7 +100,9 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 #### ETL Service (Port 8000)
 - **Data Processing**: Extract, transform, load operations
 - **Job Orchestration**: Smart scheduling with recovery strategies
-- **Integration Management**: Jira, GitHub, and custom data sources
+- **Integration Management**: Web interface for external system connections
+- **AI Provider Support**: Unified configuration for AI services (WEX AI Gateway, OpenAI, Azure)
+- **Logo Management**: Tenant-based asset organization with file upload
 - **Real-time Monitoring**: WebSocket updates and progress tracking
 - **Admin Interface**: Configuration and management tools
 - **ML Data Preparation**: Data preprocessing for AI models (Phase 2+)
@@ -144,7 +146,8 @@ SELECT * FROM users WHERE tenant_id = ? AND active = true;
 - **Tenant-Specific Settings**: Stored in system_settings table (color schemas, branding)
 - **User-Specific Settings**: Stored in users table (theme_mode preferences)
 - **Custom Branding**: Per-tenant logos and color schemes
-- **Integration Configs**: Separate API credentials per tenant
+- **Integration Configs**: Separate API credentials and logos per tenant
+- **Asset Isolation**: Tenant-specific logo and file storage
 - **Feature Flags**: Tenant-specific feature enablement
 
 ### Multi-Instance Deployment
@@ -199,7 +202,7 @@ The database schema includes comprehensive business data tables with integrated 
 **Business Data Tables (24 tables with vector columns)**:
 - **Tenant Management**: `tenants` - Multi-tenant foundation
 - **User Management**: `users`, `users_sessions`, `users_permissions` - Authentication and RBAC
-- **Integration Management**: `integrations` - External system connections
+- **Integration Management**: `integrations` - External system connections with AI provider support
 - **Project Management**: `projects`, `workflows` - Project structure and workflows
 - **Work Item Tracking**: `work_items`, `changelogs` - Work item data with change history
 - **Development Data**: `repositories`, `prs`, `prs_*` - GitHub development metrics
