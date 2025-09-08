@@ -262,7 +262,7 @@ def apply(connection):
             cursor.execute("""
                 INSERT INTO integrations (
                     provider, type, username, password, base_url, base_search, model,
-                    model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
+                    model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -290,7 +290,7 @@ def apply(connection):
                 cursor.execute("""
                     INSERT INTO integrations (
                         provider, type, username, password, base_url, base_search, model,
-                        model_config, configuration, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
+                        model_config, provider_metadata, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -321,7 +321,7 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
+                model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -349,7 +349,7 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
+                model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
