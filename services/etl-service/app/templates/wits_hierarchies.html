@@ -201,7 +201,6 @@ async function loadIntegrations() {
         });
         if (response.ok) {
             integrations = await response.json();
-            console.log('Integrations loaded:', integrations);
             populateIntegrationSelect();
         } else {
             showError('Failed to load integrations');
@@ -219,7 +218,6 @@ function populateIntegrationSelect() {
     integrationSelect.innerHTML = '<option value="">Select Integration</option>';
 
     integrations.forEach(integration => {
-        console.log('Integration:', integration);
         const option = new Option(integration.name || integration.provider || `Integration ${integration.id}`, integration.id);
         integrationSelect.add(option);
     });
