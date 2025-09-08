@@ -24,23 +24,23 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 └─────────────────────────────────────────────────────────────────┘
                     │                       │
                     ▼                       ▼
-┌─────────────────┐              ┌─────────────────┐    ┌─────────────────┐
-│  Backend        │              │  ETL Service    │    │  AI Service     │
-│  Service        │◄────────────►│  (FastAPI)      │◄──►│  (FastAPI)      │
-│  (FastAPI)      │              │  Port: 8000     │    │  Port: 5000     │
-│  Port: 3001     │              │                 │    │                 │
-│                 │              │ • Data Extract  │    │ • ML Models     │
-│ • Authentication│              │ • Job Control   │    │ • Embeddings    │
-│ • User Mgmt     │              │ • Orchestration │    │ • Predictions   │
-│ • Session Mgmt  │              │ • Recovery      │    │ • Validation    │
-│ • API Gateway   │              │ • Admin APIs    │    │ • Monitoring    │
-│ • Client Mgmt   │              │ • ML Data Prep  │    │ • Inference     │
-│ • ML Monitoring │              │                 │    │                 │
-└─────────────────┘              └─────────────────┘    └─────────────────┘
-                    │                       │                       │
-                    └───────────────────────┼───────────────────────┼─────┐
-                                           │                       │     │
-                                           ▼                       ▼     ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Backend        │    │  ETL Service    │    │  AI Service     │    │  AI Agent       │
+│  Service        │◄──►│  (FastAPI)      │◄──►│  (FastAPI)      │◄──►│  Service        │
+│  (FastAPI)      │    │  Port: 8000     │    │  Port: 5000     │    │  (FastAPI)      │
+│  Port: 3001     │    │                 │    │                 │    │  Port: 5002     │
+│                 │    │ • Data Extract  │    │ • ML Models     │    │                 │
+│ • User Mgmt     │    │ • Job Control   │    │ • Embeddings    │    │ • LangGraph     │
+│ • Session Mgmt  │    │ • Orchestration │    │ • Predictions   │    │ • Strategic AI  │
+│ • API Gateway   │    │ • Recovery      │    │ • Validation    │    │ • Query Planning│
+│ • Client Mgmt   │    │ • Admin APIs    │    │ • Monitoring    │    │ • Context Mgmt  │
+│ • ML Monitoring │    │ • ML Data Prep  │    │ • Inference     │    │ • Business Intel│
+│ • Integration   │    │ • Integration   │    │ • Vector Ops    │    │ • Semantic Search│
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+                    │                       │                       │                   │
+                    └───────────────────────┼───────────────────────┼───────────────────────┼─────┐
+                                           │                       │                       │     │
+                                           ▼                       ▼                       ▼     ▼
                         ┌─────────────────┐    ┌─────────────────┐         │
                         │  PostgreSQL     │───►│  PostgreSQL     │         │
                         │  PRIMARY        │    │  REPLICA        │         │
@@ -60,18 +60,18 @@ Pulse Platform follows a modern microservices architecture with centralized auth
                                                                           │
                         ┌─────────────────────────────────────────────────┘
                         ▼
-                ┌─────────────────┐
-                │  Auth Service   │
-                │  (FastAPI)      │
-                │  Port: 4000     │
-                │                 │
-                │ • Centralized   │
-                │   Authentication│
-                │ • RBAC          │
-                │ • JWT Tokens    │
-                │ • SSO           │
-                │ • OKTA Ready    │
-                └─────────────────┘
+                ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+                │  Auth Service   │    │  Qdrant Vector  │    │  Redis Cache    │
+                │  (FastAPI)      │    │  Database       │    │  Port: 6379     │
+                │  Port: 4000     │    │  Port: 6333     │    │                 │
+                │                 │    │                 │    │ • Session Store │
+                │ • Centralized   │    │ • Vector Store  │    │ • API Cache     │
+                │   Authentication│    │ • Embeddings    │    │ • Job Queue     │
+                │ • RBAC          │    │ • Similarity    │    │ • Rate Limiting │
+                │ • JWT Tokens    │    │ • Collections   │    │ • Color Cache   │
+                │ • SSO           │    │ • Tenant Isolation │ │ • Performance   │
+                │ • OKTA Ready    │    │ • HNSW Indexes  │    │ • LRU Eviction  │
+                └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
 ### Service Responsibilities
@@ -88,6 +88,22 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Cross-Domain SSO**: Single sign-on across all services
 - **Provider Abstraction**: Local database and OKTA integration ready
 - **Token Authority**: JWT generation and validation
+
+#### Qdrant Vector Database (Port 6333)
+- **Vector Storage**: High-performance vector database for embeddings
+- **Semantic Search**: Fast similarity search with HNSW indexes
+- **Tenant Isolation**: Client-specific collections for multi-tenancy
+- **Scalability**: Optimized for 10M+ vectors with performance tuning
+- **API Access**: HTTP (6333) and gRPC (6334) interfaces
+- **Integration**: Replaces PostgreSQL pgvector for dedicated vector operations
+
+#### Redis Cache (Port 6379)
+- **Session Storage**: User session and authentication token caching
+- **API Caching**: Response caching for improved performance
+- **Job Queue**: Background job queuing and processing
+- **Rate Limiting**: API rate limiting and throttling
+- **Color Caching**: Client-specific color scheme caching
+- **Performance**: LRU eviction with 256MB memory limit
 - **Session Coordination**: Cross-service session management
 
 #### Backend Service (Port 3001)
@@ -107,13 +123,21 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Admin Interface**: Configuration and management tools
 - **ML Data Preparation**: Data preprocessing for AI models (Phase 2+)
 
-#### AI Service (Port 5000) - Phase 1 Foundation
-- **ML Model Management**: Model training, validation, and inference (Phase 2+)
-- **Embedding Generation**: Text-to-vector conversion for semantic search (Phase 2+)
-- **Prediction Services**: Story point estimation, timeline forecasting (Phase 3+)
-- **Validation Layer**: Smart data validation using ML models (Phase 2+)
+#### AI Service (Port 5000) - Core AI Infrastructure
+- **ML Model Management**: Model training, validation, and inference
+- **Embedding Generation**: Text-to-vector conversion for semantic search
+- **Prediction Services**: Story point estimation, timeline forecasting
+- **Validation Layer**: Smart data validation using ML models
 - **Monitoring Integration**: Performance metrics and anomaly detection
-- **Vector Operations**: Similarity search and content analysis (Phase 2+)
+- **Vector Operations**: Similarity search and content analysis
+
+#### AI Agent Service (Port 5002) - Strategic Intelligence
+- **LangGraph Workflows**: Complex multi-step AI reasoning and analysis
+- **Strategic Analysis**: Business intelligence and strategic insights
+- **Query Planning**: Intelligent query decomposition and execution
+- **Context Management**: Conversation history and multi-source context assembly
+- **Semantic Search**: Vector-based content discovery across all data sources
+- **Business Intelligence**: Executive-level insights and recommendations
 
 ## 🏢 Multi-Tenant Architecture
 
@@ -300,19 +324,26 @@ CREATE INDEX idx_projects_embedding_hnsw ON projects USING hnsw (embedding vecto
 
 **ML Dependencies**: XGBoost, LightGBM, and scikit-learn installed for future ML model training
 
-## 🤖 AI Architecture (Phase 1 Implementation)
+## 🤖 AI Architecture (Phase 3 Implementation)
 
 ### AI Enhancement Overview
 
-Pulse Platform has been enhanced with comprehensive AI capabilities as part of the AI Evolution Plan Phase 1. The implementation provides the foundation for advanced machine learning features while maintaining backward compatibility.
+Pulse Platform has evolved through multiple AI phases, culminating in a clean 3-database architecture optimized for performance and scalability. The current implementation provides production-ready AI capabilities with dedicated vector storage.
+
+### 3-Database Architecture
+
+**PostgreSQL Primary (Port 5432)**: Business data, AI configuration, write operations
+**PostgreSQL Replica (Port 5433)**: Read operations, analytics, dashboards
+**Qdrant Vector Database (Port 6333)**: Dedicated vector storage, semantic search, tenant-isolated collections
 
 ### Vector Storage & Similarity Search
 
-**Vector Columns**: All business tables now include `embedding vector(1536)` columns:
+**Qdrant Vector Database**: Dedicated high-performance vector storage:
 - **Purpose**: Store text embeddings for semantic search and similarity analysis
 - **Dimensions**: 1536 (compatible with OpenAI text-embedding-3-small)
-- **Current State**: Columns exist but are NULL during Phase 1 (populated in Phase 2+)
-- **Indexing**: HNSW indexes for efficient similarity search
+- **Collections**: Tenant-specific collections for complete isolation
+- **Performance**: Optimized for 10M+ vectors with HNSW indexes
+- **APIs**: HTTP (6333) and gRPC (6334) for flexible integration
 
 **Supported Operations**:
 ```sql
@@ -353,14 +384,21 @@ WHERE tenant_id = ? AND embedding IS NOT NULL;
 ### Database Architecture for AI
 
 **Primary Database (Port 5432)**:
-- **pgvector Extension**: Vector operations and similarity search
+- **Business Data**: Core application data and AI configuration
+- **Write Operations**: All transactional data and ML monitoring
+- **pgvector Extension**: Legacy vector support (migrated to Qdrant)
 - **postgresml Extension**: ML model training and inference (prepared)
-- **Write Operations**: All ML monitoring data and vector updates
 
 **Replica Database (Port 5433)**:
-- **Read Operations**: ML analytics and similarity search queries
-- **Performance**: Offloads AI-heavy read operations from primary
-- **Consistency**: Same extensions available for inference operations
+- **Read Operations**: Analytics, dashboards, and reporting
+- **Performance**: Offloads read-heavy operations from primary
+- **Consistency**: WAL streaming for real-time replication
+
+**Qdrant Vector Database (Port 6333)**:
+- **Vector Storage**: Dedicated high-performance vector operations
+- **Tenant Collections**: Complete isolation with client-specific collections
+- **Semantic Search**: Fast similarity search with optimized HNSW indexes
+- **Scalability**: Designed for 10M+ vectors with performance tuning
 
 ### AI Service Integration Points
 
@@ -369,25 +407,64 @@ WHERE tenant_id = ? AND embedding IS NOT NULL;
 **Frontend**: Ready for AI feature toggles and ML insights display
 **Auth Service**: Unchanged - maintains existing authentication flow
 
-### Phase 1 Completion Status
+### Phase 3 Completion Status
 
-✅ **Database Schema**: Enhanced with vector columns and ML monitoring tables
-✅ **Model Updates**: All unified models support vector columns and ML entities
-✅ **Infrastructure**: PostgresML and pgvector extensions installed
-✅ **Indexes**: Vector similarity search indexes created
-✅ **Dependencies**: ML libraries (XGBoost, LightGBM, scikit-learn) installed
-✅ **Backward Compatibility**: All existing functionality preserved
+✅ **3-Database Architecture**: PostgreSQL Primary/Replica + Qdrant Vector Database
+✅ **Qdrant Integration**: Dedicated vector storage with tenant-isolated collections
+✅ **Redis Caching**: Session storage, API caching, and performance optimization
+✅ **AI Agent Service**: LangGraph-based strategic intelligence and business analysis
+✅ **Integration Management**: Web interface for external system and AI provider configuration
+✅ **Vector Operations**: High-performance semantic search and similarity analysis
+✅ **ML Monitoring**: Comprehensive AI performance tracking and anomaly detection
+✅ **Backward Compatibility**: All existing functionality preserved and enhanced
 
-### Future AI Capabilities (Phase 2+)
+### Current AI Capabilities (Production Ready)
 
-🔄 **Validation Layer**: Smart data validation using ML models
-🔄 **Embedding Generation**: Automatic text embedding for all content
-🔄 **Similarity Search**: Content discovery and duplicate detection
-🔄 **Predictive Analytics**: Story point estimation and timeline forecasting
-🔄 **Anomaly Detection**: Automated issue and performance anomaly detection
-🔄 **Conversational Interface**: Natural language query and interaction
+✅ **Strategic Intelligence**: LangGraph-powered business analysis and insights
+✅ **Semantic Search**: Vector-based content discovery across all data sources
+✅ **Integration Management**: Unified configuration for data sources and AI providers
+✅ **Performance Optimization**: Redis caching and Qdrant vector operations
+✅ **Tenant Isolation**: Complete multi-tenant support across all AI components
+✅ **Monitoring & Analytics**: Real-time AI performance tracking and optimization
 
-## 📊 Logging & Monitoring Architecture
+## � Deployment Architecture
+
+### Docker Compose Configuration
+
+The platform uses Docker Compose for local development and can be adapted for production deployment:
+
+**Core Services:**
+- **Frontend**: React/TypeScript application (Port 3000)
+- **Backend Service**: FastAPI authentication and user management (Port 3001)
+- **ETL Service**: FastAPI data processing and job orchestration (Port 8000)
+- **AI Service**: FastAPI ML models and inference (Port 5000)
+- **AI Agent Service**: FastAPI strategic intelligence (Port 5002)
+- **Auth Service**: FastAPI centralized authentication (Port 4000)
+
+**Data Layer:**
+- **PostgreSQL Primary**: PostgresML image with pgvector (Port 5432)
+- **PostgreSQL Replica**: Read replica with WAL streaming (Port 5433)
+- **Qdrant**: Vector database for embeddings (Ports 6333/6334)
+- **Redis**: Cache and session storage (Port 6379)
+
+**Networking:**
+- **Internal Network**: `pulse-network` bridge for service communication
+- **Health Checks**: All services include health check endpoints
+- **Volume Persistence**: Data persistence for databases and cache
+
+### Production Considerations
+
+**Scalability:**
+- Services can be horizontally scaled using container orchestration
+- Database replicas can be added for read scaling
+- Qdrant supports clustering for vector storage scaling
+
+**Security:**
+- All inter-service communication over internal network
+- Environment-based configuration for secrets
+- JWT-based authentication with configurable providers
+
+## �📊 Logging & Monitoring Architecture
 
 ### Structured Logging System
 
@@ -427,3 +504,24 @@ The platform implements a comprehensive structured logging system with the follo
 - **Client-Specific Log Files**: Separate log files per client for isolation
 - **Web-Based Log Viewer**: Built-in log management interface at `/logs`
 - **Performance Metrics**: Request timing, database operation metrics, and job execution stats
+
+---
+
+## 📚 Related Documentation
+
+**Core System Documentation:**
+- [Security & Authentication](security-authentication.md) - RBAC, JWT tokens, permissions, tenant isolation
+- [Jobs & Orchestration](jobs-orchestration.md) - ETL jobs, orchestrator, recovery strategies
+- [Integration Management](integration-management.md) - External system connections and AI providers
+- [System Settings](system-settings.md) - Configuration reference, settings explanation
+- [Installation & Setup](installation-setup.md) - Requirements, deployment, database setup
+
+**AI & Advanced Features:**
+- [AI Agent Architecture](hackathon/ai-agent-architecture.md) - LangGraph workflows and strategic intelligence
+- [AI Evolution Plans](evolution_plans/ai/) - AI development phases and roadmap
+- [Development Guide](../services/etl-service/docs/development-guide.md) - Development, testing, debugging
+
+**Infrastructure & Operations:**
+- [Log Management Guide](../services/etl-service/docs/log-management.md) - Comprehensive logging system
+- [Docker Compose](../docker-compose.yml) - Container orchestration configuration
+- [Environment Configuration](../.env.example) - Environment variables and settings
