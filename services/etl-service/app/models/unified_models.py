@@ -106,7 +106,7 @@ class Integration(Base, BaseEntity):
     provider_metadata = Column(JSON, default={}, quote=False, name="provider_metadata")  # Provider-specific metadata
     cost_config = Column(JSON, default={}, quote=False, name="cost_config")  # Cost tracking and limits
     fallback_integration_id = Column(Integer, quote=False, name="fallback_integration_id")  # FK to another integration for fallback
-    logo_url = Column(String(500), quote=False, name="logo_url")  # URL or path to integration logo/favicon
+    logo_filename = Column(String(255), quote=False, name="logo_filename")  # Filename of integration logo (stored in tenant assets folder)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="integrations")

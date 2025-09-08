@@ -107,8 +107,8 @@
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Logo URL</label>
-                        <input type="text" id="logoUrl" name="logo_url" placeholder="/static/images/integrations/provider.svg" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Logo Filename</label>
+                        <input type="text" id="logoFilename" name="logo_filename" placeholder="provider-logo.svg" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
                 </div>
                 
@@ -206,8 +206,11 @@ function renderIntegrationsTable() {
         row.className = 'border-b hover:bg-gray-50';
         row.style.borderColor = 'var(--border-color)';
         
-        const logoHtml = integration.logo_url ? 
-            `<img src="${integration.logo_url}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+        // Construct logo path: /assets/{tenant_name}/integrations/{logo_filename}
+        // For now, we'll use a placeholder tenant name - this should be dynamic based on user's tenant
+        const logoPath = integration.logo_filename ? `/assets/wex/integrations/${integration.logo_filename}` : null;
+        const logoHtml = logoPath ?
+            `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
              <i class="fas fa-plug text-lg hidden" style="color: var(--text-muted);"></i>` :
             `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
         
@@ -266,7 +269,7 @@ function editIntegration(id) {
         document.getElementById('provider').value = integration.provider || '';
         document.getElementById('type').value = integration.integration_type || '';
         document.getElementById('baseUrl').value = integration.base_url || '';
-        document.getElementById('logoUrl').value = integration.logo_url || '';
+        document.getElementById('logoFilename').value = integration.logo_filename || '';
         document.getElementById('username').value = integration.username || '';
         document.getElementById('password').value = ''; // Don't populate password for security
         document.getElementById('baseSearch').value = integration.base_search || '';
@@ -285,7 +288,7 @@ async function saveIntegration() {
         provider: formData.get('provider'),
         type: formData.get('type'),
         base_url: formData.get('base_url') || null,
-        logo_url: formData.get('logo_url') || null,
+        logo_filename: formData.get('logo_filename') || null,
         username: formData.get('username') || null,
         password: formData.get('password') || null,
         base_search: formData.get('base_search') || null,

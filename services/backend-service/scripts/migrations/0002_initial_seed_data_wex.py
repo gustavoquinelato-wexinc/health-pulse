@@ -262,7 +262,7 @@ def apply(connection):
             cursor.execute("""
                 INSERT INTO integrations (
                     provider, type, username, password, base_url, base_search, model,
-                    model_config, configuration, logo_url, tenant_id, active, created_at, last_updated_at
+                    model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -272,7 +272,7 @@ def apply(connection):
                 None, ai_model,
                 json.dumps({"temperature": 0.3, "max_tokens": 700}),
                 json.dumps({"primary_model": ai_model, "fallback_model": ai_fallback_model}),
-                "/static/images/integrations/wex-ai-gateway.svg",
+                "wex-ai-gateway.svg",
                 tenant_id, True
             ))
 
@@ -290,7 +290,7 @@ def apply(connection):
                 cursor.execute("""
                     INSERT INTO integrations (
                         provider, type, username, password, base_url, base_search, model,
-                        model_config, configuration, fallback_integration_id, logo_url, tenant_id, active, created_at, last_updated_at
+                        model_config, configuration, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -300,7 +300,7 @@ def apply(connection):
                     None, ai_fallback_model,
                     json.dumps({"temperature": 0.3, "max_tokens": 700}),
                     json.dumps({"fallback_for": ai_model}),
-                    ai_gateway_integration_id, "/static/images/integrations/wex-ai-gateway.svg",
+                    ai_gateway_integration_id, "wex-ai-gateway.svg",
                     tenant_id, True
                 ))
 
@@ -321,7 +321,7 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, logo_url, tenant_id, active, created_at, last_updated_at
+                model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -331,7 +331,7 @@ def apply(connection):
             None, None,
             json.dumps({"workspace_id": "placeholder"}),
             json.dumps({"description": "WEX Fabric data warehouse integration"}),
-            "/static/images/integrations/microsoft-fabric.svg",
+            "microsoft-fabric.svg",
             tenant_id, False  # Inactive until implemented
         ))
 
@@ -349,7 +349,7 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, model,
-                model_config, configuration, logo_url, tenant_id, active, created_at, last_updated_at
+                model_config, configuration, logo_filename, tenant_id, active, created_at, last_updated_at
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
@@ -359,7 +359,7 @@ def apply(connection):
             None, None,
             json.dumps({"tenant_id": "placeholder"}),
             json.dumps({"description": "Active Directory identity provider integration"}),
-            "/static/images/integrations/microsoft-ad.svg",
+            "microsoft-ad.svg",
             tenant_id, False  # Inactive until implemented
         ))
 

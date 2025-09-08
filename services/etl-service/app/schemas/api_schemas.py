@@ -104,7 +104,7 @@ class IntegrationInfo(BaseModel):
     base_url: str  # Updated to match new integration model
     username: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    logo_url: Optional[str] = None  # URL or path to integration logo/favicon
+    logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     last_sync_at: Optional[datetime] = None  # Populated from etl_jobs.last_success_at (not from integration table)
 
     class Config:
