@@ -177,16 +177,15 @@ def apply(connection):
 
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, model,
-                provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
+                provider, type, username, password, base_url, base_search, ai_model,
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "jira", "data_source", jira_username, jira_password, jira_url,
             "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
-            json.dumps({"base_search": "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)"}),
             "jira.svg",
             tenant_id, jira_active
         ))
@@ -225,16 +224,15 @@ def apply(connection):
 
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, model,
-                provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
+                provider, type, username, password, base_url, base_search, ai_model,
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "github", "data_source", None, github_password, "https://api.github.com",
             "health-", None,
-            json.dumps({"base_search": "health-"}),
             "github.svg",
             tenant_id, github_active
         ))
@@ -263,17 +261,16 @@ def apply(connection):
             # Create primary AI Gateway integration
             cursor.execute("""
                 INSERT INTO integrations (
-                    provider, type, username, password, base_url, base_search, model,
-                    model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
+                    provider, type, username, password, base_url, base_search, ai_model,
+                    ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (provider, tenant_id) DO NOTHING
                 RETURNING id;
             """, (
                 "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                 None, ai_model,
                 json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                json.dumps({"primary_model": ai_model, "fallback_model": ai_fallback_model}),
                 "wex-ai-gateway.svg",
                 tenant_id, True
             ))
@@ -291,17 +288,16 @@ def apply(connection):
             if ai_fallback_model and ai_fallback_model != ai_model:
                 cursor.execute("""
                     INSERT INTO integrations (
-                        provider, type, username, password, base_url, base_search, model,
-                        model_config, provider_metadata, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
+                        provider, type, username, password, base_url, base_search, ai_model,
+                        ai_model_config, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (provider, tenant_id) DO NOTHING
                     RETURNING id;
                 """, (
                     "wex_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                     None, ai_fallback_model,
                     json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                    json.dumps({"fallback_for": ai_model}),
                     ai_gateway_integration_id, "wex-ai-gateway.svg",
                     tenant_id, True
                 ))
@@ -322,17 +318,15 @@ def apply(connection):
         print("   📋 Creating WEX Fabric integration...")
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, model,
-                model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
+                provider, type, username, password, base_url, base_search, ai_model,
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "wex_fabric", "data_warehouse", "wex_fabric_user", None, "https://fabric.wex.com",
             None, None,
-            json.dumps({"workspace_id": "placeholder"}),
-            json.dumps({"description": "WEX Fabric data warehouse integration"}),
             "microsoft-fabric.svg",
             tenant_id, False  # Inactive until implemented
         ))
@@ -350,17 +344,15 @@ def apply(connection):
         print("   📋 Creating Active Directory integration...")
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, model,
-                model_config, provider_metadata, logo_filename, tenant_id, active, created_at, last_updated_at
+                provider, type, username, password, base_url, base_search, ai_model,
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "active_directory", "identity_provider", "wex_ad_user", None, "https://login.microsoftonline.com",
             None, None,
-            json.dumps({"tenant_id": "placeholder"}),
-            json.dumps({"description": "Active Directory identity provider integration"}),
             "microsoft-ad.svg",
             tenant_id, False  # Inactive until implemented
         ))

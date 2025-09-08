@@ -194,17 +194,16 @@ class Integration(Base, BaseEntity):
 
     # Core integration fields
     provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'jira', 'github', 'openai', 'wex_ai_gateway'
-    type = Column(String(50), nullable=False, quote=False, name="type")  # 'data_source', 'ai_provider', 'notification'
-    username = Column(String, quote=False, name="username")
-    password = Column(String, quote=False, name="password")
-    base_url = Column(Text, quote=False, name="base_url")
-    base_search = Column(String, quote=False, name="base_search")
-    model = Column(String(100), quote=False, name="model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
+    type = Column(String(50), nullable=False, name="type")  # 'data_source', 'ai_provider', 'notification'
+    username = Column(String, name="username")
+    password = Column(String, name="password")
+    base_url = Column(Text, name="base_url")
+    base_search = Column(String, name="base_search")
+    ai_model = Column(String(100), name="ai_model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-    # JSON configuration columns for complex settings
-    model_config = Column(JSON, default={}, quote=False, name="model_config")  # AI model configuration
-    provider_metadata = Column(JSON, default={}, quote=False, name="provider_metadata")  # Provider-specific metadata
-    cost_config = Column(JSON, default={}, quote=False, name="cost_config")  # Cost tracking and limits
+    # JSON configuration columns for AI providers
+    ai_model_config = Column(JSON, default={}, name="ai_model_config")  # AI model configuration
+    cost_config = Column(JSON, default={}, name="cost_config")  # Cost tracking and limits
     fallback_integration_id = Column(Integer, quote=False, name="fallback_integration_id")  # FK to another integration for fallback
     logo_filename = Column(String(255), quote=False, name="logo_filename")  # Filename of integration logo (stored in tenant assets folder)
 

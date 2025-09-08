@@ -97,11 +97,10 @@ class Integration(Base, BaseEntity):
     password = Column(String, quote=False, name="password")
     base_url = Column(Text, quote=False, name="base_url")
     base_search = Column(String, quote=False, name="base_search")
-    model = Column(String(100), quote=False, name="model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
+    ai_model = Column(String(100), quote=False, name="ai_model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-    # JSON configuration columns for complex settings
-    model_config = Column(JSON, default={}, quote=False, name="model_config")  # AI model configuration
-    provider_metadata = Column(JSON, default={}, quote=False, name="provider_metadata")  # Provider-specific metadata
+    # JSON configuration columns for AI providers
+    ai_model_config = Column(JSON, default={}, quote=False, name="ai_model_config")  # AI model configuration
     cost_config = Column(JSON, default={}, quote=False, name="cost_config")  # Cost tracking and limits
     fallback_integration_id = Column(Integer, quote=False, name="fallback_integration_id")  # FK to another integration for fallback
     logo_filename = Column(String(255), quote=False, name="logo_filename")  # Filename of integration logo (stored in tenant assets folder)

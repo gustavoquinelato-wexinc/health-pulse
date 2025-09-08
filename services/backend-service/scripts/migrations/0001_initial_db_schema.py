@@ -193,11 +193,10 @@ def apply(connection):
                 password VARCHAR,
                 base_url TEXT,
                 base_search VARCHAR,
-                model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
+                ai_model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-                -- JSON configuration columns for complex settings
-                model_config JSONB DEFAULT '{}', -- AI model configuration
-                provider_metadata JSONB DEFAULT '{}', -- Provider-specific metadata
+                -- JSON configuration columns for AI providers
+                ai_model_config JSONB DEFAULT '{}', -- AI model configuration
                 cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
                 fallback_integration_id INTEGER, -- FK to another integration for fallback
                 logo_filename VARCHAR(255), -- Filename of integration logo (stored in tenant assets folder)

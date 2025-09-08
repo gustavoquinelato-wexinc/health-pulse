@@ -10,7 +10,10 @@ The Integration Management System provides a comprehensive interface for managin
 
 The `integrations` table serves as the unified configuration store for all external systems.
 
-**Note:** The schema was simplified in migration 0005 by removing redundant `performance_config` and `configuration` columns, as the specific JSON columns provide all needed functionality.
+**Note:** The schema was simplified by removing redundant columns and using clear naming:
+- Removed `performance_config` and `provider_metadata` (unused)
+- Renamed `model` → `ai_model` for clarity
+- Renamed `model_config` → `ai_model_config` for clarity
 
 ```sql
 CREATE TABLE integrations (
@@ -21,11 +24,10 @@ CREATE TABLE integrations (
     password VARCHAR,                        -- Encrypted using SECRET_KEY
     base_url TEXT,
     base_search VARCHAR,                     -- Search filters for data sources
-    model VARCHAR(100),                      -- AI model name
-    
+    ai_model VARCHAR(100),                   -- AI model name
+
     -- JSON configuration columns (simplified)
-    model_config JSONB DEFAULT '{}',        -- AI model parameters
-    provider_metadata JSONB DEFAULT '{}',   -- Provider-specific settings
+    ai_model_config JSONB DEFAULT '{}',     -- AI model parameters
     cost_config JSONB DEFAULT '{}',         -- Cost tracking and limits
     fallback_integration_id INTEGER,        -- FK to fallback integration
     logo_filename VARCHAR(255),             -- Tenant-specific logo file
