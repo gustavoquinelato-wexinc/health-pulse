@@ -48,6 +48,7 @@ class IntegrationResponse(BaseModel):
     base_url: Optional[str] = None
     username: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    logo_url: Optional[str] = None  # URL or path to integration logo/favicon
     active: bool
     last_sync_at: Optional[str] = None
 
@@ -56,6 +57,7 @@ class IntegrationUpdateRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    logo_url: Optional[str] = None  # URL or path to integration logo/favicon
 
 class IntegrationDetailResponse(BaseModel):
     id: int
@@ -63,6 +65,7 @@ class IntegrationDetailResponse(BaseModel):
     base_url: Optional[str] = None
     username: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    logo_url: Optional[str] = None  # URL or path to integration logo/favicon
     password_masked: Optional[str] = None  # Masked version for display
 
 class PermissionMatrixResponse(BaseModel):
@@ -303,6 +306,7 @@ async def get_integrations(
                     base_url=integration.base_url,
                     username=integration.username,
                     model=integration.model,  # Include AI model name
+                    logo_url=integration.logo_url,  # Include logo URL
                     active=integration.active,  # BaseEntity provides this field
                     last_sync_at=last_sync_at  # Get from etl_jobs.last_success_at
                 ))
@@ -384,6 +388,7 @@ async def get_integration_details(
                 base_url=integration.base_url,
                 username=integration.username,
                 model=integration.model,  # Include AI model name
+                logo_url=integration.logo_url,  # Include logo URL
                 password_masked=password_masked
             )
 
@@ -423,6 +428,7 @@ async def update_integration(
             integration.base_url = update_data.base_url
             integration.username = update_data.username
             integration.model = update_data.model  # Update AI model name
+            integration.logo_url = update_data.logo_url  # Update logo URL
 
             # Only update password if provided
             if update_data.password:
