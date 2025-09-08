@@ -20,33 +20,45 @@
 </div>
 {% endif %}
 
-<!-- Main Content -->
-<div class="grid grid-cols-1 gap-6">
-    <!-- Hierarchies Table -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Work Item Type Hierarchies</h2>
-        </div>
-        <div class="card-content">
-            <div class="table-container">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Level Name</th>
-                            <th>Level Number</th>
-                            <th>Description</th>
-                            <th>Integration</th>
-                            <th>Active</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hierarchiesTableBody">
-                        <!-- Data will be loaded here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
+<!-- Work Item Type Hierarchies Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Work Item Type Hierarchies</h2>
+        <button onclick="loadHierarchies()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">ID</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Level Name</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Level Number</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Description</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="hierarchiesTableBody" style="background-color: var(--bg-secondary);">
+                <!-- Hierarchies will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading work item type hierarchies...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden">
+        <i class="fas fa-layer-group text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Work Item Type Hierarchies Found</h3>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Hierarchy button above to get started.</p>
     </div>
 </div>
 

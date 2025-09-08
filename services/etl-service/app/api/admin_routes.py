@@ -604,7 +604,7 @@ async def get_status_mappings(
                 StatusMapping,
                 Workflow.step_name.label('workflow_step_name'),
                 Workflow.step_number.label('step_number'),
-                Integration.name.label('integration_name')
+                Integration.provider.label('integration_name')
             ).outerjoin(
                 Workflow, StatusMapping.workflow_id == Workflow.id
             ).outerjoin(
@@ -1073,7 +1073,7 @@ async def get_workflows(
 
             workflows = session.query(
                 Workflow,
-                Integration.name.label('integration_name')
+                Integration.provider.label('integration_name')
             ).outerjoin(
                 Integration, Workflow.integration_id == Integration.id
             ).filter(
