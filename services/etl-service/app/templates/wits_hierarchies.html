@@ -124,7 +124,7 @@ async function loadHierarchies() {
 
 async function loadWorkItemTypes() {
     try {
-        const response = await fetch('/api/v1/wits');
+        const response = await fetch('/api/v1/admin/wits');
         if (response.ok) {
             workItemTypes = await response.json();
             populateTypeSelects();
