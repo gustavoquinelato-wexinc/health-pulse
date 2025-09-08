@@ -2467,9 +2467,9 @@ async def get_wit_mapping_dependencies(
         )
 
 
-@router.get("/issuetype-hierarchies")
-async def get_issuetype_hierarchies(user: UserData = Depends(require_admin_authentication)):
-    """Get all issue type hierarchies"""
+@router.get("/wits-hierarchies")
+async def get_wits_hierarchies(user: UserData = Depends(require_admin_authentication)):
+    """Get all work item type hierarchies"""
     try:
         database = get_database()
         with database.get_read_session_context() as session:
@@ -2524,12 +2524,12 @@ class WitHierarchyUpdateRequest(BaseModel):
     integration_id: Optional[int] = None
 
 
-@router.post("/issuetype-hierarchies")
-async def create_issuetype_hierarchy(
+@router.post("/wits-hierarchies")
+async def create_wits_hierarchy(
     create_data: WitHierarchyCreateRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Create a new issuetype hierarchy"""
+    """Create a new work item type hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -2568,13 +2568,13 @@ async def create_issuetype_hierarchy(
         )
 
 
-@router.put("/issuetype-hierarchies/{hierarchy_id}")
-async def update_issuetype_hierarchy(
+@router.put("/wits-hierarchies/{hierarchy_id}")
+async def update_wits_hierarchy(
     hierarchy_id: int,
     update_data: WitHierarchyUpdateRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Update an issuetype hierarchy"""
+    """Update a work item type hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -2629,12 +2629,12 @@ async def update_issuetype_hierarchy(
         )
 
 
-@router.delete("/issuetype-hierarchies/{hierarchy_id}")
-async def delete_issuetype_hierarchy(
+@router.delete("/wits-hierarchies/{hierarchy_id}")
+async def delete_wits_hierarchy(
     hierarchy_id: int,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Delete an issuetype hierarchy"""
+    """Delete a work item type hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -2679,12 +2679,12 @@ async def delete_issuetype_hierarchy(
         )
 
 
-@router.get("/issuetype-hierarchies/{hierarchy_id}/dependencies")
-async def get_issuetype_hierarchy_dependencies(
+@router.get("/wits-hierarchies/{hierarchy_id}/dependencies")
+async def get_wits_hierarchy_dependencies(
     hierarchy_id: int,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get dependencies for an issue type hierarchy"""
+    """Get dependencies for a work item type hierarchy"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
@@ -2764,13 +2764,13 @@ class WitHierarchyDeactivationRequest(BaseModel):
     target_hierarchy_id: Optional[int] = None  # Required if action is "reassign_mappings"
 
 
-@router.patch("/issuetype-hierarchies/{hierarchy_id}/deactivate")
-async def deactivate_issuetype_hierarchy(
+@router.patch("/wits-hierarchies/{hierarchy_id}/deactivate")
+async def deactivate_wits_hierarchy(
     hierarchy_id: int,
     deactivation_data: WitHierarchyDeactivationRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Deactivate an issue type hierarchy with options for handling dependencies"""
+    """Deactivate a work item type hierarchy with options for handling dependencies"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
@@ -2876,12 +2876,12 @@ async def deactivate_issuetype_hierarchy(
         )
 
 
-@router.patch("/issuetype-hierarchies/{hierarchy_id}/activate")
-async def activate_issuetype_hierarchy(
+@router.patch("/wits-hierarchies/{hierarchy_id}/activate")
+async def activate_wits_hierarchy(
     hierarchy_id: int,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Activate an issue type hierarchy"""
+    """Activate a work item type hierarchy"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:

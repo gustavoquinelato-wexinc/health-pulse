@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadHierarchies() {
     try {
-        const response = await fetch('/api/v1/wit-hierarchies');
+        const response = await fetch('/api/v1/admin/wits-hierarchies');
         if (response.ok) {
             hierarchies = await response.json();
             renderHierarchiesTable();
@@ -216,7 +216,7 @@ async function saveHierarchy() {
     };
     
     try {
-        const url = id ? `/api/v1/wit-hierarchies/${id}` : '/api/v1/wit-hierarchies';
+        const url = id ? `/api/v1/admin/wits-hierarchies/${id}` : '/api/v1/admin/wits-hierarchies';
         const method = id ? 'PUT' : 'POST';
         
         const response = await fetch(url, {
@@ -244,7 +244,7 @@ async function saveHierarchy() {
 async function deleteHierarchy(id) {
     if (confirm('Are you sure you want to delete this hierarchy?')) {
         try {
-            const response = await fetch(`/api/v1/wit-hierarchies/${id}`, {
+            const response = await fetch(`/api/v1/admin/wits-hierarchies/${id}`, {
                 method: 'DELETE'
             });
             

@@ -80,7 +80,15 @@
                         <!-- Options will be loaded dynamically -->
                     </select>
                 </div>
-                
+
+                <div class="form-group">
+                    <label for="hierarchyLevel">Hierarchy Level:</label>
+                    <select id="hierarchyLevel" name="hierarchy_level" required>
+                        <option value="">Select Hierarchy Level</option>
+                        <!-- Options will be loaded dynamically -->
+                    </select>
+                </div>
+
                 <div class="form-group">
                     <label class="checkbox-label">
                         <input type="checkbox" id="active" name="active" checked>
@@ -101,12 +109,14 @@
 let mappings = [];
 let integrations = [];
 let workItemTypes = [];
+let hierarchies = [];
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadMappings();
     loadIntegrations();
     loadWorkItemTypes();
+    loadHierarchies();
 });
 
 async function loadMappings() {
@@ -154,6 +164,21 @@ async function loadWorkItemTypes() {
     }
 }
 
+async function loadHierarchies() {
+    try {
+        const response = await fetch('/api/v1/admin/wits-hierarchies');
+        if (response.ok) {
+            hierarchies = await response.json();
+            populateHierarchySelect();
+        } else {
+            showError('Failed to load hierarchies');
+        }
+    } catch (error) {
+        console.error('Error loading hierarchies:', error);
+        showError('Error loading hierarchies');
+    }
+}
+
 function populateIntegrationSelect() {
     const select = document.getElementById('integration');
     select.innerHTML = '<option value="">Select Integration</option>';
@@ -167,9 +192,19 @@ function populateIntegrationSelect() {
 function populateTypeSelect() {
     const select = document.getElementById('internalType');
     select.innerHTML = '<option value="">Select Internal Type</option>';
-    
+
     workItemTypes.forEach(type => {
-        const option = new Option(type.name, type.id);
+        const option = new Option(type.original_name, type.id);
+        select.add(option);
+    });
+}
+
+function populateHierarchySelect() {
+    const select = document.getElementById('hierarchyLevel');
+    select.innerHTML = '<option value="">Select Hierarchy Level</option>';
+
+    hierarchies.forEach(hierarchy => {
+        const option = new Option(`Level ${hierarchy.level_number} - ${hierarchy.level_name}`, hierarchy.level_number);
         select.add(option);
     });
 }
@@ -231,8 +266,9 @@ async function saveMapping() {
     
     const data = {
         integration_id: parseInt(formData.get('integration_id')) || null,
-        external_type: formData.get('external_type'),
-        internal_type_id: parseInt(formData.get('internal_type_id')) || null,
+        wit_from: formData.get('external_type'),
+        wit_to: formData.get('internal_type_id'),
+        hierarchy_level: parseInt(formData.get('hierarchy_level')),
         active: formData.has('active')
     };
     
