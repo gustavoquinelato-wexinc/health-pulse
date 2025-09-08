@@ -311,12 +311,12 @@ function renderMappingsTable() {
                         <i class="fas fa-edit"></i>
                     </button>
                     ${mapping.active ?
-                        \`<button onclick="showPauseModal(${mapping.id}, '${mapping.wit_from} → ${mapping.wit_to}')" class="btn-status-warning-xs" title="Pause">
+                        `<button onclick="showPauseModal(${mapping.id}, '${mapping.wit_from} → ${mapping.wit_to}')" class="btn-status-warning-xs" title="Pause">
                             <i class="fas fa-pause"></i>
-                        </button>\` :
-                        \`<button onclick="resumeMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
+                        </button>` :
+                        `<button onclick="resumeMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
                             <i class="fas fa-play"></i>
-                        </button>\`
+                        </button>`
                     }
                     <button onclick="deleteMapping(${mapping.id})" class="btn-crud-delete-sm" title="Delete">
                         <i class="fas fa-trash"></i>
@@ -446,7 +446,7 @@ async function confirmPauseMapping() {
             move_to_mapping_id: moveToId || null
         };
 
-        const response = await fetch(\`/api/v1/admin/wit-mappings/\${currentMappingId}\`, {
+        const response = await fetch(`/api/v1/admin/wit-mappings/${currentMappingId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -461,7 +461,7 @@ async function confirmPauseMapping() {
             loadMappings();
         } else {
             const error = await response.text();
-            showError(\`Failed to pause mapping: \${error}\`);
+            showError(`Failed to pause mapping: ${error}`);
         }
     } catch (error) {
         console.error('Error pausing mapping:', error);
@@ -473,7 +473,7 @@ async function resumeMapping(id) {
     try {
         const data = { active: true };
 
-        const response = await fetch(\`/api/v1/admin/wit-mappings/\${id}\`, {
+        const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -487,7 +487,7 @@ async function resumeMapping(id) {
             loadMappings();
         } else {
             const error = await response.text();
-            showError(\`Failed to resume mapping: \${error}\`);
+            showError(`Failed to resume mapping: ${error}`);
         }
     } catch (error) {
         console.error('Error resuming mapping:', error);

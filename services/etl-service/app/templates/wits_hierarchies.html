@@ -247,12 +247,12 @@ function renderHierarchiesTable() {
                         <i class="fas fa-edit"></i>
                     </button>
                     ${hierarchy.active ?
-                        \`<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
+                        `<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
                             <i class="fas fa-pause"></i>
-                        </button>\` :
-                        \`<button onclick="resumeHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
+                        </button>` :
+                        `<button onclick="resumeHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
                             <i class="fas fa-play"></i>
-                        </button>\`
+                        </button>`
                     }
                     <button onclick="deleteHierarchy(${hierarchy.id})" class="btn-crud-delete-sm" title="Delete">
                         <i class="fas fa-trash"></i>
@@ -383,7 +383,7 @@ async function confirmPauseHierarchy() {
             move_to_hierarchy_id: moveToId || null
         };
 
-        const response = await fetch(\`/api/v1/admin/wits-hierarchies/\${currentHierarchyId}\`, {
+        const response = await fetch(`/api/v1/admin/wits-hierarchies/${currentHierarchyId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -398,7 +398,7 @@ async function confirmPauseHierarchy() {
             loadHierarchies();
         } else {
             const error = await response.text();
-            showError(\`Failed to pause hierarchy: \${error}\`);
+            showError(`Failed to pause hierarchy: ${error}`);
         }
     } catch (error) {
         console.error('Error pausing hierarchy:', error);
@@ -410,7 +410,7 @@ async function resumeHierarchy(id) {
     try {
         const data = { active: true };
 
-        const response = await fetch(\`/api/v1/admin/wits-hierarchies/\${id}\`, {
+        const response = await fetch(`/api/v1/admin/wits-hierarchies/${id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -424,7 +424,7 @@ async function resumeHierarchy(id) {
             loadHierarchies();
         } else {
             const error = await response.text();
-            showError(\`Failed to resume hierarchy: \${error}\`);
+            showError(`Failed to resume hierarchy: ${error}`);
         }
     } catch (error) {
         console.error('Error resuming hierarchy:', error);
