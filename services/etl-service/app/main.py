@@ -445,7 +445,7 @@ app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
 
 
 
-# Include web interface routes
+# Include admin API routes (already has /api/v1/admin prefix)
 app.include_router(
     admin_router,
     tags=["Administration"]

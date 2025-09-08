@@ -111,7 +111,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadMappings() {
     try {
-        const response = await fetch('/api/v1/wit-mappings');
+        const response = await fetch('/api/v1/admin/wit-mappings');
         if (response.ok) {
             mappings = await response.json();
             renderMappingsTable();
@@ -126,7 +126,7 @@ async function loadMappings() {
 
 async function loadIntegrations() {
     try {
-        const response = await fetch('/api/v1/integrations');
+        const response = await fetch('/api/v1/admin/integrations');
         if (response.ok) {
             integrations = await response.json();
             populateIntegrationSelect();
@@ -141,7 +141,7 @@ async function loadIntegrations() {
 
 async function loadWorkItemTypes() {
     try {
-        const response = await fetch('/api/v1/wits');
+        const response = await fetch('/api/v1/admin/wits');
         if (response.ok) {
             workItemTypes = await response.json();
             populateTypeSelect();
@@ -237,7 +237,7 @@ async function saveMapping() {
     };
     
     try {
-        const url = id ? `/api/v1/wit-mappings/${id}` : '/api/v1/wit-mappings';
+        const url = id ? `/api/v1/admin/wit-mappings/${id}` : '/api/v1/admin/wit-mappings';
         const method = id ? 'PUT' : 'POST';
         
         const response = await fetch(url, {
@@ -265,7 +265,7 @@ async function saveMapping() {
 async function deleteMapping(id) {
     if (confirm('Are you sure you want to delete this mapping?')) {
         try {
-            const response = await fetch(`/api/v1/wit-mappings/${id}`, {
+            const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
                 method: 'DELETE'
             });
             

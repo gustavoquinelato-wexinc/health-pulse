@@ -316,6 +316,42 @@ async def get_integrations(
         )
 
 
+@router.get("/wits")
+async def get_wits(
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Get all work item types for current user's tenant"""
+    try:
+        database = get_database()
+        with database.get_read_session_context() as session:
+            from app.models.unified_models import Wit
+
+            wits = session.query(Wit).filter(
+                Wit.tenant_id == user.tenant_id,
+                Wit.active == True
+            ).order_by(Wit.original_name).all()
+
+            return [
+                {
+                    "id": wit.id,
+                    "external_id": wit.external_id,
+                    "original_name": wit.original_name,
+                    "description": wit.description,
+                    "hierarchy_level": wit.hierarchy_level,
+                    "wits_mapping_id": wit.wits_mapping_id,
+                    "integration_id": wit.integration_id,
+                    "active": wit.active
+                }
+                for wit in wits
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching work item types: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch work item types"
+        )
+
+
 @router.get("/integrations/{integration_id}", response_model=IntegrationDetailResponse)
 async def get_integration_details(
     integration_id: int,
