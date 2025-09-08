@@ -197,8 +197,6 @@ def apply(connection):
 
                 -- JSON configuration columns for complex settings
                 model_config JSONB DEFAULT '{}', -- AI model configuration
-                performance_config JSONB DEFAULT '{}', -- Rate limits, timeouts, etc.
-                configuration JSONB DEFAULT '{}', -- General configuration
                 provider_metadata JSONB DEFAULT '{}', -- Provider-specific metadata
                 cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
                 fallback_integration_id INTEGER, -- FK to another integration for fallback

@@ -8,7 +8,9 @@ The Integration Management System provides a comprehensive interface for managin
 
 ### Database Schema
 
-The `integrations` table serves as the unified configuration store for all external systems:
+The `integrations` table serves as the unified configuration store for all external systems.
+
+**Note:** The schema was simplified in migration 0005 by removing redundant `performance_config` and `configuration` columns, as the specific JSON columns provide all needed functionality.
 
 ```sql
 CREATE TABLE integrations (
@@ -21,7 +23,7 @@ CREATE TABLE integrations (
     base_search VARCHAR,                     -- Search filters for data sources
     model VARCHAR(100),                      -- AI model name
     
-    -- JSON configuration columns
+    -- JSON configuration columns (simplified)
     model_config JSONB DEFAULT '{}',        -- AI model parameters
     provider_metadata JSONB DEFAULT '{}',   -- Provider-specific settings
     cost_config JSONB DEFAULT '{}',         -- Cost tracking and limits
