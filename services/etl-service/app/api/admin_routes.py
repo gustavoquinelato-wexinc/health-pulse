@@ -1830,11 +1830,11 @@ async def delete_flow_step(
         )
 
 
-@router.get("/issuetype-mappings/options")
-async def get_issuetype_mapping_options(
+@router.get("/wit-mappings/options")
+async def get_wit_mapping_options(
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get available options for issue type mapping dropdowns"""
+    """Get available options for work item type mapping dropdowns"""
     try:
         database = get_database()
         with database.get_read_session_context() as session:
@@ -1847,9 +1847,9 @@ async def get_issuetype_mapping_options(
             ).order_by(WitMapping.wit_from).all()
 
             # Get unique target types from existing mappings
-            target_types = session.query(distinct(WitMapping.issuetype_to)).filter(
+            target_types = session.query(distinct(WitMapping.wit_to)).filter(
                 WitMapping.tenant_id == user.tenant_id
-            ).order_by(WitMapping.issuetype_to).all()
+            ).order_by(WitMapping.wit_to).all()
 
             # Also get unique original names from Wit table (raw data from integrations)
             raw_issuetypes = session.query(distinct(Wit.original_name)).filter(
@@ -1885,11 +1885,11 @@ async def get_issuetype_mapping_options(
         )
 
 
-@router.get("/issuetype-mappings")
-async def get_issuetype_mappings(
+@router.get("/wit-mappings")
+async def get_wit_mappings(
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get all issue type mappings"""
+    """Get all work item type mappings"""
     try:
         database = get_database()
         with database.get_read_session_context() as session:
@@ -1936,12 +1936,12 @@ async def get_issuetype_mappings(
         )
 
 
-@router.patch("/issuetype-mappings/{mapping_id}/activate")
-async def activate_issuetype_mapping(
+@router.patch("/wit-mappings/{mapping_id}/activate")
+async def activate_wit_mapping(
     mapping_id: int,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Activate an issue type mapping"""
+    """Activate a work item type mapping"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -1982,13 +1982,13 @@ class WitMappingDeactivationRequest(BaseModel):
     target_mapping_id: Optional[int] = None  # Required if action is "reassign_issuetypes"
 
 
-@router.patch("/issuetype-mappings/{mapping_id}/deactivate")
-async def deactivate_issuetype_mapping(
+@router.patch("/wit-mappings/{mapping_id}/deactivate")
+async def deactivate_wit_mapping(
     mapping_id: int,
     deactivation_data: WitMappingDeactivationRequest,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Deactivate an issue type mapping with options for handling dependencies"""
+    """Deactivate a work item type mapping with options for handling dependencies"""
     try:
         from fastapi import status
         database = get_database()
@@ -2027,7 +2027,7 @@ async def deactivate_issuetype_mapping(
 
             # Get dependent issue types
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2054,7 +2054,7 @@ async def deactivate_issuetype_mapping(
 
                 # Reassign all dependent issue types
                 for issuetype in dependent_issuetypes:
-                    issuetype.wit_mapping_id = deactivation_data.target_mapping_id
+                    issuetype.wits_mapping_id = deactivation_data.target_mapping_id
 
                 if was_originally_active:
                     message = f"WorkItem type mapping deactivated and {len(dependent_issuetypes)} issue types reassigned to '{target_mapping.wit_to}'"
@@ -2095,12 +2095,12 @@ async def deactivate_issuetype_mapping(
         )
 
 
-@router.post("/issuetype-mappings")
-async def create_issuetype_mapping(
+@router.post("/wit-mappings")
+async def create_wit_mapping(
     create_data: dict,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Create a new issue type mapping"""
+    """Create a new work item type mapping"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -2161,13 +2161,13 @@ async def create_issuetype_mapping(
         )
 
 
-@router.put("/issuetype-mappings/{mapping_id}")
-async def update_issuetype_mapping(
+@router.put("/wit-mappings/{mapping_id}")
+async def update_wit_mapping(
     mapping_id: int,
     update_data: dict,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Update an issue type mapping"""
+    """Update a work item type mapping"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
@@ -2234,13 +2234,13 @@ async def update_issuetype_mapping(
         )
 
 
-@router.delete("/issuetype-mappings/{mapping_id}")
-async def delete_issuetype_mapping(
+@router.delete("/wit-mappings/{mapping_id}")
+async def delete_wit_mapping(
     mapping_id: int,
     deletion_data: Optional[WitMappingDeactivationRequest] = None,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Delete an issue type mapping with options for handling dependencies"""
+    """Delete a work item type mapping with options for handling dependencies"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
@@ -2260,7 +2260,7 @@ async def delete_issuetype_mapping(
 
             # Get dependent issue types
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2295,7 +2295,7 @@ async def delete_issuetype_mapping(
 
                     # Reassign all dependent issue types to the target mapping
                     for issuetype in dependent_issuetypes:
-                        issuetype.wit_mapping_id = deletion_data.target_mapping_id
+                        issuetype.wits_mapping_id = deletion_data.target_mapping_id
                         issuetype.last_updated_at = datetime.utcnow()
 
                     message = f"WorkItem type mapping deleted and {len(dependent_issuetypes)} issue types reassigned to target mapping"
@@ -2332,12 +2332,12 @@ async def delete_issuetype_mapping(
         )
 
 
-@router.get("/issuetype-mappings/{mapping_id}/dependencies")
-async def get_issuetype_mapping_dependencies(
+@router.get("/wit-mappings/{mapping_id}/dependencies")
+async def get_wit_mapping_dependencies(
     mapping_id: int,
     user: UserData = Depends(require_admin_authentication)
 ):
-    """Get dependencies for an issue type mapping"""
+    """Get dependencies for a work item type mapping"""
     try:
         database = get_database()
         with database.get_admin_session_context() as session:
@@ -2356,7 +2356,7 @@ async def get_issuetype_mapping_dependencies(
 
             # Count dependent issue types that use this mapping
             dependent_issuetypes_count = session.query(Wit).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True
             ).count()
 
@@ -2364,7 +2364,7 @@ async def get_issuetype_mapping_dependencies(
             dependent_issues_count = session.query(WorkItem).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True,
                 WorkItem.active == True
             ).count()
@@ -2374,11 +2374,11 @@ async def get_issuetype_mapping_dependencies(
                 WitMapping.active == True,
                 WitMapping.id != mapping_id,
                 WitMapping.tenant_id == user.tenant_id
-            ).order_by(WitMapping.issuetype_to).all()
+            ).order_by(WitMapping.wit_to).all()
 
             # Get detailed dependency information
             dependent_issuetypes = session.query(Wit).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True
             ).all()
 
@@ -2401,9 +2401,9 @@ async def get_issuetype_mapping_dependencies(
                 "mapping_id": mapping_id,
                 "mapping": {
                     "id": mapping.id,
-                    "issuetype_from": mapping.issuetype_from,
-                    "issuetype_to": mapping.issuetype_to,
-                    "hierarchy_level": mapping.issuetype_hierarchy.level_number if mapping.issuetype_hierarchy else None
+                    "wit_from": mapping.wit_from,
+                    "wit_to": mapping.wit_to,
+                    "hierarchy_level": mapping.wit_hierarchy.level_number if mapping.wit_hierarchy else None
                 },
                 "can_delete_safely": dependent_issuetypes_count == 0 and dependent_issues_count == 0,
                 "dependent_issuetypes_count": dependent_issuetypes_count,
@@ -2413,9 +2413,9 @@ async def get_issuetype_mapping_dependencies(
                 "reassignment_targets": [
                     {
                         "id": target.id,
-                        "issuetype_from": target.issuetype_from,
-                        "issuetype_to": target.issuetype_to,
-                        "hierarchy_level": target.issuetype_hierarchy.level_number if target.issuetype_hierarchy else None
+                        "wit_from": target.wit_from,
+                        "wit_to": target.wit_to,
+                        "hierarchy_level": target.wit_hierarchy.level_number if target.wit_hierarchy else None
                     }
                     for target in reassignment_targets
                 ]
@@ -2675,7 +2675,7 @@ async def get_issuetype_hierarchy_dependencies(
             dependent_issues_count = session.query(WorkItem).join(
                 Wit, WorkItem.wit_id == Wit.id
             ).join(
-                WitMapping, Wit.wit_mapping_id == WitMapping.id
+                WitMapping, Wit.wits_mapping_id == WitMapping.id
             ).filter(
                 WitMapping.wits_hierarchy_id == hierarchy_id,
                 WitMapping.active == True,
