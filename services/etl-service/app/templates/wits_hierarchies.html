@@ -109,7 +109,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadHierarchies() {
     try {
-        const response = await fetch('/api/v1/admin/wits-hierarchies');
+        const response = await fetch('/api/v1/admin/wits-hierarchies', {
+            credentials: 'include'
+        });
         if (response.ok) {
             hierarchies = await response.json();
             renderHierarchiesTable();
@@ -124,7 +126,9 @@ async function loadHierarchies() {
 
 async function loadWorkItemTypes() {
     try {
-        const response = await fetch('/api/v1/admin/wits');
+        const response = await fetch('/api/v1/admin/wits', {
+            credentials: 'include'
+        });
         if (response.ok) {
             workItemTypes = await response.json();
             populateTypeSelects();
@@ -224,6 +228,7 @@ async function saveHierarchy() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            credentials: 'include',
             body: JSON.stringify(data)
         });
         
@@ -245,7 +250,8 @@ async function deleteHierarchy(id) {
     if (confirm('Are you sure you want to delete this hierarchy?')) {
         try {
             const response = await fetch(`/api/v1/admin/wits-hierarchies/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                credentials: 'include'
             });
             
             if (response.ok) {

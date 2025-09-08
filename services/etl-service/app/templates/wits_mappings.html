@@ -121,7 +121,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadMappings() {
     try {
-        const response = await fetch('/api/v1/admin/wit-mappings');
+        const response = await fetch('/api/v1/admin/wit-mappings', {
+            credentials: 'include'
+        });
         if (response.ok) {
             mappings = await response.json();
             renderMappingsTable();
@@ -136,7 +138,9 @@ async function loadMappings() {
 
 async function loadIntegrations() {
     try {
-        const response = await fetch('/api/v1/admin/integrations');
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
         if (response.ok) {
             integrations = await response.json();
             populateIntegrationSelect();
@@ -151,7 +155,9 @@ async function loadIntegrations() {
 
 async function loadWorkItemTypes() {
     try {
-        const response = await fetch('/api/v1/admin/wits');
+        const response = await fetch('/api/v1/admin/wits', {
+            credentials: 'include'
+        });
         if (response.ok) {
             workItemTypes = await response.json();
             populateTypeSelect();
@@ -166,7 +172,9 @@ async function loadWorkItemTypes() {
 
 async function loadHierarchies() {
     try {
-        const response = await fetch('/api/v1/admin/wits-hierarchies');
+        const response = await fetch('/api/v1/admin/wits-hierarchies', {
+            credentials: 'include'
+        });
         if (response.ok) {
             hierarchies = await response.json();
             populateHierarchySelect();
@@ -281,6 +289,7 @@ async function saveMapping() {
             headers: {
                 'Content-Type': 'application/json',
             },
+            credentials: 'include',
             body: JSON.stringify(data)
         });
         
@@ -302,7 +311,8 @@ async function deleteMapping(id) {
     if (confirm('Are you sure you want to delete this mapping?')) {
         try {
             const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                credentials: 'include'
             });
             
             if (response.ok) {
