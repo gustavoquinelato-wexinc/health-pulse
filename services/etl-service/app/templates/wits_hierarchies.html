@@ -113,7 +113,8 @@ async function loadHierarchies() {
             credentials: 'include'
         });
         if (response.ok) {
-            hierarchies = await response.json();
+            const data = await response.json();
+            hierarchies = data.hierarchies || [];
             renderHierarchiesTable();
         } else {
             showError('Failed to load hierarchies');

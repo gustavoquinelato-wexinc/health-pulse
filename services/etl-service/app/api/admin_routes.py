@@ -338,7 +338,7 @@ async def get_wits(
                     "original_name": wit.original_name,
                     "description": wit.description,
                     "hierarchy_level": wit.hierarchy_level,
-                    "wits_mapping_id": wit.wits_mapping_id,
+                    "wits_mapping_id": wit.wit_mapping_id,
                     "integration_id": wit.integration_id,
                     "active": wit.active
                 }
