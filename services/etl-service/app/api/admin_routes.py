@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import os
 from pathlib import Path
 
@@ -55,6 +55,8 @@ class IntegrationResponse(BaseModel):
     last_sync_at: Optional[str] = None
 
 class IntegrationCreateRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
     provider: str
     type: str
     base_url: str
@@ -62,7 +64,7 @@ class IntegrationCreateRequest(BaseModel):
     password: Optional[str] = None
     base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    model_config: Optional[dict] = None  # AI model configuration
+    ai_model_config: Optional[dict] = Field(None, alias="model_config")  # AI model configuration
     provider_metadata: Optional[dict] = None  # Provider-specific metadata
     cost_config: Optional[dict] = None  # Cost tracking and limits
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
@@ -70,18 +72,22 @@ class IntegrationCreateRequest(BaseModel):
     active: bool = True
 
 class IntegrationUpdateRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
     base_url: str
     username: Optional[str] = None
     password: Optional[str] = None
     base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    model_config: Optional[dict] = None  # AI model configuration
+    ai_model_config: Optional[dict] = Field(None, alias="model_config")  # AI model configuration
     provider_metadata: Optional[dict] = None  # Provider-specific metadata
     cost_config: Optional[dict] = None  # Cost tracking and limits
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
 
 class IntegrationDetailResponse(BaseModel):
+    model_config = {"populate_by_name": True}
+
     id: int
     name: str
     integration_type: str
@@ -89,7 +95,7 @@ class IntegrationDetailResponse(BaseModel):
     username: Optional[str] = None
     base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    model_config: Optional[dict] = None  # AI model configuration
+    ai_model_config: Optional[dict] = Field(None, alias="model_config")  # AI model configuration
     provider_metadata: Optional[dict] = None  # Provider-specific metadata
     cost_config: Optional[dict] = None  # Cost tracking and limits
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
@@ -335,7 +341,7 @@ async def create_integration(
                 username=create_data.username,
                 base_search=create_data.base_search,
                 model=create_data.model,
-                model_config=create_data.model_config or {},
+                model_config=create_data.ai_model_config or {},
                 provider_metadata=create_data.provider_metadata or {},
                 cost_config=create_data.cost_config or {},
                 fallback_integration_id=create_data.fallback_integration_id,
@@ -488,7 +494,7 @@ async def get_integration_details(
                 username=integration.username,
                 base_search=integration.base_search,
                 model=integration.model,  # Include AI model name
-                model_config=integration.model_config,  # AI model configuration
+                ai_model_config=integration.model_config,  # AI model configuration
                 provider_metadata=integration.provider_metadata,  # Provider-specific metadata
                 cost_config=integration.cost_config,  # Cost tracking and limits
                 fallback_integration_id=integration.fallback_integration_id,  # Fallback integration
@@ -534,7 +540,7 @@ async def update_integration(
             integration.username = update_data.username
             integration.base_search = update_data.base_search
             integration.model = update_data.model  # Update AI model name
-            integration.model_config = update_data.model_config or {}
+            integration.model_config = update_data.ai_model_config or {}
             integration.provider_metadata = update_data.provider_metadata or {}
             integration.cost_config = update_data.cost_config or {}
             integration.fallback_integration_id = update_data.fallback_integration_id
