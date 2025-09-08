@@ -104,7 +104,7 @@ class IntegrationInfo(BaseModel):
     base_url: str  # Updated to match new integration model
     username: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    last_sync_at: Optional[datetime] = None  # Populated from job_schedules.last_success_at (not from integration table)
+    last_sync_at: Optional[datetime] = None  # Populated from etl_jobs.last_success_at (not from integration table)
 
     class Config:
         json_encoders = {

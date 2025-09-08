@@ -151,7 +151,7 @@ def apply(connection):
         
         # 3. User sessions table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_sessions (
+            CREATE TABLE IF NOT EXISTS users_sessions (
                 id SERIAL,
                 user_id INTEGER NOT NULL,
                 token_hash VARCHAR(255) NOT NULL,
@@ -167,7 +167,7 @@ def apply(connection):
 
         # 4. User permissions table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_permissions (
+            CREATE TABLE IF NOT EXISTS users_permissions (
                 id SERIAL,
                 user_id INTEGER NOT NULL,
                 resource VARCHAR(100) NOT NULL,
@@ -248,7 +248,7 @@ def apply(connection):
 
         # 8. Status mappings table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS status_mappings (
+            CREATE TABLE IF NOT EXISTS statuses_mappings (
                 id SERIAL,
                 status_from VARCHAR NOT NULL,
                 status_to VARCHAR NOT NULL,
@@ -576,9 +576,9 @@ def apply(connection):
             );
         """)
 
-        # 23. Job schedules table - NO vector column
+        # 23. ETL jobs table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS job_schedules (
+            CREATE TABLE IF NOT EXISTS etl_jobs (
                 id SERIAL,
                 job_name VARCHAR NOT NULL,
                 execution_order INTEGER NOT NULL,
@@ -701,11 +701,11 @@ def apply(connection):
         # 28. Tenant colors table (unified architecture)
         print("   🗑️ Dropping existing color tables...")
         cursor.execute("DROP TABLE IF EXISTS tenant_accessibility_colors CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS tenant_colors CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS tenants_colors CASCADE;")
 
-        print("   🏗️ Creating new unified tenant_colors table...")
+        print("   🏗️ Creating new unified tenants_colors table...")
         cursor.execute("""
-            CREATE TABLE tenant_colors (
+            CREATE TABLE tenants_colors (
                 id SERIAL PRIMARY KEY,
 
                 -- === IDENTIFIERS ===
@@ -739,7 +739,7 @@ def apply(connection):
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
                 -- === NEW UNIFIED UNIQUE CONSTRAINT ===
-                CONSTRAINT uk_tenant_colors_unified UNIQUE(tenant_id, color_schema_mode, accessibility_level, theme_mode)
+                CONSTRAINT uk_tenants_colors_unified UNIQUE(tenant_id, color_schema_mode, accessibility_level, theme_mode)
             );
         """)
 
@@ -760,12 +760,12 @@ def apply(connection):
 
         ensure_primary_key('tenants', 'pk_tenants')
         ensure_primary_key('users', 'pk_users')
-        ensure_primary_key('user_sessions', 'pk_user_sessions')
-        ensure_primary_key('user_permissions', 'pk_user_permissions')
+        ensure_primary_key('users_sessions', 'pk_users_sessions')
+        ensure_primary_key('users_permissions', 'pk_users_permissions')
         ensure_primary_key('integrations', 'pk_integrations')
         ensure_primary_key('projects', 'pk_projects')
         ensure_primary_key('workflows', 'pk_workflows')
-        ensure_primary_key('status_mappings', 'pk_status_mappings')
+        ensure_primary_key('statuses_mappings', 'pk_statuses_mappings')
         ensure_primary_key('wits_hierarchies', 'pk_wits_hierarchies')
         ensure_primary_key('wits_mappings', 'pk_wits_mappings')
         ensure_primary_key('wits', 'pk_wits')
@@ -778,11 +778,11 @@ def apply(connection):
         ensure_primary_key('prs_commits', 'pk_prs_commits')
         ensure_primary_key('prs_comments', 'pk_prs_comments')
         ensure_primary_key('system_settings', 'pk_system_settings')
-        ensure_primary_key('job_schedules', 'pk_job_schedules')
+        ensure_primary_key('etl_jobs', 'pk_etl_jobs')
         ensure_primary_key('wits_prs_links', 'pk_wits_prs_links')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
         ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
-        ensure_primary_key('tenant_colors', 'pk_tenant_colors')
+        ensure_primary_key('tenants_colors', 'pk_tenants_colors')
 
         # Phase 3-1: New table primary keys
         ensure_primary_key('qdrant_vectors', 'pk_qdrant_vectors')
@@ -907,10 +907,10 @@ def apply(connection):
 
         # Core table foreign keys
         add_constraint_if_not_exists('fk_users_tenant_id', 'users', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_user_sessions_user_id', 'user_sessions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
-        add_constraint_if_not_exists('fk_user_sessions_tenant_id', 'user_sessions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_user_permissions_user_id', 'user_permissions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
-        add_constraint_if_not_exists('fk_user_permissions_tenant_id', 'user_permissions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_users_sessions_user_id', 'users_sessions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
+        add_constraint_if_not_exists('fk_users_sessions_tenant_id', 'users_sessions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_users_permissions_user_id', 'users_permissions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
+        add_constraint_if_not_exists('fk_users_permissions_tenant_id', 'users_permissions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Integrations and projects
         add_constraint_if_not_exists('fk_integrations_tenant_id', 'integrations', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
@@ -921,9 +921,9 @@ def apply(connection):
         # Workflow and mappings
         add_constraint_if_not_exists('fk_workflows_tenant_id', 'workflows', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_workflows_integration_id', 'workflows', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_status_mappings_workflow_id', 'status_mappings', 'FOREIGN KEY (workflow_id) REFERENCES workflows(id)')
-        add_constraint_if_not_exists('fk_status_mappings_tenant_id', 'status_mappings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_status_mappings_integration_id', 'status_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_workflow_id', 'statuses_mappings', 'FOREIGN KEY (workflow_id) REFERENCES workflows(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_tenant_id', 'statuses_mappings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_integration_id', 'statuses_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_wits_hierarchies_tenant_id', 'wits_hierarchies', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_wits_hierarchies_integration_id', 'wits_hierarchies', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_wits_mappings_tenant_id', 'wits_mappings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
@@ -935,7 +935,7 @@ def apply(connection):
         add_constraint_if_not_exists('fk_wits_wits_mapping_id', 'wits', 'FOREIGN KEY (wits_mapping_id) REFERENCES wits_mappings(id)')
         add_constraint_if_not_exists('fk_wits_tenant_id', 'wits', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_statuses_integration_id', 'statuses', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_statuses_status_mapping_id', 'statuses', 'FOREIGN KEY (status_mapping_id) REFERENCES status_mappings(id)')
+        add_constraint_if_not_exists('fk_statuses_status_mapping_id', 'statuses', 'FOREIGN KEY (status_mapping_id) REFERENCES statuses_mappings(id)')
         add_constraint_if_not_exists('fk_statuses_tenant_id', 'statuses', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         print("✅ Core foreign key constraints created")
@@ -976,14 +976,14 @@ def apply(connection):
 
         # System tables
         add_constraint_if_not_exists('fk_system_settings_tenant_id', 'system_settings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_job_schedules_tenant_id', 'job_schedules', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_job_schedules_integration_id', 'job_schedules', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_etl_jobs_tenant_id', 'etl_jobs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_etl_jobs_integration_id', 'etl_jobs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_wits_prs_links_work_item_id', 'wits_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
         add_constraint_if_not_exists('fk_wits_prs_links_tenant_id', 'wits_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_wits_prs_links_integration_id', 'wits_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
         # Color table foreign key
-        add_constraint_if_not_exists('fk_tenant_colors_tenant_id', 'tenant_colors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_tenants_colors_tenant_id', 'tenants_colors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Phase 3-1: New table foreign keys
         add_constraint_if_not_exists('fk_qdrant_vectors_tenant_id', 'qdrant_vectors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
@@ -1022,10 +1022,10 @@ def apply(connection):
         ensure_unique_constraint('users', 'uk_users_email', 'email')
         ensure_unique_constraint('users', 'uk_users_okta_user_id', 'okta_user_id')
         ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_tenant_id', 'setting_key, tenant_id')
-        ensure_unique_constraint('job_schedules', 'uk_job_schedules_job_name_tenant_id', 'job_name, tenant_id')
-        ensure_unique_constraint('job_schedules', 'uk_job_schedules_execution_order_tenant_id', 'execution_order, tenant_id')
+        ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_job_name_tenant_id', 'job_name, tenant_id')
+        ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_execution_order_tenant_id', 'execution_order, tenant_id')
         ensure_unique_constraint('integrations', 'uk_integrations_provider_tenant_id', 'provider, tenant_id')
-        ensure_unique_constraint('status_mappings', 'uk_status_mappings_from_tenant', 'status_from, tenant_id')
+        ensure_unique_constraint('statuses_mappings', 'uk_statuses_mappings_from_tenant', 'status_from, tenant_id')
         ensure_unique_constraint('wits_mappings', 'uk_wits_mappings_from_tenant', 'wit_from, tenant_id')
         ensure_unique_constraint('migration_history', 'uk_migration_history_migration_number', 'migration_number')
 
@@ -1034,7 +1034,7 @@ def apply(connection):
         ensure_unique_constraint('dora_metric_insights', 'uk_dora_insight', 'report_year, metric_name')
 
         # Unique constraints for unified color table
-        ensure_unique_constraint('tenant_colors', 'uk_tenant_colors_unified', 'tenant_id, color_schema_mode, accessibility_level, theme_mode')
+        ensure_unique_constraint('tenants_colors', 'uk_tenants_colors_unified', 'tenant_id, color_schema_mode, accessibility_level, theme_mode')
 
         print("✅ Unique constraints created")
         print("📋 Creating performance indexes...")
@@ -1042,9 +1042,9 @@ def apply(connection):
         # Performance indexes for frequently queried columns
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_sessions_user_id ON users_sessions(user_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_sessions_expires_at ON users_sessions(expires_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_permissions_user_id ON users_permissions(user_id);")
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_tenant_id ON integrations(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_provider ON integrations(provider);")
@@ -1058,9 +1058,9 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_is_commitment_point ON workflows(is_commitment_point);")
         # Unique partial index to ensure only one delivery milestone per tenant/integration combination
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_commitment_point_per_tenant_integration ON workflows(tenant_id, integration_id) WHERE is_commitment_point = true;")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_tenant_id ON status_mappings(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_workflow_id ON status_mappings(workflow_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_status_from ON status_mappings(status_from);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_tenant_id ON statuses_mappings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_workflow_id ON statuses_mappings(workflow_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_status_from ON statuses_mappings(status_from);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_hierarchies_tenant_id ON wits_hierarchies(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_hierarchies_level_number ON wits_hierarchies(level_number);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_mappings_tenant_id ON wits_mappings(tenant_id);")
@@ -1118,14 +1118,14 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_full_name ON wits_prs_links(repo_full_name);")
 
         # System table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_status ON job_schedules(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_last_run_started_at ON job_schedules(last_run_started_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_integration_id ON job_schedules(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_last_run_started_at ON etl_jobs(last_run_started_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_integration_id ON etl_jobs(integration_id);")
 
         # Color table indexes for fast lookups (unified table)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenant_colors_tenant_id ON tenant_colors(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenant_colors_mode ON tenant_colors(tenant_id, color_schema_mode);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenant_colors_unified ON tenant_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_tenant_id ON tenants_colors(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_mode ON tenants_colors(tenant_id, color_schema_mode);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_unified ON tenants_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
 
         # ML monitoring table indexes (Phase 3-1 Clean Architecture)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_tenant_id ON ai_learning_memories(tenant_id);")
@@ -1209,13 +1209,13 @@ def rollback(connection):
             'qdrant_vectors',  # Added missing vector table
 
             # Configuration and color tables
-            'tenant_colors',
+            'tenants_colors',
             'dora_metric_insights',
             'dora_market_benchmarks',
 
             # Junction and link tables (depend on main tables)
             'wits_prs_links',
-            'job_schedules',
+            'etl_jobs',
             'system_settings',
 
             # PR related tables (depend on prs table)
@@ -1240,14 +1240,14 @@ def rollback(connection):
             'wits',  # Main WIT table
             'wits_mappings',
             'wits_hierarchies',
-            'status_mappings',
+            'statuses_mappings',
             'workflows',
             'projects',
             'integrations',
 
             # User tables
-            'user_permissions',
-            'user_sessions',
+            'users_permissions',
+            'users_sessions',
             'users',
 
             # Core tenant table

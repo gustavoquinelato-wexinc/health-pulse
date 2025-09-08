@@ -63,8 +63,8 @@ class TestDatabaseIntegration:
             'prs_commits', 'statuses', 'statuses_mappings',
             'wits', 'wits_mappings', 'wits_hierarchies',
             'workflows', 'changelogs', 'wits_prs_links',
-            'projects_wits', 'projects_statuses', 'user_permissions',
-            'user_sessions', 'system_settings', 'dora_market_benchmarks',
+            'projects_wits', 'projects_statuses', 'users_permissions',
+            'users_sessions', 'system_settings', 'dora_market_benchmarks',
             'dora_metric_insights'
         ]
         

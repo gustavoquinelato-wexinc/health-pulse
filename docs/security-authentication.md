@@ -71,7 +71,7 @@ Pulse Platform uses JSON Web Tokens (JWT) for secure, stateless authentication:
 #### Session Management
 ```sql
 -- Database-backed session tracking
-CREATE TABLE user_sessions (
+CREATE TABLE users_sessions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     tenant_id INTEGER NOT NULL REFERENCES tenants(id),

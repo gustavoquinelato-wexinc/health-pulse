@@ -184,7 +184,7 @@ async def get_system_stats(
                     "wits_hierarchies": WitHierarchy,
                     "projects_wits": ProjectWits,
                     "projects_statuses": ProjectsStatuses,
-                    "job_schedules": JobSchedule,
+                    "etl_jobs": JobSchedule,
                     "system_settings": SystemSettings,
                     "migration_history": MigrationHistory
                 }
@@ -194,7 +194,7 @@ async def get_system_stats(
                 from app.models.unified_models import Integration, JobSchedule, SystemSettings
                 table_models = {
                     "integrations": Integration,
-                    "job_schedules": JobSchedule,
+                    "etl_jobs": JobSchedule,
                     "system_settings": SystemSettings,
                 }
 
@@ -285,7 +285,7 @@ async def get_integrations(
                 Integration.tenant_id == user.tenant_id
             ).order_by(Integration.provider).all()
 
-            # Get last sync info from job_schedules for each integration
+            # Get last sync info from etl_jobs for each integration
             integration_responses = []
             for integration in integrations:
                 # Find the most recent successful job for this integration
@@ -304,7 +304,7 @@ async def get_integrations(
                     username=integration.username,
                     model=integration.model,  # Include AI model name
                     active=integration.active,  # BaseEntity provides this field
-                    last_sync_at=last_sync_at  # Get from job_schedules.last_success_at
+                    last_sync_at=last_sync_at  # Get from etl_jobs.last_success_at
                 ))
 
             return integration_responses

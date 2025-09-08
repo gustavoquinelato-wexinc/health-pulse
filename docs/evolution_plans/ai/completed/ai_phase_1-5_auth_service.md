@@ -127,7 +127,7 @@ class User(Base):
 # services/auth-service/app/models/session.py
 
 class UserSession(Base):
-    __tablename__ = 'user_sessions'
+    __tablename__ = 'users_sessions'
     
     # All existing fields (unchanged)
     id = Column(Integer, primary_key=True)

@@ -558,7 +558,7 @@ def apply(connection):
         for mapping in status_mappings_data:
             workflow_id = workflow_ids.get(mapping["workflow"])
             cursor.execute("""
-                INSERT INTO status_mappings (status_from, status_to, status_category, workflow_id, integration_id, tenant_id, active, created_at, last_updated_at)
+                INSERT INTO statuses_mappings (status_from, status_to, status_category, workflow_id, integration_id, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                 ON CONFLICT (status_from, tenant_id) DO NOTHING;
             """, (mapping["status_from"], mapping["status_to"], mapping["status_category"], workflow_id, jira_integration_id, tenant_id))
@@ -778,7 +778,7 @@ def apply(connection):
             # Insert permissions for this user
             for resource, action, granted in permissions:
                 cursor.execute("""
-                    INSERT INTO user_permissions (user_id, resource, action, granted, tenant_id, active, created_at, last_updated_at)
+                    INSERT INTO users_permissions (user_id, resource, action, granted, tenant_id, active, created_at, last_updated_at)
                     VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
                     ON CONFLICT DO NOTHING;
                 """, (user_id, resource, action, granted, tenant_id))
@@ -821,7 +821,7 @@ def apply(connection):
             # Set Fabric and AD jobs as inactive since they're not implemented yet
             is_active = job["job_name"] not in ["WEX Fabric", "WEX AD"]
             cursor.execute("""
-                INSERT INTO job_schedules (job_name, execution_order, status, integration_id, tenant_id, active, created_at, last_updated_at)
+                INSERT INTO etl_jobs (job_name, execution_order, status, integration_id, tenant_id, active, created_at, last_updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (job_name, tenant_id) DO NOTHING;
             """, (job["job_name"], job["execution_order"], job["status"], job["integration_id"], tenant_id, is_active))
@@ -923,7 +923,7 @@ def apply(connection):
 
                     # Insert row
                     cursor.execute("""
-                        INSERT INTO tenant_colors (
+                        INSERT INTO tenants_colors (
                             color_schema_mode, accessibility_level, theme_mode,
                             color1, color2, color3, color4, color5,
                             on_color1, on_color2, on_color3, on_color4, on_color5,
@@ -971,14 +971,14 @@ def rollback(connection):
         print("🔄 Rolling back Migration 0003: Initial Seed Data Apple")
 
         # Delete seed data in reverse order of creation, handling foreign key constraints properly
-        print("📋 Removing job schedules...")
-        cursor.execute("DELETE FROM job_schedules WHERE tenant_id = (SELECT id FROM tenants WHERE name = 'Apple');")
+        print("📋 Removing ETL jobs...")
+        cursor.execute("DELETE FROM etl_jobs WHERE tenant_id = (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing user permissions...")
-        cursor.execute("DELETE FROM user_permissions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        cursor.execute("DELETE FROM users_permissions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing user sessions...")
-        cursor.execute("DELETE FROM user_sessions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        cursor.execute("DELETE FROM users_sessions WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing default users...")
         # Only delete users that belong specifically to Apple tenant
@@ -1028,7 +1028,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM wits_hierarchies WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing status mappings...")
-        cursor.execute("DELETE FROM status_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        cursor.execute("DELETE FROM statuses_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing workflows...")
         cursor.execute("DELETE FROM workflows WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
@@ -1037,7 +1037,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM integrations WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing colors...")
-        cursor.execute("DELETE FROM tenant_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        cursor.execute("DELETE FROM tenants_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing Apple tenant...")
         cursor.execute("DELETE FROM tenants WHERE name = 'Apple';")

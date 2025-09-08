@@ -620,8 +620,8 @@ async def get_system_stats(
 
             # Define all table models with tenant_id filtering
             table_models = {
-                "user_sessions": UserSession,
-                "user_permissions": UserPermission,
+                "users_sessions": UserSession,
+                "users_permissions": UserPermission,
                 "tenants": Tenant,
                 "integrations": Integration,
                 "projects": Project,
@@ -635,13 +635,13 @@ async def get_system_stats(
                 "wits_prs_links": WitPrLinks,
                 "wits": Wit,
                 "statuses": Status,
-                "status_mappings": StatusMapping,
+                "statuses_mappings": StatusMapping,
                 "workflows": Workflow,
                 "wits_mappings": WitMapping,
                 "wits_hierarchies": WitHierarchy,
                 "projects_wits": ProjectWits,
                 "projects_statuses": ProjectsStatuses,
-                "job_schedules": JobSchedule,
+                "etl_jobs": JobSchedule,
                 "system_settings": SystemSettings,
                 "migration_history": MigrationHistory
             }
@@ -656,13 +656,13 @@ async def get_system_stats(
                     elif table_name == 'tenants':
                         # Tenants table - count all tenants (no tenant_id filtering)
                         count = session.query(func.count(model.id)).scalar() or 0
-                    elif table_name in ['user_sessions', 'user_permissions']:
+                    elif table_name in ['users_sessions', 'users_permissions']:
                         # User-related tables - filter by user's tenant_id through user relationship
-                        if table_name == 'user_sessions':
+                        if table_name == 'users_sessions':
                             count = session.query(func.count(model.id)).join(
                                 User, model.user_id == User.id
                             ).filter(User.tenant_id == tenant_id).scalar() or 0
-                        else:  # user_permissions
+                        else:  # users_permissions
                             count = session.query(func.count(model.id)).join(
                                 User, model.user_id == User.id
                             ).filter(User.tenant_id == tenant_id).scalar() or 0
@@ -794,8 +794,8 @@ async def get_system_stats(
             table_categories = {
                 "Core Data": {
                     "users": total_users,
-                    "user_sessions": table_counts.get('user_sessions', 0),
-                    "user_permissions": table_counts.get('user_permissions', 0),
+                    "users_sessions": table_counts.get('users_sessions', 0),
+                    "users_permissions": table_counts.get('users_permissions', 0),
                     "clients": table_counts.get('clients', 0),
                     "integrations": table_counts.get('integrations', 0),
                     "projects": table_counts.get('projects', 0)
@@ -805,7 +805,7 @@ async def get_system_stats(
                     "changelogs": table_counts.get('changelogs', 0),
                     "wits": table_counts.get('wits', 0),
                     "statuses": table_counts.get('statuses', 0),
-                    "status_mappings": table_counts.get('status_mappings', 0),
+                    "statuses_mappings": table_counts.get('statuses_mappings', 0),
                     "workflows": table_counts.get('workflows', 0),
                     "issuetype_mappings": table_counts.get('issuetype_mappings', 0),
                     "issuetype_hierarchies": table_counts.get('issuetype_hierarchies', 0),
@@ -823,7 +823,7 @@ async def get_system_stats(
                     "jira_pull_request_links": table_counts.get('jira_pull_request_links', 0)
                 },
                 "System": {
-                    "job_schedules": table_counts.get('job_schedules', 0),
+                    "etl_jobs": table_counts.get('etl_jobs', 0),
                     "system_settings": table_counts.get('system_settings', 0),
                     "migration_history": table_counts.get('migration_history', 0)
                 }

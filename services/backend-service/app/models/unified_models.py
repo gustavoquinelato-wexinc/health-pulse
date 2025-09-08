@@ -38,18 +38,18 @@ class Tenant(Base):
     projects = relationship("Project", back_populates="tenant")
     wits = relationship("Wit", back_populates="tenant")
     statuses = relationship("Status", back_populates="tenant")
-    status_mappings = relationship("StatusMapping", back_populates="tenant")
+    statuses_mappings = relationship("StatusMapping", back_populates="tenant")
     workflows = relationship("Workflow", back_populates="tenant")
-    wit_mappings = relationship("WitMapping", back_populates="tenant")
-    wit_hierarchies = relationship("WitHierarchy", back_populates="tenant")
+    wits_mappings = relationship("WitMapping", back_populates="tenant")
+    wits_hierarchies = relationship("WitHierarchy", back_populates="tenant")
     work_items = relationship("WorkItem", back_populates="tenant")
     changelogs = relationship("Changelog", back_populates="tenant")
     repositories = relationship("Repository", back_populates="tenant")
     prs = relationship("Pr", back_populates="tenant")
-    pr_reviews = relationship("PrReview", back_populates="tenant")
-    pr_commits = relationship("PrCommit", back_populates="tenant")
-    pr_comments = relationship("PrComment", back_populates="tenant")
-    wit_pr_links = relationship("WitPrLinks", back_populates="tenant")
+    prs_reviews = relationship("PrReview", back_populates="tenant")
+    prs_commits = relationship("PrCommit", back_populates="tenant")
+    prs_comments = relationship("PrComment", back_populates="tenant")
+    wits_prs_links = relationship("WitPrLinks", back_populates="tenant")
     system_settings = relationship("SystemSettings", back_populates="tenant")
     color_settings = relationship("TenantColors", back_populates="tenant")
 
@@ -154,7 +154,7 @@ class User(Base, BaseEntity):
 
 class UserSession(Base, BaseEntity):
     """User sessions table for JWT management."""
-    __tablename__ = 'user_sessions'
+    __tablename__ = 'users_sessions'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -170,7 +170,7 @@ class UserSession(Base, BaseEntity):
 
 class UserPermission(Base, BaseEntity):
     """User permissions table for fine-grained access control."""
-    __tablename__ = 'user_permissions'
+    __tablename__ = 'users_permissions'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -219,14 +219,14 @@ class Integration(Base, BaseEntity):
     workflows = relationship("Workflow", back_populates="integration")
     repositories = relationship("Repository", back_populates="integration")
     prs = relationship("Pr", back_populates="integration")
-    pr_reviews = relationship("PrReview", back_populates="integration")
-    pr_commits = relationship("PrCommit", back_populates="integration")
-    pr_comments = relationship("PrComment", back_populates="integration")
-    wit_pr_links = relationship("WitPrLinks", back_populates="integration")
-    job_schedules = relationship("JobSchedule", back_populates="integration")
-    status_mappings = relationship("StatusMapping", back_populates="integration")
-    wit_hierarchies = relationship("WitHierarchy", back_populates="integration")
-    wit_mappings = relationship("WitMapping", back_populates="integration")
+    prs_reviews = relationship("PrReview", back_populates="integration")
+    prs_commits = relationship("PrCommit", back_populates="integration")
+    prs_comments = relationship("PrComment", back_populates="integration")
+    wits_prs_links = relationship("WitPrLinks", back_populates="integration")
+    etl_jobs = relationship("JobSchedule", back_populates="integration")
+    statuses_mappings = relationship("StatusMapping", back_populates="integration")
+    wits_hierarchies = relationship("WitHierarchy", back_populates="integration")
+    wits_mappings = relationship("WitMapping", back_populates="integration")
 
 class Project(Base, IntegrationBaseEntity):
     """Projects table"""
@@ -278,12 +278,12 @@ class Wit(Base, IntegrationBaseEntity):
     tenant = relationship("Tenant", back_populates="wits")
     integration = relationship("Integration", back_populates="wits")
     projects = relationship("Project", secondary="projects_wits", back_populates="wits")
-    wit_mappings = relationship("WitMapping", back_populates="wit")
+    wits_mappings = relationship("WitMapping", back_populates="wit")
     work_items = relationship("WorkItem", back_populates="wit")
 
 class StatusMapping(Base, IntegrationBaseEntity):
     """Status Mapping table - maps raw status names to standardized flow steps"""
-    __tablename__ = 'status_mappings'
+    __tablename__ = 'statuses_mappings'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -293,10 +293,9 @@ class StatusMapping(Base, IntegrationBaseEntity):
     workflow_id = Column(Integer, ForeignKey('workflows.id'), quote=False, nullable=True, name="workflow_id")
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="status_mappings")
-    integration = relationship("Integration", back_populates="status_mappings")
-    workflow = relationship("Workflow", back_populates="status_mappings")
-    statuses = relationship("Status", back_populates="status_mapping")
+    tenant = relationship("Tenant", back_populates="statuses_mappings")
+    integration = relationship("Integration", back_populates="statuses_mappings")
+    workflow = relationship("Workflow", back_populates="statuses_mappings")
 
 class WitHierarchy(Base, IntegrationBaseEntity):
     """WorkItem Type Hierarchies table - defines hierarchy levels and their properties"""
@@ -309,9 +308,9 @@ class WitHierarchy(Base, IntegrationBaseEntity):
     description = Column(String, quote=False, nullable=True, name="description")
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="wit_hierarchies")
-    integration = relationship("Integration", back_populates="wit_hierarchies")
-    wit_mappings = relationship("WitMapping", back_populates="wit_hierarchy")
+    tenant = relationship("Tenant", back_populates="wits_hierarchies")
+    integration = relationship("Integration", back_populates="wits_hierarchies")
+    wits_mappings = relationship("WitMapping", back_populates="wit_hierarchy")
 
 
 class WitMapping(Base, IntegrationBaseEntity):
@@ -325,10 +324,10 @@ class WitMapping(Base, IntegrationBaseEntity):
     wits_hierarchy_id = Column(Integer, ForeignKey('wits_hierarchies.id'), quote=False, nullable=False, name="wits_hierarchy_id")
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="wit_mappings")
-    integration = relationship("Integration", back_populates="wit_mappings")
-    wit = relationship("Wit", back_populates="wit_mappings")
-    wit_hierarchy = relationship("WitHierarchy", back_populates="wit_mappings")
+    tenant = relationship("Tenant", back_populates="wits_mappings")
+    integration = relationship("Integration", back_populates="wits_mappings")
+    wit = relationship("Wit", back_populates="wits_mappings")
+    wit_hierarchy = relationship("WitHierarchy", back_populates="wits_mappings")
 
 class Workflow(Base, IntegrationBaseEntity):
     """Workflows table - client and integration-specific workflow steps"""
@@ -349,7 +348,7 @@ class Workflow(Base, IntegrationBaseEntity):
     # Relationships
     tenant = relationship("Tenant", back_populates="workflows")
     integration = relationship("Integration", back_populates="workflows")
-    status_mappings = relationship("StatusMapping", back_populates="workflow")
+    statuses_mappings = relationship("StatusMapping", back_populates="workflow")
 
 class Status(Base, IntegrationBaseEntity):
     """Statuses table"""
@@ -367,7 +366,6 @@ class Status(Base, IntegrationBaseEntity):
     tenant = relationship("Tenant", back_populates="statuses")
     integration = relationship("Integration", back_populates="statuses")
     projects = relationship("Project", secondary="projects_statuses", back_populates="statuses")
-    status_mapping = relationship("StatusMapping", back_populates="statuses")
     work_items = relationship("WorkItem", back_populates="status")
 
 class WorkItem(Base, IntegrationBaseEntity):
@@ -569,8 +567,8 @@ class PrReview(Base, IntegrationBaseEntity):
 
     # Relationships
     pr = relationship("Pr", back_populates="reviews")
-    tenant = relationship("Tenant", back_populates="pr_reviews")
-    integration = relationship("Integration", back_populates="pr_reviews")
+    tenant = relationship("Tenant", back_populates="prs_reviews")
+    integration = relationship("Integration", back_populates="prs_reviews")
 
 class PrCommit(Base, IntegrationBaseEntity):
     """Pull Request Commits table - stores each individual commit associated with a PR"""
@@ -590,8 +588,8 @@ class PrCommit(Base, IntegrationBaseEntity):
 
     # Relationships
     pr = relationship("Pr", back_populates="commits")
-    tenant = relationship("Tenant", back_populates="pr_commits")
-    integration = relationship("Integration", back_populates="pr_commits")
+    tenant = relationship("Tenant", back_populates="prs_commits")
+    integration = relationship("Integration", back_populates="prs_commits")
 
 class PrComment(Base, IntegrationBaseEntity):
     """Pull Request Comments table - stores all comments made on the PR's main thread and on specific lines of code"""
@@ -612,8 +610,8 @@ class PrComment(Base, IntegrationBaseEntity):
 
     # Relationships
     pr = relationship("Pr", back_populates="comments")
-    tenant = relationship("Tenant", back_populates="pr_comments")
-    integration = relationship("Integration", back_populates="pr_comments")
+    tenant = relationship("Tenant", back_populates="prs_comments")
+    integration = relationship("Integration", back_populates="prs_comments")
 
 class SystemSettings(Base, BaseEntity):
     """
@@ -672,7 +670,7 @@ class JobSchedule(Base, IntegrationBaseEntity):
     - Passive Jobs (Workers): Do the actual ETL work and manage their own state
     """
 
-    __tablename__ = 'job_schedules'
+    __tablename__ = 'etl_jobs'
 
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -706,7 +704,7 @@ class JobSchedule(Base, IntegrationBaseEntity):
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
 
     # Relationships
-    integration = relationship("Integration", back_populates="job_schedules")
+    integration = relationship("Integration", back_populates="etl_jobs")
 
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
@@ -938,8 +936,8 @@ class WitPrLinks(Base, IntegrationBaseEntity):
 
     # Relationships
     work_item = relationship("WorkItem", back_populates="pr_links")
-    tenant = relationship("Tenant", back_populates="wit_pr_links")
-    integration = relationship("Integration", back_populates="wit_pr_links")
+    tenant = relationship("Tenant", back_populates="wits_prs_links")
+    integration = relationship("Integration", back_populates="wits_prs_links")
 
 class MigrationHistory(Base):
     """Migration history tracking table for database migrations."""
@@ -986,7 +984,7 @@ class DoraMetricInsight(Base):
 
 class TenantColors(Base, BaseEntity):
     """Unified color settings table with all color variants and accessibility levels."""
-    __tablename__ = 'tenant_colors'
+    __tablename__ = 'tenants_colors'
     __table_args__ = (
         UniqueConstraint('tenant_id', 'color_schema_mode', 'accessibility_level', 'theme_mode'),
         {'quote': False}

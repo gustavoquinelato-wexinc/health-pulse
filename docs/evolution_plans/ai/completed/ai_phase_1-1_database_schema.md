@@ -113,8 +113,8 @@ CREATE TABLE IF NOT EXISTS ml_anomaly_alerts (...);
 17. wits_prs_links
 18. projects_wits
 19. projects_statuses
-20. user_permissions
-21. user_sessions
+20. users_permissions
+21. users_sessions
 22. system_settings
 23. dora_market_benchmarks
 24. dora_metric_insights

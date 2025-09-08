@@ -198,13 +198,13 @@ The database schema includes comprehensive business data tables with integrated 
 
 **Business Data Tables (24 tables with vector columns)**:
 - **Tenant Management**: `tenants` - Multi-tenant foundation
-- **User Management**: `users`, `user_sessions`, `user_permissions` - Authentication and RBAC
+- **User Management**: `users`, `users_sessions`, `users_permissions` - Authentication and RBAC
 - **Integration Management**: `integrations` - External system connections
 - **Project Management**: `projects`, `workflows` - Project structure and workflows
 - **Work Item Tracking**: `work_items`, `changelogs` - Work item data with change history
 - **Development Data**: `repositories`, `prs`, `prs_*` - GitHub development metrics
 - **Configuration**: `statuses`, `wits`, `*_mappings` - Workflow and type mappings
-- **System Management**: `system_settings`, `job_schedules` - Configuration and job control
+- **System Management**: `system_settings`, `etl_jobs` - Configuration and job control
 - **Analytics**: `dora_market_benchmarks`, `dora_metric_insights` - Performance benchmarks
 - **UI Customization**: `client_color_settings` - Client-specific branding
 
