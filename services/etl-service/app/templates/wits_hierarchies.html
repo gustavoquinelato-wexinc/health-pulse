@@ -63,51 +63,54 @@
 </div>
 
 <!-- Create/Edit Modal -->
-<div id="hierarchyModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 id="modalTitle">Create Work Item Type Hierarchy</h3>
-            <button class="modal-close" onclick="hideModal()">&times;</button>
+<div id="hierarchyModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Work Item Type Hierarchy</h3>
+            <button onclick="closeModal('hierarchyModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
         </div>
-        <div class="modal-body">
+        <div class="p-6">
             <form id="hierarchyForm">
                 <input type="hidden" id="hierarchyId" name="id">
-                
-                <div class="form-group">
-                    <label for="levelName">Level Name:</label>
-                    <input type="text" id="levelName" name="level_name" required placeholder="e.g., Epic, Story, Task">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Name</label>
+                        <input type="text" id="levelName" name="level_name" required placeholder="e.g., Epic, Story, Task" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Level Number</label>
+                        <input type="number" id="levelNumber" name="level_number" min="1" max="10" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="levelNumber">Level Number:</label>
-                    <input type="number" id="levelNumber" name="level_number" min="1" max="10" required>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Description</label>
+                    <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                 </div>
 
-                <div class="form-group">
-                    <label for="description">Description:</label>
-                    <input type="text" id="description" name="description" placeholder="Optional description">
-                </div>
-
-                <div class="form-group">
-                    <label for="integration">Integration:</label>
-                    <select id="integration" name="integration_id">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                    <select id="integration" name="integration_id" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                         <option value="">Select Integration</option>
                         <!-- Options will be loaded dynamically -->
                     </select>
                 </div>
-                
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="active" name="active" checked>
-                        <span class="checkmark"></span>
-                        Active
+
+                <div class="mb-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="active" name="active" checked class="mr-2">
+                        <span style="color: var(--text-primary);">Active</span>
                     </label>
                 </div>
             </form>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn-secondary" onclick="hideModal()">Cancel</button>
-            <button type="button" class="btn-primary" onclick="saveHierarchy()">Save</button>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('hierarchyModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveHierarchy()" class="btn-crud-create">Save</button>
         </div>
     </div>
 </div>
@@ -220,7 +223,7 @@ function showCreateModal() {
     document.getElementById('hierarchyForm').reset();
     document.getElementById('hierarchyId').value = '';
     document.getElementById('active').checked = true;
-    showModal();
+    openModal('hierarchyModal');
 }
 
 function editHierarchy(id) {
@@ -233,7 +236,7 @@ function editHierarchy(id) {
         document.getElementById('description').value = hierarchy.description || '';
         document.getElementById('integration').value = hierarchy.integration_id || '';
         document.getElementById('active').checked = hierarchy.active;
-        showModal();
+        openModal('hierarchyModal');
     }
 }
 
@@ -264,7 +267,7 @@ async function saveHierarchy() {
         });
         
         if (response.ok) {
-            hideModal();
+            closeModal('hierarchyModal');
             loadHierarchies();
             showSuccess(id ? 'Hierarchy updated successfully' : 'Hierarchy created successfully');
         } else {
@@ -298,12 +301,16 @@ async function deleteHierarchy(id) {
     }
 }
 
-function showModal() {
-    document.getElementById('hierarchyModal').style.display = 'block';
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
 }
 
-function hideModal() {
-    document.getElementById('hierarchyModal').style.display = 'none';
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 
 function showSuccess(message) {

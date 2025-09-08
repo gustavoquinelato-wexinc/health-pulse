@@ -63,57 +63,62 @@
 </div>
 
 <!-- Create/Edit Modal -->
-<div id="mappingModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 id="modalTitle">Create Work Item Type Mapping</h3>
-            <button class="modal-close" onclick="hideModal()">&times;</button>
+<div id="mappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Work Item Type Mapping</h3>
+            <button onclick="closeModal('mappingModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
         </div>
-        <div class="modal-body">
+        <div class="p-6">
             <form id="mappingForm">
                 <input type="hidden" id="mappingId" name="id">
-                
-                <div class="form-group">
-                    <label for="integration">Integration:</label>
-                    <select id="integration" name="integration_id" required>
-                        <option value="">Select Integration</option>
-                        <!-- Options will be loaded dynamically -->
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="externalType">External Type:</label>
-                    <input type="text" id="externalType" name="external_type" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="internalType">Internal Type:</label>
-                    <select id="internalType" name="internal_type_id" required>
-                        <option value="">Select Internal Type</option>
-                        <!-- Options will be loaded dynamically -->
-                    </select>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                        <select id="integration" name="integration_id" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Integration</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">External Type</label>
+                        <input type="text" id="externalType" name="external_type" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="hierarchyLevel">Hierarchy Level:</label>
-                    <select id="hierarchyLevel" name="hierarchy_level" required>
-                        <option value="">Select Hierarchy Level</option>
-                        <!-- Options will be loaded dynamically -->
-                    </select>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Internal Type</label>
+                        <select id="internalType" name="internal_type_id" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Internal Type</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level</label>
+                        <select id="hierarchyLevel" name="hierarchy_level" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Hierarchy Level</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="active" name="active" checked>
-                        <span class="checkmark"></span>
-                        Active
+                <div class="mb-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="active" name="active" checked class="mr-2">
+                        <span style="color: var(--text-primary);">Active</span>
                     </label>
                 </div>
             </form>
         </div>
-        <div class="modal-footer">
-            <button type="button" class="btn-secondary" onclick="hideModal()">Cancel</button>
-            <button type="button" class="btn-primary" onclick="saveMapping()">Save</button>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('mappingModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveMapping()" class="btn-crud-create">Save</button>
         </div>
     </div>
 </div>
@@ -282,7 +287,7 @@ function showCreateModal() {
     document.getElementById('mappingForm').reset();
     document.getElementById('mappingId').value = '';
     document.getElementById('active').checked = true;
-    showModal();
+    openModal('mappingModal');
 }
 
 function editMapping(id) {
@@ -294,7 +299,7 @@ function editMapping(id) {
         document.getElementById('externalType').value = mapping.external_type;
         document.getElementById('internalType').value = mapping.internal_type_id || '';
         document.getElementById('active').checked = mapping.active;
-        showModal();
+        openModal('mappingModal');
     }
 }
 
@@ -325,7 +330,7 @@ async function saveMapping() {
         });
         
         if (response.ok) {
-            hideModal();
+            closeModal('mappingModal');
             loadMappings();
             showSuccess(id ? 'Mapping updated successfully' : 'Mapping created successfully');
         } else {
@@ -359,12 +364,16 @@ async function deleteMapping(id) {
     }
 }
 
-function showModal() {
-    document.getElementById('mappingModal').style.display = 'block';
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
 }
 
-function hideModal() {
-    document.getElementById('mappingModal').style.display = 'none';
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 
 function showSuccess(message) {
