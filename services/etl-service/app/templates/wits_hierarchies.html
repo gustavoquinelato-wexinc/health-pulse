@@ -115,6 +115,42 @@
     </div>
 </div>
 
+<!-- Pause Hierarchy Modal -->
+<div id="pauseHierarchyModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-lg w-full mx-4">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 class="text-xl font-semibold text-primary">Pause Work Item Type Hierarchy</h3>
+            <button onclick="closeModal('pauseHierarchyModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4">
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    You are about to pause the hierarchy: <strong id="pauseHierarchyName" style="color: var(--text-primary);"></strong>
+                </p>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    This hierarchy has dependencies. You can optionally reassign them to another hierarchy, or leave empty to keep all associated records.
+                </p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Move to Hierarchy (Optional)</label>
+                <select id="moveToHierarchy" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">Keep existing associations</option>
+                    <!-- Options will be loaded dynamically -->
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('pauseHierarchyModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="confirmPauseHierarchy()" class="btn-crud-warning">
+                <i class="fas fa-pause mr-2"></i>Pause
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 let hierarchies = [];
 let integrations = [];
@@ -206,12 +242,22 @@ function renderHierarchiesTable() {
                 </span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                <button class="text-blue-600 hover:text-blue-900 mr-3" onclick="editHierarchy(${hierarchy.id})" title="Edit">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="text-red-600 hover:text-red-900" onclick="deleteHierarchy(${hierarchy.id})" title="Delete">
-                    <i class="fas fa-trash"></i>
-                </button>
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editHierarchy(${hierarchy.id})" class="btn-crud-edit-sm" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    ${hierarchy.active ?
+                        \`<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
+                            <i class="fas fa-pause"></i>
+                        </button>\` :
+                        \`<button onclick="resumeHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
+                            <i class="fas fa-play"></i>
+                        </button>\`
+                    }
+                    <button onclick="deleteHierarchy(${hierarchy.id})" class="btn-crud-delete-sm" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
             </td>
         `;
         tbody.appendChild(row);
@@ -298,6 +344,91 @@ async function deleteHierarchy(id) {
             console.error('Error deleting hierarchy:', error);
             showError('Error deleting hierarchy');
         }
+    }
+}
+
+let currentHierarchyId = null;
+
+async function showPauseModal(id, hierarchyName) {
+    currentHierarchyId = id;
+
+    try {
+        // Load other hierarchies for the move dropdown
+        const moveSelect = document.getElementById('moveToHierarchy');
+        moveSelect.innerHTML = '<option value="">Keep existing associations</option>';
+
+        hierarchies.forEach(hierarchy => {
+            if (hierarchy.id !== id && hierarchy.active) {
+                const option = new Option(hierarchy.level_name, hierarchy.id);
+                moveSelect.add(option);
+            }
+        });
+
+        document.getElementById('pauseHierarchyName').textContent = hierarchyName;
+        openModal('pauseHierarchyModal');
+
+    } catch (error) {
+        console.error('Error loading hierarchies for move:', error);
+        showError('Error loading hierarchies for move');
+    }
+}
+
+async function confirmPauseHierarchy() {
+    if (!currentHierarchyId) return;
+
+    try {
+        const moveToId = document.getElementById('moveToHierarchy').value;
+        const data = {
+            active: false,
+            move_to_hierarchy_id: moveToId || null
+        };
+
+        const response = await fetch(\`/api/v1/admin/wits-hierarchies/\${currentHierarchyId}\`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Hierarchy paused successfully');
+            closeModal('pauseHierarchyModal');
+            loadHierarchies();
+        } else {
+            const error = await response.text();
+            showError(\`Failed to pause hierarchy: \${error}\`);
+        }
+    } catch (error) {
+        console.error('Error pausing hierarchy:', error);
+        showError('Error pausing hierarchy');
+    }
+}
+
+async function resumeHierarchy(id) {
+    try {
+        const data = { active: true };
+
+        const response = await fetch(\`/api/v1/admin/wits-hierarchies/\${id}\`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Hierarchy resumed successfully');
+            loadHierarchies();
+        } else {
+            const error = await response.text();
+            showError(\`Failed to resume hierarchy: \${error}\`);
+        }
+    } catch (error) {
+        console.error('Error resuming hierarchy:', error);
+        showError('Error resuming hierarchy');
     }
 }
 
