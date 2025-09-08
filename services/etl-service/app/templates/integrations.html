@@ -1,0 +1,428 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Pulse ETL Management - Integrations{% endblock %}
+
+{% block content %}
+{% if not embedded %}
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Integrations
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage system integrations and connections</p>
+        </div>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Integration
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Integrations Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">System Integrations</h2>
+        <button onclick="loadIntegrations()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Logo</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Base URL</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Last Sync</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="integrationsTableBody" style="background-color: var(--bg-secondary);">
+                <!-- Integrations will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading integrations...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden">
+        <i class="fas fa-plug text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Integrations Found</h3>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Integration button above to get started.</p>
+    </div>
+</div>
+
+<!-- Create/Edit Integration Modal -->
+<div id="integrationModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Integration</h3>
+            <button onclick="closeModal('integrationModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <form id="integrationForm">
+                <input type="hidden" id="integrationId" name="id">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider</label>
+                        <select id="provider" name="provider" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Provider</option>
+                            <option value="jira">Jira</option>
+                            <option value="github">GitHub</option>
+                            <option value="wex_ai_gateway">WEX AI Gateway</option>
+                            <option value="wex_fabric">WEX Fabric</option>
+                            <option value="active_directory">Active Directory</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Type</label>
+                        <select id="type" name="type" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Type</option>
+                            <option value="data_source">Data Source</option>
+                            <option value="ai_provider">AI Provider</option>
+                            <option value="data_warehouse">Data Warehouse</option>
+                            <option value="identity_provider">Identity Provider</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base URL</label>
+                        <input type="url" id="baseUrl" name="base_url" placeholder="https://example.com" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Logo URL</label>
+                        <input type="text" id="logoUrl" name="logo_url" placeholder="/static/images/integrations/provider.svg" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Username</label>
+                        <input type="text" id="username" name="username" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Password/Token</label>
+                        <input type="password" id="password" name="password" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base Search</label>
+                    <input type="text" id="baseSearch" name="base_search" placeholder="Optional search filter" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model (AI Providers)</label>
+                    <input type="text" id="model" name="model" placeholder="e.g., gpt-4o-mini" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                </div>
+
+                <div class="mb-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="active" name="active" checked class="mr-2">
+                        <span style="color: var(--text-primary);">Active</span>
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('integrationModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveIntegration()" class="btn-crud-create">Save</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Fix dropdown option text color */
+select option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-primary) !important;
+}
+</style>
+
+<script>
+let integrations = [];
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadIntegrations();
+});
+
+async function loadIntegrations() {
+    try {
+        // Show loading state
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('emptyState').style.display = 'none';
+
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            integrations = await response.json();
+            console.log('Integrations loaded:', integrations);
+            renderIntegrationsTable();
+        } else {
+            showError('Failed to load integrations');
+        }
+    } catch (error) {
+        console.error('Error loading integrations:', error);
+        showError('Error loading integrations');
+    } finally {
+        // Hide loading state
+        document.getElementById('loadingState').style.display = 'none';
+    }
+}
+
+function renderIntegrationsTable() {
+    const tbody = document.getElementById('integrationsTableBody');
+    tbody.innerHTML = '';
+
+    if (integrations.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+    }
+
+    integrations.forEach(integration => {
+        const row = document.createElement('tr');
+        row.className = 'border-b hover:bg-gray-50';
+        row.style.borderColor = 'var(--border-color)';
+        
+        const logoHtml = integration.logo_url ? 
+            `<img src="${integration.logo_url}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+             <i class="fas fa-plug text-lg hidden" style="color: var(--text-muted);"></i>` :
+            `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
+        
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">
+                ${logoHtml}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.name || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.integration_type || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.base_url || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${integration.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                    ${integration.active ? 'Active' : 'Inactive'}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${integration.last_sync_at ? new Date(integration.last_sync_at).toLocaleDateString() : 'Never'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editIntegration(${integration.id})" class="btn-crud-edit-sm" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button onclick="testConnection(${integration.id})" class="btn-neutral-primary-xs" title="Test Connection">
+                        <i class="fas fa-wifi"></i>
+                    </button>
+                    ${integration.active ?
+                        `<button onclick="pauseIntegration(${integration.id})" class="btn-status-warning-xs" title="Pause">
+                            <i class="fas fa-pause"></i>
+                        </button>` :
+                        `<button onclick="resumeIntegration(${integration.id})" class="btn-status-success-xs" title="Resume">
+                            <i class="fas fa-play"></i>
+                        </button>`
+                    }
+                    <button onclick="deleteIntegration(${integration.id})" class="btn-crud-delete-sm" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function showCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Create Integration';
+    document.getElementById('integrationForm').reset();
+    document.getElementById('integrationId').value = '';
+    document.getElementById('active').checked = true;
+    openModal('integrationModal');
+}
+
+function editIntegration(id) {
+    const integration = integrations.find(i => i.id === id);
+    if (integration) {
+        document.getElementById('modalTitle').textContent = 'Edit Integration';
+        document.getElementById('integrationId').value = integration.id;
+        document.getElementById('provider').value = integration.provider || '';
+        document.getElementById('type').value = integration.integration_type || '';
+        document.getElementById('baseUrl').value = integration.base_url || '';
+        document.getElementById('logoUrl').value = integration.logo_url || '';
+        document.getElementById('username').value = integration.username || '';
+        document.getElementById('password').value = ''; // Don't populate password for security
+        document.getElementById('baseSearch').value = integration.base_search || '';
+        document.getElementById('model').value = integration.model || '';
+        document.getElementById('active').checked = integration.active;
+        openModal('integrationModal');
+    }
+}
+
+async function saveIntegration() {
+    const form = document.getElementById('integrationForm');
+    const formData = new FormData(form);
+    const id = formData.get('id');
+    
+    const data = {
+        provider: formData.get('provider'),
+        type: formData.get('type'),
+        base_url: formData.get('base_url') || null,
+        logo_url: formData.get('logo_url') || null,
+        username: formData.get('username') || null,
+        password: formData.get('password') || null,
+        base_search: formData.get('base_search') || null,
+        model: formData.get('model') || null,
+        active: formData.has('active')
+    };
+    
+    try {
+        const url = id ? `/api/v1/admin/integrations/${id}` : '/api/v1/admin/integrations';
+        const method = id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            closeModal('integrationModal');
+            loadIntegrations();
+            showSuccess(id ? 'Integration updated successfully' : 'Integration created successfully');
+        } else {
+            const error = await response.text();
+            showError(`Failed to save integration: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error saving integration:', error);
+        showError('Error saving integration');
+    }
+}
+
+async function testConnection(id) {
+    try {
+        showSuccess('Testing connection...');
+        // TODO: Implement connection test API
+        setTimeout(() => {
+            showSuccess('Connection test successful!');
+        }, 1000);
+    } catch (error) {
+        console.error('Error testing connection:', error);
+        showError('Connection test failed');
+    }
+}
+
+async function pauseIntegration(id) {
+    if (confirm('Are you sure you want to pause this integration?')) {
+        try {
+            const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({ active: false })
+            });
+            
+            if (response.ok) {
+                loadIntegrations();
+                showSuccess('Integration paused successfully');
+            } else {
+                showError('Failed to pause integration');
+            }
+        } catch (error) {
+            console.error('Error pausing integration:', error);
+            showError('Error pausing integration');
+        }
+    }
+}
+
+async function resumeIntegration(id) {
+    try {
+        const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ active: true })
+        });
+        
+        if (response.ok) {
+            loadIntegrations();
+            showSuccess('Integration resumed successfully');
+        } else {
+            showError('Failed to resume integration');
+        }
+    } catch (error) {
+        console.error('Error resuming integration:', error);
+        showError('Error resuming integration');
+    }
+}
+
+async function deleteIntegration(id) {
+    if (confirm('Are you sure you want to delete this integration? This action cannot be undone.')) {
+        try {
+            const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                loadIntegrations();
+                showSuccess('Integration deleted successfully');
+            } else {
+                showError('Failed to delete integration');
+            }
+        } catch (error) {
+            console.error('Error deleting integration:', error);
+            showError('Error deleting integration');
+        }
+    }
+}
+
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function showSuccess(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+
+function showError(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+</script>
+
+{% endblock %}

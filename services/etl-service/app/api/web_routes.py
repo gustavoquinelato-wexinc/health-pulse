@@ -1136,6 +1136,79 @@ async def wits_mappings_page(request: Request):
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
+@router.get("/integrations", response_class=HTMLResponse)
+async def integrations_page(request: Request):
+    """Serve integrations management page"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+
+        # Get user info
+        auth_service = get_centralized_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
+
+        # Try to get color schema for authenticated users to prevent flash
+        color_schema_data = None
+        try:
+            if token:
+                # Fetch color schema from backend
+                import httpx
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                async with httpx.AsyncClient() as client:
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success"):
+                            # Also get user-specific theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            # Combine color schema and theme data
+                            color_schema_data = {
+                                "success": True,
+                                "mode": data.get("mode", "default"),
+                                "colors": data.get("colors", {}),
+                                "theme": theme_mode
+                            }
+        except Exception as e:
+            logger.debug(f"Could not fetch color schema: {e}")
+
+        # Check if this is an embedded request (iframe)
+        embedded = request.query_params.get("embedded") == "true"
+
+        return templates.TemplateResponse("integrations.html", {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema_data,
+            "embedded": embedded
+        })
+
+    except Exception as e:
+        logger.error(f"Integrations page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
 @router.get("/wits-hierarchies", response_class=HTMLResponse)
 async def wits_hierarchies_page(request: Request):
     """Serve work item type hierarchies management page (flow steps management)"""

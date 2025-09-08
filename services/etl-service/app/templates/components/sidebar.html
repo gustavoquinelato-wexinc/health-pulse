@@ -16,6 +16,16 @@
             </a>
         </div>
 
+        <!-- Integrations -->
+        <div class="relative" id="integrations-menu">
+            <a class="sidebar-nav-item nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path == '/integrations' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/integrations"
+                    tabindex="0"
+                    {% if current_path == '/integrations' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2)); color: var(--on-gradient-1-2);"{% endif %}>
+                <i class="fas fa-plug text-lg"></i>
+            </a>
+        </div>
+
         <!-- Work Item Types with Hover Submenu -->
         <div class="relative" id="wits-menu">
             <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/wits') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
