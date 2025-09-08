@@ -124,6 +124,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadHierarchies() {
     try {
+        // Show loading state
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('emptyState').style.display = 'none';
+
         const response = await fetch('/api/v1/admin/wits-hierarchies', {
             credentials: 'include'
         });
@@ -137,6 +141,9 @@ async function loadHierarchies() {
     } catch (error) {
         console.error('Error loading hierarchies:', error);
         showError('Error loading hierarchies');
+    } finally {
+        // Hide loading state
+        document.getElementById('loadingState').style.display = 'none';
     }
 }
 
@@ -172,25 +179,34 @@ function populateIntegrationSelect() {
 function renderHierarchiesTable() {
     const tbody = document.getElementById('hierarchiesTableBody');
     tbody.innerHTML = '';
-    
+
+    if (hierarchies.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+    }
+
     hierarchies.forEach(hierarchy => {
         const row = document.createElement('tr');
+        row.className = 'border-b hover:bg-gray-50';
+        row.style.borderColor = 'var(--border-color)';
         row.innerHTML = `
-            <td>${hierarchy.id}</td>
-            <td>${hierarchy.level_name || 'N/A'}</td>
-            <td>${hierarchy.level_number || 'N/A'}</td>
-            <td>${hierarchy.description || 'N/A'}</td>
-            <td>${hierarchy.integration_name || 'N/A'}</td>
-            <td>
-                <span class="status-badge ${hierarchy.active ? 'status-active' : 'status-inactive'}">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.id}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.level_name || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${hierarchy.level_number || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.description || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${hierarchy.integration_name || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${hierarchy.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
                     ${hierarchy.active ? 'Active' : 'Inactive'}
                 </span>
             </td>
-            <td>
-                <button class="btn-crud-edit" onclick="editHierarchy(${hierarchy.id})">
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <button class="text-blue-600 hover:text-blue-900 mr-3" onclick="editHierarchy(${hierarchy.id})" title="Edit">
                     <i class="fas fa-edit"></i>
                 </button>
-                <button class="btn-crud-delete" onclick="deleteHierarchy(${hierarchy.id})">
+                <button class="text-red-600 hover:text-red-900" onclick="deleteHierarchy(${hierarchy.id})" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>
             </td>
