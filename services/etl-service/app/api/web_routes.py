@@ -551,8 +551,8 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
             ).count()
 
             # WorkItem Types summary
-            issuetypes_total = session.query(Wit).filter(Wit.tenant_id == user.tenant_id).count()
-            issuetypes_active = session.query(Wit).filter(
+            wits_total = session.query(Wit).filter(Wit.tenant_id == user.tenant_id).count()
+            wits_active = session.query(Wit).filter(
                 Wit.tenant_id == user.tenant_id,
                 Wit.active == True
             ).count()
@@ -616,10 +616,10 @@ async def get_jira_summary(user: UserData = Depends(require_admin_authentication
                         "active_count": projects_active,
                         "inactive_count": projects_total - projects_active
                     },
-                    "issuetypes": {
-                        "total_count": issuetypes_total,
-                        "active_count": issuetypes_active,
-                        "inactive_count": issuetypes_total - issuetypes_active
+                    "wits": {
+                        "total_count": wits_total,
+                        "active_count": wits_active,
+                        "inactive_count": wits_total - wits_active
                     },
                     "statuses": {
                         "total_count": statuses_total,
@@ -956,9 +956,9 @@ async def admin_page(request: Request, token: Optional[str] = None):
         })
 
 
-@router.get("/status-mappings", response_class=HTMLResponse)
-async def status_mappings_page(request: Request, token: Optional[str] = None):
-    """Serve status mappings management page with optional token parameter for portal embedding"""
+@router.get("/statuses-mappings", response_class=HTMLResponse)
+async def statuses_mappings_page(request: Request, token: Optional[str] = None):
+    """Serve statuses mappings management page with optional token parameter for portal embedding"""
     try:
         # Check for token in URL parameter first (for portal embedding)
         auth_token = token
@@ -1047,7 +1047,7 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
         embedded = request.query_params.get("embedded") == "true"
 
         # Create response and set cookie if token came from URL parameter
-        response = templates.TemplateResponse("status_mappings.html", {
+        response = templates.TemplateResponse("statuses_mappings.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
@@ -1055,17 +1055,17 @@ async def status_mappings_page(request: Request, token: Optional[str] = None):
         })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
-            logger.info(f"Portal embedding: Status mappings access granted for user {user.get('email')}")
+            logger.info(f"Portal embedding: Statuses mappings access granted for user {user.get('email')}")
         return response
 
     except Exception as e:
-        logger.error(f"Status mappings page error: {e}")
+        logger.error(f"Statuses mappings page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/issuetype-mappings", response_class=HTMLResponse)
-async def issuetype_mappings_page(request: Request):
-    """Serve issue type mappings management page"""
+@router.get("/wits-mappings", response_class=HTMLResponse)
+async def wits_mappings_page(request: Request):
+    """Serve work item type mappings management page"""
     try:
         # Get user from token (middleware ensures we're authenticated)
         token = request.cookies.get("pulse_token")
@@ -1124,7 +1124,7 @@ async def issuetype_mappings_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
-        return templates.TemplateResponse("issuetype_mappings.html", {
+        return templates.TemplateResponse("wits_mappings.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
@@ -1132,13 +1132,13 @@ async def issuetype_mappings_page(request: Request):
         })
 
     except Exception as e:
-        logger.error(f"WorkItem type mappings page error: {e}")
+        logger.error(f"Work item type mappings page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/issuetype-hierarchies", response_class=HTMLResponse)
-async def issuetype_hierarchies_page(request: Request):
-    """Serve issue type hierarchies management page (flow steps management)"""
+@router.get("/wits-hierarchies", response_class=HTMLResponse)
+async def wits_hierarchies_page(request: Request):
+    """Serve work item type hierarchies management page (flow steps management)"""
     try:
         # Get user from token (middleware ensures we're authenticated)
         token = request.cookies.get("pulse_token")
@@ -1211,12 +1211,12 @@ async def issuetype_hierarchies_page(request: Request):
                                     "theme": theme_mode
                                 }
             except Exception as e:
-                logger.debug(f"Could not fetch color schema for issuetype hierarchies: {e}")
+                logger.debug(f"Could not fetch color schema for wits hierarchies: {e}")
 
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
-        return templates.TemplateResponse("issuetype_hierarchies.html", {
+        return templates.TemplateResponse("wits_hierarchies.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
@@ -1224,7 +1224,7 @@ async def issuetype_hierarchies_page(request: Request):
         })
 
     except Exception as e:
-        logger.error(f"WorkItem type hierarchies page error: {e}")
+        logger.error(f"Work item type hierarchies page error: {e}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 

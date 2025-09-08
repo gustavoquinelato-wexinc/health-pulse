@@ -2837,20 +2837,20 @@
                 <!-- Issue Types Summary -->
                 <div class="rounded-lg p-3 border" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
                     <h3 class="text-md font-semibold mb-2" style="color: var(--text-primary);">
-                        <i class="fas fa-tags mr-2"></i>Issue Types
+                        <i class="fas fa-tags mr-2"></i>Work Item Types
                     </h3>
                     <div class="space-y-1 text-sm">
                         <div class="flex justify-between">
                             <span style="color: var(--text-secondary);">Total:</span>
-                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.issuetypes?.total_count || 0}</span>
+                            <span class="font-medium" style="color: var(--text-primary);">${summary.tables?.wits?.total_count || 0}</span>
                         </div>
                         <div class="flex justify-between">
                             <span style="color: var(--text-secondary);">Active:</span>
-                            <span class="font-medium text-green-600">${summary.tables?.issuetypes?.active_count || 0}</span>
+                            <span class="font-medium text-green-600">${summary.tables?.wits?.active_count || 0}</span>
                         </div>
                         <div class="flex justify-between">
                             <span style="color: var(--text-secondary);">Inactive:</span>
-                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.issuetypes?.inactive_count || 0}</span>
+                            <span class="font-medium" style="color: var(--text-muted);">${summary.tables?.wits?.inactive_count || 0}</span>
                         </div>
                     </div>
                 </div>
