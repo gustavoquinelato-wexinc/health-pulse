@@ -21,6 +21,8 @@
             <a class="sidebar-nav-item nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path == '/integrations' else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     href="/integrations"
                     tabindex="0"
+                    onmouseenter="showSubmenu(event, 'integrations')"
+                    onmouseleave="hideSubmenu()"
                     {% if current_path == '/integrations' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2)); color: var(--on-gradient-1-2);"{% endif %}>
                 <i class="fas fa-plug text-lg"></i>
             </a>
@@ -75,6 +77,14 @@
      onmouseleave="hideSubmenu()">
     <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
         Home
+    </div>
+</div>
+
+<div id="submenu-integrations" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+     onmouseenter="keepSubmenuOpen()"
+     onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Integrations
     </div>
 </div>
 
