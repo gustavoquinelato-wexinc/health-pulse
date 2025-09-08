@@ -207,8 +207,8 @@ function renderIntegrationsTable() {
         row.style.borderColor = 'var(--border-color)';
         
         // Construct logo path: /assets/{tenant_name}/integrations/{logo_filename}
-        // For now, we'll use a placeholder tenant name - this should be dynamic based on user's tenant
-        const logoPath = integration.logo_filename ? `/assets/wex/integrations/${integration.logo_filename}` : null;
+        const tenantName = '{{ tenant_name|lower }}' || 'wex';  // Get tenant name from template context
+        const logoPath = integration.logo_filename ? `/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
         const logoHtml = logoPath ?
             `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
              <i class="fas fa-plug text-lg hidden" style="color: var(--text-muted);"></i>` :

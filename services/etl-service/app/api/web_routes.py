@@ -1197,11 +1197,16 @@ async def integrations_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get tenant information for header and integration logos
+        tenant_info = await get_user_tenant_info(token)
+
         return templates.TemplateResponse("integrations.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
 
     except Exception as e:
