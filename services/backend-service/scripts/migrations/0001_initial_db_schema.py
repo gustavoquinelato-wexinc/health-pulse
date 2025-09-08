@@ -202,6 +202,7 @@ def apply(connection):
                 provider_metadata JSONB DEFAULT '{}', -- Provider-specific metadata
                 cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
                 fallback_integration_id INTEGER, -- FK to another integration for fallback
+                logo_url VARCHAR(500), -- URL or path to integration logo/favicon
 
                 -- BaseEntity fields
                 tenant_id INTEGER NOT NULL,
