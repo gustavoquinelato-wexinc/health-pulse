@@ -78,14 +78,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider</label>
-                        <select id="provider" name="provider" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                            <option value="">Select Provider</option>
-                            <option value="jira">Jira</option>
-                            <option value="github">GitHub</option>
-                            <option value="wex_ai_gateway">WEX AI Gateway</option>
-                            <option value="wex_fabric">WEX Fabric</option>
-                            <option value="active_directory">Active Directory</option>
-                        </select>
+                        <input type="text" id="provider" name="provider" required placeholder="e.g., jira, github, wex_ai_gateway" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
                     
                     <div>
@@ -140,6 +133,35 @@
                     <input type="text" id="model" name="model" placeholder="e.g., gpt-4o-mini" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                 </div>
 
+                <!-- AI Provider Specific Fields -->
+                <div id="aiProviderFields" style="display: none;">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model Configuration</label>
+                        <textarea id="modelConfig" name="model_config" rows="3" placeholder='{"temperature": 0.3, "max_tokens": 700}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON configuration for AI model parameters (temperature, max_tokens, etc.)</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider Metadata</label>
+                        <textarea id="providerMetadata" name="provider_metadata" rows="3" placeholder='{"region": "us-east-1", "endpoint": "custom"}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON metadata specific to the AI provider (region, endpoint, etc.)</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Cost Configuration</label>
+                        <textarea id="costConfig" name="cost_config" rows="3" placeholder='{"max_monthly_cost": 1000, "cost_per_token": 0.0001}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON configuration for cost tracking and limits</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Fallback Integration</label>
+                        <select id="fallbackIntegration" name="fallback_integration_id" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">No fallback</option>
+                        </select>
+                        <small class="text-muted">Select another AI integration to use as fallback if this one fails</small>
+                    </div>
+                </div>
+
                 <div class="mb-4">
                     <label class="flex items-center">
                         <input type="checkbox" id="active" name="active" checked class="mr-2">
@@ -187,7 +209,56 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Add type change event listener to show/hide AI provider fields
+    const typeSelect = document.getElementById('type');
+    if (typeSelect) {
+        typeSelect.addEventListener('change', function() {
+            toggleAIProviderFields();
+        });
+    }
+
+    // Load fallback integrations for AI provider dropdown
+    loadFallbackIntegrations();
 });
+
+function toggleAIProviderFields() {
+    const typeSelect = document.getElementById('type');
+    const aiProviderFields = document.getElementById('aiProviderFields');
+
+    if (typeSelect && aiProviderFields) {
+        if (typeSelect.value === 'ai_provider') {
+            aiProviderFields.style.display = 'block';
+        } else {
+            aiProviderFields.style.display = 'none';
+        }
+    }
+}
+
+async function loadFallbackIntegrations() {
+    try {
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            const integrations = await response.json();
+            const fallbackSelect = document.getElementById('fallbackIntegration');
+
+            // Clear existing options except "No fallback"
+            fallbackSelect.innerHTML = '<option value="">No fallback</option>';
+
+            // Add AI provider integrations as options
+            integrations.filter(i => i.integration_type === 'ai_provider').forEach(integration => {
+                const option = document.createElement('option');
+                option.value = integration.id;
+                option.textContent = integration.name;
+                fallbackSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading fallback integrations:', error);
+    }
+}
 
 async function loadIntegrations() {
     try {
@@ -285,17 +356,38 @@ function showCreateModal() {
     document.getElementById('logoFilename').value = '';
     document.getElementById('currentLogo').style.display = 'none';
 
+    // Clear AI provider fields
+    document.getElementById('modelConfig').value = '';
+    document.getElementById('providerMetadata').value = '';
+    document.getElementById('costConfig').value = '';
+    document.getElementById('fallbackIntegration').value = '';
+
+    // Hide AI provider fields initially
+    document.getElementById('aiProviderFields').style.display = 'none';
+
     openModal('integrationModal');
 }
 
-function editIntegration(id) {
-    const integration = integrations.find(i => i.id === id);
-    if (integration) {
+async function editIntegration(id) {
+    try {
+        // Get full integration details from API
+        const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            showError('Failed to load integration details');
+            return;
+        }
+
+        const integration = await response.json();
+
         document.getElementById('modalTitle').textContent = 'Edit Integration';
         document.getElementById('integrationId').value = integration.id;
-        document.getElementById('provider').value = integration.provider || '';
+        document.getElementById('provider').value = integration.name || ''; // Use name from API response
         document.getElementById('type').value = integration.integration_type || '';
         document.getElementById('baseUrl').value = integration.base_url || '';
+
         // Handle logo filename display
         const logoFilename = integration.logo_filename || '';
         document.getElementById('logoFilename').value = logoFilename;
@@ -313,11 +405,31 @@ function editIntegration(id) {
         // Clear file input
         document.getElementById('logoFile').value = '';
         document.getElementById('username').value = integration.username || '';
-        document.getElementById('password').value = ''; // Don't populate password for security
+
+        // Show masked password if exists
+        document.getElementById('password').value = integration.password_masked || '';
+
         document.getElementById('baseSearch').value = integration.base_search || '';
         document.getElementById('model').value = integration.model || '';
+
+        // Load AI provider specific fields if type is ai_provider
+        if (integration.integration_type === 'ai_provider') {
+            document.getElementById('modelConfig').value = integration.model_config ? JSON.stringify(integration.model_config, null, 2) : '';
+            document.getElementById('providerMetadata').value = integration.provider_metadata ? JSON.stringify(integration.provider_metadata, null, 2) : '';
+            document.getElementById('costConfig').value = integration.cost_config ? JSON.stringify(integration.cost_config, null, 2) : '';
+            document.getElementById('fallbackIntegration').value = integration.fallback_integration_id || '';
+        }
+
         document.getElementById('active').checked = integration.active;
+
+        // Show/hide AI provider fields based on type
+        toggleAIProviderFields();
+
         openModal('integrationModal');
+
+    } catch (error) {
+        console.error('Error loading integration details:', error);
+        showError('Error loading integration details');
     }
 }
 
@@ -330,6 +442,41 @@ async function saveIntegration() {
     let logoFilename = formData.get('logo_filename') || null; // Current filename
     const logoFile = formData.get('logo_file');
 
+    // Parse JSON fields for AI providers
+    let modelConfig = null;
+    let providerMetadata = null;
+    let costConfig = null;
+
+    try {
+        const modelConfigText = formData.get('model_config');
+        if (modelConfigText && modelConfigText.trim()) {
+            modelConfig = JSON.parse(modelConfigText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Model Configuration');
+        return;
+    }
+
+    try {
+        const providerMetadataText = formData.get('provider_metadata');
+        if (providerMetadataText && providerMetadataText.trim()) {
+            providerMetadata = JSON.parse(providerMetadataText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Provider Metadata');
+        return;
+    }
+
+    try {
+        const costConfigText = formData.get('cost_config');
+        if (costConfigText && costConfigText.trim()) {
+            costConfig = JSON.parse(costConfigText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Cost Configuration');
+        return;
+    }
+
     const data = {
         provider: formData.get('provider'),
         type: formData.get('type'),
@@ -339,6 +486,10 @@ async function saveIntegration() {
         password: formData.get('password') || null,
         base_search: formData.get('base_search') || null,
         model: formData.get('model') || null,
+        model_config: modelConfig,
+        provider_metadata: providerMetadata,
+        cost_config: costConfig,
+        fallback_integration_id: formData.get('fallback_integration_id') || null,
         active: formData.has('active')
     };
     

@@ -62,6 +62,10 @@ class IntegrationCreateRequest(BaseModel):
     password: Optional[str] = None
     base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    model_config: Optional[dict] = None  # AI model configuration
+    provider_metadata: Optional[dict] = None  # Provider-specific metadata
+    cost_config: Optional[dict] = None  # Cost tracking and limits
+    fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     active: bool = True
 
@@ -69,17 +73,29 @@ class IntegrationUpdateRequest(BaseModel):
     base_url: str
     username: Optional[str] = None
     password: Optional[str] = None
+    base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    model_config: Optional[dict] = None  # AI model configuration
+    provider_metadata: Optional[dict] = None  # Provider-specific metadata
+    cost_config: Optional[dict] = None  # Cost tracking and limits
+    fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
 
 class IntegrationDetailResponse(BaseModel):
     id: int
     name: str
+    integration_type: str
     base_url: Optional[str] = None
     username: Optional[str] = None
+    base_search: Optional[str] = None
     model: Optional[str] = None  # AI model name
+    model_config: Optional[dict] = None  # AI model configuration
+    provider_metadata: Optional[dict] = None  # Provider-specific metadata
+    cost_config: Optional[dict] = None  # Cost tracking and limits
+    fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     password_masked: Optional[str] = None  # Masked version for display
+    active: bool
 
 class PermissionMatrixResponse(BaseModel):
     roles: List[str]
@@ -319,6 +335,10 @@ async def create_integration(
                 username=create_data.username,
                 base_search=create_data.base_search,
                 model=create_data.model,
+                model_config=create_data.model_config or {},
+                provider_metadata=create_data.provider_metadata or {},
+                cost_config=create_data.cost_config or {},
+                fallback_integration_id=create_data.fallback_integration_id,
                 logo_filename=create_data.logo_filename,
                 tenant_id=user.tenant_id,
                 active=create_data.active,
@@ -463,11 +483,18 @@ async def get_integration_details(
             return IntegrationDetailResponse(
                 id=integration.id,
                 name=integration.provider,
+                integration_type=integration.type,
                 base_url=integration.base_url,
                 username=integration.username,
+                base_search=integration.base_search,
                 model=integration.model,  # Include AI model name
+                model_config=integration.model_config,  # AI model configuration
+                provider_metadata=integration.provider_metadata,  # Provider-specific metadata
+                cost_config=integration.cost_config,  # Cost tracking and limits
+                fallback_integration_id=integration.fallback_integration_id,  # Fallback integration
                 logo_filename=integration.logo_filename,  # Include logo filename
-                password_masked=password_masked
+                password_masked=password_masked,
+                active=integration.active
             )
 
     except HTTPException:
@@ -505,7 +532,12 @@ async def update_integration(
             # Update fields
             integration.base_url = update_data.base_url
             integration.username = update_data.username
+            integration.base_search = update_data.base_search
             integration.model = update_data.model  # Update AI model name
+            integration.model_config = update_data.model_config or {}
+            integration.provider_metadata = update_data.provider_metadata or {}
+            integration.cost_config = update_data.cost_config or {}
+            integration.fallback_integration_id = update_data.fallback_integration_id
             integration.logo_filename = update_data.logo_filename  # Update logo filename
 
             # Only update password if provided
