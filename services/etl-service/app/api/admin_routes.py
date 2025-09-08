@@ -20,7 +20,7 @@ from app.models.unified_models import (
     StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
     ProjectWits, ProjectsStatuses
 )
-from app.auth.centralized_auth_middleware import UserData, require_admin_authentication
+from app.auth.centralized_auth_middleware import UserData, require_web_admin_authentication, require_web_admin_authentication
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -131,7 +131,7 @@ async def delete_user_redirect(user_id: int):
 
 @router.get("/stats", response_model=SystemStatsResponse)
 async def get_system_stats(
-    admin_user: UserData = Depends(require_admin_authentication)
+    admin_user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get system statistics"""
     try:
@@ -274,7 +274,7 @@ async def get_system_stats(
 
 @router.get("/integrations", response_model=List[IntegrationResponse])
 async def get_integrations(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get all integrations for current user's client"""
     try:
@@ -318,7 +318,7 @@ async def get_integrations(
 
 @router.get("/wits")
 async def get_wits(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get all work item types for current user's tenant"""
     try:
@@ -355,7 +355,7 @@ async def get_wits(
 @router.get("/integrations/{integration_id}", response_model=IntegrationDetailResponse)
 async def get_integration_details(
     integration_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get integration details for editing"""
     try:
@@ -401,7 +401,7 @@ async def get_integration_details(
 async def update_integration(
     integration_id: int,
     update_data: IntegrationUpdateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Update an integration"""
     try:
@@ -454,7 +454,7 @@ async def update_integration(
 @router.patch("/integrations/{integration_id}/activate")
 async def activate_integration(
     integration_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Activate an integration"""
     try:
@@ -494,7 +494,7 @@ async def activate_integration(
 @router.patch("/integrations/{integration_id}/deactivate")
 async def deactivate_integration(
     integration_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate an integration"""
     try:
@@ -534,7 +534,7 @@ async def deactivate_integration(
 @router.delete("/integrations/{integration_id}")
 async def delete_integration(
     integration_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete an integration"""
     try:
@@ -591,7 +591,7 @@ async def delete_integration(
 
 @router.get("/status-mappings")
 async def get_status_mappings(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get all status mappings"""
     try:
@@ -647,7 +647,7 @@ class StatusMappingCreateRequest(BaseModel):
 @router.post("/status-mappings")
 async def create_status_mapping(
     create_data: StatusMappingCreateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Create a new status mapping"""
     try:
@@ -687,7 +687,7 @@ async def create_status_mapping(
 @router.get("/status-mappings/{mapping_id}")
 async def get_status_mapping_details(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get status mapping details for editing"""
     try:
@@ -736,7 +736,7 @@ class StatusMappingUpdateRequest(BaseModel):
 async def update_status_mapping(
     mapping_id: int,
     update_data: StatusMappingUpdateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Update a status mapping"""
     try:
@@ -785,7 +785,7 @@ async def update_status_mapping(
 @router.delete("/status-mappings/{mapping_id}")
 async def delete_status_mapping(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete a status mapping (soft delete to preserve referential integrity)"""
     try:
@@ -837,7 +837,7 @@ async def delete_status_mapping(
 @router.patch("/status-mappings/{mapping_id}/activate")
 async def activate_status_mapping(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Activate a status mapping"""
     try:
@@ -880,7 +880,7 @@ async def activate_status_mapping(
 @router.get("/status-mappings/{mapping_id}/dependencies")
 async def get_status_mapping_dependencies(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get dependencies for a status mapping"""
     try:
@@ -958,7 +958,7 @@ class StatusMappingDeactivationRequest(BaseModel):
 async def deactivate_status_mapping_with_dependencies(
     mapping_id: int,
     deactivation_data: StatusMappingDeactivationRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate a status mapping with options for handling dependencies"""
     try:
@@ -1063,7 +1063,7 @@ async def deactivate_status_mapping_with_dependencies(
 
 @router.get("/workflows")
 async def get_workflows(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get all workflows"""
     try:
@@ -1106,7 +1106,7 @@ async def get_workflows(
 @router.get("/workflows/{workflow_id}")
 async def get_workflow_details(
     workflow_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get workflow details for editing"""
     try:
@@ -1146,7 +1146,7 @@ async def get_workflow_details(
 
 @router.get("/workflow-stats")
 async def get_workflow_stats(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get workflow statistics for the workflows page"""
     try:
@@ -1196,7 +1196,7 @@ async def get_workflow_stats(
 @router.get("/workflows/{workflow_id}/dependencies")
 async def check_workflow_dependencies(
     workflow_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Check dependencies for a workflow before deactivation/deletion"""
     try:
@@ -1318,7 +1318,7 @@ class WorkflowDeactivationRequest(BaseModel):
 async def update_workflow(
     workflow_id: int,
     update_data: WorkflowUpdateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Update a workflow"""
     try:
@@ -1395,7 +1395,7 @@ async def update_workflow(
 async def deactivate_workflow(
     workflow_id: int,
     deactivation_data: WorkflowDeactivationRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate a workflow with options for handling dependencies"""
     try:
@@ -1488,7 +1488,7 @@ async def deactivate_workflow(
 @router.patch("/workflows/{workflow_id}/activate")
 async def activate_workflow(
     workflow_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Activate a workflow"""
     try:
@@ -1530,7 +1530,7 @@ async def activate_workflow(
 @router.delete("/workflows/{workflow_id}")
 async def delete_workflow(
     workflow_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete a workflow (only if no active dependencies exist)"""
     try:
@@ -1592,7 +1592,7 @@ class WorkflowCreateRequest(BaseModel):
 @router.post("/workflows")
 async def create_workflow(
     create_data: WorkflowCreateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Create a new workflow"""
     try:
@@ -1661,7 +1661,7 @@ async def create_workflow(
 async def deactivate_flow_step(
     step_id: int,
     deactivation_data: WorkflowDeactivationRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate a flow step with options for handling dependencies"""
     try:
@@ -1770,7 +1770,7 @@ async def deactivate_flow_step(
 @router.patch("/flow-steps/{step_id}/toggle-active")
 async def toggle_flow_step_active(
     step_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Toggle the active status of a flow step (simple activate/deactivate)"""
     try:
@@ -1817,7 +1817,7 @@ async def toggle_flow_step_active(
 @router.delete("/flow-steps/{step_id}")
 async def delete_flow_step(
     step_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete a flow step (only allows true deletion when no dependencies exist)"""
     try:
@@ -1868,7 +1868,7 @@ async def delete_flow_step(
 
 @router.get("/wit-mappings/options")
 async def get_wit_mapping_options(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get available options for work item type mapping dropdowns"""
     try:
@@ -1923,7 +1923,7 @@ async def get_wit_mapping_options(
 
 @router.get("/wit-mappings")
 async def get_wit_mappings(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get all work item type mappings"""
     try:
@@ -1975,7 +1975,7 @@ async def get_wit_mappings(
 @router.patch("/wit-mappings/{mapping_id}/activate")
 async def activate_wit_mapping(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Activate a work item type mapping"""
     try:
@@ -2022,7 +2022,7 @@ class WitMappingDeactivationRequest(BaseModel):
 async def deactivate_wit_mapping(
     mapping_id: int,
     deactivation_data: WitMappingDeactivationRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate a work item type mapping with options for handling dependencies"""
     try:
@@ -2134,7 +2134,7 @@ async def deactivate_wit_mapping(
 @router.post("/wit-mappings")
 async def create_wit_mapping(
     create_data: dict,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Create a new work item type mapping"""
     try:
@@ -2201,7 +2201,7 @@ async def create_wit_mapping(
 async def update_wit_mapping(
     mapping_id: int,
     update_data: dict,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Update a work item type mapping"""
     try:
@@ -2274,7 +2274,7 @@ async def update_wit_mapping(
 async def delete_wit_mapping(
     mapping_id: int,
     deletion_data: Optional[WitMappingDeactivationRequest] = None,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete a work item type mapping with options for handling dependencies"""
     try:
@@ -2371,7 +2371,7 @@ async def delete_wit_mapping(
 @router.get("/wit-mappings/{mapping_id}/dependencies")
 async def get_wit_mapping_dependencies(
     mapping_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get dependencies for a work item type mapping"""
     try:
@@ -2468,7 +2468,7 @@ async def get_wit_mapping_dependencies(
 
 
 @router.get("/wits-hierarchies")
-async def get_wits_hierarchies(user: UserData = Depends(require_admin_authentication)):
+async def get_wits_hierarchies(user: UserData = Depends(require_web_admin_authentication)):
     """Get all work item type hierarchies"""
     try:
         database = get_database()
@@ -2527,7 +2527,7 @@ class WitHierarchyUpdateRequest(BaseModel):
 @router.post("/wits-hierarchies")
 async def create_wits_hierarchy(
     create_data: WitHierarchyCreateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Create a new work item type hierarchy"""
     try:
@@ -2572,7 +2572,7 @@ async def create_wits_hierarchy(
 async def update_wits_hierarchy(
     hierarchy_id: int,
     update_data: WitHierarchyUpdateRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Update a work item type hierarchy"""
     try:
@@ -2632,7 +2632,7 @@ async def update_wits_hierarchy(
 @router.delete("/wits-hierarchies/{hierarchy_id}")
 async def delete_wits_hierarchy(
     hierarchy_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Delete a work item type hierarchy"""
     try:
@@ -2682,7 +2682,7 @@ async def delete_wits_hierarchy(
 @router.get("/wits-hierarchies/{hierarchy_id}/dependencies")
 async def get_wits_hierarchy_dependencies(
     hierarchy_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Get dependencies for a work item type hierarchy"""
     try:
@@ -2768,7 +2768,7 @@ class WitHierarchyDeactivationRequest(BaseModel):
 async def deactivate_wits_hierarchy(
     hierarchy_id: int,
     deactivation_data: WitHierarchyDeactivationRequest,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Deactivate a work item type hierarchy with options for handling dependencies"""
     try:
@@ -2879,7 +2879,7 @@ async def deactivate_wits_hierarchy(
 @router.patch("/wits-hierarchies/{hierarchy_id}/activate")
 async def activate_wits_hierarchy(
     hierarchy_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Activate a work item type hierarchy"""
     try:
@@ -2920,7 +2920,7 @@ async def activate_wits_hierarchy(
 
 @router.get("/permissions/matrix")
 async def get_permission_matrix(
-    admin_user: UserData = Depends(require_admin_authentication)
+    admin_user: UserData = Depends(require_web_admin_authentication)
 ):
     """Redirect to Backend Service for permission matrix"""
     from app.core.config import get_settings
@@ -2938,7 +2938,7 @@ async def get_permission_matrix(
 
 @router.get("/active-sessions")
 async def get_active_sessions(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Redirect to Backend Service for active sessions"""
     from app.core.config import get_settings
@@ -2954,7 +2954,7 @@ async def get_active_sessions(
 
 @router.post("/terminate-all-sessions")
 async def terminate_all_sessions(
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Redirect to Backend Service for session termination"""
     from app.core.config import get_settings
@@ -2971,7 +2971,7 @@ async def terminate_all_sessions(
 @router.post("/terminate-session/{session_id}")
 async def terminate_user_session(
     session_id: int,
-    user: UserData = Depends(require_admin_authentication)
+    user: UserData = Depends(require_web_admin_authentication)
 ):
     """Redirect to Backend Service for session termination"""
     from app.core.config import get_settings
