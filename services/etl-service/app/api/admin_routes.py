@@ -6,11 +6,13 @@ and system configuration. Only accessible to admin users.
 """
 
 from typing import List, Optional, Dict
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from pydantic import BaseModel, EmailStr
+import os
+from pathlib import Path
 
 from app.core.database import get_database
 from app.models.unified_models import (
@@ -51,6 +53,17 @@ class IntegrationResponse(BaseModel):
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     active: bool
     last_sync_at: Optional[str] = None
+
+class IntegrationCreateRequest(BaseModel):
+    provider: str
+    type: str
+    base_url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    base_search: Optional[str] = None
+    model: Optional[str] = None  # AI model name
+    logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
+    active: bool = True
 
 class IntegrationUpdateRequest(BaseModel):
     base_url: str
@@ -272,6 +285,71 @@ async def get_system_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch system statistics"
+        )
+
+
+@router.post("/integrations")
+async def create_integration(
+    create_data: IntegrationCreateRequest,
+    user: UserData = Depends(require_web_admin_authentication)
+):
+    """Create a new integration"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from datetime import datetime
+
+            # Check if integration with same provider already exists for this tenant
+            existing_integration = session.query(Integration).filter(
+                Integration.provider == create_data.provider,
+                Integration.tenant_id == user.tenant_id
+            ).first()
+
+            if existing_integration:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Integration with provider '{create_data.provider}' already exists"
+                )
+
+            # Create new integration
+            new_integration = Integration(
+                provider=create_data.provider,
+                type=create_data.type,
+                base_url=create_data.base_url,
+                username=create_data.username,
+                base_search=create_data.base_search,
+                model=create_data.model,
+                logo_filename=create_data.logo_filename,
+                tenant_id=user.tenant_id,
+                active=create_data.active,
+                created_at=datetime.utcnow(),
+                last_updated_at=datetime.utcnow()
+            )
+
+            # Encrypt password if provided
+            if create_data.password:
+                from app.core.config import AppConfig
+                key = AppConfig.load_key()
+                new_integration.password = AppConfig.encrypt_token(create_data.password, key)
+
+            session.add(new_integration)
+            session.commit()
+
+            logger.info(f"Admin {user.email} created integration {new_integration.provider}")
+
+            return {
+                "message": "Integration created successfully",
+                "id": new_integration.id,
+                "provider": new_integration.provider
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating integration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create integration"
         )
 
 
@@ -592,6 +670,100 @@ async def delete_integration(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete integration"
+        )
+
+
+@router.post("/integrations/{integration_id}/logo")
+async def upload_integration_logo(
+    integration_id: int,
+    logo: UploadFile = File(...),
+    user: UserData = Depends(require_web_admin_authentication)
+):
+    """Upload a logo for an integration"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from datetime import datetime
+
+            # Find the integration
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.tenant_id == user.tenant_id
+            ).first()
+
+            if not integration:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Integration not found"
+                )
+
+            # Validate file type
+            if not logo.content_type or not logo.content_type.startswith('image/'):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File must be an image"
+                )
+
+            # Validate file size (max 5MB)
+            if logo.size and logo.size > 5 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File size must be less than 5MB"
+                )
+
+            # Get tenant information to determine assets folder
+            tenant = session.query(Tenant).filter(
+                Tenant.id == user.tenant_id
+            ).first()
+
+            if not tenant:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Tenant not found"
+                )
+
+            # Use tenant name (lowercase) as folder name if assets_folder not set
+            tenant_folder = tenant.assets_folder or tenant.name.lower()
+
+            # Create the integrations directory path
+            static_dir = Path(__file__).parent.parent / "static" / "assets" / tenant_folder / "integrations"
+            static_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename (use original filename or create one based on integration)
+            file_extension = Path(logo.filename).suffix if logo.filename else '.svg'
+            if not file_extension:
+                file_extension = '.svg'  # Default to SVG
+
+            # Use integration provider name as base filename
+            base_filename = integration.provider.lower().replace('_', '-')
+            filename = f"{base_filename}{file_extension}"
+
+            # Save the file
+            file_path = static_dir / filename
+            with open(file_path, "wb") as buffer:
+                content = await logo.read()
+                buffer.write(content)
+
+            # Update integration record with new logo filename
+            integration.logo_filename = filename
+            integration.last_updated_at = datetime.utcnow()
+            session.commit()
+
+            logger.info(f"Admin {user.email} uploaded logo for integration {integration.provider}")
+
+            return {
+                "message": "Logo uploaded successfully",
+                "logo_filename": filename,
+                "integration_id": integration_id
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading integration logo: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload logo"
         )
 
 

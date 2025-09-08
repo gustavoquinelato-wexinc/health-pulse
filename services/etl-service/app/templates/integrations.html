@@ -326,16 +326,9 @@ async function saveIntegration() {
     const formData = new FormData(form);
     const id = formData.get('id');
 
-    // Handle file upload first if a new file is selected
+    // Store file for upload after integration save
     let logoFilename = formData.get('logo_filename') || null; // Current filename
     const logoFile = formData.get('logo_file');
-
-    if (logoFile && logoFile.size > 0) {
-        // TODO: Implement file upload to tenant assets folder
-        // For now, we'll use the original filename
-        logoFilename = logoFile.name;
-        showSuccess('File upload functionality will be implemented soon. Using filename: ' + logoFile.name);
-    }
 
     const data = {
         provider: formData.get('provider'),
@@ -363,9 +356,42 @@ async function saveIntegration() {
         });
         
         if (response.ok) {
+            const result = await response.json();
+
+            // Handle file upload if a new file was selected
+            if (logoFile && logoFile.size > 0) {
+                try {
+                    // Get the integration ID (either from existing ID or from creation response)
+                    const integrationId = id || result.id;
+
+                    if (integrationId) {
+                        const uploadFormData = new FormData();
+                        uploadFormData.append('logo', logoFile);
+
+                        const uploadResponse = await fetch(`/api/v1/admin/integrations/${integrationId}/logo`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            body: uploadFormData
+                        });
+
+                        if (uploadResponse.ok) {
+                            const uploadResult = await uploadResponse.json();
+                            showSuccess(`Integration ${id ? 'updated' : 'created'} and logo uploaded successfully!`);
+                        } else {
+                            const uploadError = await uploadResponse.json();
+                            showError(`Integration saved but logo upload failed: ${uploadError.detail}`);
+                        }
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading logo:', uploadError);
+                    showError(`Integration saved but logo upload failed: ${uploadError.message}`);
+                }
+            } else {
+                showSuccess(id ? 'Integration updated successfully' : 'Integration created successfully');
+            }
+
             closeModal('integrationModal');
             loadIntegrations();
-            showSuccess(id ? 'Integration updated successfully' : 'Integration created successfully');
         } else {
             const error = await response.text();
             showError(`Failed to save integration: ${error}`);
