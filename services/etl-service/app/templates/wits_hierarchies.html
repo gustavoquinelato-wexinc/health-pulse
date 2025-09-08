@@ -243,7 +243,7 @@ function renderHierarchiesTable() {
         row.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.id}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.level_name || 'N/A'}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${hierarchy.level_number || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${hierarchy.level_number !== null && hierarchy.level_number !== undefined ? hierarchy.level_number : 'N/A'}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${hierarchy.description || 'N/A'}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${hierarchy.integration_name || 'N/A'}</td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
