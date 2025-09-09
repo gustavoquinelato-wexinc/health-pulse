@@ -11,33 +11,33 @@ CRITICAL: All metrics calculations must use these helpers to ensure data integri
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.models.unified_models import (
-    Issue, Status, StatusMapping, Workflow,
-    Issuetype, IssuetypeMapping, IssuetypeHierarchy
+    WorkItem, Status, StatusMapping, Workflow,
+    Wit, WitMapping, WitHierarchy
 )
 
 
-def get_active_issues_query(session: Session, client_id: int, include_inactive: bool = False):
+def get_active_issues_query(session: Session, tenant_id: int, include_inactive: bool = False):
     """
     Get a query for issues that excludes deactivated records at all relationship levels.
-    🚨 SECURITY: Now requires client_id to prevent cross-client data access.
+    🚨 SECURITY: Now requires tenant_id to prevent cross-client data access.
 
     Args:
         session: Database session
-        client_id: Client ID to filter by (REQUIRED for security)
+        tenant_id: Tenant ID to filter by (REQUIRED for security)
         include_inactive: If True, includes data connected to inactive records (for data quality analysis)
 
     Returns:
         SQLAlchemy query object with proper active-only and client filtering
     """
-    query = session.query(Issue).join(Status).join(StatusMapping).join(Workflow)
+    query = session.query(WorkItem).join(Status).join(StatusMapping).join(Workflow)
 
-    # 🚨 SECURITY: Always filter by client_id first
-    query = query.filter(Issue.client_id == client_id)
+    # 🚨 SECURITY: Always filter by tenant_id first
+    query = query.filter(WorkItem.tenant_id == tenant_id)
 
     if not include_inactive:
         query = query.filter(
             and_(
-                Issue.active == True,
+                WorkItem.active == True,
                 Status.active == True,
                 StatusMapping.active == True,
                 Workflow.active == True
@@ -47,14 +47,14 @@ def get_active_issues_query(session: Session, client_id: int, include_inactive: 
     return query
 
 
-def get_workflow_metrics(session: Session, client_id: int, include_inactive: bool = False):
+def get_workflow_metrics(session: Session, tenant_id: int, include_inactive: bool = False):
     """
     Get issue counts by flow step, excluding deactivated relationship chains.
-    🚨 SECURITY: Now requires client_id to prevent cross-client data access.
+    🚨 SECURITY: Now requires tenant_id to prevent cross-client data access.
 
     Args:
         session: Database session
-        client_id: Client ID to filter by (REQUIRED for security)
+        tenant_id: Tenant ID to filter by (REQUIRED for security)
         include_inactive: If True, includes data connected to inactive records
 
     Returns:
@@ -66,10 +66,10 @@ def get_workflow_metrics(session: Session, client_id: int, include_inactive: boo
         Workflow.step_number,
         Workflow.step_category,
         Workflow.active.label('workflow_active')
-    ).join(StatusMapping).join(Status).join(Issue)
+    ).join(StatusMapping).join(Status).join(WorkItem)
 
-    # 🚨 SECURITY: Always filter by client_id first
-    query = query.filter(Issue.client_id == client_id)
+    # 🚨 SECURITY: Always filter by tenant_id first
+    query = query.filter(WorkItem.tenant_id == tenant_id)
 
     if not include_inactive:
         query = query.filter(
@@ -77,13 +77,13 @@ def get_workflow_metrics(session: Session, client_id: int, include_inactive: boo
                 Workflow.active == True,
                 StatusMapping.active == True,
                 Status.active == True,
-                Issue.active == True
+                WorkItem.active == True
             )
         )
     
     # Group by flow step and count issues
     from sqlalchemy import func
-    query = query.add_column(func.count(Issue.id).label('issue_count'))
+    query = query.add_column(func.count(WorkItem.id).label('issue_count'))
     query = query.group_by(
         Workflow.id, Workflow.step_name, Workflow.step_number,
         Workflow.step_category, Workflow.active
@@ -106,47 +106,47 @@ def get_workflow_metrics(session: Session, client_id: int, include_inactive: boo
     ]
 
 
-def get_issuetype_metrics(session: Session, client_id: int, include_inactive: bool = False):
+def get_issuetype_metrics(session: Session, tenant_id: int, include_inactive: bool = False):
     """
     Get issue counts by issue type hierarchy, excluding deactivated relationship chains.
-    🚨 SECURITY: Now requires client_id to prevent cross-client data access.
+    🚨 SECURITY: Now requires tenant_id to prevent cross-client data access.
 
     Args:
         session: Database session
-        client_id: Client ID to filter by (REQUIRED for security)
+        tenant_id: Tenant ID to filter by (REQUIRED for security)
         include_inactive: If True, includes data connected to inactive records
 
     Returns:
         List of dictionaries with issue type metrics
     """
     query = session.query(
-        IssuetypeHierarchy.id,
-        IssuetypeHierarchy.level_name,
-        IssuetypeHierarchy.level_number,
-        IssuetypeHierarchy.active.label('hierarchy_active')
-    ).join(IssuetypeMapping).join(Issuetype).join(Issue)
+        WitHierarchy.id,
+        WitHierarchy.level_name,
+        WitHierarchy.level_number,
+        WitHierarchy.active.label('hierarchy_active')
+    ).join(WitMapping).join(Wit).join(WorkItem)
 
-    # 🚨 SECURITY: Always filter by client_id first
-    query = query.filter(Issue.client_id == client_id)
+    # 🚨 SECURITY: Always filter by tenant_id first
+    query = query.filter(WorkItem.tenant_id == tenant_id)
 
     if not include_inactive:
         query = query.filter(
             and_(
-                IssuetypeHierarchy.active == True,
-                IssuetypeMapping.active == True,
-                Issuetype.active == True,
-                Issue.active == True
+                WitHierarchy.active == True,
+                WitMapping.active == True,
+                Wit.active == True,
+                WorkItem.active == True
             )
         )
     
     # Group by hierarchy and count issues
     from sqlalchemy import func
-    query = query.add_column(func.count(Issue.id).label('issue_count'))
+    query = query.add_column(func.count(WorkItem.id).label('issue_count'))
     query = query.group_by(
-        IssuetypeHierarchy.id, IssuetypeHierarchy.level_name, 
-        IssuetypeHierarchy.level_number, IssuetypeHierarchy.active
+        WitHierarchy.id, WitHierarchy.level_name, 
+        WitHierarchy.level_number, WitHierarchy.active
     )
-    query = query.order_by(IssuetypeHierarchy.level_number)
+    query = query.order_by(WitHierarchy.level_number)
     
     results = query.all()
     
@@ -163,48 +163,48 @@ def get_issuetype_metrics(session: Session, client_id: int, include_inactive: bo
     ]
 
 
-def get_data_quality_report(session: Session, client_id: int):
+def get_data_quality_report(session: Session, tenant_id: int):
     """
     Generate a data quality report showing orphaned and inactive data.
-    🚨 SECURITY: Now requires client_id to prevent cross-client data access.
+    🚨 SECURITY: Now requires tenant_id to prevent cross-client data access.
 
     Args:
         session: Database session
-        client_id: Client ID to filter by (REQUIRED for security)
+        tenant_id: Tenant ID to filter by (REQUIRED for security)
 
     Returns:
         Dictionary with data quality metrics
     """
-    # 🚨 SECURITY: Count total vs active issues filtered by client_id
-    total_issues = session.query(Issue).filter(Issue.client_id == client_id).count()
-    active_chain_issues = get_active_issues_query(session, client_id, include_inactive=False).count()
+    # 🚨 SECURITY: Count total vs active issues filtered by tenant_id
+    total_issues = session.query(WorkItem).filter(WorkItem.tenant_id == tenant_id).count()
+    active_chain_issues = get_active_issues_query(session, tenant_id, include_inactive=False).count()
 
-    # Count issues connected to inactive workflows (filtered by client_id)
-    inactive_workflow_issues = session.query(Issue).join(Status).join(StatusMapping).join(Workflow).filter(
+    # Count issues connected to inactive workflows (filtered by tenant_id)
+    inactive_workflow_issues = session.query(WorkItem).join(Status).join(StatusMapping).join(Workflow).filter(
         and_(
-            Issue.client_id == client_id,  # 🚨 SECURITY: Client filtering
-            Issue.active == True,
+            WorkItem.tenant_id == tenant_id,  # 🚨 SECURITY: Tenant filtering
+            WorkItem.active == True,
             Status.active == True,
             StatusMapping.active == True,
             Workflow.active == False  # Workflow is inactive
         )
     ).count()
 
-    # Count issues connected to inactive status mappings (filtered by client_id)
-    inactive_mapping_issues = session.query(Issue).join(Status).join(StatusMapping).filter(
+    # Count issues connected to inactive status mappings (filtered by tenant_id)
+    inactive_mapping_issues = session.query(WorkItem).join(Status).join(StatusMapping).filter(
         and_(
-            Issue.client_id == client_id,  # 🚨 SECURITY: Client filtering
-            Issue.active == True,
+            WorkItem.tenant_id == tenant_id,  # 🚨 SECURITY: Tenant filtering
+            WorkItem.active == True,
             Status.active == True,
             StatusMapping.active == False  # Status mapping is inactive
         )
     ).count()
 
-    # Count issues connected to inactive statuses (filtered by client_id)
-    inactive_status_issues = session.query(Issue).join(Status).filter(
+    # Count issues connected to inactive statuses (filtered by tenant_id)
+    inactive_status_issues = session.query(WorkItem).join(Status).filter(
         and_(
-            Issue.client_id == client_id,  # 🚨 SECURITY: Client filtering
-            Issue.active == True,
+            WorkItem.tenant_id == tenant_id,  # 🚨 SECURITY: Tenant filtering
+            WorkItem.active == True,
             Status.active == False  # Status is inactive
         )
     ).count()
@@ -235,15 +235,15 @@ def validate_metrics_query(query_description: str, includes_active_filtering: bo
     Args:
         query_description: Description of what the query does
         includes_active_filtering: Whether the query properly filters by active status at all levels
-        includes_client_filtering: Whether the query properly filters by client_id (REQUIRED)
+        includes_client_filtering: Whether the query properly filters by tenant_id (REQUIRED)
 
     Raises:
         ValueError: If query doesn't follow deactivation strategy or client isolation
     """
     if not includes_client_filtering:
         raise ValueError(
-            f"🚨 SECURITY VIOLATION: Metrics query '{query_description}' missing client_id filtering. "
-            "ALL metrics queries MUST filter by client_id to prevent cross-client data access."
+            f"🚨 SECURITY VIOLATION: Metrics query '{query_description}' missing tenant_id filtering. "
+            "ALL metrics queries MUST filter by tenant_id to prevent cross-client data access."
         )
 
     if not includes_active_filtering:
@@ -257,29 +257,29 @@ def validate_metrics_query(query_description: str, includes_active_filtering: bo
 # Example usage patterns for common metrics scenarios
 METRICS_EXAMPLES = {
     'workflow_distribution': """
-        # 🚨 SECURITY: All metrics functions now require client_id
-        from app.core.config import get_current_client_id
-        client_id = get_current_client_id()
+        # 🚨 SECURITY: All metrics functions now require tenant_id
+        from app.core.config import get_current_tenant_id
+        tenant_id = get_current_tenant_id()
 
         # Get issue distribution across workflow steps (active only)
-        metrics = get_workflow_metrics(session, client_id, include_inactive=False)
+        metrics = get_workflow_metrics(session, tenant_id, include_inactive=False)
 
         # Get workflow distribution including inactive chains (data quality view)
-        quality_metrics = get_workflow_metrics(session, client_id, include_inactive=True)
+        quality_metrics = get_workflow_metrics(session, tenant_id, include_inactive=True)
     """,
 
     'custom_metrics': """
         # Custom metrics query following deactivation strategy AND client isolation
         from app.utils.metrics_helpers import validate_metrics_query
-        from app.core.config import get_current_client_id
+        from app.core.config import get_current_tenant_id
 
-        client_id = get_current_client_id()
+        tenant_id = get_current_tenant_id()
 
-        # Your custom query here - MUST include client_id filtering
-        query = session.query(Issue).join(Status).join(StatusMapping).join(Workflow).filter(
+        # Your custom query here - MUST include tenant_id filtering
+        query = session.query(WorkItem).join(Status).join(StatusMapping).join(Workflow).filter(
             and_(
-                Issue.client_id == client_id,  # 🚨 SECURITY: Required client filtering
-                Issue.active == True,
+                WorkItem.tenant_id == tenant_id,  # 🚨 SECURITY: Required client filtering
+                WorkItem.active == True,
                 Status.active == True,
                 StatusMapping.active == True,
                 Workflow.active == True,
@@ -294,13 +294,13 @@ METRICS_EXAMPLES = {
     """,
 
     'data_quality_check': """
-        # Generate data quality report (now requires client_id)
-        from app.core.config import get_current_client_id
-        client_id = get_current_client_id()
+        # Generate data quality report (now requires tenant_id)
+        from app.core.config import get_current_tenant_id
+        tenant_id = get_current_tenant_id()
 
-        quality_report = get_data_quality_report(session, client_id)
+        quality_report = get_data_quality_report(session, tenant_id)
 
         print(f"Data completeness: {quality_report['data_completeness_percentage']}%")
-        print(f"Issues excluded from metrics: {quality_report['excluded_from_metrics']}")
+        print(f"WorkItems excluded from metrics: {quality_report['excluded_from_metrics']}")
     """
 }

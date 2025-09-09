@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
-from app.models.unified_models import Project, Issuetype, Status, StatusMapping, IssuetypeMapping
+from app.models.unified_models import Project, Wit, Status, StatusMapping, WitMapping
 
 logger = get_logger(__name__)
 
@@ -52,7 +52,7 @@ class JiraDataProcessor:
                 'team': self._extract_team(fields.get('customfield_10128')),  # Team custom field
                 'assignee': self._extract_assignee(fields.get('assignee')),
                 'project_id': self._extract_project_id(fields.get('project')),
-                'issuetype_id': self._extract_issuetype_id(fields.get('issuetype')),
+                'wit_id': self._extract_wit_id(fields.get('issuetype')),
                 'status_id': self._extract_status_id(fields.get('status')),
                 'parent_id': self._extract_parent_id(fields.get('parent')),
                 'code_changed': True if fields.get('customfield_10000','') != "{}" else False,
@@ -117,7 +117,7 @@ class JiraDataProcessor:
             return None
         return project_data.get('id', None)
     
-    def _extract_issuetype_id(self, issuetype_data: Dict) -> str:
+    def _extract_wit_id(self, issuetype_data: Dict) -> str:
         """Extract issue type ID from Jira issue type object."""
         if not issuetype_data:
             return None
@@ -237,39 +237,39 @@ class JiraDataProcessor:
 
             original_name = safe_unicode_string(issuetype_data.get('name', None))
 
-            # Find issuetype mapping for this issue type from database
-            issuetype_mapping_id = None
+            # Find wit mapping for this issue type from database
+            wit_mapping_id = None
             hierarchy_level = issuetype_data.get('hierarchyLevel', 0)  # Default hierarchy level
-            client_id = getattr(self.integration, 'client_id', None) if self.integration else None
+            tenant_id = getattr(self.integration, 'tenant_id', None) if self.integration else None
 
-            if original_name and client_id:
-                # Look up issuetype mapping in database (case-insensitive on both sides)
+            if original_name and tenant_id:
+                # Look up work item type mapping in database (case-insensitive on both sides)
                 # Include the hierarchy relationship to avoid lazy loading issues
                 from sqlalchemy.orm import joinedload
-                issuetype_mapping = self.session.query(IssuetypeMapping).options(
-                    joinedload(IssuetypeMapping.issuetype_hierarchy)
+                wit_mapping = self.session.query(WitMapping).options(
+                    joinedload(WitMapping.wit_hierarchy)
                 ).filter(
-                    func.lower(IssuetypeMapping.issuetype_from) == original_name.lower(),
-                    IssuetypeMapping.client_id == client_id
+                    func.lower(WitMapping.wit_from) == original_name.lower(),
+                    WitMapping.tenant_id == tenant_id
                 ).first()
 
-                if issuetype_mapping:
-                    issuetype_mapping_id = issuetype_mapping.id
+                if wit_mapping:
+                    wit_mapping_id = wit_mapping.id
                     # Get hierarchy level from the related hierarchy record
-                    hierarchy_level = issuetype_mapping.issuetype_hierarchy.level_number if issuetype_mapping.issuetype_hierarchy else 0
-                    logger.debug(f"Mapped issuetype '{original_name}' to '{issuetype_mapping.issuetype_to}' (hierarchy: {hierarchy_level}) via issuetype mapping")
+                    hierarchy_level = wit_mapping.wit_hierarchy.level_number if wit_mapping.wit_hierarchy else 0
+                    logger.debug(f"Mapped issuetype '{original_name}' to '{wit_mapping.wit_to}' (hierarchy: {hierarchy_level}) via wit mapping")
                 else:
-                    logger.warning(f"No issuetype mapping found in database for issuetype '{original_name}' and client {client_id}")
+                    logger.warning(f"No wit mapping found in database for issuetype '{original_name}' and client {tenant_id}")
             else:
                 if not original_name:
                     logger.warning("No issuetype name provided for mapping")
-                if not client_id:
-                    logger.warning("No client_id available for issuetype mapping")
+                if not tenant_id:
+                    logger.warning("No tenant_id available for wit mapping")
 
             return {
                 'external_id': issuetype_data.get('id', None),
                 'original_name': original_name,
-                'issuetype_mapping_id': issuetype_mapping_id,  # Foreign key relationship to IssuetypeMapping
+                'wit_mapping_id': wit_mapping_id,  # Foreign key relationship to WitMapping
                 'description': safe_unicode_string(issuetype_data.get('description', None)),
                 'hierarchy_level': hierarchy_level,
                 'active': True  # Default to active for new issue types
@@ -303,13 +303,13 @@ class JiraDataProcessor:
 
             # Find status mapping for this status from database
             status_mapping_id = None
-            client_id = getattr(self.integration, 'client_id', None) if self.integration else None
+            tenant_id = getattr(self.integration, 'tenant_id', None) if self.integration else None
 
-            if original_name and client_id:
+            if original_name and tenant_id:
                 # Look up status mapping in database (case-insensitive on both sides)
                 status_mapping = self.session.query(StatusMapping).filter(
                     func.lower(StatusMapping.status_from) == original_name.lower(),
-                    StatusMapping.client_id == client_id
+                    StatusMapping.tenant_id == tenant_id
                 ).first()
 
                 if status_mapping:
@@ -318,14 +318,14 @@ class JiraDataProcessor:
                     if status_mapping.workflow:
                         logger.debug(f"Mapped status '{original_name}' to workflow '{status_mapping.workflow.step_name}' via status mapping")
                     else:
-                        logger.warning(f"Status mapping found but no workflow linked for status '{original_name}' and client {client_id}")
+                        logger.warning(f"Status mapping found but no workflow linked for status '{original_name}' and client {tenant_id}")
                 else:
-                    logger.warning(f"No status mapping found in database for status '{original_name}' and client {client_id}")
+                    logger.warning(f"No status mapping found in database for status '{original_name}' and client {tenant_id}")
             else:
                 if not original_name:
                     logger.warning("No status name provided for mapping")
-                if not client_id:
-                    logger.warning("No client_id available for status mapping")
+                if not tenant_id:
+                    logger.warning("No tenant_id available for status mapping")
 
             return {
                 'external_id': status_data.get('id', None),

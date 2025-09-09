@@ -28,7 +28,7 @@ class UserData:
         self.role = user_data.get("role")
         self.is_admin = user_data.get("is_admin", False)
         self.active = user_data.get("active", True)
-        self.client_id = user_data.get("client_id")
+        self.tenant_id = user_data.get("tenant_id")
 
 
 async def get_current_user_optional(
@@ -97,6 +97,22 @@ async def require_admin_authentication(
             detail="Admin access required"
         )
     
+    return user
+
+
+async def require_web_admin_authentication(request: Request) -> UserData:
+    """
+    Dependency for web-based admin authentication.
+    Handles both cookies and Authorization headers, requires admin role.
+    """
+    user = await require_web_authentication(request)
+
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+
     return user
 
 

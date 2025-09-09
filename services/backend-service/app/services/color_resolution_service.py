@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.unified_models import (
-    ClientColorSettings, User, Client
+    TenantColors, User, Tenant
 )
 from app.core.database import get_database
 from .color_calculation_service import ColorCalculationService
@@ -27,13 +27,13 @@ class ColorResolutionService:
         self.cache_service = ColorCacheService()
         self.logger = logging.getLogger(__name__)
     
-    def get_client_colors(self, client_id: int, mode: str = 'custom', 
+    def get_client_colors(self, tenant_id: int, mode: str = 'custom', 
                          db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
         """
         Get client color settings with caching.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode ('default' or 'custom')
             db: Database session (optional)
             
@@ -42,7 +42,7 @@ class ColorResolutionService:
         """
         try:
             # Try cache first
-            cached_colors = self.cache_service.get_client_colors(client_id, mode)
+            cached_colors = self.cache_service.get_client_colors(tenant_id, mode)
             if cached_colors:
                 return cached_colors
             
@@ -53,18 +53,18 @@ class ColorResolutionService:
             
             # For unified table, we need to specify theme_mode and accessibility_level
             # Default to 'light' theme and 'regular' accessibility for basic colors
-            color_settings = db.query(ClientColorSettings).filter(
+            color_settings = db.query(TenantColors).filter(
                 and_(
-                    ClientColorSettings.client_id == client_id,
-                    ClientColorSettings.color_schema_mode == mode,
-                    ClientColorSettings.theme_mode == 'light',  # Default to light theme
-                    ClientColorSettings.accessibility_level == 'regular',  # Default to regular
-                    ClientColorSettings.active == True
+                    TenantColors.tenant_id == tenant_id,
+                    TenantColors.color_schema_mode == mode,
+                    TenantColors.theme_mode == 'light',  # Default to light theme
+                    TenantColors.accessibility_level == 'regular',  # Default to regular
+                    TenantColors.active == True
                 )
             ).first()
 
             if not color_settings:
-                self.logger.warning(f"No color settings found for client {client_id}, mode {mode}, theme light, level regular")
+                self.logger.warning(f"No color settings found for client {tenant_id}, mode {mode}, theme light, level regular")
                 return None
 
             # Convert to dictionary using unified table structure
@@ -96,13 +96,13 @@ class ColorResolutionService:
                 'on_gradient_5_1': color_settings.on_gradient_5_1,
 
                 # Metadata
-                'client_id': color_settings.client_id,
+                'tenant_id': color_settings.tenant_id,
                 'created_at': color_settings.created_at.isoformat() if color_settings.created_at else None,
                 'last_updated_at': color_settings.last_updated_at.isoformat() if color_settings.last_updated_at else None
             }
             
             # Cache the result
-            self.cache_service.set_client_colors(client_id, mode, color_data)
+            self.cache_service.set_client_colors(tenant_id, mode, color_data)
             
             return color_data
             
@@ -110,13 +110,13 @@ class ColorResolutionService:
             self.logger.error(f"Error getting client colors: {e}")
             return None
     
-    def get_accessibility_colors(self, client_id: int, mode: str = 'custom', 
+    def get_accessibility_colors(self, tenant_id: int, mode: str = 'custom', 
                                level: str = 'AA', db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
         """
         Get accessibility color variants with caching.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode
             level: Accessibility level ('AA' or 'AAA')
             db: Database session (optional)
@@ -126,7 +126,7 @@ class ColorResolutionService:
         """
         try:
             # Try cache first
-            cached_colors = self.cache_service.get_accessibility_colors(client_id, mode, level)
+            cached_colors = self.cache_service.get_accessibility_colors(tenant_id, mode, level)
             if cached_colors:
                 return cached_colors
             
@@ -140,18 +140,18 @@ class ColorResolutionService:
             # Default to 'light' theme for now, but this should be passed as parameter
             theme_mode = 'light'  # TODO: Pass theme_mode as parameter
 
-            accessibility_colors = db.query(ClientColorSettings).filter(
+            accessibility_colors = db.query(TenantColors).filter(
                 and_(
-                    ClientColorSettings.client_id == client_id,
-                    ClientColorSettings.color_schema_mode == mode,
-                    ClientColorSettings.accessibility_level == level,
-                    ClientColorSettings.theme_mode == theme_mode,
-                    ClientColorSettings.active == True
+                    TenantColors.tenant_id == tenant_id,
+                    TenantColors.color_schema_mode == mode,
+                    TenantColors.accessibility_level == level,
+                    TenantColors.theme_mode == theme_mode,
+                    TenantColors.active == True
                 )
             ).first()
 
             if not accessibility_colors:
-                self.logger.warning(f"No accessibility colors found for client {client_id}, mode {mode}, level {level}, theme {theme_mode}")
+                self.logger.warning(f"No accessibility colors found for client {tenant_id}, mode {mode}, level {level}, theme {theme_mode}")
                 return None
             
             # Convert to dictionary using unified table structure
@@ -183,13 +183,13 @@ class ColorResolutionService:
                 'on_gradient_5_1': accessibility_colors.on_gradient_5_1,
 
                 # Metadata
-                'client_id': accessibility_colors.client_id,
+                'tenant_id': accessibility_colors.tenant_id,
                 'created_at': accessibility_colors.created_at.isoformat() if accessibility_colors.created_at else None,
                 'last_updated_at': accessibility_colors.last_updated_at.isoformat() if accessibility_colors.last_updated_at else None
             }
             
             # Cache the result
-            self.cache_service.set_accessibility_colors(client_id, mode, level, color_data)
+            self.cache_service.set_accessibility_colors(tenant_id, mode, level, color_data)
             
             return color_data
             
@@ -197,14 +197,14 @@ class ColorResolutionService:
             self.logger.error(f"Error getting accessibility colors: {e}")
             return None
     
-    def resolve_user_colors(self, user_id: int, client_id: int, 
+    def resolve_user_colors(self, user_id: int, tenant_id: int, 
                            db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
         """
         Resolve colors for a specific user considering their preferences.
         
         Args:
             user_id: User ID
-            client_id: Client ID
+            tenant_id: Tenant ID
             db: Database session (optional)
             
         Returns:
@@ -212,7 +212,7 @@ class ColorResolutionService:
         """
         try:
             # Try cache first
-            cached_colors = self.cache_service.get_user_colors(user_id, client_id)
+            cached_colors = self.cache_service.get_user_colors(user_id, tenant_id)
             if cached_colors:
                 return cached_colors
             
@@ -235,16 +235,16 @@ class ColorResolutionService:
 
             # Get appropriate colors based on user's accessibility level
             if accessibility_level in ['AA', 'AAA']:
-                color_data = self.get_accessibility_colors(client_id, mode, accessibility_level, db)
+                color_data = self.get_accessibility_colors(tenant_id, mode, accessibility_level, db)
             else:
-                color_data = self.get_client_colors(client_id, mode, db)
+                color_data = self.get_client_colors(tenant_id, mode, db)
 
             if not color_data:
                 # Fallback to default mode if custom not found
                 if accessibility_level in ['AA', 'AAA']:
-                    color_data = self.get_accessibility_colors(client_id, 'default', accessibility_level, db)
+                    color_data = self.get_accessibility_colors(tenant_id, 'default', accessibility_level, db)
                 else:
-                    color_data = self.get_client_colors(client_id, 'default', db)
+                    color_data = self.get_client_colors(tenant_id, 'default', db)
             
             if color_data:
                 # Add user-specific metadata
@@ -255,7 +255,7 @@ class ColorResolutionService:
                 color_data['resolved_mode'] = color_data.get('color_schema_mode', mode)
 
                 # Cache the result
-                self.cache_service.set_user_colors(user_id, client_id, color_data)
+                self.cache_service.set_user_colors(user_id, tenant_id, color_data)
             
             return color_data
             
@@ -263,13 +263,13 @@ class ColorResolutionService:
             self.logger.error(f"Error resolving user colors: {e}")
             return None
     
-    def update_client_colors(self, client_id: int, mode: str, color_updates: Dict[str, Any],
+    def update_client_colors(self, tenant_id: int, mode: str, color_updates: Dict[str, Any],
                            db: Optional[Session] = None, colors_defined_in_mode: str = 'light') -> bool:
         """
         Update client color settings and recalculate variants.
 
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode
             color_updates: Dictionary with color updates
             db: Database session (optional)
@@ -284,16 +284,16 @@ class ColorResolutionService:
                 db = database.get_write_session()
             
             # Get existing color settings
-            color_settings = db.query(ClientColorSettings).filter(
+            color_settings = db.query(TenantColors).filter(
                 and_(
-                    ClientColorSettings.client_id == client_id,
-                    ClientColorSettings.color_schema_mode == mode,
-                    ClientColorSettings.active == True
+                    TenantColors.tenant_id == tenant_id,
+                    TenantColors.color_schema_mode == mode,
+                    TenantColors.active == True
                 )
             ).first()
             
             if not color_settings:
-                self.logger.error(f"Color settings not found for client {client_id}, mode {mode}")
+                self.logger.error(f"Color settings not found for client {tenant_id}, mode {mode}")
                 return False
             
             # Update base colors if provided
@@ -339,9 +339,9 @@ class ColorResolutionService:
             db.commit()
             
             # Invalidate cache
-            self.cache_service.invalidate_client_colors(client_id)
+            self.cache_service.invalidate_client_colors(tenant_id)
             
-            self.logger.info(f"Updated color settings for client {client_id}, mode {mode}")
+            self.logger.info(f"Updated color settings for client {tenant_id}, mode {mode}")
             return True
             
         except Exception as e:
@@ -350,12 +350,12 @@ class ColorResolutionService:
                 db.rollback()
             return False
     
-    def invalidate_caches(self, client_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+    def invalidate_caches(self, tenant_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
         """
         Invalidate color caches.
         
         Args:
-            client_id: Client ID to invalidate (optional)
+            tenant_id: Tenant ID to invalidate (optional)
             user_id: User ID to invalidate (optional)
             
         Returns:
@@ -364,8 +364,8 @@ class ColorResolutionService:
         try:
             success = True
             
-            if client_id:
-                success &= self.cache_service.invalidate_client_colors(client_id)
+            if tenant_id:
+                success &= self.cache_service.invalidate_client_colors(tenant_id)
             
             if user_id:
                 success &= self.cache_service.invalidate_user_colors(user_id)

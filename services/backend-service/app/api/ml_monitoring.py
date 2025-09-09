@@ -30,7 +30,7 @@ def require_admin_user(user: UserData = Depends(require_authentication)) -> User
 
 @router.get("/learning-memory")
 async def get_learning_memory(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     error_type: Optional[str] = Query(None, description="Filter by error type"),
     limit: int = Query(50, le=100, description="Maximum number of records to return"),
     offset: int = Query(0, ge=0, description="Number of records to skip for pagination"),
@@ -40,14 +40,14 @@ async def get_learning_memory(
     """Get AI learning memory for analysis (admin only)"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         query = db.query(AILearningMemory).filter(
-            AILearningMemory.client_id == client_id,
+            AILearningMemory.tenant_id == tenant_id,
             AILearningMemory.active == True
         )
         
@@ -73,7 +73,7 @@ async def get_learning_memory(
             "limit": limit,
             "filters": {
                 "error_type": error_type,
-                "client_id": client_id
+                "tenant_id": tenant_id
             }
         }
         
@@ -86,7 +86,7 @@ async def get_learning_memory(
 
 @router.get("/predictions")
 async def get_predictions(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     model_name: Optional[str] = Query(None, description="Filter by model name"),
     prediction_type: Optional[str] = Query(None, description="Filter by prediction type"),
     limit: int = Query(50, le=100, description="Maximum number of records to return"),
@@ -97,14 +97,14 @@ async def get_predictions(
     """Get AI predictions for monitoring (admin only)"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         query = db.query(AIPrediction).filter(
-            AIPrediction.client_id == client_id,
+            AIPrediction.tenant_id == tenant_id,
             AIPrediction.active == True
         )
         
@@ -134,7 +134,7 @@ async def get_predictions(
             "filters": {
                 "model_name": model_name,
                 "prediction_type": prediction_type,
-                "client_id": client_id
+                "tenant_id": tenant_id
             }
         }
         
@@ -147,7 +147,7 @@ async def get_predictions(
 
 @router.get("/anomaly-alerts")
 async def get_anomaly_alerts(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     acknowledged: Optional[bool] = Query(None, description="Filter by acknowledgment status"),
     severity: Optional[str] = Query(None, description="Filter by severity level"),
     limit: int = Query(50, le=100, description="Maximum number of alerts to return"),
@@ -158,14 +158,14 @@ async def get_anomaly_alerts(
     """Get ML anomaly alerts for monitoring (admin only)"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         query = db.query(MLAnomalyAlert).filter(
-            MLAnomalyAlert.client_id == client_id,
+            MLAnomalyAlert.tenant_id == tenant_id,
             MLAnomalyAlert.active == True
         )
         
@@ -195,7 +195,7 @@ async def get_anomaly_alerts(
             "filters": {
                 "acknowledged": acknowledged,
                 "severity": severity,
-                "client_id": client_id
+                "tenant_id": tenant_id
             }
         }
         
@@ -208,7 +208,7 @@ async def get_anomaly_alerts(
 
 @router.get("/stats")
 async def get_ml_stats(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     days: int = Query(30, ge=1, le=365, description="Number of days to include in stats"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_admin_user)
@@ -216,10 +216,10 @@ async def get_ml_stats(
     """Get ML monitoring statistics (admin only)"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Calculate date range
@@ -228,27 +228,27 @@ async def get_ml_stats(
         
         # Get learning memory stats
         learning_memory_count = db.query(func.count(AILearningMemory.id)).filter(
-            AILearningMemory.client_id == client_id,
+            AILearningMemory.tenant_id == tenant_id,
             AILearningMemory.active == True,
             AILearningMemory.created_at >= start_date
         ).scalar()
         
         # Get prediction stats
         prediction_count = db.query(func.count(AIPrediction.id)).filter(
-            AIPrediction.client_id == client_id,
+            AIPrediction.tenant_id == tenant_id,
             AIPrediction.active == True,
             AIPrediction.created_at >= start_date
         ).scalar()
         
         # Get anomaly alert stats
         alert_count = db.query(func.count(MLAnomalyAlert.id)).filter(
-            MLAnomalyAlert.client_id == client_id,
+            MLAnomalyAlert.tenant_id == tenant_id,
             MLAnomalyAlert.active == True,
             MLAnomalyAlert.created_at >= start_date
         ).scalar()
         
         unacknowledged_alerts = db.query(func.count(MLAnomalyAlert.id)).filter(
-            MLAnomalyAlert.client_id == client_id,
+            MLAnomalyAlert.tenant_id == tenant_id,
             MLAnomalyAlert.active == True,
             MLAnomalyAlert.acknowledged == False,
             MLAnomalyAlert.created_at >= start_date
@@ -259,7 +259,7 @@ async def get_ml_stats(
             AIPrediction.model_name,
             func.count(AIPrediction.id).label('prediction_count')
         ).filter(
-            AIPrediction.client_id == client_id,
+            AIPrediction.tenant_id == tenant_id,
             AIPrediction.active == True,
             AIPrediction.created_at >= start_date
         ).group_by(AIPrediction.model_name).all()
@@ -280,7 +280,7 @@ async def get_ml_stats(
                 {"model_name": stat.model_name, "prediction_count": stat.prediction_count}
                 for stat in model_stats
             ],
-            "client_id": client_id
+            "tenant_id": tenant_id
         }
         
     except HTTPException:
@@ -292,17 +292,17 @@ async def get_ml_stats(
 
 @router.get("/health")
 async def get_ml_monitoring_health(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_admin_user)
 ):
     """Get ML monitoring system health (admin only)"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Test table accessibility
@@ -316,7 +316,7 @@ async def get_ml_monitoring_health(
         for table_name, model_class in tables:
             try:
                 count = db.query(func.count(model_class.id)).filter(
-                    model_class.client_id == client_id,
+                    model_class.tenant_id == tenant_id,
                     model_class.active == True
                 ).scalar()
                 table_status[table_name] = {
@@ -335,7 +335,7 @@ async def get_ml_monitoring_health(
         return {
             "status": "healthy" if all_accessible else "degraded",
             "tables": table_status,
-            "client_id": client_id,
+            "tenant_id": tenant_id,
             "timestamp": datetime.utcnow()
         }
         

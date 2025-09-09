@@ -14,8 +14,8 @@ from datetime import datetime, timedelta
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    Integration, Project, Issue, IssueChangelog, Repository,
-    PullRequest, JobSchedule, SystemSettings
+    Integration, Project, WorkItem, Changelog, Repository,
+    Pr, JobSchedule, SystemSettings
 )
 from app.auth.centralized_auth_middleware import UserData, require_admin_authentication
 from app.core.logging_config import get_logger
@@ -62,6 +62,7 @@ class JobCardResponse(BaseModel):
     job_name: str
     execution_order: int
     integration_type: Optional[str] = None
+    integration_logo_filename: Optional[str] = None
     active: bool
     last_sync: Optional[str] = None
     status: str  # 'pending', 'running', 'connected', 'error', 'inactive'
@@ -82,27 +83,27 @@ async def get_home_stats(
             total_records = 0
             
             # Count issues (main data)
-            issues_count = session.query(func.count(Issue.id)).filter(
-                Issue.client_id == user.client_id
+            issues_count = session.query(func.count(WorkItem.id)).filter(
+                WorkItem.tenant_id == user.tenant_id
             ).scalar() or 0
             total_records += issues_count
             
             # Count pull requests
-            pr_count = session.query(func.count(PullRequest.id)).filter(
-                PullRequest.client_id == user.client_id
+            pr_count = session.query(func.count(Pr.id)).filter(
+                Pr.tenant_id == user.tenant_id
             ).scalar() or 0
             total_records += pr_count
             
             # Count projects
             projects_count = session.query(func.count(Project.id)).filter(
-                Project.client_id == user.client_id
+                Project.tenant_id == user.tenant_id
             ).scalar() or 0
             total_records += projects_count
             
             # Get active integrations count
             integrations_count = session.query(func.count(Integration.id)).filter(
                 and_(
-                    Integration.client_id == user.client_id,
+                    Integration.tenant_id == user.tenant_id,
                     Integration.active == True
                 )
             ).scalar() or 0
@@ -111,14 +112,14 @@ async def get_home_stats(
             last_sync = None
             try:
                 # Check last issue update
-                last_issue = session.query(Issue.updated).filter(
-                    Issue.client_id == user.client_id
-                ).order_by(desc(Issue.updated)).first()
+                last_issue = session.query(WorkItem.updated).filter(
+                    WorkItem.tenant_id == user.tenant_id
+                ).order_by(desc(WorkItem.updated)).first()
 
                 # Check last PR update
-                last_pr = session.query(PullRequest.updated_at).filter(
-                    PullRequest.client_id == user.client_id
-                ).order_by(desc(PullRequest.updated_at)).first()
+                last_pr = session.query(Pr.updated_at).filter(
+                    Pr.tenant_id == user.tenant_id
+                ).order_by(desc(Pr.updated_at)).first()
 
                 # Get the most recent
                 if last_issue and last_pr:
@@ -134,7 +135,7 @@ async def get_home_stats(
             # Get active jobs count
             active_jobs = 0
             try:
-                job_status = get_job_status(client_id=user.client_id)
+                job_status = get_job_status(tenant_id=user.tenant_id)
                 active_jobs = sum(1 for job_data in job_status.values() 
                                 if job_data.get('status') == 'RUNNING')
             except Exception as e:
@@ -164,7 +165,7 @@ async def get_current_jobs(
         jobs = []
         
         # Get job status from orchestrator
-        job_status = get_job_status(client_id=user.client_id)
+        job_status = get_job_status(tenant_id=user.tenant_id)
         
         for job_name, job_data in job_status.items():
             status_value = job_data.get('status', 'UNKNOWN')
@@ -202,12 +203,12 @@ async def get_recent_activity(
             # Get recent issues (last 24 hours)
             yesterday = datetime.now() - timedelta(days=1)
             
-            recent_issues = session.query(Issue).filter(
+            recent_issues = session.query(WorkItem).filter(
                 and_(
-                    Issue.client_id == user.client_id,
-                    Issue.created_at >= yesterday
+                    WorkItem.tenant_id == user.tenant_id,
+                    WorkItem.created_at >= yesterday
                 )
-            ).order_by(desc(Issue.created_at)).limit(5).all()
+            ).order_by(desc(WorkItem.created_at)).limit(5).all()
             
             for issue in recent_issues:
                 activities.append(RecentActivityResponse(
@@ -218,12 +219,12 @@ async def get_recent_activity(
                 ))
             
             # Get recent pull requests
-            recent_prs = session.query(PullRequest).filter(
+            recent_prs = session.query(Pr).filter(
                 and_(
-                    PullRequest.client_id == user.client_id,
-                    PullRequest.created_at >= yesterday
+                    Pr.tenant_id == user.tenant_id,
+                    Pr.created_at >= yesterday
                 )
-            ).order_by(desc(PullRequest.created_at)).limit(5).all()
+            ).order_by(desc(Pr.created_at)).limit(5).all()
             
             for pr in recent_prs:
                 activities.append(RecentActivityResponse(
@@ -260,13 +261,14 @@ async def get_job_cards(
         with database.get_write_session_context() as session:
             # Get all job schedules for this client (including inactive), ordered by execution_order
             job_schedules = session.query(JobSchedule).filter(
-                JobSchedule.client_id == user.client_id
+                JobSchedule.tenant_id == user.tenant_id
             ).order_by(JobSchedule.execution_order.asc()).all()
 
             for job in job_schedules:
                 try:
                     # Get integration info if job has one
                     integration_type = None
+                    integration_logo_filename = None
                     integration_active = True
 
                     if job.integration_id:
@@ -275,6 +277,7 @@ async def get_job_cards(
                         ).first()
                         if integration:
                             integration_type = integration.provider
+                            integration_logo_filename = integration.logo_filename
                             integration_active = integration.active
 
                     # Always use actual database status values
@@ -292,6 +295,7 @@ async def get_job_cards(
                         job_name=job.job_name,
                         execution_order=job.execution_order,
                         integration_type=integration_type,
+                        integration_logo_filename=integration_logo_filename,
                         active=job.active,  # Use job.active from job_schedules table, not integration.active
                         last_sync=last_sync,
                         status=status_value,
@@ -308,6 +312,7 @@ async def get_job_cards(
                         job_name=job.job_name,
                         execution_order=job.execution_order or 999,
                         integration_type="Unknown",
+                        integration_logo_filename=None,
                         active=False,
                         last_sync=None,
                         status="error"
@@ -315,7 +320,7 @@ async def get_job_cards(
 
         # Return job cards (debug logging only if needed)
         if len(job_cards) == 0:
-            logger.warning(f"No job cards found for client {user.client_id}")
+            logger.warning(f"No job cards found for client {user.tenant_id}")
         return job_cards
 
     except Exception as e:
@@ -341,7 +346,7 @@ async def get_integrations(
         with database.get_session() as session:
             # Get all integrations for this client
             db_integrations = session.query(Integration).filter(
-                Integration.client_id == user.client_id
+                Integration.tenant_id == user.tenant_id
             ).all()
 
             for integration in db_integrations:
@@ -393,13 +398,13 @@ async def toggle_job_active_status(
             # Get the job with client isolation
             job = session.query(JobSchedule).filter(
                 JobSchedule.id == job_id,
-                JobSchedule.client_id == user.client_id  # Ensure client isolation
+                JobSchedule.tenant_id == user.tenant_id  # Ensure client isolation
             ).first()
 
             if not job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Job {job_id} not found for client {user.client_id}"
+                    detail=f"Job {job_id} not found for client {user.tenant_id}"
                 )
 
             # Toggle the active status

@@ -39,7 +39,7 @@ class ValidationFeedback(BaseModel):
     suggested_fix: str
     confidence: float
     learning_context: Dict[str, Any]
-    client_id: int
+    tenant_id: int
 
 class StrategicAgentState(BaseModel):
     """State object for AI agent workflow"""
@@ -277,7 +277,7 @@ async def validate_sql_semantics_service(
         # Multi-tenancy checks
         if "client" not in sql_query.lower() and len(sql_query) > 50:
             warnings.append("Query may be missing client isolation")
-            suggestions.append("Consider adding client_id filter for data isolation")
+            suggestions.append("Consider adding tenant_id filter for data isolation")
             confidence -= 0.2
         
         return ValidationResult(
@@ -313,7 +313,7 @@ class DORAMetricsResult(BaseModel):
     metric_value: float
     metric_unit: str
     time_period: str
-    client_id: int
+    tenant_id: int
     calculation_date: str
 
 class ReworkAnalysisResult(BaseModel):
@@ -501,7 +501,7 @@ class SelfHealingMemory:
                 'failed_query': feedback.failed_query,
                 'specific_issue': feedback.specific_issue,
                 'corrected_query': feedback.suggested_fix,
-                'client_id': feedback.client_id,
+                'tenant_id': feedback.tenant_id,
                 'validation_type': feedback.error_type.value,
                 'confidence_score': feedback.confidence,
                 'learning_context': feedback.learning_context,
@@ -537,11 +537,11 @@ class SelfHealingMemory:
                     'error_type': feedback.error_type.value,
                     'common_intent_keywords': self._extract_keywords(feedback.user_intent),
                     'query_complexity': len(feedback.failed_query.split()),
-                    'client_context': feedback.client_id
+                    'client_context': feedback.tenant_id
                 },
                 'suggested_fix': feedback.suggested_fix,
                 'confidence_score': feedback.confidence,
-                'client_id': feedback.client_id
+                'tenant_id': feedback.tenant_id
             }
 
             self.logger.info(f"Updated pattern record for hash: {pattern_hash[:16]}...")
@@ -572,7 +572,7 @@ class SelfHealingMemory:
         error_type: ErrorType,
         user_intent: str,
         failed_query: str,
-        client_id: int
+        tenant_id: int
     ) -> List[str]:
         """
         Get healing suggestions based on historical patterns
@@ -581,7 +581,7 @@ class SelfHealingMemory:
             error_type: Type of validation error
             user_intent: User's original intent
             failed_query: The query that failed validation
-            client_id: Client context
+            tenant_id: Tenant context
 
         Returns:
             List of suggested fixes based on learned patterns
@@ -622,7 +622,7 @@ class SelfHealingMemory:
                 ])
 
             # Add client-specific suggestions
-            suggestions.append("Consider adding client_id filter for data isolation")
+            suggestions.append("Consider adding tenant_id filter for data isolation")
 
             self.logger.info(f"Generated {len(suggestions)} healing suggestions")
             return suggestions[:3]  # Return top 3 suggestions
@@ -635,7 +635,7 @@ class SelfHealingMemory:
         self,
         pattern_hash: str,
         successful_query: str,
-        client_id: int
+        tenant_id: int
     ) -> bool:
         """
         Record a successful healing to improve future suggestions
@@ -643,7 +643,7 @@ class SelfHealingMemory:
         Args:
             pattern_hash: Hash of the error pattern that was fixed
             successful_query: The query that worked after healing
-            client_id: Client context
+            tenant_id: Tenant context
 
         Returns:
             bool: Success status of recording
@@ -658,7 +658,7 @@ class SelfHealingMemory:
                 'pattern_hash': pattern_hash,
                 'successful_query': successful_query,
                 'healed_at': datetime.now(),
-                'client_id': client_id
+                'tenant_id': tenant_id
             }
 
             self.logger.info(f"Recorded successful healing for pattern: {pattern_hash[:16]}...")

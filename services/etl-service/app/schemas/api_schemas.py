@@ -104,7 +104,8 @@ class IntegrationInfo(BaseModel):
     base_url: str  # Updated to match new integration model
     username: Optional[str] = None
     model: Optional[str] = None  # AI model name
-    last_sync_at: Optional[datetime] = None  # Populated from job_schedules.last_success_at (not from integration table)
+    logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
+    last_sync_at: Optional[datetime] = None  # Populated from etl_jobs.last_success_at (not from integration table)
 
     class Config:
         json_encoders = {
@@ -121,13 +122,13 @@ class ProjectInfo(BaseModel):
     tool_internal_id: Optional[int] = None
 
 
-class IssueInfo(BaseModel):
-    """Information about an issue."""
+class WorkItemInfo(BaseModel):
+    """Information about a work item."""
     id: int
     key: str
     summary: str
     project_id: Optional[int] = None
-    issuetype_id: Optional[int] = None
+    wit_id: Optional[int] = None
     status_id: Optional[int] = None
     assignee: Optional[str] = None
     created: Optional[datetime] = None
@@ -142,7 +143,7 @@ class IssueInfo(BaseModel):
 class CommitInfo(BaseModel):
     """Information about a commit."""
     sha: str
-    issue_id: int
+    work_item_id: int
     repository_url: Optional[str] = None
     author_name: Optional[str] = None
     message: Optional[str] = None
@@ -154,7 +155,7 @@ class CommitInfo(BaseModel):
         }
 
 
-class PullRequestInfo(BaseModel):
+class PrInfo(BaseModel):
     """Information about a pull request."""
     id: int
     issue_id: int
@@ -217,9 +218,9 @@ class PaginationParams(BaseModel):
     page_size: int = Field(default=50, ge=1, le=1000, description="Page size")
 
 
-class IssuesListResponse(BaseModel):
+class WorkItemsListResponse(BaseModel):
     """Response for issues listing."""
-    issues: List[IssueInfo]
+    issues: List[WorkItemInfo]
     total_count: int
     page: int
     page_size: int
@@ -233,9 +234,9 @@ class CommitsListResponse(BaseModel):
     page_size: int
 
 
-class PullRequestsListResponse(BaseModel):
+class PrsListResponse(BaseModel):
     """Response for pull requests listing."""
-    pull_requests: List[PullRequestInfo]
+    pull_requests: List[PrInfo]
     total_count: int
     page: int
     page_size: int

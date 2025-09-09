@@ -134,7 +134,7 @@ export default function UserPreferencesPage() {
         use_accessible_colors: data.use_accessible_colors || false
       })
 
-      clientLogger.info('Profile data loaded successfully')
+
     } catch (error) {
       clientLogger.error('Failed to load profile data:', { error: error instanceof Error ? error.message : String(error) })
       setProfileMessage({ type: 'error', text: 'Failed to load profile data' })
@@ -211,7 +211,7 @@ export default function UserPreferencesPage() {
     setPasswordLoading(true)
     setPasswordMessage(null)
 
-    // Client-side validation
+    // Tenant-side validation
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       setPasswordMessage({ type: 'error', text: 'New password and confirmation do not match' })
       setPasswordLoading(false)

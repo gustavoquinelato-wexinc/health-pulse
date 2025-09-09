@@ -6,8 +6,8 @@
 // API types
 export type {
   // Core model types
-  Issue,
-  PullRequest,
+  WorkItem,
+  Pr,
   User,
   Project,
   
@@ -17,8 +17,8 @@ export type {
   MLAnomalyAlert,
   
   // API response types
-  IssuesResponse,
-  PullRequestsResponse,
+  WorkItemsResponse,
+  PrsResponse,
   ProjectsResponse,
   UsersResponse,
   

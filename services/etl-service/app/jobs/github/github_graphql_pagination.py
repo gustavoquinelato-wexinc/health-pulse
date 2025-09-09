@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.jobs.github.github_graphql_client import GitHubGraphQLClient
 from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
-from app.models.unified_models import PullRequest
+from app.models.unified_models import Pr
 
 logger = get_logger(__name__)
 
@@ -332,9 +332,9 @@ def resume_pr_nested_pagination(session: Session, graphql_client: GitHubGraphQLC
         
         # Find the PR in database
         pr_number = pr_node_id.split('_')[-1] if '_' in pr_node_id else None
-        pull_request = session.query(PullRequest).filter(
-            PullRequest.repository_id == repository.id,
-            PullRequest.external_id == pr_number
+        pull_request = session.query(Pr).filter(
+            Pr.repository_id == repository.id,
+            Pr.external_id == pr_number
         ).first() if pr_number else None
         
         if not pull_request:

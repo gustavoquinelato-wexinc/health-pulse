@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_read_session, get_write_session
 from app.core.logging_config import get_logger
-from app.models.unified_models import Project, Issue, Repository
+from app.models.unified_models import Project, WorkItem, Repository
 from app.auth.auth_middleware import UserData, require_authentication
 
 router = APIRouter(prefix="/api", tags=["Projects"])
@@ -39,7 +39,7 @@ class ProjectUpdateRequest(BaseModel):
 
 @router.get("/projects")
 async def get_projects(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     limit: int = Query(100, le=1000, description="Maximum number of projects to return"),
     offset: int = Query(0, ge=0, description="Number of projects to skip for pagination"),
@@ -51,15 +51,15 @@ async def get_projects(
     """Get projects with optional ML fields"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Build query with filters
         query = db.query(Project).filter(
-            Project.client_id == client_id,
+            Project.tenant_id == tenant_id,
             Project.active == True
         )
         
@@ -116,7 +116,7 @@ async def get_project(
     try:
         project = db.query(Project).filter(
             Project.id == project_id,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
         
@@ -143,7 +143,7 @@ async def get_project_by_key(
     try:
         project = db.query(Project).filter(
             Project.key == project_key,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
         
@@ -172,7 +172,7 @@ async def create_project(
         # Check if project key already exists for this client
         existing_project = db.query(Project).filter(
             Project.key == project_data.key,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
         
@@ -191,7 +191,7 @@ async def create_project(
             description=project_data.description,
             lead=project_data.lead,
             url=project_data.url,
-            client_id=user.client_id,
+            tenant_id=user.tenant_id,
             active=True,
             created_at=DateTimeHelper.now_utc(),
             last_updated_at=DateTimeHelper.now_utc()
@@ -202,7 +202,7 @@ async def create_project(
         db.commit()
         db.refresh(project)
         
-        logger.info(f"Created project {project.key} for client {user.client_id}")
+        logger.info(f"Created project {project.key} for client {user.tenant_id}")
         return project.to_dict()
         
     except HTTPException:
@@ -226,7 +226,7 @@ async def update_project(
         
         project = db.query(Project).filter(
             Project.id == project_id,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
 
@@ -244,7 +244,7 @@ async def update_project(
         db.commit()
         db.refresh(project)
 
-        logger.info(f"Updated project {project.key} for client {user.client_id}")
+        logger.info(f"Updated project {project.key} for client {user.tenant_id}")
         return project.to_dict()
         
     except HTTPException:
@@ -267,7 +267,7 @@ async def delete_project(
         
         project = db.query(Project).filter(
             Project.id == project_id,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
 
@@ -280,7 +280,7 @@ async def delete_project(
 
         db.commit()
 
-        logger.info(f"Deleted project {project.key} for client {user.client_id}")
+        logger.info(f"Deleted project {project.key} for client {user.tenant_id}")
         return {"message": "Project deleted successfully", "project_id": project_id}
         
     except HTTPException:
@@ -305,7 +305,7 @@ async def get_project_issues(
         # Verify project exists and user has access
         project = db.query(Project).filter(
             Project.id == project_id,
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).first()
         
@@ -313,14 +313,14 @@ async def get_project_issues(
             raise HTTPException(status_code=404, detail="Project not found")
         
         # Get issues for this project
-        query = db.query(Issue).filter(
-            Issue.project_id == project_id,
-            Issue.client_id == user.client_id,
-            Issue.active == True
+        query = db.query(WorkItem).filter(
+            WorkItem.project_id == project_id,
+            WorkItem.tenant_id == user.tenant_id,
+            WorkItem.active == True
         )
         
         total_count = query.count()
-        issues = query.order_by(Issue.created_at.desc()).offset(offset).limit(limit).all()
+        issues = query.order_by(WorkItem.created_at.desc()).offset(offset).limit(limit).all()
         
         # Enhanced response with optional ML fields
         result = []
@@ -347,22 +347,22 @@ async def get_project_issues(
 
 @router.get("/projects/stats")
 async def get_projects_stats(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """Get project statistics for the client"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Get basic stats
         total_projects = db.query(func.count(Project.id)).filter(
-            Project.client_id == client_id,
+            Project.tenant_id == tenant_id,
             Project.active == True
         ).scalar()
         
@@ -371,7 +371,7 @@ async def get_projects_stats(
             Project.project_type,
             func.count(Project.id).label('count')
         ).filter(
-            Project.client_id == client_id,
+            Project.tenant_id == tenant_id,
             Project.active == True
         ).group_by(Project.project_type).all()
         
@@ -379,9 +379,9 @@ async def get_projects_stats(
         project_issue_stats = db.query(
             Project.key,
             Project.name,
-            func.count(Issue.id).label('issue_count')
-        ).outerjoin(Issue, (Issue.project_id == Project.id) & (Issue.active == True)).filter(
-            Project.client_id == client_id,
+            func.count(WorkItem.id).label('issue_count')
+        ).outerjoin(WorkItem, (WorkItem.project_id == Project.id) & (WorkItem.active == True)).filter(
+            Project.tenant_id == tenant_id,
             Project.active == True
         ).group_by(Project.id, Project.key, Project.name).all()
         
@@ -392,7 +392,7 @@ async def get_projects_stats(
                 {'key': p.key, 'name': p.name, 'issue_count': p.issue_count} 
                 for p in project_issue_stats
             ],
-            'client_id': client_id
+            'tenant_id': tenant_id
         }
         
     except HTTPException:

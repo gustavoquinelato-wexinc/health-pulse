@@ -133,6 +133,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # Skip authentication for public routes
         if (path in self.PUBLIC_ROUTES or
             path.startswith("/static/") or
+            path.startswith("/assets/") or
             path.startswith("/.well-known/") or
             path.endswith(".ico") or
             path.endswith(".json")):
@@ -445,7 +446,7 @@ app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
 
 
 
-# Include web interface routes
+# Include admin API routes (already has /api/v1/admin prefix)
 app.include_router(
     admin_router,
     tags=["Administration"]
@@ -478,6 +479,11 @@ app.include_router(auth_web_router)
 
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Mount assets directory for integration logos and other assets
+assets_dir = Path(__file__).parent.parent / "assets"
+if assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
 # Root route is handled by web_router - redirects to login page
@@ -708,9 +714,9 @@ async def initialize_scheduler():
             client_name = settings.CLIENT_NAME
 
             # Get client ID from name (case-insensitive lookup)
-            from app.core.config import get_client_id_from_name
-            client_id = get_client_id_from_name(client_name)
-            logger.info("[ETL] Instance configured", client_name=client_name, client_id=client_id)
+            from app.core.config import get_tenant_id_from_name
+            tenant_id = get_tenant_id_from_name(client_name)
+            logger.info("[ETL] Instance configured", client_name=client_name, tenant_id=tenant_id)
 
         except Exception as db_error:
             logger.warning(f"Database not available during scheduler initialization: {db_error}")
@@ -722,8 +728,8 @@ async def initialize_scheduler():
             return
 
         # Get orchestrator settings for this client
-        interval_minutes = get_orchestrator_interval(client_id)
-        enabled = is_orchestrator_enabled(client_id)
+        interval_minutes = get_orchestrator_interval(tenant_id)
+        enabled = is_orchestrator_enabled(tenant_id)
 
         if enabled:
             # Simple single-client orchestrator (back to original simplicity!)
@@ -777,13 +783,13 @@ async def simple_orchestrator():
         client_name = settings.CLIENT_NAME
 
         # Get client ID from name
-        from app.core.config import get_current_client_id
-        client_id = get_current_client_id()
+        from app.core.config import get_current_tenant_id
+        tenant_id = get_current_tenant_id()
 
-        logger.info("[ORCH] Starting orchestrator", client_name=client_name, client_id=client_id)
+        logger.info("[ORCH] Starting orchestrator", client_name=client_name, tenant_id=tenant_id)
 
         from app.jobs.orchestrator import run_orchestrator_for_client
-        await run_orchestrator_for_client(client_id)
+        await run_orchestrator_for_client(tenant_id)
 
         logger.info("[ORCH] Completed orchestrator run", client_name=client_name)
 
@@ -823,14 +829,14 @@ async def update_orchestrator_schedule(interval_minutes: int, enabled: bool = Tr
         client_name = settings.CLIENT_NAME
 
         # Get client ID from name
-        from app.core.config import get_current_client_id
-        client_id = get_current_client_id()
+        from app.core.config import get_current_tenant_id
+        tenant_id = get_current_tenant_id()
 
         from app.core.settings_manager import set_orchestrator_interval, set_orchestrator_enabled
 
         # Update database settings for this client
-        set_orchestrator_interval(interval_minutes, client_id)
-        set_orchestrator_enabled(enabled, client_id)
+        set_orchestrator_interval(interval_minutes, tenant_id)
+        set_orchestrator_enabled(enabled, tenant_id)
 
         logger.info(f"Updating orchestrator for {client_name}: interval={interval_minutes}min, enabled={enabled}")
 

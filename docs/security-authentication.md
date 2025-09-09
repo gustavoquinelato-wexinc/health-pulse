@@ -2,7 +2,7 @@
 
 **Comprehensive Security Architecture & Authentication System**
 
-This document covers all security aspects of the Pulse Platform, including authentication mechanisms, role-based access control (RBAC), client isolation, and security best practices.
+This document covers all security aspects of the Pulse Platform, including authentication mechanisms, role-based access control (RBAC), tenant isolation, and security best practices.
 
 > **📋 Consolidated Documentation**: This guide now includes content from the former root-level security documents (CENTRALIZED_AUTH_GUIDE.md, CROSS_DOMAIN_AUTH_SOLUTION.md, SECURITY_NOTICE.md) for centralized security documentation.
 
@@ -42,7 +42,7 @@ Pulse Platform uses JSON Web Tokens (JWT) for secure, stateless authentication:
 # JWT Token Structure
 {
   "user_id": 123,
-  "client_id": 1,
+  "tenant_id": 1,
   "email": "user@company.com",
   "role": "admin",
   "exp": 1640995200,  # Expiration timestamp
@@ -62,7 +62,7 @@ Pulse Platform uses JSON Web Tokens (JWT) for secure, stateless authentication:
 ```
 1. User submits credentials → Frontend
 2. Frontend → Backend Service (POST /api/v1/auth/login)
-3. Auth Service validates credentials and generates JWT with user + client context
+3. Auth Service validates credentials and generates JWT with user + tenant context
 4. Auth Service → Frontend (JWT token + user profile) via Backend proxy if needed
 5. Frontend stores token securely
 6. Subsequent requests include JWT in Authorization header and are validated by Auth Service
@@ -71,10 +71,10 @@ Pulse Platform uses JSON Web Tokens (JWT) for secure, stateless authentication:
 #### Session Management
 ```sql
 -- Database-backed session tracking
-CREATE TABLE user_sessions (
+CREATE TABLE users_sessions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     token_hash VARCHAR(255) NOT NULL,
     active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -95,9 +95,9 @@ CREATE TABLE user_sessions (
 
 #### Admin Role
 - **Full Platform Access**: All features and administrative functions
-- **User Management**: Create, modify, delete users within their client
+- **User Management**: Create, modify, delete users within their tenant
 - **ETL Management**: Access to job orchestration and configuration
-- **System Settings**: Modify client-specific configurations
+- **System Settings**: Modify tenant-specific configurations
 - **Analytics**: Full access to all metrics and reports
 
 #### User Role
@@ -121,7 +121,7 @@ CREATE TABLE user_sessions (
 | User Management | ✅ | ❌ | ❌ |
 | ETL Job Control | ✅ | ❌ | ❌ |
 | System Settings | ✅ | Personal Only | ❌ |
-| Client Configuration | ✅ | ❌ | ❌ |
+| Tenant Configuration | ✅ | ❌ | ❌ |
 | Integration Setup | ✅ | ❌ | ❌ |
 | Advanced Analytics | ✅ | ✅ | ❌ |
 
@@ -147,29 +147,29 @@ async def view_dashboard(request: Request):
 
 ## 🏢 Multi-Tenant Security
 
-### Client Isolation Strategy
+### Tenant Isolation Strategy
 
 #### Complete Data Separation
 ```python
-# Every database query includes client_id filter
-async def get_user_data(user_id: int, client_id: int):
+# Every database query includes tenant_id filter
+async def get_user_data(user_id: int, tenant_id: int):
     query = """
-    SELECT * FROM users 
-    WHERE id = ? AND client_id = ? AND active = true
+    SELECT * FROM users
+    WHERE id = ? AND tenant_id = ? AND active = true
     """
-    return await database.fetch_one(query, user_id, client_id)
+    return await database.fetch_one(query, user_id, tenant_id)
 ```
 
-#### Client-Scoped Authentication
-- **JWT Tokens**: Always include client_id in payload
-- **API Validation**: Every endpoint validates client ownership
-- **Session Isolation**: Sessions are client-specific
-- **Cross-Client Prevention**: Impossible to access other client's data
+#### Tenant-Scoped Authentication
+- **JWT Tokens**: Always include tenant_id in payload
+- **API Validation**: Every endpoint validates tenant ownership
+- **Session Isolation**: Sessions are tenant-specific
+- **Cross-Tenant Prevention**: Impossible to access other tenant's data
 
 #### Security Boundaries
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Client A (WEX)                           │
+│                        Tenant A (WEX)                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │   Users     │  │   Sessions  │  │      Data & Jobs        │  │
 │  │ • Admin A   │  │ • Token A1  │  │ • Jira Projects A       │  │
@@ -179,7 +179,7 @@ async def get_user_data(user_id: int, client_id: int):
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Client B (TechCorp)                       │
+│                      Tenant B (TechCorp)                       │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
 │  │   Users     │  │   Sessions  │  │      Data & Jobs        │  │
 │  │ • Admin B   │  │ • Token B1  │  │ • Jira Projects B       │  │
@@ -188,21 +188,21 @@ async def get_user_data(user_id: int, client_id: int):
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Client-Specific Configuration
+### Tenant-Specific Configuration
 
 #### Secure Settings Storage
 ```sql
--- Client-specific system settings
+-- Tenant-specific system settings
 CREATE TABLE system_settings (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     setting_key VARCHAR(255) NOT NULL,
     setting_value TEXT,
     setting_type VARCHAR(50) DEFAULT 'string',
     encrypted BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(client_id, setting_key)
+    UNIQUE(tenant_id, setting_key)
 );
 ```
 
@@ -210,7 +210,7 @@ CREATE TABLE system_settings (
 - **API Credentials**: Encrypted at rest using AES-256
 - **Database Passwords**: Secure key management
 - **JWT Secrets**: Environment-based secret storage
-- **Integration Tokens**: Client-specific encryption keys
+- **Integration Tokens**: Tenant-specific encryption keys
 
 ## 🛡️ API Security
 
@@ -231,15 +231,15 @@ async def authenticate_request(request: Request):
     
     # Attach user context to request
     request.state.user = user_data
-    request.state.client_id = user_data["client_id"]
+    request.state.tenant_id = user_data["tenant_id"]
 ```
 
-#### Client Ownership Validation
+#### Tenant Ownership Validation
 ```python
-async def validate_client_ownership(request: Request, resource_client_id: int):
-    user_client_id = request.state.client_id
-    if user_client_id != resource_client_id:
-        raise HTTPException(403, "Access denied: client mismatch")
+async def validate_tenant_ownership(request: Request, resource_tenant_id: int):
+    user_tenant_id = request.state.tenant_id
+    if user_tenant_id != resource_tenant_id:
+        raise HTTPException(403, "Access denied: tenant mismatch")
 ```
 
 ### Input Validation & Sanitization
@@ -252,10 +252,10 @@ async def validate_client_ownership(request: Request, resource_client_id: int):
 
 #### Rate Limiting
 ```python
-# API rate limiting per client
-@rate_limit("100/minute", per="client_id")
+# API rate limiting per tenant
+@rate_limit("100/minute", per="tenant_id")
 async def api_endpoint(request: Request):
-    client_id = request.state.client_id
+    tenant_id = request.state.tenant_id
     # Process request with rate limiting
 ```
 
@@ -286,9 +286,9 @@ allow_headers=["Authorization", "Content-Type"]
 /api/v1/user/password            # Password changes
 
 # Admin-only endpoints (require admin role)
-/api/v1/admin/color-scheme       # Client-wide color schema
+/api/v1/admin/color-scheme       # Tenant-wide color schema
 /api/v1/admin/user-management    # User CRUD operations
-/api/v1/admin/client-management  # Client configuration
+/api/v1/admin/tenant-management  # Tenant configuration
 ```
 
 #### Permission Validation
@@ -311,7 +311,7 @@ async def get_users(user: User = Depends(require_permission(Resource.USERS, Acti
 #### Data at Rest
 - **Database Encryption**: PostgreSQL TDE (Transparent Data Encryption)
 - **Sensitive Fields**: AES-256 encryption for API tokens and passwords
-- **File Storage**: Encrypted client logos and documents
+- **File Storage**: Encrypted tenant logos and documents
 - **Backup Encryption**: Encrypted database backups
 
 #### Data in Transit
@@ -333,7 +333,7 @@ async def get_users(user: User = Depends(require_permission(Resource.USERS, Acti
 -- Comprehensive audit trail
 CREATE TABLE audit_logs (
     id SERIAL PRIMARY KEY,
-    client_id INTEGER NOT NULL REFERENCES clients(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
     user_id INTEGER REFERENCES users(id),
     action VARCHAR(255) NOT NULL,
     resource_type VARCHAR(100),
@@ -396,11 +396,11 @@ security_headers = {
 #### Security Alerts
 ```python
 # Security event monitoring
-async def log_security_event(event_type: str, user_id: int, client_id: int, details: dict):
+async def log_security_event(event_type: str, user_id: int, tenant_id: int, details: dict):
     await audit_logger.log({
         "event_type": event_type,
         "user_id": user_id,
-        "client_id": client_id,
+        "tenant_id": tenant_id,
         "details": details,
         "timestamp": datetime.utcnow(),
         "severity": get_event_severity(event_type)

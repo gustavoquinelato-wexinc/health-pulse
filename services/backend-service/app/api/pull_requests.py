@@ -12,7 +12,7 @@ from datetime import datetime
 
 from app.core.database import get_read_session, get_write_session
 from app.core.logging_config import get_logger
-from app.models.unified_models import PullRequest, Repository, PullRequestComment, PullRequestReview
+from app.models.unified_models import Pr, Repository, PrComment, PrReview
 from app.auth.auth_middleware import UserData, require_authentication
 
 router = APIRouter(prefix="/api", tags=["Pull Requests"])
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 # Request/Response Models
-class PullRequestCreateRequest(BaseModel):
+class PrCreateRequest(BaseModel):
     external_id: str
     external_repo_id: str
     repository_id: Optional[int] = None
@@ -42,7 +42,7 @@ class PullRequestCreateRequest(BaseModel):
     changed_files: Optional[int] = 0
 
 
-class PullRequestUpdateRequest(BaseModel):
+class PrUpdateRequest(BaseModel):
     name: Optional[str] = None
     user_name: Optional[str] = None
     body: Optional[str] = None
@@ -61,7 +61,7 @@ class PullRequestUpdateRequest(BaseModel):
 
 @router.get("/pull-requests")
 async def get_pull_requests(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     include_ml_fields: bool = Query(False, description="Include ML fields in response"),
     limit: int = Query(100, le=1000, description="Maximum number of PRs to return"),
     offset: int = Query(0, ge=0, description="Number of PRs to skip for pagination"),
@@ -74,16 +74,16 @@ async def get_pull_requests(
     """Get pull requests with optional ML fields"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Build query with filters
-        query = db.query(PullRequest).filter(
-            PullRequest.client_id == client_id,
-            PullRequest.active == True
+        query = db.query(Pr).filter(
+            Pr.tenant_id == tenant_id,
+            Pr.active == True
         )
         
         # Apply optional filters
@@ -91,16 +91,16 @@ async def get_pull_requests(
             query = query.join(Repository).filter(Repository.name.ilike(f"%{repository}%"))
         
         if status:
-            query = query.filter(PullRequest.status == status)
+            query = query.filter(Pr.status == status)
             
         if user_name:
-            query = query.filter(PullRequest.user_name.ilike(f"%{user_name}%"))
+            query = query.filter(Pr.user_name.ilike(f"%{user_name}%"))
         
         # Get total count before pagination
         total_count = query.count()
         
         # Apply pagination and ordering
-        pull_requests = query.order_by(PullRequest.pr_created_at.desc()).offset(offset).limit(limit).all()
+        pull_requests = query.order_by(Pr.pr_created_at.desc()).offset(offset).limit(limit).all()
         
         # Enhanced response with optional ML fields
         result = []
@@ -138,10 +138,10 @@ async def get_pull_request(
 ):
     """Get single pull request with optional ML fields"""
     try:
-        pr = db.query(PullRequest).filter(
-            PullRequest.id == pr_id,
-            PullRequest.client_id == user.client_id,
-            PullRequest.active == True
+        pr = db.query(Pr).filter(
+            Pr.id == pr_id,
+            Pr.tenant_id == user.tenant_id,
+            Pr.active == True
         ).first()
         
         if not pr:
@@ -158,7 +158,7 @@ async def get_pull_request(
 
 @router.post("/pull-requests")
 async def create_pull_request(
-    pr_data: PullRequestCreateRequest,
+    pr_data: PrCreateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
@@ -167,7 +167,7 @@ async def create_pull_request(
         from app.core.utils import DateTimeHelper
         
         # Create pull request normally - embedding defaults to None in model
-        pr = PullRequest(
+        pr = Pr(
             external_id=pr_data.external_id,
             external_repo_id=pr_data.external_repo_id,
             repository_id=pr_data.repository_id,
@@ -187,7 +187,7 @@ async def create_pull_request(
             additions=pr_data.additions,
             deletions=pr_data.deletions,
             changed_files=pr_data.changed_files,
-            client_id=user.client_id,
+            tenant_id=user.tenant_id,
             active=True,
             created_at=DateTimeHelper.now_utc(),
             last_updated_at=DateTimeHelper.now_utc()
@@ -198,7 +198,7 @@ async def create_pull_request(
         db.commit()
         db.refresh(pr)
         
-        logger.info(f"Created pull request #{pr.number} for client {user.client_id}")
+        logger.info(f"Created pull request #{pr.number} for client {user.tenant_id}")
         return pr.to_dict()
         
     except Exception as e:
@@ -210,7 +210,7 @@ async def create_pull_request(
 @router.put("/pull-requests/{pr_id}")
 async def update_pull_request(
     pr_id: int,
-    pr_data: PullRequestUpdateRequest,
+    pr_data: PrUpdateRequest,
     db: Session = Depends(get_write_session),
     user: UserData = Depends(require_authentication)
 ):
@@ -218,10 +218,10 @@ async def update_pull_request(
     try:
         from app.core.utils import DateTimeHelper
         
-        pr = db.query(PullRequest).filter(
-            PullRequest.id == pr_id,
-            PullRequest.client_id == user.client_id,
-            PullRequest.active == True
+        pr = db.query(Pr).filter(
+            Pr.id == pr_id,
+            Pr.tenant_id == user.tenant_id,
+            Pr.active == True
         ).first()
 
         if not pr:
@@ -238,7 +238,7 @@ async def update_pull_request(
         db.commit()
         db.refresh(pr)
 
-        logger.info(f"Updated pull request #{pr.number} for client {user.client_id}")
+        logger.info(f"Updated pull request #{pr.number} for client {user.tenant_id}")
         return pr.to_dict()
         
     except HTTPException:
@@ -259,10 +259,10 @@ async def delete_pull_request(
     try:
         from app.core.utils import DateTimeHelper
         
-        pr = db.query(PullRequest).filter(
-            PullRequest.id == pr_id,
-            PullRequest.client_id == user.client_id,
-            PullRequest.active == True
+        pr = db.query(Pr).filter(
+            Pr.id == pr_id,
+            Pr.tenant_id == user.tenant_id,
+            Pr.active == True
         ).first()
 
         if not pr:
@@ -274,7 +274,7 @@ async def delete_pull_request(
 
         db.commit()
 
-        logger.info(f"Deleted pull request #{pr.number} for client {user.client_id}")
+        logger.info(f"Deleted pull request #{pr.number} for client {user.tenant_id}")
         return {"message": "Pull request deleted successfully", "pr_id": pr_id}
         
     except HTTPException:
@@ -287,43 +287,43 @@ async def delete_pull_request(
 
 @router.get("/pull-requests/stats")
 async def get_pull_requests_stats(
-    client_id: int = Query(..., description="Client ID for data isolation"),
+    tenant_id: int = Query(..., description="Tenant ID for data isolation"),
     db: Session = Depends(get_read_session),
     user: UserData = Depends(require_authentication)
 ):
     """Get pull request statistics for the client"""
     try:
         # Ensure client isolation
-        if user.client_id != client_id:
+        if user.tenant_id != tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: Client ID mismatch"
+                detail="Access denied: Tenant ID mismatch"
             )
         
         # Get basic stats
-        total_prs = db.query(func.count(PullRequest.id)).filter(
-            PullRequest.client_id == client_id,
-            PullRequest.active == True
+        total_prs = db.query(func.count(Pr.id)).filter(
+            Pr.tenant_id == tenant_id,
+            Pr.active == True
         ).scalar()
         
         # Get status breakdown
         status_stats = db.query(
-            PullRequest.status,
-            func.count(PullRequest.id).label('count')
+            Pr.status,
+            func.count(Pr.id).label('count')
         ).filter(
-            PullRequest.client_id == client_id,
-            PullRequest.active == True
-        ).group_by(PullRequest.status).all()
+            Pr.tenant_id == tenant_id,
+            Pr.active == True
+        ).group_by(Pr.status).all()
         
         # Get average metrics
         avg_stats = db.query(
-            func.avg(PullRequest.commit_count).label('avg_commits'),
-            func.avg(PullRequest.additions).label('avg_additions'),
-            func.avg(PullRequest.deletions).label('avg_deletions'),
-            func.avg(PullRequest.changed_files).label('avg_changed_files')
+            func.avg(Pr.commit_count).label('avg_commits'),
+            func.avg(Pr.additions).label('avg_additions'),
+            func.avg(Pr.deletions).label('avg_deletions'),
+            func.avg(Pr.changed_files).label('avg_changed_files')
         ).filter(
-            PullRequest.client_id == client_id,
-            PullRequest.active == True
+            Pr.tenant_id == tenant_id,
+            Pr.active == True
         ).first()
         
         return {
@@ -335,7 +335,7 @@ async def get_pull_requests_stats(
                 'deletions': float(avg_stats.avg_deletions or 0),
                 'changed_files': float(avg_stats.avg_changed_files or 0)
             },
-            'client_id': client_id
+            'tenant_id': tenant_id
         }
         
     except HTTPException:

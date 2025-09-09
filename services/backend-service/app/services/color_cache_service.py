@@ -62,23 +62,23 @@ class ColorCacheService:
     def _get_cache_key(self, key_type: str, *args) -> str:
         """Generate cache key"""
         if key_type == "client_colors":
-            client_id, mode = args
-            return f"{self.client_colors_prefix}{client_id}:{mode}"
+            tenant_id, mode = args
+            return f"{self.client_colors_prefix}{tenant_id}:{mode}"
         elif key_type == "user_colors":
-            user_id, client_id = args
-            return f"{self.user_colors_prefix}{user_id}:{client_id}"
+            user_id, tenant_id = args
+            return f"{self.user_colors_prefix}{user_id}:{tenant_id}"
         elif key_type == "accessibility_colors":
-            client_id, mode, level = args
-            return f"{self.cache_prefix}accessibility:{client_id}:{mode}:{level}"
+            tenant_id, mode, level = args
+            return f"{self.cache_prefix}accessibility:{tenant_id}:{mode}:{level}"
         else:
             return f"{self.cache_prefix}{':'.join(map(str, args))}"
     
-    def get_client_colors(self, client_id: int, mode: str) -> Optional[Dict[str, Any]]:
+    def get_client_colors(self, tenant_id: int, mode: str) -> Optional[Dict[str, Any]]:
         """
         Get cached client color settings.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode ('default' or 'custom')
             
         Returns:
@@ -88,27 +88,27 @@ class ColorCacheService:
             return None
             
         try:
-            cache_key = self._get_cache_key("client_colors", client_id, mode)
+            cache_key = self._get_cache_key("client_colors", tenant_id, mode)
             cached_data = self.redis_client.get(cache_key)
             
             if cached_data:
-                self.logger.debug(f"Cache hit for client colors: {client_id}:{mode}")
+                self.logger.debug(f"Cache hit for client colors: {tenant_id}:{mode}")
                 return json.loads(cached_data)
             else:
-                self.logger.debug(f"Cache miss for client colors: {client_id}:{mode}")
+                self.logger.debug(f"Cache miss for client colors: {tenant_id}:{mode}")
                 return None
                 
         except Exception as e:
             self.logger.error(f"Error getting cached client colors: {e}")
             return None
     
-    def set_client_colors(self, client_id: int, mode: str, color_data: Dict[str, Any], 
+    def set_client_colors(self, tenant_id: int, mode: str, color_data: Dict[str, Any], 
                          ttl: Optional[int] = None) -> bool:
         """
         Cache client color settings.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode
             color_data: Color data to cache
             ttl: Time to live in seconds (optional)
@@ -120,7 +120,7 @@ class ColorCacheService:
             return False
             
         try:
-            cache_key = self._get_cache_key("client_colors", client_id, mode)
+            cache_key = self._get_cache_key("client_colors", tenant_id, mode)
             ttl = ttl or self.default_ttl
             
             self.redis_client.setex(
@@ -129,20 +129,20 @@ class ColorCacheService:
                 json.dumps(color_data, ensure_ascii=False)
             )
             
-            self.logger.debug(f"Cached client colors: {client_id}:{mode} (TTL: {ttl}s)")
+            self.logger.debug(f"Cached client colors: {tenant_id}:{mode} (TTL: {ttl}s)")
             return True
             
         except Exception as e:
             self.logger.error(f"Error caching client colors: {e}")
             return False
     
-    def get_user_colors(self, user_id: int, client_id: int) -> Optional[Dict[str, Any]]:
+    def get_user_colors(self, user_id: int, tenant_id: int) -> Optional[Dict[str, Any]]:
         """
         Get cached user-specific color resolution.
         
         Args:
             user_id: User ID
-            client_id: Client ID
+            tenant_id: Tenant ID
             
         Returns:
             Cached user color data or None if not found
@@ -151,28 +151,28 @@ class ColorCacheService:
             return None
             
         try:
-            cache_key = self._get_cache_key("user_colors", user_id, client_id)
+            cache_key = self._get_cache_key("user_colors", user_id, tenant_id)
             cached_data = self.redis_client.get(cache_key)
             
             if cached_data:
-                self.logger.debug(f"Cache hit for user colors: {user_id}:{client_id}")
+                self.logger.debug(f"Cache hit for user colors: {user_id}:{tenant_id}")
                 return json.loads(cached_data)
             else:
-                self.logger.debug(f"Cache miss for user colors: {user_id}:{client_id}")
+                self.logger.debug(f"Cache miss for user colors: {user_id}:{tenant_id}")
                 return None
                 
         except Exception as e:
             self.logger.error(f"Error getting cached user colors: {e}")
             return None
     
-    def set_user_colors(self, user_id: int, client_id: int, color_data: Dict[str, Any],
+    def set_user_colors(self, user_id: int, tenant_id: int, color_data: Dict[str, Any],
                        ttl: Optional[int] = None) -> bool:
         """
         Cache user-specific color resolution.
         
         Args:
             user_id: User ID
-            client_id: Client ID
+            tenant_id: Tenant ID
             color_data: User color data to cache
             ttl: Time to live in seconds (optional)
             
@@ -183,7 +183,7 @@ class ColorCacheService:
             return False
             
         try:
-            cache_key = self._get_cache_key("user_colors", user_id, client_id)
+            cache_key = self._get_cache_key("user_colors", user_id, tenant_id)
             ttl = ttl or self.short_ttl  # Shorter TTL for user-specific data
             
             self.redis_client.setex(
@@ -192,19 +192,19 @@ class ColorCacheService:
                 json.dumps(color_data, ensure_ascii=False)
             )
             
-            self.logger.debug(f"Cached user colors: {user_id}:{client_id} (TTL: {ttl}s)")
+            self.logger.debug(f"Cached user colors: {user_id}:{tenant_id} (TTL: {ttl}s)")
             return True
             
         except Exception as e:
             self.logger.error(f"Error caching user colors: {e}")
             return False
     
-    def get_accessibility_colors(self, client_id: int, mode: str, level: str) -> Optional[Dict[str, Any]]:
+    def get_accessibility_colors(self, tenant_id: int, mode: str, level: str) -> Optional[Dict[str, Any]]:
         """
         Get cached accessibility color variants.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode
             level: Accessibility level ('AA' or 'AAA')
             
@@ -215,27 +215,27 @@ class ColorCacheService:
             return None
             
         try:
-            cache_key = self._get_cache_key("accessibility_colors", client_id, mode, level)
+            cache_key = self._get_cache_key("accessibility_colors", tenant_id, mode, level)
             cached_data = self.redis_client.get(cache_key)
             
             if cached_data:
-                self.logger.debug(f"Cache hit for accessibility colors: {client_id}:{mode}:{level}")
+                self.logger.debug(f"Cache hit for accessibility colors: {tenant_id}:{mode}:{level}")
                 return json.loads(cached_data)
             else:
-                self.logger.debug(f"Cache miss for accessibility colors: {client_id}:{mode}:{level}")
+                self.logger.debug(f"Cache miss for accessibility colors: {tenant_id}:{mode}:{level}")
                 return None
                 
         except Exception as e:
             self.logger.error(f"Error getting cached accessibility colors: {e}")
             return None
     
-    def set_accessibility_colors(self, client_id: int, mode: str, level: str, 
+    def set_accessibility_colors(self, tenant_id: int, mode: str, level: str, 
                                color_data: Dict[str, Any], ttl: Optional[int] = None) -> bool:
         """
         Cache accessibility color variants.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             mode: Color schema mode
             level: Accessibility level
             color_data: Accessibility color data to cache
@@ -248,7 +248,7 @@ class ColorCacheService:
             return False
             
         try:
-            cache_key = self._get_cache_key("accessibility_colors", client_id, mode, level)
+            cache_key = self._get_cache_key("accessibility_colors", tenant_id, mode, level)
             ttl = ttl or self.default_ttl
             
             self.redis_client.setex(
@@ -257,19 +257,19 @@ class ColorCacheService:
                 json.dumps(color_data, ensure_ascii=False)
             )
             
-            self.logger.debug(f"Cached accessibility colors: {client_id}:{mode}:{level} (TTL: {ttl}s)")
+            self.logger.debug(f"Cached accessibility colors: {tenant_id}:{mode}:{level} (TTL: {ttl}s)")
             return True
             
         except Exception as e:
             self.logger.error(f"Error caching accessibility colors: {e}")
             return False
     
-    def invalidate_client_colors(self, client_id: int) -> bool:
+    def invalidate_client_colors(self, tenant_id: int) -> bool:
         """
         Invalidate all cached colors for a client.
         
         Args:
-            client_id: Client ID
+            tenant_id: Tenant ID
             
         Returns:
             True if invalidated successfully, False otherwise
@@ -280,9 +280,9 @@ class ColorCacheService:
         try:
             # Find all keys for this client
             patterns = [
-                f"{self.client_colors_prefix}{client_id}:*",
-                f"{self.cache_prefix}accessibility:{client_id}:*",
-                f"{self.user_colors_prefix}*:{client_id}"
+                f"{self.client_colors_prefix}{tenant_id}:*",
+                f"{self.cache_prefix}accessibility:{tenant_id}:*",
+                f"{self.user_colors_prefix}*:{tenant_id}"
             ]
             
             deleted_count = 0
@@ -291,7 +291,7 @@ class ColorCacheService:
                 if keys:
                     deleted_count += self.redis_client.delete(*keys)
             
-            self.logger.info(f"Invalidated {deleted_count} cached color entries for client {client_id}")
+            self.logger.info(f"Invalidated {deleted_count} cached color entries for client {tenant_id}")
             return True
             
         except Exception as e:

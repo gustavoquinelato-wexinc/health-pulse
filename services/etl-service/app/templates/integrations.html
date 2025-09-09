@@ -1,0 +1,658 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Pulse ETL Management - Integrations{% endblock %}
+
+{% block content %}
+{% if not embedded %}
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Integrations
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage system integrations and connections</p>
+        </div>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Integration
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Integrations Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">System Integrations</h2>
+        <button onclick="loadIntegrations()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Logo</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Base URL</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Last Sync</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="integrationsTableBody" style="background-color: var(--bg-secondary);">
+                <!-- Integrations will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading integrations...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden">
+        <i class="fas fa-plug text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Integrations Found</h3>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Integration button above to get started.</p>
+    </div>
+</div>
+
+<!-- Create/Edit Integration Modal -->
+<div id="integrationModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Integration</h3>
+            <button onclick="closeModal('integrationModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <form id="integrationForm">
+                <input type="hidden" id="integrationId" name="id">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider</label>
+                        <input type="text" id="provider" name="provider" required placeholder="e.g., jira, github, wex_ai_gateway" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Type</label>
+                        <select id="type" name="type" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Type</option>
+                            <option value="data_source">Data Source</option>
+                            <option value="ai_provider">AI Provider</option>
+                            <option value="data_warehouse">Data Warehouse</option>
+                            <option value="identity_provider">Identity Provider</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base URL</label>
+                        <input type="url" id="baseUrl" name="base_url" placeholder="https://example.com" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Logo File</label>
+                        <div class="space-y-2">
+                            <input type="file" id="logoFile" name="logo_file" accept="image/*" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <input type="hidden" id="logoFilename" name="logo_filename">
+                            <div id="currentLogo" class="text-sm" style="color: var(--text-muted);" style="display: none;">
+                                Current: <span id="currentLogoName"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Username</label>
+                        <input type="text" id="username" name="username" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Password/Token</label>
+                        <input type="password" id="password" name="password" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base Search</label>
+                    <input type="text" id="baseSearch" name="base_search" placeholder="Optional search filter" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model (AI Providers)</label>
+                    <input type="text" id="model" name="model" placeholder="e.g., gpt-4o-mini" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                </div>
+
+                <!-- AI Provider Specific Fields -->
+                <div id="aiProviderFields" style="display: none;">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model Configuration</label>
+                        <textarea id="modelConfig" name="model_config" rows="3" placeholder='{"temperature": 0.3, "max_tokens": 700}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON configuration for AI model parameters (temperature, max_tokens, etc.)</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider Metadata</label>
+                        <textarea id="providerMetadata" name="provider_metadata" rows="3" placeholder='{"region": "us-east-1", "endpoint": "custom"}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON metadata specific to the AI provider (region, endpoint, etc.)</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Cost Configuration</label>
+                        <textarea id="costConfig" name="cost_config" rows="3" placeholder='{"max_monthly_cost": 1000, "cost_per_token": 0.0001}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON configuration for cost tracking and limits</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Fallback Integration</label>
+                        <select id="fallbackIntegration" name="fallback_integration_id" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">No fallback</option>
+                        </select>
+                        <small class="text-muted">Select another AI integration to use as fallback if this one fails</small>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="active" name="active" checked class="mr-2">
+                        <span style="color: var(--text-primary);">Active</span>
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('integrationModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveIntegration()" class="btn-crud-create">Save</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Fix dropdown option text color */
+select option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-primary) !important;
+}
+</style>
+
+<script>
+let integrations = [];
+
+// Function to show fallback icon when image fails to load
+function showFallbackIcon(imgElement) {
+    const iconElement = document.createElement('i');
+    iconElement.className = 'fas fa-plug text-lg';
+    iconElement.style.color = 'var(--text-muted)';
+    imgElement.parentNode.replaceChild(iconElement, imgElement);
+}
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadIntegrations();
+
+    // Add file change event listener for logo file picker
+    const logoFileInput = document.getElementById('logoFile');
+    if (logoFileInput) {
+        logoFileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // Update the hidden filename field with the selected file name
+                document.getElementById('logoFilename').value = file.name;
+
+                // Show file selection feedback
+                const currentLogoDiv = document.getElementById('currentLogo');
+                const currentLogoName = document.getElementById('currentLogoName');
+                currentLogoName.textContent = `Selected: ${file.name}`;
+                currentLogoDiv.style.display = 'block';
+            }
+        });
+    }
+
+    // Add type change event listener to show/hide AI provider fields
+    const typeSelect = document.getElementById('type');
+    if (typeSelect) {
+        typeSelect.addEventListener('change', function() {
+            toggleAIProviderFields();
+        });
+    }
+
+    // Load fallback integrations for AI provider dropdown
+    loadFallbackIntegrations();
+});
+
+function toggleAIProviderFields() {
+    const typeSelect = document.getElementById('type');
+    const aiProviderFields = document.getElementById('aiProviderFields');
+
+    if (typeSelect && aiProviderFields) {
+        if (typeSelect.value === 'ai_provider') {
+            aiProviderFields.style.display = 'block';
+        } else {
+            aiProviderFields.style.display = 'none';
+        }
+    }
+}
+
+async function loadFallbackIntegrations() {
+    try {
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            const integrations = await response.json();
+            const fallbackSelect = document.getElementById('fallbackIntegration');
+
+            // Clear existing options except "No fallback"
+            fallbackSelect.innerHTML = '<option value="">No fallback</option>';
+
+            // Add AI provider integrations as options
+            integrations.filter(i => i.integration_type === 'ai_provider').forEach(integration => {
+                const option = document.createElement('option');
+                option.value = integration.id;
+                option.textContent = integration.name;
+                fallbackSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading fallback integrations:', error);
+    }
+}
+
+async function loadIntegrations() {
+    try {
+        // Show loading state
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('emptyState').style.display = 'none';
+
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            integrations = await response.json();
+
+            renderIntegrationsTable();
+        } else {
+            showError('Failed to load integrations');
+        }
+    } catch (error) {
+        console.error('Error loading integrations:', error);
+        showError('Error loading integrations');
+    } finally {
+        // Hide loading state
+        document.getElementById('loadingState').style.display = 'none';
+    }
+}
+
+function renderIntegrationsTable() {
+    const tbody = document.getElementById('integrationsTableBody');
+    tbody.innerHTML = '';
+
+    if (integrations.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+    }
+
+    integrations.forEach(integration => {
+        const row = document.createElement('tr');
+        row.className = 'border-b hover:bg-gray-50';
+        row.style.borderColor = 'var(--border-color)';
+        
+        // Construct logo path: /static/assets/{tenant_name}/integrations/{logo_filename}
+        const tenantName = '{{ tenant_name|lower }}' || 'wex';  // Get tenant name from template context
+        const hasLogo = integration.logo_filename && integration.logo_filename.trim() !== '';
+        const logoPath = hasLogo ? `/static/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
+
+
+        const logoHtml = hasLogo ?
+            `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="showFallbackIcon(this)">` :
+            `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
+        
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">
+                ${logoHtml}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.name || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.integration_type || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${integration.base_url || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${integration.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                    ${integration.active ? 'Active' : 'Inactive'}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${integration.last_sync_at ? new Date(integration.last_sync_at).toLocaleDateString() : 'Never'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editIntegration(${integration.id})" class="btn-crud-edit-sm" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    ${integration.active ?
+                        `<button onclick="pauseIntegration(${integration.id})" class="btn-status-warning-xs" title="Pause">
+                            <i class="fas fa-pause"></i>
+                        </button>` :
+                        `<button onclick="resumeIntegration(${integration.id})" class="btn-status-success-xs" title="Resume">
+                            <i class="fas fa-play"></i>
+                        </button>`
+                    }
+                    <button onclick="deleteIntegration(${integration.id})" class="btn-crud-delete-sm" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function showCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Create Integration';
+    document.getElementById('integrationForm').reset();
+    document.getElementById('integrationId').value = '';
+    document.getElementById('active').checked = true;
+
+    // Reset logo file picker and hide current logo display
+    document.getElementById('logoFile').value = '';
+    document.getElementById('logoFilename').value = '';
+    document.getElementById('currentLogo').style.display = 'none';
+
+    // Clear AI provider fields
+    document.getElementById('modelConfig').value = '';
+    document.getElementById('providerMetadata').value = '';
+    document.getElementById('costConfig').value = '';
+    document.getElementById('fallbackIntegration').value = '';
+
+    // Hide AI provider fields initially
+    document.getElementById('aiProviderFields').style.display = 'none';
+
+    openModal('integrationModal');
+}
+
+async function editIntegration(id) {
+    try {
+        // Get full integration details from API
+        const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            showError('Failed to load integration details');
+            return;
+        }
+
+        const integration = await response.json();
+
+        document.getElementById('modalTitle').textContent = 'Edit Integration';
+        document.getElementById('integrationId').value = integration.id;
+        document.getElementById('provider').value = integration.name || ''; // Use name from API response
+        document.getElementById('type').value = integration.integration_type || '';
+        document.getElementById('baseUrl').value = integration.base_url || '';
+
+        // Handle logo filename display
+        const logoFilename = integration.logo_filename || '';
+        document.getElementById('logoFilename').value = logoFilename;
+
+        // Show current logo if exists
+        const currentLogoDiv = document.getElementById('currentLogo');
+        const currentLogoName = document.getElementById('currentLogoName');
+        if (logoFilename) {
+            currentLogoName.textContent = logoFilename;
+            currentLogoDiv.style.display = 'block';
+        } else {
+            currentLogoDiv.style.display = 'none';
+        }
+
+        // Clear file input
+        document.getElementById('logoFile').value = '';
+        document.getElementById('username').value = integration.username || '';
+
+        // Show masked password if exists
+        document.getElementById('password').value = integration.password_masked || '';
+
+        document.getElementById('baseSearch').value = integration.base_search || '';
+        document.getElementById('model').value = integration.model || '';
+
+        // Load AI provider specific fields if type is ai_provider
+        if (integration.integration_type === 'ai_provider') {
+            document.getElementById('modelConfig').value = integration.model_config ? JSON.stringify(integration.model_config, null, 2) : '';
+            document.getElementById('providerMetadata').value = integration.provider_metadata ? JSON.stringify(integration.provider_metadata, null, 2) : '';
+            document.getElementById('costConfig').value = integration.cost_config ? JSON.stringify(integration.cost_config, null, 2) : '';
+            document.getElementById('fallbackIntegration').value = integration.fallback_integration_id || '';
+        }
+
+        document.getElementById('active').checked = integration.active;
+
+        // Show/hide AI provider fields based on type
+        toggleAIProviderFields();
+
+        openModal('integrationModal');
+
+    } catch (error) {
+        console.error('Error loading integration details:', error);
+        showError('Error loading integration details');
+    }
+}
+
+async function saveIntegration() {
+    const form = document.getElementById('integrationForm');
+    const formData = new FormData(form);
+    const id = formData.get('id');
+
+    // Store file for upload after integration save
+    let logoFilename = formData.get('logo_filename') || null; // Current filename
+    const logoFile = formData.get('logo_file');
+
+
+    // Parse JSON fields for AI providers
+    let modelConfig = null;
+    let providerMetadata = null;
+    let costConfig = null;
+
+    try {
+        const modelConfigText = formData.get('model_config');
+        if (modelConfigText && modelConfigText.trim()) {
+            modelConfig = JSON.parse(modelConfigText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Model Configuration');
+        return;
+    }
+
+    try {
+        const providerMetadataText = formData.get('provider_metadata');
+        if (providerMetadataText && providerMetadataText.trim()) {
+            providerMetadata = JSON.parse(providerMetadataText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Provider Metadata');
+        return;
+    }
+
+    try {
+        const costConfigText = formData.get('cost_config');
+        if (costConfigText && costConfigText.trim()) {
+            costConfig = JSON.parse(costConfigText);
+        }
+    } catch (e) {
+        showError('Invalid JSON in Cost Configuration');
+        return;
+    }
+
+    const data = {
+        provider: formData.get('provider'),
+        type: formData.get('type'),
+        base_url: formData.get('base_url') || null,
+        logo_filename: logoFilename,
+        username: formData.get('username') || null,
+        password: formData.get('password') || null,
+        base_search: formData.get('base_search') || null,
+        model: formData.get('model') || null,
+        model_config: modelConfig,
+        provider_metadata: providerMetadata,
+        cost_config: costConfig,
+        fallback_integration_id: formData.get('fallback_integration_id') || null,
+        active: formData.has('active')
+    };
+    
+    try {
+        const url = id ? `/api/v1/admin/integrations/${id}` : '/api/v1/admin/integrations';
+        const method = id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+
+            // Handle file upload if a new file was selected
+            if (logoFile && logoFile.size > 0) {
+                try {
+                    // Get the integration ID (either from existing ID or from creation response)
+                    const integrationId = id || result.id;
+
+
+                    if (integrationId) {
+                        const uploadFormData = new FormData();
+                        uploadFormData.append('logo', logoFile);
+
+                        const uploadResponse = await fetch(`/api/v1/admin/integrations/${integrationId}/logo`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            body: uploadFormData
+                        });
+
+                        if (uploadResponse.ok) {
+                            const uploadResult = await uploadResponse.json();
+                            showSuccess(`Integration ${id ? 'updated' : 'created'} and logo uploaded successfully!`);
+                        } else {
+                            const uploadError = await uploadResponse.json();
+                            console.error('Upload failed:', uploadError);
+                            showError(`Integration saved but logo upload failed: ${uploadError.detail}`);
+                        }
+                    } else {
+                        console.error('No integration ID available for logo upload');
+                        showError('Integration saved but logo upload failed: No integration ID');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading logo:', uploadError);
+                    showError(`Integration saved but logo upload failed: ${uploadError.message}`);
+                }
+            } else {
+                showSuccess(id ? 'Integration updated successfully' : 'Integration created successfully');
+            }
+
+            closeModal('integrationModal');
+            loadIntegrations();
+        } else {
+            const error = await response.text();
+            showError(`Failed to save integration: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error saving integration:', error);
+        showError('Error saving integration');
+    }
+}
+
+
+
+async function pauseIntegration(id) {
+    if (confirm('Are you sure you want to pause this integration?')) {
+        try {
+            const response = await fetch(`/api/v1/admin/integrations/${id}/deactivate`, {
+                method: 'PATCH',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                loadIntegrations();
+                showSuccess('Integration paused successfully');
+            } else {
+                showError('Failed to pause integration');
+            }
+        } catch (error) {
+            console.error('Error pausing integration:', error);
+            showError('Error pausing integration');
+        }
+    }
+}
+
+async function resumeIntegration(id) {
+    try {
+        const response = await fetch(`/api/v1/admin/integrations/${id}/activate`, {
+            method: 'PATCH',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            loadIntegrations();
+            showSuccess('Integration resumed successfully');
+        } else {
+            showError('Failed to resume integration');
+        }
+    } catch (error) {
+        console.error('Error resuming integration:', error);
+        showError('Error resuming integration');
+    }
+}
+
+async function deleteIntegration(id) {
+    if (confirm('Are you sure you want to delete this integration? This action cannot be undone.')) {
+        try {
+            const response = await fetch(`/api/v1/admin/integrations/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                loadIntegrations();
+                showSuccess('Integration deleted successfully');
+            } else {
+                showError('Failed to delete integration');
+            }
+        } catch (error) {
+            console.error('Error deleting integration:', error);
+            showError('Error deleting integration');
+        }
+    }
+}
+
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function showSuccess(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+
+function showError(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+</script>
+
+{% endblock %}

@@ -78,7 +78,7 @@ class RedisSessionManager:
                 "last_name": user_data.get("last_name"),
                 "role": user_data.get("role"),
                 "is_admin": user_data.get("is_admin"),
-                "client_id": user_data.get("client_id"),
+                "tenant_id": user_data.get("tenant_id"),
                 "created_at": datetime.utcnow().isoformat(),
                 "expires_at": (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
             }

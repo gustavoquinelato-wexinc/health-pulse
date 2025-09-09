@@ -332,7 +332,7 @@ async def get_user_colors(
         logger.info(f"Getting colors for user: {user.email}")
 
         # Resolve colors based on user preferences
-        user_colors = color_resolution_service.resolve_user_colors(user.id, user.client_id)
+        user_colors = color_resolution_service.resolve_user_colors(user.id, user.tenant_id)
 
         if not user_colors:
             raise HTTPException(
@@ -492,12 +492,12 @@ async def upload_profile_image(
             profile_filename = f"profile-image.{file_extension}"
 
             # Get client information for assets folder structure
-            from app.models.unified_models import Client
-            client = session.query(Client).filter(Client.id == db_user.client_id).first()
+            from app.models.unified_models import Tenant
+            client = session.query(Tenant).filter(Tenant.id == db_user.tenant_id).first()
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             client_folder = client.assets_folder or client.name.lower()

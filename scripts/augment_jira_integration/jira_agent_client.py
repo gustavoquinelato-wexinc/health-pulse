@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jira Integration Client for Augment Agent
+Jira Integration Tenant for Augment Agent
 
 This script provides a simplified command-line interface for AI agents to interact with Jira.
 It uses environment variables for configuration and supports essential Jira operations.
@@ -52,7 +52,7 @@ def load_env_file():
 # Load environment variables from .env file
 load_env_file()
 
-class JiraAgentClient:
+class JiraAgentTenant:
     """Jira client specifically designed for AI agent interactions."""
 
     def __init__(self, debug: bool = False):
@@ -407,7 +407,7 @@ class JiraAgentClient:
             "success": True,
             "key": issue_key,
             "url": f"{self.base_url}/browse/{issue_key}",
-            "message": f"Issue updated successfully: {issue_key}"
+            "message": f"WorkItem updated successfully: {issue_key}"
         }
     
     def add_comment(self, issue_key: str, message: str) -> Dict[str, Any]:
@@ -614,7 +614,7 @@ class JiraAgentClient:
                     "issue_key": issue_key,
                     "current_status": current_status,
                     "target_status": target_status,
-                    "message": f"Issue {issue_key} is already in status '{target_status}'"
+                    "message": f"WorkItem {issue_key} is already in status '{target_status}'"
                 }
 
             # Get available transitions from Jira API
@@ -707,13 +707,13 @@ class JiraAgentClient:
 
 def main():
     """Main CLI interface."""
-    parser = argparse.ArgumentParser(description='Jira Integration Client for Augment Agent')
+    parser = argparse.ArgumentParser(description='Jira Integration Tenant for Augment Agent')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    # Get Issue
+    # Get WorkItem
     get_parser = subparsers.add_parser('get', help='Get an issue by key')
-    get_parser.add_argument('--issue', required=True, help='Issue key to retrieve')
+    get_parser.add_argument('--issue', required=True, help='WorkItem key to retrieve')
 
     # Create Epic
     epic_parser = subparsers.add_parser('create-epic', help='Create a new epic')
@@ -740,9 +740,9 @@ def main():
     subtask_parser.add_argument('--description', required=True, help='Subtask description')
     subtask_parser.add_argument('--assignee', help='Assignee username')
 
-    # Update Issue (Generic)
+    # Update WorkItem (Generic)
     update_parser = subparsers.add_parser('update', help='Update an existing issue')
-    update_parser.add_argument('--issue', required=True, help='Issue key to update')
+    update_parser.add_argument('--issue', required=True, help='WorkItem key to update')
     update_parser.add_argument('--title', help='New title')
     update_parser.add_argument('--description', help='New description')
 
@@ -767,18 +767,18 @@ def main():
 
     # Add Comment
     comment_parser = subparsers.add_parser('comment', help='Add comment to an issue')
-    comment_parser.add_argument('--issue', required=True, help='Issue key')
+    comment_parser.add_argument('--issue', required=True, help='WorkItem key')
     comment_parser.add_argument('--message', required=True, help='Comment message')
 
-    # Transition Issue
+    # Transition WorkItem
     transition_parser = subparsers.add_parser('transition', help='Transition an issue to a new status')
-    transition_parser.add_argument('--issue', required=True, help='Issue key')
+    transition_parser.add_argument('--issue', required=True, help='WorkItem key')
     transition_parser.add_argument('--status', required=True, help='Target status')
     transition_parser.add_argument('--resolution', help='Resolution for final states (Done, Won\'t Do, etc.)')
 
     # Get Valid Transitions
     transitions_parser = subparsers.add_parser('get-transitions', help='Get valid transitions for an issue')
-    transitions_parser.add_argument('--issue', required=True, help='Issue key')
+    transitions_parser.add_argument('--issue', required=True, help='WorkItem key')
 
     args = parser.parse_args()
     
@@ -787,7 +787,7 @@ def main():
         return
     
     try:
-        client = JiraAgentClient(debug=args.debug)
+        client = JiraAgentTenant(debug=args.debug)
 
         if args.command == 'get':
             result = client.get_issue(args.issue)

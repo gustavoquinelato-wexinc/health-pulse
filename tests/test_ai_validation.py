@@ -29,7 +29,7 @@ class TestSQLSyntaxValidation:
     
     def test_validate_sql_syntax_service_valid_query(self):
         """Test SQL syntax validation with valid query"""
-        valid_sql = "SELECT team_name, COUNT(*) FROM commits WHERE client_id = 1 GROUP BY team_name"
+        valid_sql = "SELECT team_name, COUNT(*) FROM commits WHERE tenant_id = 1 GROUP BY team_name"
         
         result = validate_sql_syntax_service(valid_sql)
         
@@ -69,7 +69,7 @@ class TestSQLSyntaxValidation:
     async def test_validate_sql_syntax_state_function(self):
         """Test SQL syntax validation state function"""
         state = StrategicAgentState(
-            sql_query="SELECT COUNT(*) FROM commits WHERE client_id = 1"
+            sql_query="SELECT COUNT(*) FROM commits WHERE tenant_id = 1"
         )
         
         result_state = await validate_sql_syntax(state)
@@ -93,7 +93,7 @@ class TestSemanticValidation:
     @pytest.mark.asyncio
     async def test_validate_sql_semantics_service_count_intent(self):
         """Test semantic validation with count intent"""
-        sql_query = "SELECT COUNT(*) FROM commits WHERE client_id = 1"
+        sql_query = "SELECT COUNT(*) FROM commits WHERE tenant_id = 1"
         user_intent = "How many commits do we have?"
         
         result = await validate_sql_semantics_service(sql_query, user_intent)
@@ -104,7 +104,7 @@ class TestSemanticValidation:
     @pytest.mark.asyncio
     async def test_validate_sql_semantics_service_count_mismatch(self):
         """Test semantic validation with count intent mismatch"""
-        sql_query = "SELECT team_name FROM commits WHERE client_id = 1"
+        sql_query = "SELECT team_name FROM commits WHERE tenant_id = 1"
         user_intent = "How many commits do we have?"
         
         result = await validate_sql_semantics_service(sql_query, user_intent)
@@ -115,7 +115,7 @@ class TestSemanticValidation:
     @pytest.mark.asyncio
     async def test_validate_sql_semantics_service_average_intent(self):
         """Test semantic validation with average intent"""
-        sql_query = "SELECT AVG(lead_time_hours) FROM pull_requests WHERE client_id = 1"
+        sql_query = "SELECT AVG(lead_time_hours) FROM pull_requests WHERE tenant_id = 1"
         user_intent = "What's the average lead time?"
         
         result = await validate_sql_semantics_service(sql_query, user_intent)
@@ -128,7 +128,7 @@ class TestSemanticValidation:
         """Test semantic validation state function"""
         state = StrategicAgentState(
             user_query="How many commits do we have?",
-            sql_query="SELECT COUNT(*) FROM commits WHERE client_id = 1"
+            sql_query="SELECT COUNT(*) FROM commits WHERE tenant_id = 1"
         )
         
         result_state = await validate_sql_semantics(state)
@@ -183,7 +183,7 @@ class TestDataStructureValidation:
                 "metric_value": 2.5,
                 "metric_unit": "per_week",
                 "time_period": "2024-01",
-                "client_id": 1,
+                "tenant_id": 1,
                 "calculation_date": "2024-01-15"
             }
         ]
@@ -248,7 +248,7 @@ class TestSelfHealingMemory:
             suggested_fix="Fix SELECT spelling",
             confidence=0.8,
             learning_context={"retry_count": 1},
-            client_id=1
+            tenant_id=1
         )
         
         result = await healing_memory.record_validation_failure(feedback)
@@ -285,7 +285,7 @@ class TestSelfHealingMemory:
     async def test_record_successful_healing(self, healing_memory):
         """Test recording successful healing"""
         pattern_hash = "test_hash_123"
-        successful_query = "SELECT COUNT(*) FROM commits WHERE client_id = 1"
+        successful_query = "SELECT COUNT(*) FROM commits WHERE tenant_id = 1"
         
         result = await healing_memory.record_successful_healing(
             pattern_hash,
@@ -331,7 +331,7 @@ class TestValidationModels:
             "metric_value": 2.5,
             "metric_unit": "per_week",
             "time_period": "2024-01",
-            "client_id": 1,
+            "tenant_id": 1,
             "calculation_date": "2024-01-15"
         }
         
@@ -372,7 +372,7 @@ class TestValidationPipelineIntegration:
         # Initial state
         state = StrategicAgentState(
             user_query="How many commits did the backend team make?",
-            sql_query="SELECT COUNT(*) FROM commits WHERE team_name = 'backend' AND client_id = 1"
+            sql_query="SELECT COUNT(*) FROM commits WHERE team_name = 'backend' AND tenant_id = 1"
         )
 
         # Step 1: SQL Syntax Validation
@@ -396,7 +396,7 @@ class TestValidationPipelineIntegration:
         # Initial state with problematic query
         state = StrategicAgentState(
             user_query="How many commits do we have?",
-            sql_query="SELECT team_name FROM commits WHERE client_id = 1",  # Missing COUNT
+            sql_query="SELECT team_name FROM commits WHERE tenant_id = 1",  # Missing COUNT
             sql_retry_count=0,
             semantic_retry_count=0
         )
@@ -434,7 +434,7 @@ class TestValidationPipelineIntegration:
             suggested_fix="Add COUNT(*) function",
             confidence=0.9,
             learning_context={"analysis_type": "team_performance"},
-            client_id=1
+            tenant_id=1
         )
 
         # Record failure in learning memory

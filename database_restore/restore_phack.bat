@@ -53,7 +53,7 @@ docker exec %CONTAINER_NAME% pg_restore -U %POSTGRES_USER% -d %DB_NAME% --no-acl
 
 REM Note: pg_restore may return error code even on successful restore due to 'does not exist' warnings
 REM Check if tables were actually created to determine success
-docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "\dt" | findstr "issues" >nul
+docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "\dt" | findstr "work_items" >nul
 if errorlevel 1 (
     echo ❌ Binary restore failed - no tables were created
     docker exec %CONTAINER_NAME% rm /tmp/restore_dump.backup 2>nul
@@ -68,8 +68,8 @@ docker exec %CONTAINER_NAME% rm /tmp/restore_dump.backup
 echo ✅ Binary restore completed successfully!
 echo.
 echo 🔍 Verifying restore...
-docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as issue_count FROM issues;"
-docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as pr_count FROM pull_requests;"
+docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as work_item_count FROM work_items;"
+docker exec %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as pr_count FROM prs;"
 
 echo.
 echo 📋 Next steps:

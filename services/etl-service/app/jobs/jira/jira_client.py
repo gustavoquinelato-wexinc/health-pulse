@@ -79,7 +79,7 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         params=params,
-                        headers=headers,
+                        headers={**headers, 'Accept-Charset': 'utf-8'},
                         timeout=30
                     )
 
@@ -292,7 +292,11 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         json=request_body,
-                        headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        headers={
+                            'Content-Type': 'application/json; charset=utf-8',
+                            'Accept': 'application/json',
+                            'Accept-Charset': 'utf-8'
+                        },
                         timeout=60  # Increased timeout for large data requests
                     )
                     response.raise_for_status()
@@ -384,16 +388,16 @@ class JiraAPIClient:
             logger.warning(f"Failed to get approximate count for JQL '{jql}': {e}")
             return 0
 
-    def get_issue_changelogs(self, issue_key: str, max_results: int = 100) -> List[Dict]:
+    def get_work_item_changelogs(self, work_item_key: str, max_results: int = 100) -> List[Dict]:
         """
-        Fetch all changelogs for a specific issue with pagination and retry logic.
+        Fetch all changelogs for a specific work item with pagination and retry logic.
 
         NOTE: This method is kept for backward compatibility and fallback scenarios.
         The preferred approach is to use expand=changelog in get_issues() to fetch
-        changelogs together with issues in a single API call.
+        changelogs together with work items in a single API call.
 
         Args:
-            issue_key: The issue key (e.g., 'PROJ-123')
+            work_item_key: The work item key (e.g., 'PROJ-123')
             max_results: Maximum number of changelogs to fetch per request
 
         Returns:
@@ -405,7 +409,7 @@ class JiraAPIClient:
 
         while True:
             # Use API v3 for better compatibility
-            url = f"{self.base_url}/rest/api/3/issue/{issue_key}/changelog"
+            url = f"{self.base_url}/rest/api/3/issue/{work_item_key}/changelog"
             params = {
                 'startAt': start_at,
                 'maxResults': max_results
@@ -418,7 +422,10 @@ class JiraAPIClient:
                         url,
                         params=params,
                         auth=(self.username, self.token),
-                        headers={'Accept': 'application/json'},
+                        headers={
+                            'Accept': 'application/json',
+                            'Accept-Charset': 'utf-8'
+                        },
                         timeout=30
                     )
 
@@ -435,7 +442,7 @@ class JiraAPIClient:
                         success = True
                         break  # Break retry loop, continue pagination
                     elif response.status_code == 404:
-                        logger.warning(f"Issue {issue_key} not found")
+                        logger.warning(f"WorkItem {issue_key} not found")
                         return []
                     else:
                         logger.warning(f"Attempt {attempt + 1}: HTTP {response.status_code} for issue {issue_key}")

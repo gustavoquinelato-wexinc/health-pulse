@@ -71,7 +71,7 @@ The AI Agent Layer transforms natural language business questions into comprehen
 **Location**: `services/backend/app/api/gus_endpoints.py`
 
 **Core Responsibilities**:
-- Provides secure database access with client isolation
+- Provides secure database access with tenant isolation
 - Implements semantic search across table groups with transaction isolation
 - Executes AI-generated SQL with safety validation
 - Manages table metadata and relationships with dynamic schema validation
@@ -84,7 +84,7 @@ The AI Agent Layer transforms natural language business questions into comprehen
 
 #### 🏢 **CORE_BUSINESS** (Organizational Foundation)
 ```
-clients          - Client organizations and settings
+tenants         - Tenant organizations and settings
 users           - Team members and their information
 ```
 **Rationale**: Pure organizational data - "who we serve" and "who does the work"
@@ -92,12 +92,12 @@ users           - Team members and their information
 #### 💻 **DEVELOPMENT** (Complete Development Lifecycle)
 ```
 projects                - Project definitions and metadata
-issues                 - Jira tickets, stories, bugs, tasks
-issue_changelogs       - History of issue status changes
-issuetypes            - Issue types (Story, Bug, Epic, etc.)
-issuetype_mappings    - Issue type mappings between systems
-issuetype_hierarchies - Parent-child relationships
-repositories          - Git repositories and metadata
+work_items             - Jira tickets, stories, bugs, tasks
+wit_changelogs         - History of work item status changes
+wits                   - Work item types (Story, Bug, Epic, etc.)
+wit_mappings           - Work item type mappings between systems
+wit_hierarchies        - Parent-child relationships
+repositories           - Git repositories and metadata
 pull_requests         - GitHub/GitLab pull requests
 pull_request_comments - Comments on pull requests
 pull_request_reviews  - Code review data
@@ -122,7 +122,7 @@ dora_metric_insights   - DORA metric analysis and insights
 
 #### 🔗 **RELATIONSHIPS** (Data Connections)
 ```
-jira_pull_request_links - Links between Jira issues and GitHub PRs
+wits_prs_links - Links between work items and GitHub PRs
 ```
 **Rationale**: Cross-system data relationships and integrations
 **Note**: Junction tables are managed through structured queries for optimal performance
@@ -141,9 +141,9 @@ The AI agent intelligently selects relevant table groups based on query analysis
 
 ```python
 # Query Pattern Examples
-"What teams do we have?" 
+"What teams do we have?"
 → DEVELOPMENT + WORKFLOW + RELATIONSHIPS
-→ Gets: projects, issues, workflows, and their connections
+→ Gets: projects, work_items, workflows, and their connections
 
 "How are our DORA metrics?"
 → BENCHMARKS + DEVELOPMENT + WORKFLOW + RELATIONSHIPS  
@@ -172,7 +172,7 @@ The agent uses LangGraph to create adaptive, multi-step workflows that adjust ba
 2. **Semantic Search** (`_targeted_semantic_search`)
    - Performs vector similarity search across relevant table groups
    - Uses embeddings to find contextually relevant data
-   - Filters by client_id and active records
+   - Filters by tenant_id and active records
 
 3. **Dynamic Step Execution** (`_execute_planned_query_step`)
    - Executes planned query steps in sequence
@@ -267,7 +267,7 @@ The system leverages different AI models optimized for specific tasks:
 
 #### Layered Prompt Architecture
 1. **System Context**: Role definition and capabilities
-2. **Business Context**: Client-specific information and priorities
+2. **Business Context**: Tenant-specific information and priorities
 3. **Data Context**: Actual database results and relationships
 4. **Task Context**: Specific analysis requirements
 5. **Output Format**: Structured response expectations
@@ -347,7 +347,7 @@ self.conversation_memory = {
 1. **Conversation History**: Previous Q&A pairs and results
 2. **Semantic Search Results**: Relevant data from vector search
 3. **Structured Query Results**: Complete datasets from SQL queries
-4. **Business Metadata**: Client priorities and business context
+4. **Business Metadata**: Tenant priorities and business context
 5. **Relationship Mapping**: Cross-table connections and dependencies
 
 #### Context Optimization
@@ -390,7 +390,7 @@ The agent structures responses for maximum executive impact:
 
 1. **Executive Summary**: Key findings and business impact
 2. **Strategic Opportunities**: Growth and optimization areas
-3. **Risk Indicators**: Potential issues requiring attention
+3. **Risk Indicators**: Potential problems requiring attention
 4. **Prioritized Recommendations**: Action items with timelines
 5. **Supporting Data**: Metrics and evidence
 6. **Implementation Guidance**: Next steps and success metrics
@@ -401,12 +401,12 @@ The agent structures responses for maximum executive impact:
 
 ### Simple Query Example
 
-**User Input**: "How many issues do we have?"
+**User Input**: "How many work items do we have?"
 
 **AI Processing**:
 ```python
 # Query Planning
-analysis_intent: "Issue count analysis"
+analysis_intent: "Work item count analysis"
 table_groups: ["DEVELOPMENT"]
 complexity: "simple"
 steps: [
@@ -418,33 +418,33 @@ steps: [
 ]
 
 # SQL Generation
-SELECT 
-    COUNT(*) as total_issues,
+SELECT
+    COUNT(*) as total_work_items,
     COUNT(DISTINCT team) as unique_teams,
     COUNT(DISTINCT project_id) as unique_projects
-FROM issues 
-WHERE client_id = :client_id AND active = true;
+FROM work_items
+WHERE tenant_id = :tenant_id AND active = true;
 
 # Strategic Analysis
-"Your organization currently manages 2,847 active issues across 7 teams and 12 projects, 
+"Your organization currently manages 2,847 active work items across 7 teams and 12 projects,
 indicating a healthy development pipeline with distributed workload."
 ```
 
 **Response Format**:
 ```markdown
-## Issue Overview Analysis
-**Total Active Issues**: 2,847
+## Work Item Overview Analysis
+**Total Active Work Items**: 2,847
 **Teams Involved**: 7
 **Projects**: 12
 
 ### Key Insights
-• Healthy issue distribution across teams
+• Healthy work item distribution across teams
 • Active development pipeline with good project coverage
-• Average of 407 issues per team suggests balanced workload
+• Average of 407 work items per team suggests balanced workload
 
 ### SQL Query Generated:
 ```sql
-SELECT COUNT(*) as total_issues...
+SELECT COUNT(*) as total_work_items...
 ```
 *Retrieved 1 record*
 ```
@@ -474,12 +474,12 @@ steps: [
 
 # Multi-Step SQL Execution
 # Step 1: Team Discovery
-SELECT DISTINCT 
+SELECT DISTINCT
     i.team,
     COUNT(DISTINCT i.assignee) as team_size,
-    COUNT(i.id) as total_issues
-FROM issues i
-WHERE i.client_id = :client_id AND i.active = true
+    COUNT(i.id) as total_work_items
+FROM work_items i
+WHERE i.tenant_id = :tenant_id AND i.active = true
 GROUP BY i.team
 ORDER BY team_size DESC;
 
@@ -487,15 +487,15 @@ ORDER BY team_size DESC;
 SELECT
     i.team,
     COUNT(DISTINCT i.assignee) as team_members,
-    COUNT(i.id) as total_issues,
+    COUNT(i.id) as total_work_items,
     COUNT(DISTINCT pr.id) as total_pull_requests,
     COUNT(DISTINCT r.name) as repositories_used
-FROM issues i
-LEFT JOIN jira_pull_request_links jpl ON i.id = jpl.issue_id AND jpl.active = true
-LEFT JOIN pull_requests pr ON (jpl.external_repo_id = pr.external_repo_id 
-    AND jpl.pull_request_number = pr.number AND pr.active = true)
+FROM work_items i
+LEFT JOIN wit_pr_links jpl ON i.id = jpl.work_item_id AND jpl.active = true
+LEFT JOIN prs pr ON (jpl.external_repo_id = pr.external_repo_id
+    AND jpl.pr_number = pr.number AND pr.active = true)
 LEFT JOIN repositories r ON pr.repository_id = r.id AND r.active = true
-WHERE i.client_id = :client_id AND i.active = true
+WHERE i.tenant_id = :tenant_id AND i.active = true
 GROUP BY i.team
 ORDER BY team_members DESC;
 ```
@@ -506,17 +506,17 @@ ORDER BY team_members DESC;
 
 ### Technocats: High-Performance Development Team
 - **Team Size**: 19 members
-- **Activity**: 3,745 issues, 1,348 pull requests
+- **Activity**: 3,745 work items, 1,348 pull requests
 - **Key Insight**: Exceptional productivity with 71 PRs per member - industry-leading efficiency
 
-### B-Positive: Balanced Performance Team  
+### B-Positive: Balanced Performance Team
 - **Team Size**: 18 members
-- **Activity**: 2,900 issues, 968 pull requests  
+- **Activity**: 2,900 work items, 968 pull requests
 - **Key Insight**: Strong balanced performance with 54 PRs per member and consistent delivery
 
 ### Flash: Underutilized Capacity
 - **Team Size**: 18 members
-- **Activity**: 229 issues, 33 pull requests
+- **Activity**: 229 work items, 33 pull requests
 - **Key Insight**: ⚠️ Concerning underutilization with only 1.8 PRs per member - significant optimization opportunity
 
 ## Executive Recommendations
@@ -559,9 +559,9 @@ SELECT
     COUNT(pr.id) as prs_created,
     COUNT(pr.id) FILTER (WHERE pr.status = 'merged') as prs_merged,
     AVG(EXTRACT(EPOCH FROM (pr.merged_at - pr.created_at))/3600) as avg_cycle_time_hours
-FROM pull_requests pr
-WHERE pr.client_id = :client_id 
-    AND pr.active = true 
+FROM prs pr
+WHERE pr.tenant_id = :tenant_id
+    AND pr.active = true
     AND pr.created_at >= NOW() - INTERVAL '90 days'
 GROUP BY DATE_TRUNC('week', pr.created_at)
 ORDER BY week;
@@ -578,18 +578,18 @@ SELECT
     dmi.percentile_rank
 FROM dora_market_benchmarks dmb
 JOIN dora_metric_insights dmi ON dmb.metric_name = dmi.metric_name
-WHERE dmb.client_id = :client_id AND dmb.active = true;
+WHERE dmb.tenant_id = :tenant_id AND dmb.active = true;
 
 # Step 3: Workflow Bottleneck Analysis
 SELECT 
     ic.from_status,
     ic.to_status,
     COUNT(*) as transition_count,
-    AVG(EXTRACT(EPOCH FROM (ic.changed_at - LAG(ic.changed_at) 
-        OVER (PARTITION BY ic.issue_id ORDER BY ic.changed_at)))/86400) as avg_days_in_status
-FROM issue_changelogs ic
-JOIN issues i ON ic.issue_id = i.id
-WHERE ic.client_id = :client_id 
+    AVG(EXTRACT(EPOCH FROM (ic.changed_at - LAG(ic.changed_at)
+        OVER (PARTITION BY ic.work_item_id ORDER BY ic.changed_at)))/86400) as avg_days_in_status
+FROM wit_changelogs ic
+JOIN work_items i ON ic.work_item_id = i.id
+WHERE ic.tenant_id = :tenant_id
     AND ic.active = true 
     AND ic.changed_at >= NOW() - INTERVAL '90 days'
 GROUP BY ic.from_status, ic.to_status
@@ -655,7 +655,7 @@ Based on current trends, implementing these optimizations could move your organi
 
 1. **Intelligent Limiting**: No artificial LIMIT clauses - gets complete data when needed
 2. **Table Group Filtering**: Only queries relevant table groups
-3. **Client Isolation**: All queries filtered by client_id for security and performance
+3. **Tenant Isolation**: All queries filtered by tenant_id for security and performance
 4. **Active Record Filtering**: Excludes deactivated records at query level
 5. **Index Optimization**: Leverages database indexes for common query patterns
 6. **Transaction Isolation**: Each table search uses isolated transactions to prevent blocking

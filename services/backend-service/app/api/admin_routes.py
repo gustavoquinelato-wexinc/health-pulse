@@ -10,7 +10,7 @@ CLEAN ARCHITECTURE - Backend Service Responsibilities:
 - Permission Management (delegated to Auth Service RBAC)
 - System Statistics (for frontend dashboard)
 - Theme/Color Settings (UI configuration)
-- Client Management (CRUD + logo upload)
+- Tenant Management (CRUD + logo upload)
 - Debug Endpoints (development support)
 
 ETL-specific functionality (integrations, workflows, status mappings, issuetypes) 
@@ -25,11 +25,11 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    User, UserPermission, UserSession, Integration, Project, Issue, Client, IssueChangelog,
-    Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
-    JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings, ClientColorSettings,
-    StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
-    ProjectsIssuetypes, ProjectsStatuses
+    User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, Changelog,
+    Repository, Pr, PrCommit, PrReview, PrComment,
+    WitPrLinks, Wit, Status, JobSchedule, SystemSettings, TenantColors,
+    StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
+    ProjectWits, ProjectsStatuses
 )
 from app.auth.auth_middleware import require_permission, require_authentication
 from app.auth.auth_service import get_auth_service
@@ -49,7 +49,7 @@ color_resolution_service = ColorResolutionService()
 
 
 # 🚀 ETL Service Notification Functions
-async def notify_etl_color_schema_change(client_id: int, colors: dict):
+async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
     """Notify ETL service of color schema changes"""
     try:
         # Get ETL service URL from configuration
@@ -57,13 +57,13 @@ async def notify_etl_color_schema_change(client_id: int, colors: dict):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
-                "client_id": client_id,
+                "tenant_id": tenant_id,
                 "colors": colors,
                 "event_type": "color_update"
             })
 
             if response.status_code == 200:
-                logger.info(f"✅ ETL service notified of color schema change for client {client_id}")
+                logger.info(f"✅ ETL service notified of color schema change for client {tenant_id}")
             else:
                 logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
     except Exception as e:
@@ -71,7 +71,7 @@ async def notify_etl_color_schema_change(client_id: int, colors: dict):
         # Don't fail the main operation if ETL notification fails
 
 
-async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
+async def notify_etl_color_schema_mode_change(tenant_id: int, mode: str):
     """Notify ETL service of color schema mode changes"""
     try:
         # Get ETL service URL from configuration
@@ -79,13 +79,13 @@ async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
-                "client_id": client_id,
+                "tenant_id": tenant_id,
                 "mode": mode,
                 "event_type": "mode_update"
             })
 
             if response.status_code == 200:
-                logger.info(f"✅ ETL service notified of color schema mode change for client {client_id}")
+                logger.info(f"✅ ETL service notified of color schema mode change for client {tenant_id}")
             else:
                 logger.warning(f"⚠️ ETL service mode notification failed: {response.status_code}")
     except Exception as e:
@@ -93,12 +93,12 @@ async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
         # Don't fail the main operation if ETL notification fails
 
 
-async def notify_frontend_color_update(client_id: int, colors: dict):
+async def notify_frontend_color_update(tenant_id: int, colors: dict):
     """Notify frontend clients of color schema changes via WebSocket through ETL service"""
     try:
         # The ETL service handles WebSocket broadcasting, so we can piggyback on that
         # The ETL notification already includes WebSocket broadcasting to clients
-        logger.info(f"✅ Frontend WebSocket notification handled via ETL service for client {client_id}")
+        logger.info(f"✅ Frontend WebSocket notification handled via ETL service for client {tenant_id}")
     except Exception as e:
         logger.warning(f"⚠️ Could not notify frontend of color change: {e}")
         # Don't fail the main operation if frontend notification fails
@@ -186,7 +186,7 @@ class UnifiedColorSchemaRequest(BaseModel):
 class ColorSchemaModeRequest(BaseModel):
     mode: str  # "default" or "custom"
 
-class ClientResponse(BaseModel):
+class TenantResponse(BaseModel):
     id: int
     name: str
     website: Optional[str] = None
@@ -194,12 +194,12 @@ class ClientResponse(BaseModel):
     assets_folder: Optional[str] = None
     logo_filename: Optional[str] = None
 
-class ClientCreateRequest(BaseModel):
+class TenantCreateRequest(BaseModel):
     name: str
     website: Optional[str] = None
     active: Optional[bool] = None
 
-class ClientUpdateRequest(BaseModel):
+class TenantUpdateRequest(BaseModel):
     name: Optional[str] = None
     website: Optional[str] = None
     active: Optional[bool] = None
@@ -225,9 +225,9 @@ async def get_all_users(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             users = session.query(User).filter(
-                User.client_id == user.client_id
+                User.tenant_id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
@@ -266,7 +266,7 @@ async def create_user(
             # Check if user already exists
             existing_user = session.query(User).filter(
                 User.email == user_data.email,
-                User.client_id == admin_user.client_id
+                User.tenant_id == admin_user.tenant_id
             ).first()
 
             if existing_user:
@@ -295,7 +295,7 @@ async def create_user(
                 password_hash=hashed_password,
                 role=user_data.role,
                 is_admin=(user_data.role == 'admin'),  # ✅ Set is_admin based on role
-                client_id=admin_user.client_id,
+                tenant_id=admin_user.tenant_id,
                 active=True,
                 created_at=DateTimeHelper.now_utc(),
                 last_login_at=None
@@ -342,7 +342,7 @@ async def update_user(
             # Find the user to update
             user_to_update = session.query(User).filter(
                 User.id == user_id,
-                User.client_id == admin_user.client_id
+                User.tenant_id == admin_user.tenant_id
             ).first()
 
             if not user_to_update:
@@ -362,7 +362,7 @@ async def update_user(
                 # Check if email is already taken by another user
                 existing_user = session.query(User).filter(
                     User.email == user_data.email,
-                    User.client_id == admin_user.client_id,
+                    User.tenant_id == admin_user.tenant_id,
                     User.id != user_id
                 ).first()
 
@@ -447,7 +447,7 @@ async def delete_user(
             # Find the user to delete
             user_to_delete = session.query(User).filter(
                 User.id == user_id,
-                User.client_id == admin_user.client_id
+                User.tenant_id == admin_user.tenant_id
             ).first()
 
             if not user_to_delete:
@@ -508,16 +508,16 @@ async def get_system_stats(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: All counts filtered by client_id
-            client_id = admin_user.client_id
+            # ✅ SECURITY: All counts filtered by tenant_id
+            tenant_id = admin_user.tenant_id
 
             # Count users
             total_users = session.query(User).filter(
-                User.client_id == client_id
+                User.tenant_id == tenant_id
             ).count()
 
             active_users = session.query(User).filter(
-                User.client_id == client_id,
+                User.tenant_id == tenant_id,
                 User.active == True
             ).count()
 
@@ -525,13 +525,13 @@ async def get_system_stats(
             logged_users = session.query(UserSession).join(
                 User, UserSession.user_id == User.id
             ).filter(
-                User.client_id == client_id,
+                User.tenant_id == tenant_id,
                 UserSession.active == True
             ).count()
 
             # Count admin users
             admin_users = session.query(User).filter(
-                User.client_id == client_id,
+                User.tenant_id == tenant_id,
                 User.role == 'admin'
             ).count()
 
@@ -557,7 +557,7 @@ async def get_system_stats(
                     today_active = session.query(User).join(
                         UserSession, User.id == UserSession.user_id
                     ).filter(
-                        User.client_id == client_id,
+                        User.tenant_id == tenant_id,
                         User.active == True,
                         UserSession.created_at >= today_start
                     ).distinct().count()
@@ -567,7 +567,7 @@ async def get_system_stats(
                     week_active = session.query(User).join(
                         UserSession, User.id == UserSession.user_id
                     ).filter(
-                        User.client_id == client_id,
+                        User.tenant_id == tenant_id,
                         User.active == True,
                         UserSession.created_at >= week_start
                     ).distinct().count()
@@ -577,7 +577,7 @@ async def get_system_stats(
                     month_active = session.query(User).join(
                         UserSession, User.id == UserSession.user_id
                     ).filter(
-                        User.client_id == client_id,
+                        User.tenant_id == tenant_id,
                         User.active == True,
                         UserSession.created_at >= month_start
                     ).distinct().count()
@@ -593,7 +593,7 @@ async def get_system_stats(
                     # Count active users not in the active_user_ids list
                     if active_user_ids:
                         inactive_30_days = session.query(User).filter(
-                            User.client_id == client_id,
+                            User.tenant_id == tenant_id,
                             User.active == True,
                             ~User.id.in_(active_user_ids)
                         ).count()
@@ -618,63 +618,63 @@ async def get_system_stats(
             table_counts = {}
             total_records = 0
 
-            # Define all table models with client_id filtering
+            # Define all table models with tenant_id filtering
             table_models = {
-                "user_sessions": UserSession,
-                "user_permissions": UserPermission,
-                "clients": Client,
+                "users_sessions": UserSession,
+                "users_permissions": UserPermission,
+                "tenants": Tenant,
                 "integrations": Integration,
                 "projects": Project,
-                "issues": Issue,
-                "issue_changelogs": IssueChangelog,
+                "work_items": WorkItem,
+                "changelogs": Changelog,
                 "repositories": Repository,
-                "pull_requests": PullRequest,
-                "pull_request_commits": PullRequestCommit,
-                "pull_request_reviews": PullRequestReview,
-                "pull_request_comments": PullRequestComment,
-                "jira_pull_request_links": JiraPullRequestLinks,
-                "issuetypes": Issuetype,
+                "prs": Pr,
+                "prs_commits": PrCommit,
+                "prs_reviews": PrReview,
+                "prs_comments": PrComment,
+                "wits_prs_links": WitPrLinks,
+                "wits": Wit,
                 "statuses": Status,
-                "status_mappings": StatusMapping,
+                "statuses_mappings": StatusMapping,
                 "workflows": Workflow,
-                "issuetype_mappings": IssuetypeMapping,
-                "issuetype_hierarchies": IssuetypeHierarchy,
-                "projects_issuetypes": ProjectsIssuetypes,
+                "wits_mappings": WitMapping,
+                "wits_hierarchies": WitHierarchy,
+                "projects_wits": ProjectWits,
                 "projects_statuses": ProjectsStatuses,
-                "job_schedules": JobSchedule,
+                "etl_jobs": JobSchedule,
                 "system_settings": SystemSettings,
                 "migration_history": MigrationHistory
             }
 
-            # ✅ SECURITY: Count records filtered by client_id
+            # ✅ SECURITY: Count records filtered by tenant_id
             for table_name, model in table_models.items():
                 try:
                     # Handle different table types
                     if table_name in ['migration_history']:
                         # Global tables - count all records
                         count = session.query(func.count(model.id)).scalar() or 0
-                    elif table_name == 'clients':
-                        # Clients table - count all clients (no client_id filtering)
+                    elif table_name == 'tenants':
+                        # Tenants table - count all tenants (no tenant_id filtering)
                         count = session.query(func.count(model.id)).scalar() or 0
-                    elif table_name in ['user_sessions', 'user_permissions']:
-                        # User-related tables - filter by user's client_id through user relationship
-                        if table_name == 'user_sessions':
+                    elif table_name in ['users_sessions', 'users_permissions']:
+                        # User-related tables - filter by user's tenant_id through user relationship
+                        if table_name == 'users_sessions':
                             count = session.query(func.count(model.id)).join(
                                 User, model.user_id == User.id
-                            ).filter(User.client_id == client_id).scalar() or 0
-                        else:  # user_permissions
+                            ).filter(User.tenant_id == tenant_id).scalar() or 0
+                        else:  # users_permissions
                             count = session.query(func.count(model.id)).join(
                                 User, model.user_id == User.id
-                            ).filter(User.client_id == client_id).scalar() or 0
+                            ).filter(User.tenant_id == tenant_id).scalar() or 0
                     else:
                         # Standard client-specific tables
-                        if hasattr(model, 'client_id'):
+                        if hasattr(model, 'tenant_id'):
                             if table_name in ['projects_issuetypes', 'projects_statuses']:
-                                count = session.query(model).filter(model.client_id == client_id).count() or 0
+                                count = session.query(model).filter(model.tenant_id == tenant_id).count() or 0
                             else:
-                                count = session.query(func.count(model.id)).filter(model.client_id == client_id).scalar() or 0
+                                count = session.query(func.count(model.id)).filter(model.tenant_id == tenant_id).scalar() or 0
                         else:
-                            # Fallback for tables without client_id
+                            # Fallback for tables without tenant_id
                             count = session.query(func.count(model.id)).scalar() or 0
 
                     table_counts[table_name] = count
@@ -730,22 +730,22 @@ async def get_system_stats(
 
                 # Focus on main data tables that have created_at fields
                 growth_tables = {
-                    'issues': Issue,
-                    'pull_requests': PullRequest,
+                    'work_items': WorkItem,
+                    'prs': Pr,
                     'repositories': Repository,
-                    'issue_changelogs': IssueChangelog,
-                    'pull_request_comments': PullRequestComment,
-                    'pull_request_commits': PullRequestCommit,
-                    'pull_request_reviews': PullRequestReview,
-                    'jira_pull_request_links': JiraPullRequestLinks
+                    'changelogs': Changelog,
+                    'prs_comments': PrComment,
+                    'prs_commits': PrCommit,
+                    'prs_reviews': PrReview,
+                    'wits_prs_links': WitPrLinks
                 }
 
                 for table_name, model in growth_tables.items():
-                    if hasattr(model, 'created_at') and hasattr(model, 'client_id'):
+                    if hasattr(model, 'created_at') and hasattr(model, 'tenant_id'):
                         # Current month
                         current_count = session.query(func.count(model.id)).filter(
                             and_(
-                                model.client_id == client_id,
+                                model.tenant_id == tenant_id,
                                 model.created_at >= current_month_start
                             )
                         ).scalar() or 0
@@ -754,7 +754,7 @@ async def get_system_stats(
                         # Last month
                         last_count = session.query(func.count(model.id)).filter(
                             and_(
-                                model.client_id == client_id,
+                                model.tenant_id == tenant_id,
                                 model.created_at >= last_month_start,
                                 model.created_at < current_month_start
                             )
@@ -794,18 +794,18 @@ async def get_system_stats(
             table_categories = {
                 "Core Data": {
                     "users": total_users,
-                    "user_sessions": table_counts.get('user_sessions', 0),
-                    "user_permissions": table_counts.get('user_permissions', 0),
+                    "users_sessions": table_counts.get('users_sessions', 0),
+                    "users_permissions": table_counts.get('users_permissions', 0),
                     "clients": table_counts.get('clients', 0),
                     "integrations": table_counts.get('integrations', 0),
                     "projects": table_counts.get('projects', 0)
                 },
-                "Issues & Workflow": {
-                    "issues": table_counts.get('issues', 0),
-                    "issue_changelogs": table_counts.get('issue_changelogs', 0),
-                    "issuetypes": table_counts.get('issuetypes', 0),
+                "WorkItems & Workflow": {
+                    "work_items": table_counts.get('work_items', 0),
+                    "changelogs": table_counts.get('changelogs', 0),
+                    "wits": table_counts.get('wits', 0),
                     "statuses": table_counts.get('statuses', 0),
-                    "status_mappings": table_counts.get('status_mappings', 0),
+                    "statuses_mappings": table_counts.get('statuses_mappings', 0),
                     "workflows": table_counts.get('workflows', 0),
                     "issuetype_mappings": table_counts.get('issuetype_mappings', 0),
                     "issuetype_hierarchies": table_counts.get('issuetype_hierarchies', 0),
@@ -823,7 +823,7 @@ async def get_system_stats(
                     "jira_pull_request_links": table_counts.get('jira_pull_request_links', 0)
                 },
                 "System": {
-                    "job_schedules": table_counts.get('job_schedules', 0),
+                    "etl_jobs": table_counts.get('etl_jobs', 0),
                     "system_settings": table_counts.get('system_settings', 0),
                     "migration_history": table_counts.get('migration_history', 0)
                 }
@@ -982,11 +982,11 @@ async def get_active_sessions(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id through user relationship
+            # ✅ SECURITY: Filter by tenant_id through user relationship
             active_sessions = session.query(UserSession, User).join(
                 User, UserSession.user_id == User.id
             ).filter(
-                User.client_id == user.client_id,
+                User.tenant_id == user.tenant_id,
                 UserSession.active == True
             ).all()
 
@@ -1038,7 +1038,7 @@ async def terminate_all_sessions(
             session_ids_to_terminate = session.query(UserSession.id).join(
                 User, UserSession.user_id == User.id
             ).filter(
-                User.client_id == user.client_id,
+                User.tenant_id == user.tenant_id,
                 UserSession.active == True
             ).all()
 
@@ -1048,7 +1048,7 @@ async def terminate_all_sessions(
 
             # Get all user IDs for the current client for Redis cleanup
             client_user_ids = session.query(User.id).filter(
-                User.client_id == user.client_id
+                User.tenant_id == user.tenant_id
             ).all()
             user_ids_list = [user_id[0] for user_id in client_user_ids]
 
@@ -1105,7 +1105,7 @@ async def terminate_user_session(
                 User, UserSession.user_id == User.id
             ).filter(
                 UserSession.id == session_id,
-                User.client_id == user.client_id,
+                User.tenant_id == user.tenant_id,
                 UserSession.active == True
             ).first()
 
@@ -1140,7 +1140,7 @@ async def terminate_user_session(
                     'X-Internal-Auth': settings.ETL_INTERNAL_SECRET,
                     'Content-Type': 'application/json'
                 }
-                payload = { 'token_hash': token_hash, 'client_id': user.client_id }
+                payload = { 'token_hash': token_hash, 'tenant_id': user.tenant_id }
                 async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
                     resp = await client.post(etl_url, headers=headers, json=payload)
                     if resp.status_code != 200:
@@ -1226,14 +1226,14 @@ async def update_color_schema_mode(
         database = get_database()
         with database.get_write_session_context() as session:
             # ✅ SECURITY: Update color schema mode in clients table
-            client = session.query(Client).filter(
-                Client.id == user.client_id
+            client = session.query(Tenant).filter(
+                Tenant.id == user.tenant_id
             ).first()
 
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Update client's color schema mode
@@ -1243,7 +1243,7 @@ async def update_color_schema_mode(
             session.commit()
 
             # 🚀 NEW: Notify ETL service of color schema mode change
-            await notify_etl_color_schema_mode_change(user.client_id, request.mode)
+            await notify_etl_color_schema_mode_change(user.tenant_id, request.mode)
 
             return {
                 "success": True,
@@ -1282,24 +1282,24 @@ async def get_unified_color_schema(
             if mode and mode in ['default', 'custom']:
                 color_mode = mode
             else:
-                client = session.query(Client).filter(
-                    Client.id == user.client_id
+                client = session.query(Tenant).filter(
+                    Tenant.id == user.tenant_id
                 ).first()
                 color_mode = client.color_schema_mode if client else "default"
 
             # Get ALL color data for this client (all modes, themes, accessibility levels)
             # This provides complete color data for client-side filtering and prevents flashing
-            color_rows = session.query(ClientColorSettings).filter(
-                ClientColorSettings.client_id == user.client_id,
-                ClientColorSettings.active == True
+            color_rows = session.query(TenantColors).filter(
+                TenantColors.tenant_id == user.tenant_id,
+                TenantColors.active == True
             ).order_by(
-                ClientColorSettings.color_schema_mode,
-                ClientColorSettings.theme_mode,
-                ClientColorSettings.accessibility_level
+                TenantColors.color_schema_mode,
+                TenantColors.theme_mode,
+                TenantColors.accessibility_level
             ).all()
 
             if not color_rows:
-                logger.error(f"CRITICAL: No color rows found for client {user.client_id} - database integrity issue!")
+                logger.error(f"CRITICAL: No color rows found for client {user.tenant_id} - database integrity issue!")
 
             # Convert to array format expected by frontend
             color_data = []
@@ -1356,16 +1356,16 @@ async def update_unified_color_schema(
 
                 for accessibility_level in ['regular', 'AA', 'AAA']:
                     # Get or create the color settings row
-                    color_row = session.query(ClientColorSettings).filter(
-                        ClientColorSettings.client_id == user.client_id,
-                        ClientColorSettings.color_schema_mode == 'custom',
-                        ClientColorSettings.theme_mode == theme_mode,
-                        ClientColorSettings.accessibility_level == accessibility_level
+                    color_row = session.query(TenantColors).filter(
+                        TenantColors.tenant_id == user.tenant_id,
+                        TenantColors.color_schema_mode == 'custom',
+                        TenantColors.theme_mode == theme_mode,
+                        TenantColors.accessibility_level == accessibility_level
                     ).first()
 
                     if not color_row:
-                        color_row = ClientColorSettings(
-                            client_id=user.client_id,
+                        color_row = TenantColors(
+                            tenant_id=user.tenant_id,
                             color_schema_mode='custom',
                             theme_mode=theme_mode,
                             accessibility_level=accessibility_level
@@ -1473,8 +1473,8 @@ def darken_color_for_accessibility(hex_color: str, factor: float) -> str:
 # CLIENT MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@router.get("/clients", response_model=List[ClientResponse])
-async def get_all_clients(
+@router.get("/tenants", response_model=List[TenantResponse])
+async def get_all_tenants(
     skip: int = 0,
     limit: int = 100,
     user: User = Depends(require_authentication)
@@ -1483,54 +1483,54 @@ async def get_all_clients(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Only show the current user's client
-            clients = session.query(Client).filter(
-                Client.id == user.client_id
+            # ✅ SECURITY: Only show the current user's tenant
+            tenants = session.query(Tenant).filter(
+                Tenant.id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
-                ClientResponse(
-                    id=client.id,
-                    name=client.name,
-                    website=client.website,
-                    active=client.active,
-                    assets_folder=client.assets_folder,
-                    logo_filename=client.logo_filename
+                TenantResponse(
+                    id=tenant.id,
+                    name=tenant.name,
+                    website=tenant.website,
+                    active=tenant.active,
+                    assets_folder=tenant.assets_folder,
+                    logo_filename=tenant.logo_filename
                 )
-                for client in clients
+                for tenant in tenants
             ]
     except Exception as e:
-        logger.error(f"Error fetching clients: {e}")
+        logger.error(f"Error fetching tenants: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch clients"
         )
 
 
-@router.post("/clients", response_model=ClientResponse)
-async def create_client(
-    client_data: ClientCreateRequest,
+@router.post("/tenants", response_model=TenantResponse)
+async def create_tenant(
+    tenant_data: TenantCreateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
-    """Create a new client"""
+    """Create a new tenant"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # Check if client name already exists
-            existing_client = session.query(Client).filter(
-                Client.name == client_data.name
+            # Check if tenant name already exists
+            existing_tenant = session.query(Tenant).filter(
+                Tenant.name == tenant_data.name
             ).first()
 
-            if existing_client:
+            if existing_tenant:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Client with this name already exists"
+                    detail="Tenant with this name already exists"
                 )
 
             # Create new client
-            new_client = Client(
+            new_client = Tenant(
                 name=client_data.name,
                 website=client_data.website,
                 active=client_data.active if client_data.active is not None else True,
@@ -1543,7 +1543,7 @@ async def create_client(
 
             logger.info(f"Admin {admin_user.email} created client {new_client.name}")
 
-            return ClientResponse(
+            return TenantResponse(
                 id=new_client.id,
                 name=new_client.name,
                 website=new_client.website,
@@ -1562,35 +1562,35 @@ async def create_client(
         )
 
 
-@router.put("/clients/{client_id}", response_model=ClientResponse)
-async def update_client(
-    client_id: int,
-    client_data: ClientUpdateRequest,
+@router.put("/tenants/{tenant_id}", response_model=TenantResponse)
+async def update_tenant(
+    tenant_id: int,
+    tenant_data: TenantUpdateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "admin"))
 ):
-    """Update an existing client"""
+    """Update an existing tenant"""
     try:
         database = get_database()
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # Find the client to update
-            client_to_update = session.query(Client).filter(
-                Client.id == client_id
+            # Find the tenant to update
+            tenant_to_update = session.query(Tenant).filter(
+                Tenant.id == tenant_id
             ).first()
 
-            if not client_to_update:
+            if not tenant_to_update:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Update fields if provided
             if client_data.name is not None:
                 # Check if name is already taken by another client
-                existing_client = session.query(Client).filter(
-                    Client.name == client_data.name,
-                    Client.id != client_id
+                existing_client = session.query(Tenant).filter(
+                    Tenant.name == client_data.name,
+                    Tenant.id != tenant_id
                 ).first()
 
                 if existing_client:
@@ -1611,7 +1611,7 @@ async def update_client(
 
             logger.info(f"Admin {admin_user.email} updated client {client_to_update.name}")
 
-            return ClientResponse(
+            return TenantResponse(
                 id=client_to_update.id,
                 name=client_to_update.name,
                 website=client_to_update.website,
@@ -1622,16 +1622,16 @@ async def update_client(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating client {client_id}: {e}")
+        logger.error(f"Error updating client {tenant_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update client"
         )
 
 
-@router.delete("/clients/{client_id}")
-async def delete_client(
-    client_id: int,
+@router.delete("/tenants/{tenant_id}")
+async def delete_tenant(
+    tenant_id: int,
     admin_user: User = Depends(require_permission("admin_panel", "delete"))
 ):
     """Delete a client"""
@@ -1639,19 +1639,19 @@ async def delete_client(
         database = get_database()
         with database.get_write_session_context() as session:
             # Find the client to delete
-            client_to_delete = session.query(Client).filter(
-                Client.id == client_id
+            client_to_delete = session.query(Tenant).filter(
+                Tenant.id == tenant_id
             ).first()
 
             if not client_to_delete:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Check if there are users associated with this client
             user_count = session.query(User).filter(
-                User.client_id == client_id
+                User.tenant_id == tenant_id
             ).count()
 
             if user_count > 0:
@@ -1666,21 +1666,21 @@ async def delete_client(
 
             logger.info(f"Admin {admin_user.email} deleted client {client_to_delete.name}")
 
-            return {"message": f"Client {client_to_delete.name} deleted successfully"}
+            return {"message": f"Tenant {client_to_delete.name} deleted successfully"}
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting client {client_id}: {e}")
+        logger.error(f"Error deleting client {tenant_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete client"
         )
 
 
-@router.post("/clients/{client_id}/logo")
-async def upload_client_logo(
-    client_id: int,
+@router.post("/tenants/{tenant_id}/logo")
+async def upload_tenant_logo(
+    tenant_id: int,
     logo: UploadFile = File(...),
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
@@ -1692,14 +1692,14 @@ async def upload_client_logo(
             from pathlib import Path
 
             # Find the client
-            client = session.query(Client).filter(
-                Client.id == client_id
+            client = session.query(Tenant).filter(
+                Tenant.id == tenant_id
             ).first()
 
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Validate file type - only PNG files allowed
@@ -1753,7 +1753,7 @@ async def upload_client_logo(
                 "message": "Logo uploaded successfully",
                 "assets_folder": client.assets_folder,
                 "logo_filename": client.logo_filename,
-                "client_id": client_id
+                "tenant_id": tenant_id
             }
 
     except HTTPException:

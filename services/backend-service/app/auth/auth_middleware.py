@@ -30,7 +30,7 @@ class UserData:
         self.role = user_data.get("role")
         self.is_admin = user_data.get("is_admin", False)
         self.active = user_data.get("active", True)
-        self.client_id = user_data.get("client_id")
+        self.tenant_id = user_data.get("tenant_id")
         self.auth_provider = user_data.get("auth_provider", "centralized")
         self.theme_mode = user_data.get("theme_mode", "light")
 
