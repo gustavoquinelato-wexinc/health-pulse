@@ -178,15 +178,15 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, ai_model,
-                tenant_id, active, created_at, last_updated_at
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "jira", "data_source", jira_username, jira_password, jira_url,
             "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
-            tenant_id, jira_active
+            "jira.svg", tenant_id, jira_active
         ))
 
         jira_result = cursor.fetchone()
@@ -224,15 +224,15 @@ def apply(connection):
         cursor.execute("""
             INSERT INTO integrations (
                 provider, type, username, password, base_url, base_search, ai_model,
-                tenant_id, active, created_at, last_updated_at
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
             "github", "data_source", None, github_password, "https://api.github.com",
             "health-", None,
-            tenant_id, github_active
+            "github.svg", tenant_id, github_active
         ))
 
         github_result = cursor.fetchone()
