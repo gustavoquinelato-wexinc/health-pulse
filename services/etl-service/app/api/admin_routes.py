@@ -49,7 +49,7 @@ class IntegrationResponse(BaseModel):
     integration_type: str
     base_url: Optional[str] = None
     username: Optional[str] = None
-    model: Optional[str] = None  # AI model name
+    ai_model: Optional[str] = None  # AI model name
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     active: bool
     last_sync_at: Optional[str] = None
@@ -399,7 +399,7 @@ async def get_integrations(
                     integration_type=integration.provider or "Unknown",  # Using provider as type
                     base_url=integration.base_url,
                     username=integration.username,
-                    model=integration.model,  # Include AI model name
+                    ai_model=integration.ai_model,  # Include AI model name
                     logo_filename=integration.logo_filename,  # Include logo filename
                     active=integration.active,  # BaseEntity provides this field
                     last_sync_at=last_sync_at  # Get from etl_jobs.last_success_at
