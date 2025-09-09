@@ -133,6 +133,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         # Skip authentication for public routes
         if (path in self.PUBLIC_ROUTES or
             path.startswith("/static/") or
+            path.startswith("/assets/") or
             path.startswith("/.well-known/") or
             path.endswith(".ico") or
             path.endswith(".json")):
@@ -478,6 +479,11 @@ app.include_router(auth_web_router)
 
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Mount assets directory for integration logos and other assets
+assets_dir = Path(__file__).parent.parent / "assets"
+if assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
 # Root route is handled by web_router - redirects to login page

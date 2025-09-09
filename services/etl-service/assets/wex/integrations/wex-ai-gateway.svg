@@ -1,0 +1,7 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- WEX AI Gateway Logo -->
+  <rect width="48" height="48" rx="8" fill="#0066CC"/>
+  <circle cx="24" cy="18" r="6" fill="white"/>
+  <path d="M12 32 L24 26 L36 32 L24 38 Z" fill="white"/>
+  <text x="24" y="44" text-anchor="middle" fill="white" font-family="Arial" font-size="6" font-weight="bold">WEX AI</text>
+</svg>
