@@ -271,7 +271,7 @@ def apply(connection):
                 "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                 None, ai_model,
                 json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                "wex-ai-gateway.svg",
+                "",
                 tenant_id, True
             ))
 
@@ -298,7 +298,7 @@ def apply(connection):
                     "wex_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                     None, ai_fallback_model,
                     json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                    ai_gateway_integration_id, "wex-ai-gateway.svg",
+                    ai_gateway_integration_id, "",
                     tenant_id, True
                 ))
 
@@ -327,7 +327,7 @@ def apply(connection):
         """, (
             "wex_fabric", "data_warehouse", "wex_fabric_user", None, "https://fabric.wex.com",
             None, None,
-            "microsoft-fabric.svg",
+            "fabric.svg",
             tenant_id, False  # Inactive until implemented
         ))
 
@@ -353,7 +353,7 @@ def apply(connection):
         """, (
             "active_directory", "identity_provider", "wex_ad_user", None, "https://login.microsoftonline.com",
             None, None,
-            "microsoft-ad.svg",
+            "ad.svg",
             tenant_id, False  # Inactive until implemented
         ))
 
