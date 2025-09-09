@@ -326,14 +326,7 @@
         color: var(--status-info);
     }
 
-    /* GitHub icon background - responsive to theme */
-    .github-icon-bg {
-        background-color: rgba(0, 0, 0, 0.15) !important; /* Light mode: black with opacity */
-    }
 
-    [data-theme="dark"] .github-icon-bg {
-        background-color: rgba(255, 255, 255, 0.15) !important; /* Dark mode: white with opacity */
-    }
 
     /* Simple inactive job card styling - no grayscale, just visual indication */
     .job-card-inactive {
@@ -440,25 +433,7 @@
         color: var(--text-muted);
     }
 
-    /* Jira icon background - lighter blue for both themes */
-    .jira-icon-bg {
-        background-color: rgba(66, 165, 245, 0.2) !important; /* Light blue with opacity - good for both modes */
-    }
 
-    /* Microsoft Fabric icon background - Microsoft blue */
-    .fabric-icon-bg {
-        background-color: rgba(0, 120, 212, 0.2) !important; /* Microsoft blue with opacity */
-    }
-
-    /* Active Directory icon background - Microsoft blue variant */
-    .ad-icon-bg {
-        background-color: rgba(0, 120, 212, 0.15) !important; /* Slightly lighter Microsoft blue */
-    }
-
-    /* Default icon background for unknown integration types */
-    .default-icon-bg {
-        background-color: rgba(107, 114, 128, 0.2) !important; /* Gray with opacity */
-    }
 
     /* Orchestrator Control Buttons - Force Uniform Sizing */
     #forceStartOrchestratorBtn,
@@ -1051,6 +1026,7 @@
                     status: jobCard.status,
                     last_sync: jobCard.last_sync,
                     integration_type: jobCard.integration_type,
+                    integration_logo_filename: jobCard.integration_logo_filename,
                     execution_order: jobCard.execution_order,
                     active: jobCard.active,
                     last_run_started_at: jobCard.last_run_started_at,
@@ -1129,37 +1105,16 @@
 
         // Use integration_type from API response to determine icon and styling
         const integrationType = jobData.integration_type || 'unknown';
+        const integrationLogoFilename = jobData.integration_logo_filename;
         let jobIcon, jobIconClass, jobColor;
 
         // Use the actual job_name from database as the title, converted to uppercase
         const jobTitle = jobName.toUpperCase();
 
-        switch (integrationType) {
-            case 'jira':
-                jobIcon = 'atlassian';
-                jobIconClass = 'fab';
-                jobColor = '#0052CC';
-                break;
-            case 'github':
-                jobIcon = 'github';
-                jobIconClass = 'fab';
-                jobColor = '#000000';
-                break;
-            case 'wex_fabric':
-                jobIcon = 'database';
-                jobIconClass = 'fas';
-                jobColor = '#0078D4';
-                break;
-            case 'active_directory':
-                jobIcon = 'users';
-                jobIconClass = 'fas';
-                jobColor = '#0078D4';
-                break;
-            default:
-                jobIcon = 'cog';
-                jobIconClass = 'fas';
-                jobColor = '#6B7280';
-        }
+        // Check if we have a custom logo for this integration
+        const tenantName = '{{ tenant_name|lower }}' || 'wex';
+        const hasCustomLogo = integrationLogoFilename && integrationLogoFilename.trim() !== '';
+        const logoPath = hasCustomLogo ? `/static/assets/${tenantName}/integrations/${integrationLogoFilename}` : null;
 
         card.innerHTML = `
             <!-- Job Title with Icon on Left and Status -->
@@ -1167,8 +1122,11 @@
                 <div class="flex items-center justify-between mb-3">
                     <div class="flex items-center space-x-3">
                         <!-- Icon with background on left - bigger size -->
-                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative ${getIntegrationIconBgClass(integrationType)}">
-                            <i class="${jobIconClass} fa-${jobIcon} text-base" style="color: ${jobColor};"></i>
+                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative" style="background-color: rgba(var(--color-1-rgb), 0.1);">
+                            ${hasCustomLogo ?
+                                `<img src="${logoPath}" alt="${jobTitle}" class="w-6 h-6 object-contain">` :
+                                `<div class="w-6 h-6 rounded" style="background-color: rgba(var(--color-1-rgb), 0.3);"></div>`
+                            }
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
                     </div>
@@ -1716,15 +1674,7 @@
         }
     }
 
-    function getIntegrationIconBgClass(integrationType) {
-        switch (integrationType) {
-            case 'jira': return 'jira-icon-bg';
-            case 'github': return 'github-icon-bg';
-            case 'wex_fabric': return 'fabric-icon-bg';
-            case 'active_directory': return 'ad-icon-bg';
-            default: return 'default-icon-bg';
-        }
-    }
+
 
     function getStatusDotClass(status) {
         switch (status) {

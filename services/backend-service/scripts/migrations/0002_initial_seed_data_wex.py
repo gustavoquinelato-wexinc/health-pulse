@@ -193,7 +193,7 @@ def apply(connection):
         if jira_result:
             jira_integration_id = jira_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE name = 'JIRA' AND tenant_id = %s;", (tenant_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'jira' AND tenant_id = %s;", (tenant_id,))
             jira_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ JIRA integration created (ID: {jira_integration_id}, active: {jira_active})")
@@ -269,7 +269,7 @@ def apply(connection):
                 "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                 None, ai_model,
                 json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                "",
+                "wex-ai-gateway.svg",
                 tenant_id, True
             ))
 
@@ -296,7 +296,7 @@ def apply(connection):
                     "wex_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
                     None, ai_fallback_model,
                     json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                    ai_gateway_integration_id, "",
+                    ai_gateway_integration_id, "wex-ai-gateway-fallback.svg",
                     tenant_id, True
                 ))
 

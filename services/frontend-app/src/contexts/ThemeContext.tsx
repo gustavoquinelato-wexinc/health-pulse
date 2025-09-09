@@ -191,6 +191,25 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     root.style.setProperty('--color-4', colors.color4, priority)
     root.style.setProperty('--color-5', colors.color5, priority)
 
+    // Helper function to convert hex to RGB values
+    const hexToRgb = (hex: string) => {
+      try {
+        const h = hex.replace('#', '')
+        const r = parseInt(h.slice(0, 2), 16)
+        const g = parseInt(h.slice(2, 4), 16)
+        const b = parseInt(h.slice(4, 6), 16)
+        return `${r}, ${g}, ${b}`
+      } catch {
+        return '0, 0, 0' // Fallback to black
+      }
+    }
+
+    // Set RGB versions for rgba() usage (needed for job icons and other components)
+    root.style.setProperty('--color-1-rgb', hexToRgb(colors.color1), priority)
+    root.style.setProperty('--color-2-rgb', hexToRgb(colors.color2), priority)
+    root.style.setProperty('--color-3-rgb', hexToRgb(colors.color3), priority)
+    root.style.setProperty('--color-4-rgb', hexToRgb(colors.color4), priority)
+    root.style.setProperty('--color-5-rgb', hexToRgb(colors.color5), priority)
 
     // Calculate and apply on-colors
     const calculateOnColor = (hex: string) => {
@@ -430,6 +449,26 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     root.style.setProperty('--color-3', activeColors.color3)
     root.style.setProperty('--color-4', activeColors.color4)
     root.style.setProperty('--color-5', activeColors.color5)
+
+    // Helper function to convert hex to RGB values
+    const hexToRgb = (hex: string) => {
+      try {
+        const h = hex.replace('#', '')
+        const r = parseInt(h.slice(0, 2), 16)
+        const g = parseInt(h.slice(2, 4), 16)
+        const b = parseInt(h.slice(4, 6), 16)
+        return `${r}, ${g}, ${b}`
+      } catch {
+        return '0, 0, 0' // Fallback to black
+      }
+    }
+
+    // Set RGB versions for rgba() usage (needed for job icons and other components)
+    root.style.setProperty('--color-1-rgb', hexToRgb(activeColors.color1))
+    root.style.setProperty('--color-2-rgb', hexToRgb(activeColors.color2))
+    root.style.setProperty('--color-3-rgb', hexToRgb(activeColors.color3))
+    root.style.setProperty('--color-4-rgb', hexToRgb(activeColors.color4))
+    root.style.setProperty('--color-5-rgb', hexToRgb(activeColors.color5))
 
     // Compute on-colors from the active palette so UI updates immediately after changes
     const pickOn = (hex: string) => {

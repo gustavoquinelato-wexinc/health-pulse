@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 interface FilterOptions {
   team: string[]
   project_key: string[]
-  issuetype_to: string[]
+  wit_to: string[]
   aha_initiative: string[]
   aha_project_code: string[]
   aha_milestone: string[]
@@ -16,7 +16,7 @@ interface DoraFilterToolbarProps {
   filters?: {
     team?: string
     project_key?: string
-    issuetype_to?: string
+    wit_to?: string
     aha_initiative?: string
     aha_project_code?: string
     aha_milestone?: string
@@ -44,7 +44,7 @@ export default function DoraFilterToolbar({
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     team: [],
     project_key: [],
-    issuetype_to: [],
+    wit_to: [],
     aha_initiative: [],
     aha_project_code: [],
     aha_milestone: []
@@ -123,11 +123,11 @@ export default function DoraFilterToolbar({
             disabled={disabled || loading}
           >
             <option value="">All Projects</option>
-            {filterOptions.project_key.map((key) => (
+            {filterOptions.project_key?.map((key) => (
               <option key={key} value={key}>
                 {key}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
         {/* 3. Team */}
@@ -140,11 +140,11 @@ export default function DoraFilterToolbar({
             disabled={disabled || loading}
           >
             <option value="">All Teams</option>
-            {filterOptions.team.map((team) => (
+            {filterOptions.team?.map((team) => (
               <option key={team} value={team}>
                 {team}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
         {/* 4. WorkItem Type */}
@@ -152,16 +152,16 @@ export default function DoraFilterToolbar({
           <label className="text-xs text-secondary mb-1">WorkItem Type</label>
           <select
             className="bg-primary border border-default rounded px-2 py-2 text-sm"
-            value={filters.issuetype_to || ''}
-            onChange={(e) => handleFilterChange('issuetype_to', e.target.value)}
+            value={filters.wit_to || ''}
+            onChange={(e) => handleFilterChange('wit_to', e.target.value)}
             disabled={disabled || loading}
           >
             <option value="">All Types</option>
-            {filterOptions.issuetype_to.map((type) => (
+            {filterOptions.wit_to?.map((type) => (
               <option key={type} value={type}>
                 {type}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
         {/* 5. Aha Initiative */}
@@ -174,11 +174,11 @@ export default function DoraFilterToolbar({
             disabled={disabled || loading}
           >
             <option value="">All Initiatives</option>
-            {filterOptions.aha_initiative.map((initiative) => (
+            {filterOptions.aha_initiative?.map((initiative) => (
               <option key={initiative} value={initiative}>
                 {initiative}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
         {/* 6. Aha Milestone */}
@@ -191,11 +191,11 @@ export default function DoraFilterToolbar({
             disabled={disabled || loading}
           >
             <option value="">All Milestones</option>
-            {filterOptions.aha_milestone.map((milestone) => (
+            {filterOptions.aha_milestone?.map((milestone) => (
               <option key={milestone} value={milestone}>
                 {milestone}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
         {/* 7. Aha Project Code */}
@@ -208,11 +208,11 @@ export default function DoraFilterToolbar({
             disabled={disabled || loading}
           >
             <option value="">All Project Codes</option>
-            {filterOptions.aha_project_code.map((code) => (
+            {filterOptions.aha_project_code?.map((code) => (
               <option key={code} value={code}>
                 {code}
               </option>
-            ))}
+            )) || []}
           </select>
         </div>
       </div>

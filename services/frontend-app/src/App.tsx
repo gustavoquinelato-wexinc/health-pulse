@@ -1,6 +1,6 @@
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import AdminRoute from './components/AdminRoute'
-import TenantErrorBoundary from './components/TenantErrorBoundary'
+import TenantErrorBoundary from './components/ClientErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'

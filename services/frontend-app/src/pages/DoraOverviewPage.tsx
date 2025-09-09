@@ -18,7 +18,7 @@ export default function DoraOverviewPage() {
   const [filters, setFilters] = useState({
     team: '',
     project_key: '',
-    issuetype_to: '',
+    wit_to: '',
     status_to: '',
     aha_initiative: '',
     aha_project_code: '',

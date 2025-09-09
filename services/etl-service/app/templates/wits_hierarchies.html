@@ -387,12 +387,12 @@ async function confirmPauseHierarchy() {
     try {
         const moveToId = document.getElementById('moveToHierarchy').value;
         const data = {
-            active: false,
-            move_to_hierarchy_id: moveToId || null
+            action: moveToId ? "reassign_mappings" : "keep_mappings",
+            target_hierarchy_id: moveToId ? parseInt(moveToId) : null
         };
 
-        const response = await fetch(`/api/v1/admin/wits-hierarchies/${currentHierarchyId}`, {
-            method: 'PUT',
+        const response = await fetch(`/api/v1/admin/wits-hierarchies/${currentHierarchyId}/deactivate`, {
+            method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -416,15 +416,9 @@ async function confirmPauseHierarchy() {
 
 async function resumeHierarchy(id) {
     try {
-        const data = { active: true };
-
-        const response = await fetch(`/api/v1/admin/wits-hierarchies/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include',
-            body: JSON.stringify(data)
+        const response = await fetch(`/api/v1/admin/wits-hierarchies/${id}/activate`, {
+            method: 'PATCH',
+            credentials: 'include'
         });
 
         if (response.ok) {

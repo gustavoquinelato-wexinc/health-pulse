@@ -1184,13 +1184,39 @@ async def integrations_page(request: Request):
                                 if theme_data.get('success'):
                                     theme_mode = theme_data.get('mode', 'light')
 
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                            # Process unified color data (same as home page)
+                            color_data = data.get("color_data", [])
+                            color_schema_mode = data.get("color_schema_mode", "default")
+
+                            # Filter by color_schema_mode to get the correct colors
+                            light_regular = next((c for c in color_data if
+                                                c.get('color_schema_mode') == color_schema_mode and
+                                                c.get('theme_mode') == 'light' and
+                                                c.get('accessibility_level') == 'regular'), None)
+                            dark_regular = next((c for c in color_data if
+                                               c.get('color_schema_mode') == color_schema_mode and
+                                               c.get('theme_mode') == 'dark' and
+                                               c.get('accessibility_level') == 'regular'), None)
+
+                            # Use colors based on current theme
+                            current_colors = light_regular if theme_mode == 'light' else dark_regular
+                            if not current_colors:
+                                current_colors = light_regular or dark_regular  # fallback
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 

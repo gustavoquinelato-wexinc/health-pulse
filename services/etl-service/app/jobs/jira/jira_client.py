@@ -79,7 +79,7 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         params=params,
-                        headers=headers,
+                        headers={**headers, 'Accept-Charset': 'utf-8'},
                         timeout=30
                     )
 
@@ -292,7 +292,11 @@ class JiraAPIClient:
                         url,
                         auth=(self.username, self.token),
                         json=request_body,
-                        headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        headers={
+                            'Content-Type': 'application/json; charset=utf-8',
+                            'Accept': 'application/json',
+                            'Accept-Charset': 'utf-8'
+                        },
                         timeout=60  # Increased timeout for large data requests
                     )
                     response.raise_for_status()
@@ -418,7 +422,10 @@ class JiraAPIClient:
                         url,
                         params=params,
                         auth=(self.username, self.token),
-                        headers={'Accept': 'application/json'},
+                        headers={
+                            'Accept': 'application/json',
+                            'Accept-Charset': 'utf-8'
+                        },
                         timeout=30
                     )
 

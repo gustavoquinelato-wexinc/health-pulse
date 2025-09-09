@@ -224,10 +224,10 @@ class ClientLogger {
     }
 
     /**
-     * Update client context (call when user logs in/out)
+     * Update tenant context (call when user logs in/out)
      */
-    updateClientContext() {
-        this.initializeClientContext();
+    updateTenantContext() {
+        this.initializeTenantContext();
     }
 }
 

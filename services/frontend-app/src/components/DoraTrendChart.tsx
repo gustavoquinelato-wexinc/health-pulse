@@ -50,7 +50,7 @@ interface DoraTrendChartProps {
   filters?: {
     team?: string
     project_key?: string
-    issuetype_to?: string
+    wit_to?: string
     status_to?: string
     aha_initiative?: string
     aha_project_code?: string

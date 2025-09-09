@@ -62,6 +62,7 @@ class JobCardResponse(BaseModel):
     job_name: str
     execution_order: int
     integration_type: Optional[str] = None
+    integration_logo_filename: Optional[str] = None
     active: bool
     last_sync: Optional[str] = None
     status: str  # 'pending', 'running', 'connected', 'error', 'inactive'
@@ -267,6 +268,7 @@ async def get_job_cards(
                 try:
                     # Get integration info if job has one
                     integration_type = None
+                    integration_logo_filename = None
                     integration_active = True
 
                     if job.integration_id:
@@ -275,6 +277,7 @@ async def get_job_cards(
                         ).first()
                         if integration:
                             integration_type = integration.provider
+                            integration_logo_filename = integration.logo_filename
                             integration_active = integration.active
 
                     # Always use actual database status values
@@ -292,6 +295,7 @@ async def get_job_cards(
                         job_name=job.job_name,
                         execution_order=job.execution_order,
                         integration_type=integration_type,
+                        integration_logo_filename=integration_logo_filename,
                         active=job.active,  # Use job.active from job_schedules table, not integration.active
                         last_sync=last_sync,
                         status=status_value,
@@ -308,6 +312,7 @@ async def get_job_cards(
                         job_name=job.job_name,
                         execution_order=job.execution_order or 999,
                         integration_type="Unknown",
+                        integration_logo_filename=None,
                         active=False,
                         last_sync=None,
                         status="error"

@@ -69,22 +69,22 @@ export default function Header() {
       const token = getAuthToken()
       if (!token) return
 
-      const response = await axios.get('/api/v1/admin/clients', {
+      const response = await axios.get('/api/v1/admin/tenants', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
 
-      // Assuming the API returns the current user's client (should be filtered by backend)
+      // Assuming the API returns the current user's tenant (should be filtered by backend)
       if (response.data && response.data.length > 0) {
         setCurrentTenant(response.data[0])
       }
     } catch (error) {
-      console.error('Failed to fetch client information:', error)
+      console.error('Failed to fetch tenant information:', error)
     }
   }
 
-  // Load client data when component mounts or user changes
+  // Load tenant data when component mounts or user changes
   useEffect(() => {
     if (user) {
       fetchCurrentTenant()
@@ -95,8 +95,8 @@ export default function Header() {
   // Listen for logo update events
   useEffect(() => {
     const handleLogoUpdate = (event: CustomEvent) => {
-      const { clientId, assets_folder, logo_filename } = event.detail
-      if (currentTenant && currentTenant.id === clientId) {
+      const { tenantId, assets_folder, logo_filename } = event.detail
+      if (currentTenant && currentTenant.id === tenantId) {
         setCurrentTenant(prev => prev ? {
           ...prev,
           assets_folder,

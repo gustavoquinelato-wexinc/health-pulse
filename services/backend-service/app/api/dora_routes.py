@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 async def lead_time_trend(
     team: Optional[str] = None,
     project_key: Optional[str] = None,
-    issuetype_to: Optional[str] = None,
+    wit_to: Optional[str] = None,
     aha_initiative: Optional[str] = None,
     aha_project_code: Optional[str] = None,
     aha_milestone: Optional[str] = None,
@@ -85,7 +85,7 @@ async def lead_time_trend(
                 AND i.work_last_completed_at >= NOW() - INTERVAL '365 days'
                 AND EXISTS (
                     SELECT 1
-                    FROM jira_pull_request_links jprl
+                    FROM wits_prs_links jprl
                     WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here
@@ -110,9 +110,9 @@ async def lead_time_trend(
             if project_key:
                 where_conditions.append("AND p.key ILIKE :project_key")
                 params['project_key'] = f'%{project_key}%'
-            if issuetype_to:
-                where_conditions.append("AND im.issuetype_to = :issuetype_to")
-                params['issuetype_to'] = issuetype_to
+            if wit_to:
+                where_conditions.append("AND im.wit_to = :wit_to")
+                params['wit_to'] = wit_to
             if aha_initiative:
                 where_conditions.append("AND i.custom_field_02 ILIKE :aha_initiative")
                 params['aha_initiative'] = f'%{aha_initiative}%'
@@ -176,7 +176,7 @@ async def lead_time_trend(
                 'filters_applied': {
                     'team': team,
                     'project_key': project_key,
-                    'issuetype_to': issuetype_to,
+                    'wit_to': wit_to,
                     'aha_initiative': aha_initiative,
                     'aha_project_code': aha_project_code,
                     'aha_milestone': aha_milestone,
@@ -283,7 +283,7 @@ async def lead_time_metrics(
             if project_key:
                 query = query.filter(Project.key.ilike(f'%{project_key}%'))
             if issue_type:
-                query = query.filter(WitMapping.issuetype_to == issue_type)
+                query = query.filter(WitMapping.wit_to == issue_type)
             if priority:
                 query = query.filter(WorkItem.priority.ilike(f'%{priority}%'))
             if assignee:
@@ -317,8 +317,8 @@ async def lead_time_metrics(
                     'issue_key': row.issue_key,
                     'project_key': row.project_key,
                     'team': row.team,
-                    'issuetype_from': row.issuetype_from,
-                    'issuetype_to': row.issuetype_to,
+                    'wit_from': row.wit_from,
+                    'wit_to': row.wit_to,
                     'status_to': row.status_to,
                     'story_points': row.story_points,
                     'priority': row.priority,
@@ -439,7 +439,7 @@ async def get_filter_options(
             # Extract distinct values for each field
             teams = sorted(list(set(row.team for row in results if row.team)))
             project_keys = sorted(list(set(row.project_key for row in results if row.project_key)))
-            issue_types = sorted(list(set(row.issuetype_to for row in results if row.issuetype_to)))
+            issue_types = sorted(list(set(row.wit_to for row in results if row.wit_to)))
             aha_initiatives = sorted(list(set(row.aha_initiative for row in results if row.aha_initiative)))
             aha_project_codes = sorted(list(set(row.aha_project_code for row in results if row.aha_project_code)))
             aha_milestones = sorted(list(set(row.aha_milestone for row in results if row.aha_milestone)))
@@ -448,7 +448,7 @@ async def get_filter_options(
                 'filter_options': {
                     'team': teams,
                     'project_key': project_keys,
-                    'issuetype_to': issue_types,
+                    'wit_to': issue_types,
                     'aha_initiative': aha_initiatives,
                     'aha_project_code': aha_project_codes,
                     'aha_milestone': aha_milestones

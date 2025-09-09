@@ -52,6 +52,26 @@
               root.setProperty('--color-3', targetColors.color3);
               root.setProperty('--color-4', targetColors.color4);
               root.setProperty('--color-5', targetColors.color5);
+
+              // Helper function to convert hex to RGB values
+              function hexToRgb(hex) {
+                try {
+                  var h = hex.replace('#', '');
+                  var r = parseInt(h.slice(0, 2), 16);
+                  var g = parseInt(h.slice(2, 4), 16);
+                  var b = parseInt(h.slice(4, 6), 16);
+                  return r + ', ' + g + ', ' + b;
+                } catch (e) {
+                  return '0, 0, 0'; // Fallback to black
+                }
+              }
+
+              // Set RGB versions for rgba() usage (needed for job icons and other components)
+              root.setProperty('--color-1-rgb', hexToRgb(targetColors.color1));
+              root.setProperty('--color-2-rgb', hexToRgb(targetColors.color2));
+              root.setProperty('--color-3-rgb', hexToRgb(targetColors.color3));
+              root.setProperty('--color-4-rgb', hexToRgb(targetColors.color4));
+              root.setProperty('--color-5-rgb', hexToRgb(targetColors.color5));
             }
           } catch (e) {
             // Silently handle parsing errors

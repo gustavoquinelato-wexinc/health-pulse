@@ -737,6 +737,13 @@ async def upload_integration_logo(
                     detail="File size must be less than 5MB"
                 )
 
+            # Validate filename
+            if not logo.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File must have a valid filename"
+                )
+
             # Get tenant information to determine assets folder
             tenant = session.query(Tenant).filter(
                 Tenant.id == user.tenant_id
@@ -751,21 +758,31 @@ async def upload_integration_logo(
             # Use tenant name (lowercase) as folder name if assets_folder not set
             tenant_folder = tenant.assets_folder or tenant.name.lower()
 
-            # Create the integrations directory path
-            static_dir = Path(__file__).parent.parent / "static" / "assets" / tenant_folder / "integrations"
-            static_dir.mkdir(parents=True, exist_ok=True)
+            # Create the integrations directory path (assets are served from /static/assets/ path)
+            assets_dir = Path(__file__).parent.parent.parent / "static" / "assets" / tenant_folder / "integrations"
+            assets_dir.mkdir(parents=True, exist_ok=True)
 
             # Generate filename (use original filename or create one based on integration)
             file_extension = Path(logo.filename).suffix if logo.filename else '.svg'
             if not file_extension:
                 file_extension = '.svg'  # Default to SVG
 
-            # Use integration provider name as base filename
-            base_filename = integration.provider.lower().replace('_', '-')
+            # Use integration provider name as base filename (clean and user-friendly)
+            base_filename = integration.provider.lower().replace('_', '-').replace(' ', '-')
+
+            # Check if file already exists and remove it to avoid conflicts
             filename = f"{base_filename}{file_extension}"
+            file_path = assets_dir / filename
+
+
+
+            if file_path.exists():
+                file_path.unlink()  # Remove existing file
+                logger.info(f"Removed existing logo file: {file_path}")
 
             # Save the file
-            file_path = static_dir / filename
+
+
             with open(file_path, "wb") as buffer:
                 content = await logo.read()
                 buffer.write(content)
@@ -775,7 +792,7 @@ async def upload_integration_logo(
             integration.last_updated_at = datetime.utcnow()
             session.commit()
 
-            logger.info(f"Admin {user.email} uploaded logo for integration {integration.provider}")
+            logger.info(f"Admin {user.email} uploaded logo for integration {integration.provider} -> {filename}")
 
             return {
                 "message": "Logo uploaded successfully",

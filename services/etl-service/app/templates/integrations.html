@@ -188,6 +188,14 @@ select option {
 <script>
 let integrations = [];
 
+// Function to show fallback icon when image fails to load
+function showFallbackIcon(imgElement) {
+    const iconElement = document.createElement('i');
+    iconElement.className = 'fas fa-plug text-lg';
+    iconElement.style.color = 'var(--text-muted)';
+    imgElement.parentNode.replaceChild(iconElement, imgElement);
+}
+
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadIntegrations();
@@ -271,7 +279,7 @@ async function loadIntegrations() {
         });
         if (response.ok) {
             integrations = await response.json();
-            console.log('Integrations loaded:', integrations);
+
             renderIntegrationsTable();
         } else {
             showError('Failed to load integrations');
@@ -301,16 +309,14 @@ function renderIntegrationsTable() {
         row.className = 'border-b hover:bg-gray-50';
         row.style.borderColor = 'var(--border-color)';
         
-        // Construct logo path: /assets/{tenant_name}/integrations/{logo_filename}
+        // Construct logo path: /static/assets/{tenant_name}/integrations/{logo_filename}
         const tenantName = '{{ tenant_name|lower }}' || 'wex';  // Get tenant name from template context
         const hasLogo = integration.logo_filename && integration.logo_filename.trim() !== '';
-        const logoPath = hasLogo ? `/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
+        const logoPath = hasLogo ? `/static/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
 
-        // Debug logging
-        console.log(`Integration: ${integration.name}, logo_filename: "${integration.logo_filename}", hasLogo: ${hasLogo}, logoPath: ${logoPath}`);
+
         const logoHtml = hasLogo ?
-            `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
-             <i class="fas fa-plug text-lg hidden" style="color: var(--text-muted);"></i>` :
+            `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="showFallbackIcon(this)">` :
             `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
         
         row.innerHTML = `
@@ -446,6 +452,7 @@ async function saveIntegration() {
     let logoFilename = formData.get('logo_filename') || null; // Current filename
     const logoFile = formData.get('logo_file');
 
+
     // Parse JSON fields for AI providers
     let modelConfig = null;
     let providerMetadata = null;
@@ -519,6 +526,7 @@ async function saveIntegration() {
                     // Get the integration ID (either from existing ID or from creation response)
                     const integrationId = id || result.id;
 
+
                     if (integrationId) {
                         const uploadFormData = new FormData();
                         uploadFormData.append('logo', logoFile);
@@ -534,8 +542,12 @@ async function saveIntegration() {
                             showSuccess(`Integration ${id ? 'updated' : 'created'} and logo uploaded successfully!`);
                         } else {
                             const uploadError = await uploadResponse.json();
+                            console.error('Upload failed:', uploadError);
                             showError(`Integration saved but logo upload failed: ${uploadError.detail}`);
                         }
+                    } else {
+                        console.error('No integration ID available for logo upload');
+                        showError('Integration saved but logo upload failed: No integration ID');
                     }
                 } catch (uploadError) {
                     console.error('Error uploading logo:', uploadError);
@@ -562,15 +574,11 @@ async function saveIntegration() {
 async function pauseIntegration(id) {
     if (confirm('Are you sure you want to pause this integration?')) {
         try {
-            const response = await fetch(`/api/v1/admin/integrations/${id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({ active: false })
+            const response = await fetch(`/api/v1/admin/integrations/${id}/deactivate`, {
+                method: 'PATCH',
+                credentials: 'include'
             });
-            
+
             if (response.ok) {
                 loadIntegrations();
                 showSuccess('Integration paused successfully');
@@ -586,15 +594,11 @@ async function pauseIntegration(id) {
 
 async function resumeIntegration(id) {
     try {
-        const response = await fetch(`/api/v1/admin/integrations/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include',
-            body: JSON.stringify({ active: true })
+        const response = await fetch(`/api/v1/admin/integrations/${id}/activate`, {
+            method: 'PATCH',
+            credentials: 'include'
         });
-        
+
         if (response.ok) {
             loadIntegrations();
             showSuccess('Integration resumed successfully');

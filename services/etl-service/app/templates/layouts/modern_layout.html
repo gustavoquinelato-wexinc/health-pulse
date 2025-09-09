@@ -131,6 +131,26 @@
                         root.style.setProperty('--color-4', colors.color4);
                         root.style.setProperty('--color-5', colors.color5);
 
+                        // Helper function to convert hex to RGB values
+                        function hexToRgb(hex) {
+                            try {
+                                const h = hex.replace('#', '');
+                                const r = parseInt(h.slice(0, 2), 16);
+                                const g = parseInt(h.slice(2, 4), 16);
+                                const b = parseInt(h.slice(4, 6), 16);
+                                return r + ', ' + g + ', ' + b;
+                            } catch (e) {
+                                return '0, 0, 0'; // Fallback to black
+                            }
+                        }
+
+                        // Set RGB versions for rgba() usage (needed for job icons and other components)
+                        root.style.setProperty('--color-1-rgb', hexToRgb(colors.color1));
+                        root.style.setProperty('--color-2-rgb', hexToRgb(colors.color2));
+                        root.style.setProperty('--color-3-rgb', hexToRgb(colors.color3));
+                        root.style.setProperty('--color-4-rgb', hexToRgb(colors.color4));
+                        root.style.setProperty('--color-5-rgb', hexToRgb(colors.color5));
+
                         // Set gradient variables
                         root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${colors.color1} 0%, ${colors.color2} 100%)`);
                         root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${colors.color2} 0%, ${colors.color3} 100%)`);

@@ -109,7 +109,7 @@ export default function CollapsedSidebar() {
   const handleMouseEnter = (e: React.MouseEvent, item: any) => {
     clearHoverTimeout()
 
-    const rect = e.currentTarget.getBoundingTenantRect()
+    const rect = e.currentTarget.getBoundingClientRect()
     const viewportHeight = window.innerHeight
     const submenuHeight = item.subItems ? (item.subItems.length * 40 + 60) : 40 // Estimate submenu height
 
