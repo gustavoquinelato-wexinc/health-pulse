@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, distinct
 from app.core.database import get_db_session
 from app.models.unified_models import (
-    JobSchedule, Project, Issuetype, Status, Issue, IssueChangelog, JiraPullRequestLinks
+    JobSchedule, Project, Wit, Status, WorkItem, Changelog, WitPrLinks
 )
 from app.schemas.api_schemas import (
     JobRunRequest, JobRunResponse, JobStatusResponse, JobStatus
@@ -46,10 +46,10 @@ async def run_jira_job(
     """
     try:
         # Get or create Jira job schedule
-        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+        # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
         jira_job = db.query(JobSchedule).filter(
             JobSchedule.job_name == 'jira_sync',
-            JobSchedule.client_id == user.client_id
+            JobSchedule.tenant_id == user.tenant_id
         ).first()
 
         if not jira_job:
@@ -102,10 +102,10 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db_session), use
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid job ID format")
 
-    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
     job = db.query(JobSchedule).filter(
         JobSchedule.id == job_id_int,
-        JobSchedule.client_id == user.client_id
+        JobSchedule.tenant_id == user.tenant_id
     ).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -143,9 +143,9 @@ async def get_latest_job_status(db: Session = Depends(get_db_session), user: Use
         JobStatusResponse: Latest job status
     """
     # Get the most recently started job
-    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
     latest_job = db.query(JobSchedule).filter(
-        JobSchedule.client_id == user.client_id
+        JobSchedule.tenant_id == user.tenant_id
     ).order_by(
         desc(JobSchedule.last_run_started_at)
     ).first()
@@ -173,10 +173,10 @@ async def stop_job(job_id: str, db: Session = Depends(get_db_session), user: Use
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid job ID format")
 
-    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
     job = db.query(JobSchedule).filter(
         JobSchedule.id == job_id_int,
-        JobSchedule.client_id == user.client_id
+        JobSchedule.tenant_id == user.tenant_id
     ).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -221,10 +221,10 @@ async def run_github_job(
     """
     try:
         # Get or create GitHub job schedule
-        # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+        # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
         github_job = db.query(JobSchedule).filter(
             JobSchedule.job_name == 'github_sync',
-            JobSchedule.client_id == user.client_id
+            JobSchedule.tenant_id == user.tenant_id
         ).first()
 
         if not github_job:
@@ -271,10 +271,10 @@ async def list_all_jobs(db: Session = Depends(get_db_session), user: UserData = 
     Returns:
         dict: List of all jobs with their status
     """
-    # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+    # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
     jobs = db.query(JobSchedule).filter(
         JobSchedule.active == True,
-        JobSchedule.client_id == user.client_id
+        JobSchedule.tenant_id == user.tenant_id
     ).all()
 
     job_list = []
@@ -322,10 +322,10 @@ async def get_jira_summary(
             "tables": {}
         }
 
-        # ✅ SECURITY: Projects summary filtered by client_id
-        projects_count = db.query(func.count(Project.id)).filter(Project.client_id == user.client_id).scalar() or 0
+        # ✅ SECURITY: Projects summary filtered by tenant_id
+        projects_count = db.query(func.count(Project.id)).filter(Project.tenant_id == user.tenant_id).scalar() or 0
         active_projects = db.query(func.count(Project.id)).filter(
-            Project.client_id == user.client_id,
+            Project.tenant_id == user.tenant_id,
             Project.active == True
         ).scalar() or 0
 
@@ -335,11 +335,11 @@ async def get_jira_summary(
             "inactive_count": projects_count - active_projects
         }
 
-        # ✅ SECURITY: Issue types summary filtered by client_id
-        issuetypes_count = db.query(func.count(Issuetype.id)).filter(Issuetype.client_id == user.client_id).scalar() or 0
-        active_issuetypes = db.query(func.count(Issuetype.id)).filter(
-            Issuetype.client_id == user.client_id,
-            Issuetype.active == True
+        # ✅ SECURITY: WorkItem types summary filtered by tenant_id
+        issuetypes_count = db.query(func.count(Wit.id)).filter(Wit.tenant_id == user.tenant_id).scalar() or 0
+        active_issuetypes = db.query(func.count(Wit.id)).filter(
+            Wit.tenant_id == user.tenant_id,
+            Wit.active == True
         ).scalar() or 0
 
         summary["tables"]["issuetypes"] = {
@@ -348,10 +348,10 @@ async def get_jira_summary(
             "inactive_count": issuetypes_count - active_issuetypes
         }
 
-        # ✅ SECURITY: Statuses summary filtered by client_id
-        statuses_count = db.query(func.count(Status.id)).filter(Status.client_id == user.client_id).scalar() or 0
+        # ✅ SECURITY: Statuses summary filtered by tenant_id
+        statuses_count = db.query(func.count(Status.id)).filter(Status.tenant_id == user.tenant_id).scalar() or 0
         active_statuses = db.query(func.count(Status.id)).filter(
-            Status.client_id == user.client_id,
+            Status.tenant_id == user.tenant_id,
             Status.active == True
         ).scalar() or 0
 
@@ -361,37 +361,37 @@ async def get_jira_summary(
             "inactive_count": statuses_count - active_statuses
         }
 
-        # ✅ SECURITY: Issues summary filtered by client_id
-        issues_count = db.query(func.count(Issue.id)).filter(Issue.client_id == user.client_id).scalar() or 0
-        active_issues = db.query(func.count(Issue.id)).filter(
-            Issue.client_id == user.client_id,
-            Issue.active == True
+        # ✅ SECURITY: WorkItems summary filtered by tenant_id
+        issues_count = db.query(func.count(WorkItem.id)).filter(WorkItem.tenant_id == user.tenant_id).scalar() or 0
+        active_issues = db.query(func.count(WorkItem.id)).filter(
+            WorkItem.tenant_id == user.tenant_id,
+            WorkItem.active == True
         ).scalar() or 0
 
-        # ✅ SECURITY: Issues by status (top 5) filtered by client_id
+        # ✅ SECURITY: WorkItems by status (top 5) filtered by tenant_id
         top_statuses = db.query(
             Status.original_name,
-            func.count(Issue.id).label('count')
-        ).join(Issue, Issue.status_id == Status.id)\
+            func.count(WorkItem.id).label('count')
+        ).join(WorkItem, WorkItem.status_id == Status.id)\
          .filter(
-             Issue.client_id == user.client_id,
-             Issue.active == True
+             WorkItem.tenant_id == user.tenant_id,
+             WorkItem.active == True
          )\
          .group_by(Status.original_name)\
-         .order_by(func.count(Issue.id).desc())\
+         .order_by(func.count(WorkItem.id).desc())\
          .limit(5).all()
 
-        # ✅ SECURITY: Issues by type (top 5) filtered by client_id
+        # ✅ SECURITY: WorkItems by type (top 5) filtered by tenant_id
         top_types = db.query(
-            Issuetype.original_name,
-            func.count(Issue.id).label('count')
-        ).join(Issue, Issue.issuetype_id == Issuetype.id)\
+            Wit.original_name,
+            func.count(WorkItem.id).label('count')
+        ).join(WorkItem, WorkItem.wit_id == Wit.id)\
          .filter(
-             Issue.client_id == user.client_id,
-             Issue.active == True
+             WorkItem.tenant_id == user.tenant_id,
+             WorkItem.active == True
          )\
-         .group_by(Issuetype.original_name)\
-         .order_by(func.count(Issue.id).desc())\
+         .group_by(Wit.original_name)\
+         .order_by(func.count(WorkItem.id).desc())\
          .limit(5).all()
 
         summary["tables"]["issues"] = {
@@ -402,21 +402,21 @@ async def get_jira_summary(
             "top_types": [{"name": type_.original_name, "count": type_.count} for type_ in top_types]
         }
 
-        # ✅ SECURITY: Changelogs summary filtered by client_id
-        changelogs_count = db.query(func.count(IssueChangelog.id)).filter(IssueChangelog.client_id == user.client_id).scalar() or 0
-        active_changelogs = db.query(func.count(IssueChangelog.id)).filter(
-            IssueChangelog.client_id == user.client_id,
-            IssueChangelog.active == True
+        # ✅ SECURITY: Changelogs summary filtered by tenant_id
+        changelogs_count = db.query(func.count(Changelog.id)).filter(Changelog.tenant_id == user.tenant_id).scalar() or 0
+        active_changelogs = db.query(func.count(Changelog.id)).filter(
+            Changelog.tenant_id == user.tenant_id,
+            Changelog.active == True
         ).scalar() or 0
 
-        # ✅ SECURITY: Recent changelog activity (last 30 days) filtered by client_id
+        # ✅ SECURITY: Recent changelog activity (last 30 days) filtered by tenant_id
         from datetime import timedelta
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_changelogs = db.query(func.count(IssueChangelog.id))\
+        recent_changelogs = db.query(func.count(Changelog.id))\
             .filter(
-                IssueChangelog.client_id == user.client_id,
-                IssueChangelog.created_at >= thirty_days_ago,
-                IssueChangelog.active == True
+                Changelog.tenant_id == user.tenant_id,
+                Changelog.created_at >= thirty_days_ago,
+                Changelog.active == True
             ).scalar() or 0
 
         summary["tables"]["changelogs"] = {
@@ -426,30 +426,30 @@ async def get_jira_summary(
             "recent_activity_30d": recent_changelogs
         }
 
-        # ✅ SECURITY: Jira PR Links summary filtered by client_id
-        pr_links_count = db.query(func.count(JiraPullRequestLinks.id)).filter(
-            JiraPullRequestLinks.client_id == user.client_id
+        # ✅ SECURITY: Jira PR Links summary filtered by tenant_id
+        pr_links_count = db.query(func.count(WitPrLinks.id)).filter(
+            WitPrLinks.tenant_id == user.tenant_id
         ).scalar() or 0
-        active_pr_links = db.query(func.count(JiraPullRequestLinks.id)).filter(
-            JiraPullRequestLinks.active == True,
-            JiraPullRequestLinks.client_id == user.client_id
+        active_pr_links = db.query(func.count(WitPrLinks.id)).filter(
+            WitPrLinks.active == True,
+            WitPrLinks.tenant_id == user.tenant_id
         ).scalar() or 0
 
         # Unique repositories linked
-        unique_repos = db.query(func.count(distinct(JiraPullRequestLinks.repo_full_name)))\
+        unique_repos = db.query(func.count(distinct(WitPrLinks.repo_full_name)))\
             .filter(
-                JiraPullRequestLinks.active == True,
-                JiraPullRequestLinks.client_id == user.client_id
+                WitPrLinks.active == True,
+                WitPrLinks.tenant_id == user.tenant_id
             ).scalar() or 0
 
         # PR status breakdown
         pr_status_breakdown = db.query(
-            JiraPullRequestLinks.pr_status,
-            func.count(JiraPullRequestLinks.id).label('count')
+            WitPrLinks.pr_status,
+            func.count(WitPrLinks.id).label('count')
         ).filter(
-            JiraPullRequestLinks.active == True,
-            JiraPullRequestLinks.client_id == user.client_id
-        ).group_by(JiraPullRequestLinks.pr_status)\
+            WitPrLinks.active == True,
+            WitPrLinks.tenant_id == user.tenant_id
+        ).group_by(WitPrLinks.pr_status)\
          .all()
 
         summary["tables"]["jira_pull_request_links"] = {

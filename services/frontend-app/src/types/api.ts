@@ -4,7 +4,7 @@
  */
 
 // Core model interfaces with optional ML fields
-export interface Issue {
+export interface WorkItem {
   // All existing fields (unchanged)
   id: number;
   key: string;
@@ -12,7 +12,7 @@ export interface Issue {
   description?: string;
   priority?: string;
   status_name: string;
-  issuetype_name: string;
+  wit_name: string;
   assignee?: string;
   assignee_id?: number;
   reporter?: string;
@@ -31,13 +31,13 @@ export interface Issue {
   total_lead_time_seconds?: number;
   project_id?: number;
   status_id?: number;
-  issuetype_id?: number;
+  wit_id?: number;
   parent_id?: number;
   comment_count: number;
   created_at: string;
   updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
   
   // Custom fields (existing)
   custom_field_01?: string;
@@ -67,7 +67,7 @@ export interface Issue {
   ml_estimation_confidence?: string;
 }
 
-export interface PullRequest {
+export interface Pr {
   // All existing fields (unchanged)
   id: number;
   external_id: string;
@@ -95,7 +95,7 @@ export interface PullRequest {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
   
   // NEW: Optional ML fields (Phase 1: Always undefined)
   embedding?: number[];
@@ -123,7 +123,7 @@ export interface User {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
   
   // NEW: Optional ML fields (Phase 1: Always undefined)
   embedding?: number[];
@@ -142,7 +142,7 @@ export interface Project {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
   
   // NEW: Optional ML fields (Phase 1: Always undefined)
   embedding?: number[];
@@ -161,7 +161,7 @@ export interface AILearningMemory {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
 }
 
 export interface AIPrediction {
@@ -178,7 +178,7 @@ export interface AIPrediction {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
 }
 
 export interface MLAnomalyAlert {
@@ -192,12 +192,12 @@ export interface MLAnomalyAlert {
   created_at: string;
   last_updated_at: string;
   active: boolean;
-  client_id: number;
+  tenant_id: number;
 }
 
 // API Response types with ML field indicators
-export interface IssuesResponse {
-  issues: Issue[];
+export interface WorkItemsResponse {
+  work_items: WorkItem[];
   count: number;
   total_count: number;
   offset: number;
@@ -210,8 +210,8 @@ export interface IssuesResponse {
   };
 }
 
-export interface PullRequestsResponse {
-  pull_requests: PullRequest[];
+export interface PrsResponse {
+  pull_requests: Pr[];
   count: number;
   total_count: number;
   offset: number;
@@ -305,7 +305,7 @@ export interface LearningMemoryResponse {
   limit: number;
   filters: {
     error_type?: string;
-    client_id: number;
+    tenant_id: number;
   };
 }
 
@@ -318,7 +318,7 @@ export interface PredictionsResponse {
   filters: {
     model_name?: string;
     prediction_type?: string;
-    client_id: number;
+    tenant_id: number;
   };
 }
 
@@ -331,7 +331,7 @@ export interface AnomalyAlertsResponse {
   filters: {
     acknowledged?: boolean;
     severity?: string;
-    client_id: number;
+    tenant_id: number;
   };
 }
 
@@ -351,5 +351,5 @@ export interface MLStatsResponse {
     model_name: string;
     prediction_count: number;
   }>;
-  client_id: number;
+  tenant_id: number;
 }

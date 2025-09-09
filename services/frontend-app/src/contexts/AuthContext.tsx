@@ -48,7 +48,7 @@ interface User {
   name?: string
   first_name?: string
   last_name?: string
-  client_id: number  // ✅ CRITICAL: Add client_id for multi-client isolation
+  tenant_id: number  // ✅ CRITICAL: Add tenant_id for multi-client isolation
   use_accessible_colors?: boolean  // User accessibility preference
   colorSchemaData?: ColorSchemaData
 }
@@ -423,14 +423,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
-          client_id: user.client_id,
+          tenant_id: user.tenant_id,
           colorSchemaData: undefined
         }
 
         setUser(formattedUser)
 
         // Update client logger context with new user info
-        clientLogger.updateClientContext()
+        clientLogger.updateTenantContext()
 
         // Load color schema - prefer user-specific colors if available
         const loadColors = async () => {
@@ -502,14 +502,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
-          client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
+          tenant_id: user.tenant_id,  // ✅ CRITICAL: Include tenant_id for multi-client isolation
           colorSchemaData: undefined  // Will be loaded separately
         }
 
         setUser(formattedUser)
 
         // Update client logger context with new user info
-        clientLogger.updateClientContext()
+        clientLogger.updateTenantContext()
 
         // Setup axios interceptor and start periodic session validation
         setupAxiosInterceptor()
@@ -600,7 +600,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           last_name: user.last_name,
           role: user.role,
           is_admin: user.is_admin,
-          client_id: user.client_id,  // ✅ CRITICAL: Include client_id for multi-client isolation
+          tenant_id: user.tenant_id,  // ✅ CRITICAL: Include tenant_id for multi-client isolation
           colorSchemaData
         }
 
@@ -608,7 +608,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(formattedUser)
 
         // Update client logger context with new user info
-        clientLogger.updateClientContext()
+        clientLogger.updateTenantContext()
 
         // Setup axios interceptor and start periodic session validation
         setupAxiosInterceptor()
@@ -708,7 +708,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null)
 
     // Update client logger context to reflect logout
-    clientLogger.updateClientContext()
+    clientLogger.updateTenantContext()
 
     try {
       // Try to invalidate session on the backend (await to ensure DB is updated before redirect)

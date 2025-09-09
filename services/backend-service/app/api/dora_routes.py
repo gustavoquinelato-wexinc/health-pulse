@@ -8,8 +8,8 @@ from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.models.unified_models import (
-    Issue, Project, Status, StatusMapping, Issuetype, IssuetypeMapping,
-    IssuetypeHierarchy, JiraPullRequestLinks
+    WorkItem, Project, Status, StatusMapping, Wit, WitMapping,
+    WitHierarchy, WitPrLinks
 )
 
 router = APIRouter(prefix="/api/v1/metrics/dora", tags=["DORA Metrics"])
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 async def lead_time_trend(
     team: Optional[str] = None,
     project_key: Optional[str] = None,
-    issuetype_to: Optional[str] = None,
+    wit_to: Optional[str] = None,
     aha_initiative: Optional[str] = None,
     aha_project_code: Optional[str] = None,
     aha_milestone: Optional[str] = None,
@@ -51,8 +51,8 @@ async def lead_time_trend(
                 i.key                                           AS issue_key,
                 p.key                                           AS project_key,
                 i.team,
-                im.issuetype_from,
-                im.issuetype_to,
+                im.wit_from,
+                im.wit_to,
                 sm.status_to,
                 i.story_points,
                 i.priority,
@@ -67,26 +67,26 @@ async def lead_time_trend(
                 i.custom_field_03                               AS aha_project_code,
                 i.custom_field_04                               AS project_code,
                 i.custom_field_05                               AS aha_milestone,
-                i.client_id
+                i.tenant_id
             FROM
-                issues i
+                work_items i
             INNER JOIN projects p               ON i.project_id = p.id
             INNER JOIN statuses s               ON i.status_id = s.id
-            INNER JOIN status_mappings sm       ON s.status_mapping_id = sm.id
-            INNER JOIN issuetypes it            ON i.issuetype_id = it.id
-            INNER JOIN issuetype_mappings im    ON it.issuetype_mapping_id = im.id
-            INNER JOIN issuetype_hierarchies ih ON im.issuetype_hierarchy_id = ih.id
+            INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
+            INNER JOIN wits it                  ON i.wit_id = it.id
+            INNER JOIN wits_mappings im         ON it.wits_mapping_id = im.id
+            INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'
                 AND ih.level_number = 0
-                AND im.issuetype_to IN ('Story', 'Tech Enhancement')
+                AND im.wit_to IN ('Story', 'Tech Enhancement')
                 AND i.total_lead_time_seconds > 0
-                AND i.client_id = :client_id
+                AND i.tenant_id = :tenant_id
                 AND i.work_last_completed_at >= NOW() - INTERVAL '365 days'
                 AND EXISTS (
                     SELECT 1
-                    FROM jira_pull_request_links jprl
-                    WHERE jprl.issue_id = i.id
+                    FROM wits_prs_links jprl
+                    WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here
                 )
@@ -102,7 +102,7 @@ async def lead_time_trend(
 
             # Build dynamic WHERE conditions
             where_conditions = []
-            params = {'client_id': user.client_id}
+            params = {'tenant_id': user.tenant_id}
 
             if team:
                 where_conditions.append("AND i.team ILIKE :team")
@@ -110,9 +110,9 @@ async def lead_time_trend(
             if project_key:
                 where_conditions.append("AND p.key ILIKE :project_key")
                 params['project_key'] = f'%{project_key}%'
-            if issuetype_to:
-                where_conditions.append("AND im.issuetype_to = :issuetype_to")
-                params['issuetype_to'] = issuetype_to
+            if wit_to:
+                where_conditions.append("AND im.wit_to = :wit_to")
+                params['wit_to'] = wit_to
             if aha_initiative:
                 where_conditions.append("AND i.custom_field_02 ILIKE :aha_initiative")
                 params['aha_initiative'] = f'%{aha_initiative}%'
@@ -176,11 +176,11 @@ async def lead_time_trend(
                 'filters_applied': {
                     'team': team,
                     'project_key': project_key,
-                    'issuetype_to': issuetype_to,
+                    'wit_to': wit_to,
                     'aha_initiative': aha_initiative,
                     'aha_project_code': aha_project_code,
                     'aha_milestone': aha_milestone,
-                    'client_id': user.client_id
+                    'tenant_id': user.tenant_id
                 }
             }
 
@@ -211,93 +211,93 @@ async def lead_time_metrics(
         with database.get_read_session_context() as session:
             # Base query for unique issues with merged PRs (based on your SQL)
             query = session.query(
-                func.date_trunc('month', Issue.work_last_completed_at).label('month'),
-                func.date_trunc('week', Issue.work_last_completed_at).label('week'),
-                Issue.work_last_completed_at,
-                func.extract('year', Issue.work_last_completed_at).label('completion_year'),
-                func.extract('quarter', Issue.work_last_completed_at).label('completion_quarter'),
+                func.date_trunc('month', WorkItem.work_last_completed_at).label('month'),
+                func.date_trunc('week', WorkItem.work_last_completed_at).label('week'),
+                WorkItem.work_last_completed_at,
+                func.extract('year', WorkItem.work_last_completed_at).label('completion_year'),
+                func.extract('quarter', WorkItem.work_last_completed_at).label('completion_quarter'),
                 case(
-                    (Issue.total_lead_time_seconds <= 86400, '≤ 1 day'),
-                    (Issue.total_lead_time_seconds <= 604800, '≤ 1 week'),
-                    (Issue.total_lead_time_seconds <= 2592000, '≤ 1 month'),
+                    (WorkItem.total_lead_time_seconds <= 86400, '≤ 1 day'),
+                    (WorkItem.total_lead_time_seconds <= 604800, '≤ 1 week'),
+                    (WorkItem.total_lead_time_seconds <= 2592000, '≤ 1 month'),
                     else_='> 1 month'
                 ).label('lead_time_bucket'),
-                Issue.id.label('issue_id'),
-                Issue.key.label('issue_key'),
+                WorkItem.id.label('issue_id'),
+                WorkItem.key.label('issue_key'),
                 Project.key.label('project_key'),
-                Issue.team,
-                IssuetypeMapping.issuetype_from,
-                IssuetypeMapping.issuetype_to,
+                WorkItem.team,
+                WitMapping.wit_from,
+                WitMapping.wit_to,
                 StatusMapping.status_to,
-                Issue.story_points,
-                Issue.priority,
-                Issue.assignee,
-                Issue.created.label('issue_created_at'),
-                Issue.updated.label('issue_updated_at'),
-                Issue.total_lead_time_seconds,
-                (Issue.total_lead_time_seconds / 3600.0).label('lead_time_hours'),
-                (Issue.total_lead_time_seconds / 86400.0).label('lead_time_days'),
-                Issue.custom_field_01.label('aha_epic_url'),
-                Issue.custom_field_02.label('aha_initiative'),
-                Issue.custom_field_03.label('aha_project_code'),
-                Issue.custom_field_04.label('project_code'),
-                Issue.custom_field_05.label('aha_milestone'),
-                Issue.client_id
+                WorkItem.story_points,
+                WorkItem.priority,
+                WorkItem.assignee,
+                WorkItem.created.label('issue_created_at'),
+                WorkItem.updated.label('issue_updated_at'),
+                WorkItem.total_lead_time_seconds,
+                (WorkItem.total_lead_time_seconds / 3600.0).label('lead_time_hours'),
+                (WorkItem.total_lead_time_seconds / 86400.0).label('lead_time_days'),
+                WorkItem.custom_field_01.label('aha_epic_url'),
+                WorkItem.custom_field_02.label('aha_initiative'),
+                WorkItem.custom_field_03.label('aha_project_code'),
+                WorkItem.custom_field_04.label('project_code'),
+                WorkItem.custom_field_05.label('aha_milestone'),
+                WorkItem.tenant_id
             ).distinct().select_from(
-                JiraPullRequestLinks
+                WitPrLinks
             ).join(
-                Issue, JiraPullRequestLinks.issue_id == Issue.id
+                WorkItem, WitPrLinks.work_item_id == WorkItem.id
             ).join(
-                Status, Issue.status_id == Status.id
+                Status, WorkItem.status_id == Status.id
             ).join(
                 StatusMapping, Status.status_mapping_id == StatusMapping.id
             ).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
+                Wit, WorkItem.wit_id == Wit.id
             ).join(
-                IssuetypeMapping, Issuetype.issuetype_mapping_id == IssuetypeMapping.id
+                WitMapping, Wit.wit_mapping_id == WitMapping.id
             ).join(
-                Project, Issue.project_id == Project.id
+                Project, WorkItem.project_id == Project.id
             ).join(
-                IssuetypeHierarchy, IssuetypeMapping.issuetype_hierarchy_id == IssuetypeHierarchy.id
+                WitHierarchy, WitMapping.wits_hierarchy_id == WitHierarchy.id
             ).filter(
                 StatusMapping.status_to == 'Done',
-                IssuetypeHierarchy.level_number == 0,
-                IssuetypeMapping.issuetype_to.in_(['Story', 'Tech Enhancement']),
-                JiraPullRequestLinks.pr_status == 'MERGED',
-                Issue.total_lead_time_seconds > 0,
-                Issue.client_id == user.client_id,
+                WitHierarchy.level_number == 0,
+                WitMapping.wit_to.in_(['Story', 'Tech Enhancement']),
+                WitPrLinks.pr_status == 'MERGED',
+                WorkItem.total_lead_time_seconds > 0,
+                WorkItem.tenant_id == user.tenant_id,
                 # ✅ SECURITY: Exclude deactivated records at ANY level
-                Issue.active == True,
+                WorkItem.active == True,
                 Status.active == True,
-                Issuetype.active == True,
+                Wit.active == True,
                 Project.active == True,
-                JiraPullRequestLinks.active == True
+                WitPrLinks.active == True
             )
             # Apply filters
             if start_date:
-                query = query.filter(Issue.work_last_completed_at >= start_date)
+                query = query.filter(WorkItem.work_last_completed_at >= start_date)
             if end_date:
-                query = query.filter(Issue.work_last_completed_at < end_date)
+                query = query.filter(WorkItem.work_last_completed_at < end_date)
             if team:
-                query = query.filter(Issue.team.ilike(f'%{team}%'))
+                query = query.filter(WorkItem.team.ilike(f'%{team}%'))
             if project_key:
                 query = query.filter(Project.key.ilike(f'%{project_key}%'))
             if issue_type:
-                query = query.filter(IssuetypeMapping.issuetype_to == issue_type)
+                query = query.filter(WitMapping.wit_to == issue_type)
             if priority:
-                query = query.filter(Issue.priority.ilike(f'%{priority}%'))
+                query = query.filter(WorkItem.priority.ilike(f'%{priority}%'))
             if assignee:
-                query = query.filter(Issue.assignee.ilike(f'%{assignee}%'))
+                query = query.filter(WorkItem.assignee.ilike(f'%{assignee}%'))
             if aha_initiative:
-                query = query.filter(Issue.custom_field_02.ilike(f'%{aha_initiative}%'))
+                query = query.filter(WorkItem.custom_field_02.ilike(f'%{aha_initiative}%'))
             if project_code:
-                query = query.filter(Issue.custom_field_04.ilike(f'%{project_code}%'))
+                query = query.filter(WorkItem.custom_field_04.ilike(f'%{project_code}%'))
 
             # Order results
             query = query.order_by(
                 text('month DESC'),
-                Issue.key,
-                Issue.team
+                WorkItem.key,
+                WorkItem.team
             )
 
             # Execute query
@@ -313,12 +313,12 @@ async def lead_time_metrics(
                     'completion_year': int(row.completion_year) if row.completion_year else None,
                     'completion_quarter': int(row.completion_quarter) if row.completion_quarter else None,
                     'lead_time_bucket': row.lead_time_bucket,
-                    'issue_id': row.issue_id,
+                    'issue_id': row.work_item_id,
                     'issue_key': row.issue_key,
                     'project_key': row.project_key,
                     'team': row.team,
-                    'issuetype_from': row.issuetype_from,
-                    'issuetype_to': row.issuetype_to,
+                    'wit_from': row.wit_from,
+                    'wit_to': row.wit_to,
                     'status_to': row.status_to,
                     'story_points': row.story_points,
                     'priority': row.priority,
@@ -333,7 +333,7 @@ async def lead_time_metrics(
                     'aha_project_code': row.aha_project_code,
                     'project_code': row.project_code,
                     'aha_milestone': row.aha_milestone,
-                    'client_id': row.client_id
+                    'tenant_id': row.tenant_id
                 })
 
             # Calculate summary metrics
@@ -368,7 +368,7 @@ async def lead_time_metrics(
                     'assignee': assignee,
                     'aha_initiative': aha_initiative,
                     'project_code': project_code,
-                    'client_id': user.client_id
+                    'tenant_id': user.tenant_id
                 }
             }
 
@@ -394,28 +394,28 @@ async def get_filter_options(
             SELECT DISTINCT
                 i.team,
                 p.key                                           AS project_key,
-                im.issuetype_to,
+                im.wit_to,
                 i.custom_field_02                               AS aha_initiative,
                 i.custom_field_03                               AS aha_project_code,
                 i.custom_field_05                               AS aha_milestone
             FROM
-                issues i
+                work_items i
             INNER JOIN projects p               ON i.project_id = p.id
             INNER JOIN statuses s               ON i.status_id = s.id
-            INNER JOIN status_mappings sm       ON s.status_mapping_id = sm.id
-            INNER JOIN issuetypes it            ON i.issuetype_id = it.id
-            INNER JOIN issuetype_mappings im    ON it.issuetype_mapping_id = im.id
-            INNER JOIN issuetype_hierarchies ih ON im.issuetype_hierarchy_id = ih.id
+            INNER JOIN statuses_mappings sm     ON s.status_mapping_id = sm.id
+            INNER JOIN wits it                  ON i.wit_id = it.id
+            INNER JOIN wits_mappings im         ON it.wits_mapping_id = im.id
+            INNER JOIN wits_hierarchies ih      ON im.wits_hierarchy_id = ih.id
             WHERE
                 sm.status_to = 'Done'
                 AND ih.level_number = 0
-                AND im.issuetype_to IN ('Story', 'Tech Enhancement')
+                AND im.wit_to IN ('Story', 'Tech Enhancement')
                 AND i.total_lead_time_seconds > 0
-                AND i.client_id = :client_id
+                AND i.tenant_id = :tenant_id
                 AND EXISTS (
                     SELECT 1
-                    FROM jira_pull_request_links jprl
-                    WHERE jprl.issue_id = i.id
+                    FROM wits_prs_links jprl
+                    WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here
                 )
@@ -428,18 +428,18 @@ async def get_filter_options(
                 AND im.active = true
                 AND ih.active = true
             ORDER BY
-                i.team, p.key, im.issuetype_to,
+                i.team, p.key, im.wit_to,
                 i.custom_field_02, i.custom_field_03, i.custom_field_05
             """
 
             # Execute the raw SQL query
             from sqlalchemy import text
-            results = session.execute(text(filter_query), {'client_id': user.client_id}).fetchall()
+            results = session.execute(text(filter_query), {'tenant_id': user.tenant_id}).fetchall()
 
             # Extract distinct values for each field
             teams = sorted(list(set(row.team for row in results if row.team)))
             project_keys = sorted(list(set(row.project_key for row in results if row.project_key)))
-            issue_types = sorted(list(set(row.issuetype_to for row in results if row.issuetype_to)))
+            issue_types = sorted(list(set(row.wit_to for row in results if row.wit_to)))
             aha_initiatives = sorted(list(set(row.aha_initiative for row in results if row.aha_initiative)))
             aha_project_codes = sorted(list(set(row.aha_project_code for row in results if row.aha_project_code)))
             aha_milestones = sorted(list(set(row.aha_milestone for row in results if row.aha_milestone)))
@@ -448,12 +448,12 @@ async def get_filter_options(
                 'filter_options': {
                     'team': teams,
                     'project_key': project_keys,
-                    'issuetype_to': issue_types,
+                    'wit_to': issue_types,
                     'aha_initiative': aha_initiatives,
                     'aha_project_code': aha_project_codes,
                     'aha_milestone': aha_milestones
                 },
-                'client_id': user.client_id
+                'tenant_id': user.tenant_id
             }
 
     except Exception as e:

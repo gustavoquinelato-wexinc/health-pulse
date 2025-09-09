@@ -60,8 +60,8 @@ async def check_database_health():
         session = get_read_session()
         try:
             # Test existing tables
-            session.execute(text("SELECT 1 FROM issues LIMIT 1"))
-            session.execute(text("SELECT 1 FROM pull_requests LIMIT 1"))
+            session.execute(text("SELECT 1 FROM work_items LIMIT 1"))
+            session.execute(text("SELECT 1 FROM prs LIMIT 1"))
             session.execute(text("SELECT 1 FROM projects LIMIT 1"))
 
             # Test new ML tables (Phase 1: May not have data yet)
@@ -77,7 +77,7 @@ async def check_database_health():
 
             # Test vector columns (Phase 1: Should exist but be null)
             vector_status = {}
-            vector_tables = ['issues', 'pull_requests', 'projects', 'users']
+            vector_tables = ['work_items', 'prs', 'projects', 'users']
 
             for table in vector_tables:
                 try:

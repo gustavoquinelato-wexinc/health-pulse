@@ -104,7 +104,7 @@ def generate_jwt_token(user_data: Dict[str, Any]) -> str:
         "email": user_data["email"],
         "role": user_data["role"],
         "is_admin": user_data["is_admin"],
-        "client_id": user_data["client_id"],
+        "tenant_id": user_data["tenant_id"],
         "exp": exp_timestamp,
         "iat": iat_timestamp,
         "iss": "pulse-auth-service"
@@ -272,7 +272,7 @@ async def validate_token(request: Request):
                 "email": payload["email"],
                 "role": payload["role"],
                 "is_admin": payload["is_admin"],
-                "client_id": payload["client_id"]
+                "tenant_id": payload["tenant_id"]
             }
 
             return TokenValidationResponse(valid=True, user=user_data)
@@ -455,7 +455,7 @@ async def get_current_session(
                 "email": payload["email"],
                 "role": payload["role"],
                 "is_admin": payload["is_admin"],
-                "client_id": payload["client_id"],
+                "tenant_id": payload["tenant_id"],
                 "issued_at": datetime.fromtimestamp(payload["iat"], tz=timezone.utc).isoformat(),
                 "expires_at": datetime.fromtimestamp(payload["exp"], tz=timezone.utc).isoformat(),
                 "issuer": payload.get("iss", "pulse-auth-service")

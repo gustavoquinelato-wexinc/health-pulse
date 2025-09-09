@@ -76,6 +76,8 @@ The ETL Service is the core data processing engine of the Pulse Platform, design
 ### **Core ETL Capabilities**
 - ✅ **Jira Integration**: Complete data extraction including dev_status
 - ✅ **GitHub Integration**: GraphQL-based PR, commit, and review extraction
+- ✅ **Integration Management**: Web interface for managing external system connections
+- ✅ **AI Provider Support**: Unified configuration for AI services (WEX AI Gateway, OpenAI, Azure)
 - ✅ **PostgreSQL Storage**: Unified data model with relationship mapping
 - ✅ **Bulk Operations**: Efficient batch processing for large datasets
 - ✅ **Data Validation**: Comprehensive data quality checks
@@ -243,6 +245,8 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 |-------------|--------|----------|-------------------|
 | **Jira** | ✅ Active | Issues, Projects, Users, Custom Fields, Dev Status | Checkpoint-based restart |
 | **GitHub** | ✅ Active | Repositories, Pull Requests, Commits, Reviews, Comments | Cursor-based resume |
+| **WEX AI Gateway** | ✅ Active | AI model access, cost tracking, fallback support | N/A (stateless) |
+| **Integration Management** | ✅ Active | Web UI, logo upload, tenant isolation, conditional forms | N/A |
 | **Aha!** | 🔄 Planned | Features, Releases, Ideas, Goals | TBD |
 | **Azure DevOps** | 🔄 Planned | Work Items, Repositories, Pipelines, Builds | TBD |
 
@@ -592,6 +596,7 @@ python scripts/reset_database.py
 - **[System Architecture](../../docs/architecture.md)** - Overall system design
 - **[Security & Authentication](../../docs/security-authentication.md)** - Security implementation
 - **[Jobs & Orchestration](../../docs/jobs-orchestration.md)** - Job management system
+- **[Integration Management](../../docs/integration-management.md)** - External system connections and AI providers
 - **[System Settings](../../docs/system-settings.md)** - Configuration reference
 - **[Installation & Setup](../../docs/installation-setup.md)** - Setup guide
 

@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import (
-    Integration, Issuetype, Project, ProjectsIssuetypes, Status, ProjectsStatuses,
-    Issue, IssueChangelog
+    Integration, Wit, Project, ProjectWits, Status, ProjectsStatuses,
+    WorkItem, Changelog
 )
 
 from .jira_client import JiraAPIClient
@@ -328,7 +328,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                         'key': processed_project.get('key', ''),
                         'name': processed_project.get('name', ''),
                         'project_type': processed_project.get('project_type'),
-                        'client_id': integration.client_id,
+                        'tenant_id': integration.tenant_id,
                         'active': True,
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -362,7 +362,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     'key': safe_unicode_string(obj.key),
                     'name': safe_unicode_string(obj.name),
                     'project_type': safe_unicode_string(getattr(obj, 'project_type', None)),
-                    'client_id': obj.client_id,
+                    'tenant_id': obj.tenant_id,
                     'active': obj.active,
                     'last_updated_at': obj.last_updated_at
                 })
@@ -383,8 +383,8 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
 
         # Get existing issue types for comparison
         existing_issuetypes = {
-            it.external_id: it for it in session.query(Issuetype).filter(
-                Issuetype.integration_id == integration.id
+            it.external_id: it for it in session.query(Wit).filter(
+                Wit.integration_id == integration.id
             ).all()
         }
 
@@ -392,10 +392,10 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
         issuetypes_to_update = []
 
         # Get existing project-issuetype relationships
-        existing_relationships = session.query(ProjectsIssuetypes).filter(
-            ProjectsIssuetypes.project_id.in_([p.id for p in all_projects])
+        existing_relationships = session.query(ProjectWits).filter(
+            ProjectWits.project_id.in_([p.id for p in all_projects])
         ).all()
-        existing_relationships_set = {(rel.project_id, rel.issuetype_id) for rel in existing_relationships}
+        existing_relationships_set = {(rel.project_id, rel.wit_id) for rel in existing_relationships}
 
         relationships_to_insert = []
         all_issuetypes_from_projects = set()
@@ -446,7 +446,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     needs_update = False
 
                     # Check each field for changes (excluding external_id)
-                    for field in ['original_name', 'issuetype_mapping_id', 'hierarchy_level', 'description']:
+                    for field in ['original_name', 'wit_mapping_id', 'hierarchy_level', 'description']:
                         new_value = processed_issuetype.get(field)
                         current_value = getattr(existing_issuetype, field, None)
                         if current_value != new_value:
@@ -466,10 +466,10 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                         'integration_id': integration.id,
                         'external_id': issuetype_external_id,
                         'original_name': processed_issuetype.get('original_name', ''),
-                        'issuetype_mapping_id': processed_issuetype.get('issuetype_mapping_id'),
+                        'wits_mapping_id': processed_issuetype.get('wit_mapping_id'),
                         'description': processed_issuetype.get('description'),
                         'hierarchy_level': processed_issuetype.get('hierarchy_level', 2),
-                        'client_id': integration.client_id,
+                        'tenant_id': integration.tenant_id,
                         'active': processed_issuetype.get('active', True),
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -501,22 +501,22 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     'integration_id': obj.integration_id,
                     'external_id': obj.external_id,
                     'original_name': safe_unicode_string(obj.original_name),
-                    'issuetype_mapping_id': getattr(obj, 'issuetype_mapping_id', None),
+                    'wits_mapping_id': getattr(obj, 'wit_mapping_id', None),
                     'description': safe_unicode_string(getattr(obj, 'description', None)),
                     'hierarchy_level': obj.hierarchy_level,
-                    'client_id': obj.client_id,
+                    'tenant_id': obj.tenant_id,
                     'active': getattr(obj, 'active', True),
                     'last_updated_at': obj.last_updated_at
                 })
-            session.bulk_update_mappings(Issuetype, update_data)
-            job_logger.progress(f"Updated {len(issuetypes_to_update)} existing issue types")
+            session.bulk_update_mappings(Wit, update_data)
+            job_logger.progress(f"Updated {len(issuetypes_to_update)} existing work item types")
 
         if issuetypes_to_insert:
-            perform_bulk_insert(session, Issuetype, issuetypes_to_insert, "issuetypes", job_logger)
+            perform_bulk_insert(session, Wit, issuetypes_to_insert, "wits", job_logger)
 
         # Get updated issue types for relationship creation
-        all_issuetypes = session.query(Issuetype).filter(
-            Issuetype.integration_id == integration.id
+        all_issuetypes = session.query(Wit).filter(
+            Wit.integration_id == integration.id
         ).all()
         issuetypes_dict = {it.external_id: it for it in all_issuetypes}
 
@@ -535,11 +535,11 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
                     if relationship_key not in existing_relationships_set:
                         # Ensure both IDs are integers for schema validation
                         project_id_int = int(project_id) if project_id is not None else None
-                        issuetype_id_int = int(issuetype.id) if issuetype.id is not None else None
+                        wit_id_int = int(issuetype.id) if issuetype.id is not None else None
 
                         relationships_to_insert.append({
                             'project_id': project_id_int,
-                            'issuetype_id': issuetype_id_int
+                            'wit_id': wit_id_int
                         })
                         relationships_processed += 1
 
@@ -549,34 +549,34 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
 
         # Bulk insert new relationships
         if relationships_to_insert:
-            perform_bulk_insert(session, ProjectsIssuetypes, relationships_to_insert, "projects_issuetypes", job_logger)
+            perform_bulk_insert(session, ProjectWits, relationships_to_insert, "projects_wits", job_logger)
 
         # Handle deletions - remove relationships that exist in DB but not in source
         relationships_to_delete = existing_relationships_set - current_relationships_jira
 
         if relationships_to_delete:
-            job_logger.progress(f"Deleting {len(relationships_to_delete)} obsolete project-issuetype relationships")
+            job_logger.progress(f"Deleting {len(relationships_to_delete)} obsolete project-wit relationships")
             from app.jobs.jira.jira_bulk_operations import perform_bulk_delete_relationships
-            perform_bulk_delete_relationships(session, "projects_issuetypes", relationships_to_delete, job_logger)
+            perform_bulk_delete_relationships(session, "projects_wits", relationships_to_delete, job_logger)
 
-        # Mark issue types as inactive if they're no longer used in any project
-        inactive_issuetypes = [
+        # Mark work item types as inactive if they're no longer used in any project
+        inactive_wits = [
             it for it in existing_issuetypes.values()
             if it.external_id not in all_issuetypes_from_projects and getattr(it, 'active', True)
         ]
 
-        if inactive_issuetypes:
-            job_logger.progress(f"Marking {len(inactive_issuetypes)} issue types as inactive")
-            for issuetype in inactive_issuetypes:
-                issuetype.active = False
+        if inactive_wits:
+            job_logger.progress(f"Marking {len(inactive_wits)} work item types as inactive")
+            for wit in inactive_wits:
+                wit.active = False
             session.commit()
 
         session.commit()
-        job_logger.progress("Combined projects and issue types extraction completed successfully")
+        job_logger.progress("Combined projects and work item types extraction completed successfully")
 
         return {
             'projects_processed': projects_processed,
-            'issuetypes_processed': issuetypes_processed,
+            'wits_processed': issuetypes_processed,
             'relationships_processed': relationships_processed
         }
 
@@ -701,7 +701,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
                         'status_mapping_id': processed_status.get('status_mapping_id'),
                         'category': processed_status.get('category', ''),
                         'description': processed_status.get('description'),
-                        'client_id': integration.client_id,
+                        'tenant_id': integration.tenant_id,
                         'active': processed_status.get('active', True),
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -736,7 +736,7 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
                     'status_mapping_id': getattr(obj, 'status_mapping_id', None),
                     'category': safe_unicode_string(obj.category),
                     'description': safe_unicode_string(getattr(obj, 'description', None)),
-                    'client_id': obj.client_id,
+                    'tenant_id': obj.tenant_id,
                     'active': getattr(obj, 'active', True),
                     'last_updated_at': obj.last_updated_at
                 })
@@ -832,7 +832,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         # Load all reference data in single queries
         statuses_list = session.query(Status).filter(Status.integration_id == integration.id).all()
-        issuetypes_list = session.query(Issuetype).filter(Issuetype.integration_id == integration.id).all()
+        issuetypes_list = session.query(Wit).filter(Wit.integration_id == integration.id).all()
         projects_list = session.query(Project).filter(Project.integration_id == integration.id).all()
 
         # Create comprehensive mappings
@@ -851,20 +851,20 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if job_schedule is None:
             # Get job_schedule from session to access last_success_at
             from app.models.unified_models import JobSchedule
-            # Try to find job_schedule by integration_id first, then fall back to job_name + client_id
+            # Try to find job_schedule by integration_id first, then fall back to job_name + tenant_id
             job_schedule = session.query(JobSchedule).filter(
                 JobSchedule.integration_id == integration.id
             ).first()
 
             if job_schedule is None:
-                # Fallback: Find by job_name and client_id (more common pattern)
+                # Fallback: Find by job_name and tenant_id (more common pattern)
                 job_schedule = session.query(JobSchedule).filter(
                     JobSchedule.job_name.ilike('jira%'),  # Case-insensitive match for 'jira' or 'Jira'
-                    JobSchedule.client_id == integration.client_id
+                    JobSchedule.tenant_id == integration.tenant_id
                 ).first()
 
             if job_schedule is None:
-                job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or client_id {integration.client_id} with jira job name")
+                job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or tenant_id {integration.tenant_id} with jira job name")
 
         # Fetch recently updated issues
         # Use start_date parameter if provided, otherwise fall back to job_schedule.last_success_at
@@ -935,10 +935,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     future = loop.run_in_executor(executor, get_issues_sync)
                     all_issues = await asyncio.wait_for(future, timeout=1800)  # 30 minute timeout for large datasets
             except asyncio.TimeoutError:
-                job_logger.error("Issue fetching timed out after 30 minutes")
+                job_logger.error("WorkItem fetching timed out after 30 minutes")
                 return {
                     'success': False,
-                    'error': 'Issue fetching timed out after 30 minutes',
+                    'error': 'WorkItem fetching timed out after 30 minutes',
                     'issues_processed': 0,
                     'changelogs_processed': 0,
                     'issue_keys': []
@@ -957,16 +957,16 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                 # Get job_schedule from session to update last_success_at (or reuse if already fetched)
                 if job_schedule is None:
                     from app.models.unified_models import JobSchedule
-                    # Try to find job_schedule by integration_id first, then fall back to job_name + client_id
+                    # Try to find job_schedule by integration_id first, then fall back to job_name + tenant_id
                     job_schedule = session.query(JobSchedule).filter(
                         JobSchedule.integration_id == integration.id
                     ).first()
 
                     if job_schedule is None:
-                        # Fallback: Find by job_name and client_id (more common pattern)
+                        # Fallback: Find by job_name and tenant_id (more common pattern)
                         job_schedule = session.query(JobSchedule).filter(
                             JobSchedule.job_name.ilike('jira%'),  # Case-insensitive match for 'jira' or 'Jira'
-                            JobSchedule.client_id == integration.client_id
+                            JobSchedule.tenant_id == integration.tenant_id
                         ).first()
 
                 if job_schedule is not None:
@@ -978,7 +978,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         job_logger.error(f"[SYNC_TIME] Error updating job_schedule last_success_at: {e}")
                         session.rollback()
                 else:
-                    job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or client_id {integration.client_id} - skipping timestamp update")
+                    job_logger.warning(f"[SYNC_TIME] No job_schedule found for integration_id {integration.id} or tenant_id {integration.tenant_id} - skipping timestamp update")
             else:
                 job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
@@ -1004,9 +1004,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                 # Test connection health before each batch query
                 session.execute(text("SELECT 1"))
 
-                batch_existing = session.query(Issue).filter(
-                    Issue.integration_id == integration.id,
-                    Issue.external_id.in_(batch_ids)
+                batch_existing = session.query(WorkItem).filter(
+                    WorkItem.integration_id == integration.id,
+                    WorkItem.external_id.in_(batch_ids)
                 ).all()
 
                 for issue in batch_existing:
@@ -1058,10 +1058,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         existing_issue.project_id = new_project_id
                         has_changes = True
 
-                    issuetype_external_id = processed_issue.get('issuetype_id')
-                    new_issuetype_id = issuetypes_dict[issuetype_external_id].id if issuetype_external_id and issuetype_external_id in issuetypes_dict else None
-                    if existing_issue.issuetype_id != new_issuetype_id:
-                        existing_issue.issuetype_id = new_issuetype_id
+                    issuetype_external_id = processed_issue.get('wit_id')
+                    new_wit_id = issuetypes_dict[issuetype_external_id].id if issuetype_external_id and issuetype_external_id in issuetypes_dict else None
+                    if existing_issue.wit_id != new_wit_id:
+                        existing_issue.wit_id = new_wit_id
                         has_changes = True
 
                     status_external_id = processed_issue.get('status_id')
@@ -1072,7 +1072,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
                     # Check other fields for changes
                     for key, value in processed_issue.items():
-                        if key in ['project_id', 'issuetype_id', 'status_id']:
+                        if key in ['project_id', 'wit_id', 'status_id']:
                             continue
 
                         if hasattr(existing_issue, key):
@@ -1097,8 +1097,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     project_external_id = processed_issue.get('project_id')
                     project_id = projects_id_dict.get(project_external_id) if project_external_id else None
 
-                    issuetype_external_id = processed_issue.get('issuetype_id')
-                    issuetype_id = issuetypes_id_dict.get(issuetype_external_id) if issuetype_external_id else None
+                    issuetype_external_id = processed_issue.get('wit_id')
+                    wit_id = issuetypes_id_dict.get(issuetype_external_id) if issuetype_external_id else None
 
                     status_external_id = processed_issue.get('status_id')
                     status_id = statuses_id_dict.get(status_external_id) if status_external_id else None
@@ -1119,11 +1119,11 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         'story_points': processed_issue.get('story_points'),
                         'assignee': processed_issue.get('assignee'),
                         'project_id': project_id,
-                        'issuetype_id': issuetype_id,
+                        'wit_id': wit_id,
                         'status_id': status_id,
                         'parent_external_id': processed_issue.get('parent_id'),
                         'code_changed': processed_issue.get('code_changed', False),
-                        'client_id': integration.client_id,
+                        'tenant_id': integration.tenant_id,
                         'active': True,
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -1187,16 +1187,16 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     'story_points': obj.story_points,
                     'assignee': obj.assignee,
                     'project_id': obj.project_id,
-                    'issuetype_id': obj.issuetype_id,
+                    'wit_id': obj.wit_id,
                     'status_id': obj.status_id,
                     'parent_external_id': obj.parent_external_id,
                     'code_changed': obj.code_changed,
-                    'client_id': obj.client_id,
+                    'tenant_id': obj.tenant_id,
                     'active': obj.active,
                     'last_updated_at': obj.last_updated_at
                 })
 
-            session.bulk_update_mappings(Issue, update_data)
+            session.bulk_update_mappings(WorkItem, update_data)
             job_logger.progress(f"[COMPLETED] Completed updating {len(issues_to_update)} existing issues")
 
         # Process issues in chunks to prevent long-running transactions
@@ -1211,7 +1211,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
             for i in range(0, len(issues_to_insert), commit_batch_size):
                 chunk = issues_to_insert[i:i + commit_batch_size]
-                perform_bulk_insert(session, Issue, chunk, "issues", job_logger, batch_size=100)
+                perform_bulk_insert(session, WorkItem, chunk, "work_items", job_logger, batch_size=100)
 
                 total_processed += len(chunk)
 
@@ -1237,7 +1237,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         changelogs_processed = 0
         if processed_issue_keys:
-            changelogs_processed = process_changelogs_for_issues(
+            changelogs_processed = process_changelogs_for_work_items(
                 session, jira_client, integration, processed_issue_keys,
                 statuses_dict, job_logger, issue_changelogs, websocket_manager
             )
@@ -1270,19 +1270,19 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
 
 
-def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, integration: Integration,
-                                 issue_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
-                                 issue_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
-    """Process changelogs for a list of issues and calculate enhanced workflow metrics.
+def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClient, integration: Integration,
+                                     work_item_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
+                                     work_item_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
+    """Process changelogs for a list of work items and calculate enhanced workflow metrics.
 
     Args:
         session: Database session
-        jira_client: Jira API client (kept for compatibility, not used when issue_changelogs provided)
+        jira_client: Jira API client (kept for compatibility, not used when work_item_changelogs provided)
         integration: Integration object
-        issue_keys: List of issue keys to process changelogs for
+        work_item_keys: List of work item keys to process changelogs for
         statuses_dict: Dictionary mapping status external_ids to status objects
         job_logger: Logger for progress tracking
-        issue_changelogs: Optional dict of changelog data by issue key (from expand=changelog)
+        work_item_changelogs: Optional dict of changelog data by work item key (from expand=changelog)
 
     Returns:
         Number of changelogs processed
@@ -1294,11 +1294,11 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
         from app.core.settings_manager import get_jira_database_batch_size
         issues_in_db = []
         batch_size = get_jira_database_batch_size()  # Configurable batch size
-        for i in range(0, len(issue_keys), batch_size):
-            batch_keys = issue_keys[i:i + batch_size]
-            batch_issues = session.query(Issue).filter(
-                Issue.integration_id == integration.id,
-                Issue.key.in_(batch_keys)
+        for i in range(0, len(work_item_keys), batch_size):
+            batch_keys = work_item_keys[i:i + batch_size]
+            batch_issues = session.query(WorkItem).filter(
+                WorkItem.integration_id == integration.id,
+                WorkItem.key.in_(batch_keys)
             ).all()
             issues_in_db.extend(batch_issues)
 
@@ -1325,8 +1325,8 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 job_logger.error(f"[CONNECTION] Connection health check failed for changelog batch {batch_num}")
                 raise Exception(f"Database connection lost during changelog processing at batch {batch_num}")
 
-            batch_changelogs = session.query(IssueChangelog).filter(
-                IssueChangelog.issue_id.in_(batch_ids)
+            batch_changelogs = session.query(Changelog).filter(
+                Changelog.work_item_id.in_(batch_ids)
             ).all()
             existing_changelogs.extend(batch_changelogs)
 
@@ -1335,7 +1335,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 job_logger.progress(f"[DATABASE] Processed changelog batch {batch_num}/{total_batches}")
 
         existing_changelog_keys = {
-            (cl.issue_id, cl.external_id) for cl in existing_changelogs
+            (cl.work_item_id, cl.external_id) for cl in existing_changelogs
         }
 
         changelogs_to_insert = []
@@ -1352,8 +1352,8 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                 issue_key = issue.key
 
                 # Use embedded changelog data if available, otherwise fall back to API call
-                if issue_changelogs and issue_key in issue_changelogs:
-                    changelogs_data = issue_changelogs[issue_key]
+                if work_item_changelogs and issue_key in work_item_changelogs:
+                    changelogs_data = work_item_changelogs[issue_key]
                 else:
                     # Only log fallback API calls since they're less common and more important
                     job_logger.progress(f"[FETCHING] Fetching changelogs for issue {issue_key} (fallback)")
@@ -1395,13 +1395,13 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 
                         changelog_entry = {
                             'integration_id': integration.id,
-                            'issue_id': issue.id,
+                            'work_item_id': issue.id,
                             'external_id': changelog_external_id,
                             'from_status_id': from_status_id,
                             'to_status_id': to_status_id,
                             'transition_change_date': processed_changelog.get('changed_at'),
                             'changed_by': processed_changelog.get('author'),
-                            'client_id': integration.client_id,
+                            'tenant_id': integration.tenant_id,
                             'active': True,
                             'created_at': current_time,
                             'last_updated_at': current_time
@@ -1481,7 +1481,7 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
             total_inserted = 0
             for i in range(0, len(changelogs_to_insert), commit_batch_size):
                 chunk = changelogs_to_insert[i:i + commit_batch_size]
-                perform_bulk_insert(session, IssueChangelog, chunk, "issue_changelogs", job_logger, batch_size=100)
+                perform_bulk_insert(session, Changelog, chunk, "changelogs", job_logger, batch_size=100)
 
                 total_inserted += len(chunk)
 
@@ -1512,21 +1512,21 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
                     job_logger.error(f"[CONNECTION] Connection health check failed for workflow metrics batch {batch_num}")
                     raise Exception(f"Database connection lost during workflow metrics calculation at batch {batch_num}")
 
-                batch_changelogs = session.query(IssueChangelog).filter(
-                    IssueChangelog.issue_id.in_(batch_ids)
-                ).order_by(IssueChangelog.issue_id, IssueChangelog.transition_change_date).all()
+                batch_changelogs = session.query(Changelog).filter(
+                    Changelog.work_item_id.in_(batch_ids)
+                ).order_by(Changelog.work_item_id, Changelog.transition_change_date).all()
                 all_changelogs.extend(batch_changelogs)
 
                 # Log progress every 10 batches
                 if batch_num % 10 == 0 or batch_num == total_batches:
                     job_logger.progress(f"[DATABASE] Processed workflow metrics batch {batch_num}/{total_batches}")
 
-            # Group changelogs by issue_id
+            # Group changelogs by work_item_id
             changelogs_by_issue = {}
             for changelog in all_changelogs:
-                if changelog.issue_id not in changelogs_by_issue:
-                    changelogs_by_issue[changelog.issue_id] = []
-                changelogs_by_issue[changelog.issue_id].append(changelog)
+                if changelog.work_item_id not in changelogs_by_issue:
+                    changelogs_by_issue[changelog.work_item_id] = []
+                changelogs_by_issue[changelog.work_item_id].append(changelog)
 
             # Calculate enhanced workflow metrics for each issue
             issues_to_update_metrics = []
@@ -1605,12 +1605,12 @@ def process_changelogs_for_issues(session: Session, jira_client: JiraAPIClient, 
 # Legacy calculate_issue_dates function removed - replaced by calculate_enhanced_workflow_metrics
 
 
-def calculate_enhanced_workflow_metrics(changelogs: List[IssueChangelog], statuses_dict: Dict[str, Any]) -> Dict[str, Any]:
+def calculate_enhanced_workflow_metrics(changelogs: List[Changelog], statuses_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Calculate comprehensive workflow metrics from changelog data.
 
     Args:
-        changelogs: List of IssueChangelog database objects (sorted by transition_change_date DESC)
+        changelogs: List of Changelog database objects (sorted by transition_change_date DESC)
         statuses_dict: Dictionary mapping status external_ids to status objects
 
     Returns:
@@ -1845,7 +1845,7 @@ def extract_issue_dev_details(session: Session, integration, jira_client, issues
                 issue_id = issue_data['id']
 
                 if not issue_external_id:
-                    logger.warning(f"Issue {issue_key} has no external_id")
+                    logger.warning(f"WorkItem {issue_key} has no external_id")
                     continue
 
                 # Fetch development details from Jira using the client method
@@ -1865,7 +1865,7 @@ def extract_issue_dev_details(session: Session, integration, jira_client, issues
                 # Count pull requests in development details (don't save to database yet)
                 detail = dev_details.get('detail', [])
                 for detail_item in detail:
-                    # Pull requests are at the same level as branches in the detail object
+                    # PRs are at the same level as branches in the detail object
                     pull_requests = detail_item.get('pullRequests', [])
                     prs_found_in_dev_status += len(pull_requests)
 
@@ -1901,7 +1901,7 @@ def extract_issue_dev_details(session: Session, integration, jira_client, issues
 
 
 async def extract_work_items_and_changelogs_session_free(
-    client_id: int,
+    tenant_id: int,
     integration_id: int,
     jira_client,
     job_logger,
@@ -1928,7 +1928,7 @@ async def extract_work_items_and_changelogs_session_free(
         with database.get_read_session_context() as session:
             integration = session.query(Integration).filter(
                 Integration.id == integration_id,
-                Integration.client_id == client_id
+                Integration.tenant_id == tenant_id
             ).first()
 
             if not integration:
@@ -1969,10 +1969,10 @@ async def extract_work_items_and_changelogs_session_free(
                 future = loop.run_in_executor(executor, get_issues_sync)
                 all_issues = await asyncio.wait_for(future, timeout=1800)  # 30 minute timeout
         except asyncio.TimeoutError:
-            job_logger.error("[API] Issue fetching timed out after 30 minutes")
+            job_logger.error("[API] WorkItem fetching timed out after 30 minutes")
             return {
                 'success': False,
-                'error': 'Issue fetching timed out after 30 minutes',
+                'error': 'WorkItem fetching timed out after 30 minutes',
                 'issues_processed': 0,
                 'changelogs_processed': 0,
                 'issue_keys': []
@@ -2070,7 +2070,7 @@ async def process_issues_chunk_simple(
     Simplified issue processing function for session-free operation.
     Processes a chunk of issues without complex session management.
     """
-    from app.models.unified_models import Issue
+    from app.models.unified_models import WorkItem
     from sqlalchemy import text
     from datetime import datetime
     import traceback
@@ -2109,9 +2109,9 @@ async def process_issues_chunk_simple(
                 # Test connection before query
                 session.execute(text("SELECT 1"))
 
-                existing_batch = session.query(Issue).filter(
-                    Issue.client_id == integration.client_id,
-                    Issue.key_name.in_(batch_keys)
+                existing_batch = session.query(WorkItem).filter(
+                    WorkItem.tenant_id == integration.tenant_id,
+                    WorkItem.key_name.in_(batch_keys)
                 ).all()
 
                 for issue in existing_batch:

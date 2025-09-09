@@ -1,46 +1,46 @@
 /**
- * Client-aware logging utility for Frontend Application.
- * Provides client-specific logging with optional backend transmission.
+ * Tenant-aware logging utility for Frontend Application.
+ * Provides tenant-specific logging with optional backend transmission.
  */
 
 class ClientLogger {
     constructor() {
-        this.clientName = null;
-        this.clientId = null;
+        this.tenantName = null;
+        this.tenantId = null;
         this.userId = null;
         this.initialized = false;
         this.logBuffer = [];
         this.maxBufferSize = 100;
 
-        // Initialize client context
-        this.initializeClientContext();
+        // Initialize tenant context
+        this.initializeTenantContext();
     }
 
     /**
-     * Initialize client context from authentication token
+     * Initialize tenant context from authentication token
      */
-    initializeClientContext() {
+    initializeTenantContext() {
         try {
             const token = this.getAuthToken();
             if (token) {
                 const payload = JSON.parse(atob(token.split('.')[1]));
-                // Use client_id as client name since client_name is not in JWT
-                this.clientName = payload.client_id ? `client_${payload.client_id}` : 'unknown';
-                this.clientId = payload.client_id || null;
+                // Use tenant_id as tenant name since tenant_name is not in JWT
+                this.tenantName = payload.tenant_id ? `tenant_${payload.tenant_id}` : 'unknown';
+                this.tenantId = payload.tenant_id || null;
                 this.userId = payload.user_id || null;
                 this.initialized = true;
             } else {
-                this.clientName = 'anonymous';
-                this.clientId = null;
+                this.tenantName = 'anonymous';
+                this.tenantId = null;
                 this.userId = null;
                 this.initialized = false;
             }
         } catch (error) {
-            this.clientName = 'error';
-            this.clientId = null;
+            this.tenantName = 'error';
+            this.tenantId = null;
             this.userId = null;
             this.initialized = false;
-            console.error('Failed to initialize client logger:', error);
+            console.error('Failed to initialize tenant logger:', error);
         }
     }
 
@@ -74,8 +74,8 @@ class ClientLogger {
         const logEntry = {
             timestamp,
             level: level.toUpperCase(),
-            client: this.clientName,
-            clientId: this.clientId,
+            tenant: this.tenantName,
+            tenantId: this.tenantId,
             userId: this.userId,
             message,
             url: window.location.href,
@@ -83,14 +83,14 @@ class ClientLogger {
             ...data
         };
 
-        // Console logging with client prefix
-        const clientPrefix = `[${this.clientName.toUpperCase()}]`;
+        // Console logging with tenant prefix
+        const tenantPrefix = `[${this.tenantName.toUpperCase()}]`;
         const consoleMethod = console[level] || console.log;
 
         if (data && Object.keys(data).length > 0) {
-            consoleMethod(clientPrefix, message, logEntry);
+            consoleMethod(tenantPrefix, message, logEntry);
         } else {
-            consoleMethod(clientPrefix, message);
+            consoleMethod(tenantPrefix, message);
         }
 
         // Add to buffer for potential backend transmission
@@ -224,10 +224,10 @@ class ClientLogger {
     }
 
     /**
-     * Update client context (call when user logs in/out)
+     * Update tenant context (call when user logs in/out)
      */
-    updateClientContext() {
-        this.initializeClientContext();
+    updateTenantContext() {
+        this.initializeTenantContext();
     }
 }
 

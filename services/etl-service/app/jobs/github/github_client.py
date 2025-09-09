@@ -1,5 +1,5 @@
 """
-GitHub API Client for ETL Service.
+GitHub API Tenant for ETL Service.
 
 This module provides a client for interacting with the GitHub API to extract
 repository, pull request, and development data.
@@ -16,8 +16,8 @@ from app.core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-class GitHubClient:
-    """Client for GitHub API interactions."""
+class GitHubTenant:
+    """Tenant for GitHub API interactions."""
     
     def __init__(self, token: str, base_url: str = "https://api.github.com"):
         """

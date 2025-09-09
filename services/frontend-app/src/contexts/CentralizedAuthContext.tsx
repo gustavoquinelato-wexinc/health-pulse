@@ -7,7 +7,7 @@ interface User {
   name: string
   role: string
   is_admin: boolean
-  client_id: number
+  tenant_id: number
   colorSchemaData?: any
 }
 
@@ -106,7 +106,7 @@ export function CentralizedAuthProvider({ children }: AuthProviderProps) {
           : userData.first_name || userData.last_name || userData.email.split('@')[0],
         role: userData.role,
         is_admin: userData.is_admin,
-        client_id: userData.client_id
+        tenant_id: userData.tenant_id
       }
 
       setUser(formattedUser)
@@ -152,7 +152,7 @@ export function CentralizedAuthProvider({ children }: AuthProviderProps) {
             : userData.first_name || userData.last_name || userData.email.split('@')[0],
           role: userData.role,
           is_admin: userData.is_admin,
-          client_id: userData.client_id
+          tenant_id: userData.tenant_id
         }
 
         setUser(formattedUser)

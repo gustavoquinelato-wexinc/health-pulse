@@ -1,5 +1,5 @@
 """
-Client-aware logging middleware for Backend Service.
+Tenant-aware logging middleware for Backend Service.
 Extracts client context from JWT tokens and enables client-specific logging.
 """
 
@@ -8,11 +8,11 @@ from typing import Optional, Dict, Any
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.logging_config import get_client_logger, RequestLogger
+from app.core.logging_config import get_client_logger, get_tenant_logger, RequestLogger
 from app.auth.auth_service import get_auth_service
 
 
-class ClientLoggingMiddleware(BaseHTTPMiddleware):
+class TenantLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware that extracts client context and enables client-specific logging."""
     
     async def dispatch(self, request: Request, call_next):
@@ -46,11 +46,11 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
 
             # Determine client identifier for logging (avoid "anonymous" for security)
             if client_context and client_context.get('client_name'):
-                client_identifier = client_context['client_name']
+                tenant_identifier = client_context['client_name']
             elif client_context:
-                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
             else:
-                client_identifier = 'unauthenticated'  # No authentication context
+                tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.info(
                 "Request completed",
@@ -58,7 +58,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                 url=str(request.url),
                 status_code=response.status_code,
                 process_time=process_time,
-                client=client_identifier
+                client=tenant_identifier
             )
             
             return response
@@ -69,11 +69,11 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
 
             # Determine client identifier for logging (avoid "anonymous" for security)
             if client_context and client_context.get('client_name'):
-                client_identifier = client_context['client_name']
+                tenant_identifier = client_context['client_name']
             elif client_context:
-                client_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
             else:
-                client_identifier = 'unauthenticated'  # No authentication context
+                tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.error(
                 "Request failed",
@@ -82,7 +82,7 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
                 error=str(exc),
                 error_type=type(exc).__name__,
                 process_time=process_time,
-                client=client_identifier
+                client=tenant_identifier
             )
             raise
     
@@ -111,43 +111,43 @@ class ClientLoggingMiddleware(BaseHTTPMiddleware):
             if not user:
                 return None
             
-            # Get client name from database
+            # Get tenant name from database
             from app.core.database import get_database
-            from app.models.unified_models import Client
-            
+            from app.models.unified_models import Tenant
+
             database = get_database()
             with database.get_session() as session:
-                client = session.query(Client).filter(
-                    Client.id == user.client_id,
-                    Client.active == True
+                tenant = session.query(Tenant).filter(
+                    Tenant.id == user.tenant_id,
+                    Tenant.active == True
                 ).first()
-                
-                if not client:
+
+                if not tenant:
                     return None
-                
+
                 return {
-                    'client_id': client.id,
-                    'client_name': client.name,
+                    'tenant_id': tenant.id,
+                    'tenant_name': tenant.name,
                     'user_id': user.id,
                     # Don't include email in context to avoid PII in logs
                     'user_role': user.role
                 }
         
         except Exception as e:
-            # Don't let client context extraction break the request
-            # Just log the error and continue without client context
-            logger = get_client_logger("client_context_extraction")
-            logger.warning(f"Failed to extract client context: {e}")
+            # Don't let tenant context extraction break the request
+            # Just log the error and continue without tenant context
+            logger = get_tenant_logger("tenant_context_extraction")
+            logger.warning(f"Failed to extract tenant context: {e}")
             return None
 
 
-def get_client_context_from_request(request: Request) -> Optional[Dict[str, Any]]:
-    """Helper function to get client context from request state."""
+def get_tenant_context_from_request(request: Request) -> Optional[Dict[str, Any]]:
+    """Helper function to get tenant context from request state."""
     return getattr(request.state, 'client_context', None)
 
 
-def get_client_logger_from_request(request: Request, name: str = None):
-    """Helper function to get client-aware logger from request."""
-    client_context = get_client_context_from_request(request)
-    client_name = client_context.get('client_name') if client_context else None
-    return get_client_logger(name, client_name)
+def get_tenant_logger_from_request(request: Request, name: str = None):
+    """Helper function to get tenant-aware logger from request."""
+    tenant_context = get_tenant_context_from_request(request)
+    tenant_name = tenant_context.get('tenant_name') if tenant_context else None
+    return get_tenant_logger(name, tenant_name)

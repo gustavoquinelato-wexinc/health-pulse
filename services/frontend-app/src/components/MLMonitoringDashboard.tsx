@@ -202,7 +202,7 @@ export const MLMonitoringDashboard: React.FC<MLMonitoringDashboardProps> = ({
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><span className="font-medium">Intent:</span> {memory.user_intent}</div>
-                    <div><span className="font-medium">Issue:</span> {memory.specific_issue}</div>
+                    <div><span className="font-medium">WorkItem:</span> {memory.specific_issue}</div>
                     <div><span className="font-medium">Suggested Fix:</span> {memory.suggested_fix}</div>
                     <div><span className="font-medium">Confidence:</span> {(memory.confidence * 100).toFixed(1)}%</div>
                   </div>

@@ -82,21 +82,21 @@ SettingsManager.set_setting("custom_colors", color_data, client_id, "json")
 - **Default**: null (uses default colors)
 - **Scope**: Applied when color_schema_mode is "custom"
 
-### Client Branding
+### Tenant Branding
 
-#### client_logo_filename
-- **Purpose**: Filename of the client's logo image
+#### tenant_logo_filename
+- **Purpose**: Filename of the tenant's logo image
 - **Type**: string
 - **Valid Values**: Any valid filename with extension
 - **Default**: null
 - **Storage**: Logo files stored in both frontend and ETL service static folders
 - **Example**: `"wex_logo.png"`
 
-#### client_name_display
-- **Purpose**: Display name for the client in the UI
+#### tenant_name_display
+- **Purpose**: Display name for the tenant in the UI
 - **Type**: string
 - **Valid Values**: Any string
-- **Default**: Uses client.name from clients table
+- **Default**: Uses tenant.name from tenants table
 - **Scope**: Shown in headers, titles, and branding areas
 - **Example**: `"WEX Inc."`
 

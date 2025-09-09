@@ -1,0 +1,529 @@
+{% extends "layouts/modern_layout.html" %}
+
+{% block title %}Pulse ETL Management - Work Item Type Mappings{% endblock %}
+
+{% block content %}
+{% if not embedded %}
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Work Item Type Mappings
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage work item type mappings between integrations</p>
+        </div>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i class="fas fa-plus mr-2"></i>Create Mapping
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Work Item Type Mappings Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Work Item Type Mappings</h2>
+        <button onclick="loadMappings()" class="btn-neutral-secondary">
+            <i class="fas fa-refresh mr-1"></i>Refresh
+        </button>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">ID</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">External Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Internal Type</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Hierarchy Level</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Status</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mappingsTableBody" style="background-color: var(--bg-secondary);">
+                <!-- Mappings will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center">
+        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading work item type mappings...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden">
+        <i class="fas fa-sitemap text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Work Item Type Mappings Found</h3>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Mapping button above to get started.</p>
+    </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div id="mappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Work Item Type Mapping</h3>
+            <button onclick="closeModal('mappingModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <form id="mappingForm">
+                <input type="hidden" id="mappingId" name="id">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                        <select id="integration" name="integration_id" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Integration</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">External Type</label>
+                        <input type="text" id="externalType" name="external_type" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Internal Type</label>
+                        <select id="internalType" name="internal_type_id" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Internal Type</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level</label>
+                        <select id="hierarchyLevel" name="hierarchy_level" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <option value="">Select Hierarchy Level</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="active" name="active" checked class="mr-2">
+                        <span style="color: var(--text-primary);">Active</span>
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('mappingModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveMapping()" class="btn-crud-create">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Pause Mapping Modal -->
+<div id="pauseMappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-lg w-full mx-4">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 class="text-xl font-semibold text-primary">Pause Work Item Type Mapping</h3>
+            <button onclick="closeModal('pauseMappingModal')" class="text-muted hover:text-primary transition-colors">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4">
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    You are about to pause the mapping: <strong id="pauseMappingName" style="color: var(--text-primary);"></strong>
+                </p>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+                </p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Move to Mapping (Optional)</label>
+                <select id="moveToMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">Keep existing associations</option>
+                    <!-- Options will be loaded dynamically -->
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal('pauseMappingModal')" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="confirmPauseMapping()" class="btn-crud-warning">
+                <i class="fas fa-pause mr-2"></i>Pause
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Fix dropdown option text color */
+select option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-primary) !important;
+}
+</style>
+
+<script>
+let mappings = [];
+let integrations = [];
+let workItemTypes = [];
+let hierarchies = [];
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadMappings();
+    loadIntegrations();
+    loadWorkItemTypes();
+    loadHierarchies();
+});
+
+async function loadMappings() {
+    try {
+        // Show loading state
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('emptyState').style.display = 'none';
+
+        const response = await fetch('/api/v1/admin/wit-mappings', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            mappings = await response.json();
+            renderMappingsTable();
+        } else {
+            showError('Failed to load mappings');
+        }
+    } catch (error) {
+        console.error('Error loading mappings:', error);
+        showError('Error loading mappings');
+    } finally {
+        // Hide loading state
+        document.getElementById('loadingState').style.display = 'none';
+    }
+}
+
+async function loadIntegrations() {
+    try {
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            integrations = await response.json();
+            populateIntegrationSelect();
+        } else {
+            showError('Failed to load integrations');
+        }
+    } catch (error) {
+        console.error('Error loading integrations:', error);
+        showError('Error loading integrations');
+    }
+}
+
+async function loadWorkItemTypes() {
+    try {
+        const response = await fetch('/api/v1/admin/wits', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            workItemTypes = await response.json();
+            populateTypeSelect();
+        } else {
+            showError('Failed to load work item types');
+        }
+    } catch (error) {
+        console.error('Error loading work item types:', error);
+        showError('Error loading work item types');
+    }
+}
+
+async function loadHierarchies() {
+    try {
+        const response = await fetch('/api/v1/admin/wits-hierarchies', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            hierarchies = data.hierarchies || [];
+            populateHierarchySelect();
+        } else {
+            showError('Failed to load hierarchies');
+        }
+    } catch (error) {
+        console.error('Error loading hierarchies:', error);
+        showError('Error loading hierarchies');
+    }
+}
+
+function populateIntegrationSelect() {
+    const select = document.getElementById('integration');
+    select.innerHTML = '<option value="">Select Integration</option>';
+    
+    integrations.forEach(integration => {
+        const option = new Option(integration.name || integration.provider || `Integration ${integration.id}`, integration.id);
+        select.add(option);
+    });
+}
+
+function populateTypeSelect() {
+    const select = document.getElementById('internalType');
+    select.innerHTML = '<option value="">Select Internal Type</option>';
+
+    workItemTypes.forEach(type => {
+        const option = new Option(type.original_name, type.id);
+        select.add(option);
+    });
+}
+
+function populateHierarchySelect() {
+    const select = document.getElementById('hierarchyLevel');
+    select.innerHTML = '<option value="">Select Hierarchy Level</option>';
+
+    hierarchies.forEach(hierarchy => {
+        const option = new Option(`Level ${hierarchy.level_number} - ${hierarchy.level_name}`, hierarchy.level_number);
+        select.add(option);
+    });
+}
+
+function renderMappingsTable() {
+    const tbody = document.getElementById('mappingsTableBody');
+    tbody.innerHTML = '';
+
+    if (mappings.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+    }
+
+    mappings.forEach(mapping => {
+        const row = document.createElement('tr');
+        row.className = 'border-b hover:bg-gray-50';
+        row.style.borderColor = 'var(--border-color)';
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.id}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.integration_name || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_from || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_to || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${mapping.hierarchy_level || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${mapping.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                    ${mapping.active ? 'Active' : 'Inactive'}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(${mapping.id})" class="btn-crud-edit-sm" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    ${mapping.active ?
+                        `<button onclick="showPauseModal(${mapping.id}, '${mapping.wit_from} → ${mapping.wit_to}')" class="btn-status-warning-xs" title="Pause">
+                            <i class="fas fa-pause"></i>
+                        </button>` :
+                        `<button onclick="resumeMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
+                            <i class="fas fa-play"></i>
+                        </button>`
+                    }
+                    <button onclick="deleteMapping(${mapping.id})" class="btn-crud-delete-sm" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function showCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Create Work Item Type Mapping';
+    document.getElementById('mappingForm').reset();
+    document.getElementById('mappingId').value = '';
+    document.getElementById('active').checked = true;
+    openModal('mappingModal');
+}
+
+function editMapping(id) {
+    const mapping = mappings.find(m => m.id === id);
+    if (mapping) {
+        document.getElementById('modalTitle').textContent = 'Edit Work Item Type Mapping';
+        document.getElementById('mappingId').value = mapping.id;
+        document.getElementById('integration').value = mapping.integration_id || '';
+        document.getElementById('externalType').value = mapping.external_type;
+        document.getElementById('internalType').value = mapping.internal_type_id || '';
+        document.getElementById('active').checked = mapping.active;
+        openModal('mappingModal');
+    }
+}
+
+async function saveMapping() {
+    const form = document.getElementById('mappingForm');
+    const formData = new FormData(form);
+    const id = formData.get('id');
+    
+    const data = {
+        integration_id: parseInt(formData.get('integration_id')) || null,
+        wit_from: formData.get('external_type'),
+        wit_to: formData.get('internal_type_id'),
+        hierarchy_level: parseInt(formData.get('hierarchy_level')),
+        active: formData.has('active')
+    };
+    
+    try {
+        const url = id ? `/api/v1/admin/wit-mappings/${id}` : '/api/v1/admin/wit-mappings';
+        const method = id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            closeModal('mappingModal');
+            loadMappings();
+            showSuccess(id ? 'Mapping updated successfully' : 'Mapping created successfully');
+        } else {
+            const error = await response.text();
+            showError(`Failed to save mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error saving mapping:', error);
+        showError('Error saving mapping');
+    }
+}
+
+async function deleteMapping(id) {
+    if (confirm('Are you sure you want to delete this mapping?')) {
+        try {
+            const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                loadMappings();
+                showSuccess('Mapping deleted successfully');
+            } else {
+                showError('Failed to delete mapping');
+            }
+        } catch (error) {
+            console.error('Error deleting mapping:', error);
+            showError('Error deleting mapping');
+        }
+    }
+}
+
+let currentMappingId = null;
+
+async function showPauseModal(id, mappingName) {
+    currentMappingId = id;
+
+    try {
+        // Load other mappings for the move dropdown
+        const moveSelect = document.getElementById('moveToMapping');
+        moveSelect.innerHTML = '<option value="">Keep existing associations</option>';
+
+        mappings.forEach(mapping => {
+            if (mapping.id !== id && mapping.active) {
+                const option = new Option(`${mapping.wit_from} → ${mapping.wit_to}`, mapping.id);
+                moveSelect.add(option);
+            }
+        });
+
+        document.getElementById('pauseMappingName').textContent = mappingName;
+        openModal('pauseMappingModal');
+
+    } catch (error) {
+        console.error('Error loading mappings for move:', error);
+        showError('Error loading mappings for move');
+    }
+}
+
+async function confirmPauseMapping() {
+    if (!currentMappingId) return;
+
+    try {
+        const moveToId = document.getElementById('moveToMapping').value;
+        const data = {
+            active: false,
+            move_to_mapping_id: moveToId || null
+        };
+
+        const response = await fetch(`/api/v1/admin/wit-mappings/${currentMappingId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Mapping paused successfully');
+            closeModal('pauseMappingModal');
+            loadMappings();
+        } else {
+            const error = await response.text();
+            showError(`Failed to pause mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error pausing mapping:', error);
+        showError('Error pausing mapping');
+    }
+}
+
+async function resumeMapping(id) {
+    try {
+        const data = { active: true };
+
+        const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Mapping resumed successfully');
+            loadMappings();
+        } else {
+            const error = await response.text();
+            showError(`Failed to resume mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error resuming mapping:', error);
+        showError('Error resuming mapping');
+    }
+}
+
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function showSuccess(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+
+function showError(message) {
+    // Implementation depends on your notification system
+    alert(message);
+}
+</script>
+
+{% endblock %}

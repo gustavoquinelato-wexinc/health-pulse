@@ -13,11 +13,11 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.database import get_database
 from app.models.unified_models import (
-    User, UserPermission, UserSession, Integration, Project, Issue, Client, IssueChangelog,
-    Repository, PullRequest, PullRequestCommit, PullRequestReview, PullRequestComment,
-    JiraPullRequestLinks, Issuetype, Status, JobSchedule, SystemSettings,
-    StatusMapping, Workflow, IssuetypeMapping, IssuetypeHierarchy, MigrationHistory,
-    ProjectsIssuetypes, ProjectsStatuses
+    User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, Changelog,
+    Repository, Pr, PrCommit, PrReview, PrComment,
+    WitPrLinks, Wit, Status, JobSchedule, SystemSettings,
+    StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
+    ProjectWits, ProjectsStatuses
 )
 from app.auth.auth_middleware import require_permission
 from app.auth.auth_service import get_auth_service
@@ -33,7 +33,7 @@ settings = get_settings()
 
 
 # 🚀 ETL Service Notification Functions
-async def notify_etl_color_schema_change(client_id: int, colors: dict):
+async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
     """Notify ETL service of color schema changes"""
     try:
         # Get ETL service URL (assuming it runs on port 8000)
@@ -41,13 +41,13 @@ async def notify_etl_color_schema_change(client_id: int, colors: dict):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
-                "client_id": client_id,
+                "tenant_id": tenant_id,
                 "colors": colors,
                 "event_type": "color_update"
             })
 
             if response.status_code == 200:
-                logger.info(f"✅ ETL service notified of color schema change for client {client_id}")
+                logger.info(f"✅ ETL service notified of color schema change for client {tenant_id}")
             else:
                 logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
 
@@ -56,7 +56,7 @@ async def notify_etl_color_schema_change(client_id: int, colors: dict):
         # Don't fail the main operation if ETL notification fails
 
 
-async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
+async def notify_etl_color_schema_mode_change(tenant_id: int, mode: str):
     """Notify ETL service of color schema mode changes"""
     try:
         # Get ETL service URL
@@ -64,13 +64,13 @@ async def notify_etl_color_schema_mode_change(client_id: int, mode: str):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(etl_url, json={
-                "client_id": client_id,
+                "tenant_id": tenant_id,
                 "mode": mode,
                 "event_type": "mode_update"
             })
 
             if response.status_code == 200:
-                logger.info(f"✅ ETL service notified of color schema mode change for client {client_id}")
+                logger.info(f"✅ ETL service notified of color schema mode change for client {tenant_id}")
             else:
                 logger.warning(f"⚠️ ETL service notification failed: {response.status_code}")
 
@@ -124,7 +124,7 @@ class SystemStatsResponse(BaseModel):
     users: UserStats
     tables: dict
 
-class ClientResponse(BaseModel):
+class TenantResponse(BaseModel):
     id: int
     name: str
     website: Optional[str]
@@ -133,12 +133,12 @@ class ClientResponse(BaseModel):
     created_at: str
     last_updated_at: str
 
-class ClientCreateRequest(BaseModel):
+class TenantCreateRequest(BaseModel):
     name: str
     website: Optional[str] = None
     active: bool = True
 
-class ClientUpdateRequest(BaseModel):
+class TenantUpdateRequest(BaseModel):
     name: Optional[str] = None
     website: Optional[str] = None
     active: Optional[bool] = None
@@ -160,9 +160,9 @@ async def get_all_users(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             users = session.query(User).filter(
-                User.client_id == user.client_id
+                User.tenant_id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
@@ -217,7 +217,7 @@ async def create_user(
                 last_name=user_data.last_name,
                 role=user_data.role,
                 is_admin=user_data.is_admin,
-                client_id=admin_user.client_id,
+                tenant_id=admin_user.tenant_id,
                 active=True
             )
 
@@ -265,10 +265,10 @@ async def update_user(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             user = session.query(User).filter(
                 User.id == user_id,
-                User.client_id == admin_user.client_id
+                User.tenant_id == admin_user.tenant_id
             ).first()
             if not user:
                 raise HTTPException(
@@ -328,10 +328,10 @@ async def delete_user(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             user = session.query(User).filter(
                 User.id == user_id,
-                User.client_id == admin_user.client_id
+                User.tenant_id == admin_user.tenant_id
             ).first()
             if not user:
                 raise HTTPException(
@@ -400,9 +400,9 @@ async def get_all_users(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             users = session.query(User).filter(
-                User.client_id == user.client_id
+                User.tenant_id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
@@ -432,34 +432,34 @@ async def get_system_stats(
     try:
         database = get_database()
         with database.get_analytics_session_context() as session:
-            # ✅ SECURITY: User statistics filtered by client_id
-            total_users = session.query(User).filter(User.client_id == admin_user.client_id).count()
+            # ✅ SECURITY: User statistics filtered by tenant_id
+            total_users = session.query(User).filter(User.tenant_id == admin_user.tenant_id).count()
             active_users = session.query(User).filter(
-                User.client_id == admin_user.client_id,
+                User.tenant_id == admin_user.tenant_id,
                 User.active == True
             ).count()
 
             # Count logged users (users with active sessions) for current client
             from app.core.utils import DateTimeHelper
             logged_users = session.query(User).join(UserSession).filter(
-                User.client_id == admin_user.client_id,
+                User.tenant_id == admin_user.tenant_id,
                 User.active == True,
                 UserSession.active == True,
                 UserSession.expires_at > DateTimeHelper.now_utc()
             ).distinct().count()
 
-            # ✅ SECURITY: Admin users count filtered by client_id
+            # ✅ SECURITY: Admin users count filtered by tenant_id
             admin_users = session.query(User).filter(
-                User.client_id == admin_user.client_id,
+                User.tenant_id == admin_user.tenant_id,
                 User.is_admin == True,
                 User.active == True
             ).count()
 
-            # ✅ SECURITY: Role distribution filtered by client_id
+            # ✅ SECURITY: Role distribution filtered by tenant_id
             roles_distribution = {}
             for role in Role:
                 count = session.query(User).filter(
-                    User.client_id == admin_user.client_id,
+                    User.tenant_id == admin_user.tenant_id,
                     User.role == role.value,
                     User.active == True
                 ).count()
@@ -474,34 +474,34 @@ async def get_system_stats(
                 "users": User,
                 "user_sessions": UserSession,
                 "user_permissions": UserPermission,
-                "clients": Client,
+                "tenants": Tenant,
                 "integrations": Integration,
                 "projects": Project,
-                "issues": Issue,
-                "issue_changelogs": IssueChangelog,
+                "work_items": WorkItem,
+                "changelogs": Changelog,
                 "repositories": Repository,
-                "pull_requests": PullRequest,
-                "pull_request_commits": PullRequestCommit,
-                "pull_request_reviews": PullRequestReview,
-                "pull_request_comments": PullRequestComment,
-                "jira_pull_request_links": JiraPullRequestLinks,
-                "issuetypes": Issuetype,
+                "prs": Pr,
+                "prs_commits": PrCommit,
+                "prs_reviews": PrReview,
+                "prs_comments": PrComment,
+                "wits_prs_links": WitPrLinks,
+                "wits": Wit,
                 "statuses": Status,
                 "status_mappings": StatusMapping,
                 "workflows": Workflow,
-                "issuetype_mappings": IssuetypeMapping,
-                "issuetype_hierarchies": IssuetypeHierarchy,
-                "projects_issuetypes": ProjectsIssuetypes,
+                "wits_mappings": WitMapping,
+                "wits_hierarchies": WitHierarchy,
+                "projects_wits": ProjectWits,
                 "projects_statuses": ProjectsStatuses,
                 "job_schedules": JobSchedule,
                 "system_settings": SystemSettings,
                 "migration_history": MigrationHistory
             }
 
-            # ✅ SECURITY: Count records filtered by client_id
+            # ✅ SECURITY: Count records filtered by tenant_id
             for table_name, model in table_models.items():
                 try:
-                    # Skip tables that don't have client_id (global tables)
+                    # Skip tables that don't have tenant_id (global tables)
                     if table_name in ['clients', 'migration_history']:
                         # These are global tables - count all records
                         if table_name in ['projects_issuetypes', 'projects_statuses']:
@@ -509,14 +509,14 @@ async def get_system_stats(
                         else:
                             count = session.query(func.count(model.id)).scalar() or 0
                     else:
-                        # Filter by client_id for client-specific tables
-                        if hasattr(model, 'client_id'):
+                        # Filter by tenant_id for client-specific tables
+                        if hasattr(model, 'tenant_id'):
                             if table_name in ['projects_issuetypes', 'projects_statuses']:
-                                count = session.query(model).filter(model.client_id == admin_user.client_id).count() or 0
+                                count = session.query(model).filter(model.tenant_id == admin_user.tenant_id).count() or 0
                             else:
-                                count = session.query(func.count(model.id)).filter(model.client_id == admin_user.client_id).scalar() or 0
+                                count = session.query(func.count(model.id)).filter(model.tenant_id == admin_user.tenant_id).scalar() or 0
                         else:
-                            # For tables without client_id, count all (like user_sessions, user_permissions)
+                            # For tables without tenant_id, count all (like user_sessions, user_permissions)
                             if table_name in ['projects_issuetypes', 'projects_statuses']:
                                 count = session.query(model).count() or 0
                             else:
@@ -742,7 +742,7 @@ async def get_permission_matrix(
 
 
 
-# IssuetypeMappingDeactivationRequest class removed - handled by ETL service
+# WitMappingDeactivationRequest class removed - handled by ETL service
 
 
 # All remaining issuetype endpoints removed - handled by ETL service
@@ -836,22 +836,22 @@ async def delete_issuetype_hierarchy(
     try:
         database = get_database()
         with database.get_write_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping
+            from app.models.unified_models import WitHierarchy, WitMapping
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issuetype hierarchy not found"
+                    detail="Wit hierarchy not found"
                 )
 
             # Check if hierarchy is being used by any mappings
-            mappings_count = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id
+            mappings_count = session.query(WitMapping).filter(
+                WitMapping.wits_hierarchy_id == hierarchy_id
             ).count()
 
             if mappings_count > 0:
@@ -865,7 +865,7 @@ async def delete_issuetype_hierarchy(
 
             logger.info(f"Admin {user.email} deleted issuetype hierarchy {hierarchy_id}")
 
-            return {"message": "Issuetype hierarchy deleted successfully"}
+            return {"message": "Wit hierarchy deleted successfully"}
 
     except HTTPException:
         raise
@@ -888,43 +888,43 @@ async def get_issuetype_hierarchy_dependencies(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            from app.models.unified_models import IssuetypeHierarchy, IssuetypeMapping, Issue, Issuetype
+            from app.models.unified_models import WitHierarchy, WitMapping, WorkItem, Wit
 
-            hierarchy = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.id == hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
             ).first()
 
             if not hierarchy:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Issue type hierarchy not found"
+                    detail="WorkItem type hierarchy not found"
                 )
 
             # Count dependent mappings that use this hierarchy
-            dependent_mappings_count = session.query(IssuetypeMapping).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id,
-                IssuetypeMapping.active == True
+            dependent_mappings_count = session.query(WitMapping).filter(
+                WitMapping.wits_hierarchy_id == hierarchy_id,
+                WitMapping.active == True
             ).count()
 
             # Count dependent issues through the mappings and issue types
-            dependent_issues_count = session.query(Issue).join(
-                Issuetype, Issue.issuetype_id == Issuetype.id
+            dependent_issues_count = session.query(WorkItem).join(
+                Wit, WorkItem.wit_id == Wit.id
             ).join(
-                IssuetypeMapping, Issuetype.issuetype_mapping_id == IssuetypeMapping.id
+                WitMapping, Wit.wit_mapping_id == WitMapping.id
             ).filter(
-                IssuetypeMapping.issuetype_hierarchy_id == hierarchy_id,
-                IssuetypeMapping.active == True,
-                Issuetype.active == True,
-                Issue.active == True
+                WitMapping.wits_hierarchy_id == hierarchy_id,
+                WitMapping.active == True,
+                Wit.active == True,
+                WorkItem.active == True
             ).count()
 
             # Get available reassignment targets (active hierarchies, excluding current)
-            reassignment_targets = session.query(IssuetypeHierarchy).filter(
-                IssuetypeHierarchy.active == True,
-                IssuetypeHierarchy.id != hierarchy_id,
-                IssuetypeHierarchy.client_id == user.client_id
-            ).order_by(IssuetypeHierarchy.level_number.desc()).all()
+            reassignment_targets = session.query(WitHierarchy).filter(
+                WitHierarchy.active == True,
+                WitHierarchy.id != hierarchy_id,
+                WitHierarchy.tenant_id == user.tenant_id
+            ).order_by(WitHierarchy.level_number.desc()).all()
 
             return {
                 "hierarchy_id": hierarchy_id,
@@ -959,7 +959,7 @@ async def get_issuetype_hierarchy_dependencies(
         )
 
 
-# IssuetypeHierarchyDeactivationRequest class removed - handled by ETL service
+# WitHierarchyDeactivationRequest class removed - handled by ETL service
 
 
 # Permission Management Endpoints
@@ -1013,9 +1013,9 @@ async def get_all_users(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Filter by client_id to prevent cross-client data access
+            # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
             users = session.query(User).filter(
-                User.client_id == user.client_id
+                User.tenant_id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
@@ -1103,7 +1103,7 @@ async def get_active_sessions(
         with database.get_read_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # ✅ SECURITY: Query active sessions filtered by client_id
+            # ✅ SECURITY: Query active sessions filtered by tenant_id
             active_sessions = session.query(
                 UserSession,
                 User.first_name,
@@ -1114,7 +1114,7 @@ async def get_active_sessions(
                 User, UserSession.user_id == User.id
             ).filter(
                 and_(
-                    User.client_id == user.client_id,  # Filter by client_id
+                    User.tenant_id == user.tenant_id,  # Filter by tenant_id
                     UserSession.active == True,
                     UserSession.expires_at > DateTimeHelper.now_utc(),
                     User.active == True
@@ -1155,7 +1155,7 @@ async def terminate_all_sessions(
 
             # ✅ SECURITY: Get session IDs for current client only (using join for filtering)
             session_ids_to_terminate = session.query(UserSession.id).join(User).filter(
-                User.client_id == user.client_id,
+                User.tenant_id == user.tenant_id,
                 UserSession.active == True
             ).all()
 
@@ -1200,12 +1200,12 @@ async def terminate_user_session(
         with database.get_write_session_context() as session:
             from app.core.utils import DateTimeHelper
 
-            # ✅ SECURITY: Find the session to terminate (filtered by client_id)
+            # ✅ SECURITY: Find the session to terminate (filtered by tenant_id)
             user_session = session.query(UserSession).join(User).filter(
                 and_(
                     UserSession.id == session_id,
                     UserSession.active == True,
-                    User.client_id == user.client_id  # Ensure session belongs to current client
+                    User.tenant_id == user.tenant_id  # Ensure session belongs to current client
                 )
             ).first()
 
@@ -1265,10 +1265,10 @@ async def get_color_schema(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Get color schema mode filtered by client_id
+            # ✅ SECURITY: Get color schema mode filtered by tenant_id
             mode_setting = session.query(SystemSettings).filter(
                 SystemSettings.setting_key == "color_schema_mode",
-                SystemSettings.client_id == user.client_id
+                SystemSettings.tenant_id == user.tenant_id
             ).first()
 
             color_mode = mode_setting.setting_value if mode_setting else "default"
@@ -1277,10 +1277,10 @@ async def get_color_schema(
             color_settings = {}
             for i in range(1, 6):
                 setting_key = f"custom_color{i}"  # Fixed: removed underscore
-                # ✅ SECURITY: Filter by client_id
+                # ✅ SECURITY: Filter by tenant_id
                 setting = session.query(SystemSettings).filter(
                     SystemSettings.setting_key == setting_key,
-                    SystemSettings.client_id == user.client_id
+                    SystemSettings.tenant_id == user.tenant_id
                 ).first()
 
                 if setting:
@@ -1319,17 +1319,17 @@ async def update_color_schema(
         database = get_database()
         with database.get_write_session_context() as session:
             # ✅ SECURITY: Use current user's client for system settings
-            # No need to query client - use user's client_id directly
+            # No need to query client - use user's tenant_id directly
 
             # Update each color setting
             colors = request.model_dump()
             for color_key, color_value in colors.items():
                 setting_key = f"custom_{color_key}"
 
-                # ✅ SECURITY: Get or create setting filtered by client_id
+                # ✅ SECURITY: Get or create setting filtered by tenant_id
                 setting = session.query(SystemSettings).filter(
                     SystemSettings.setting_key == setting_key,
-                    SystemSettings.client_id == user.client_id
+                    SystemSettings.tenant_id == user.tenant_id
                 ).first()
 
                 if not setting:
@@ -1338,7 +1338,7 @@ async def update_color_schema(
                         setting_value=color_value,
                         setting_type='string',
                         description=f"Custom {color_key} for color schema",
-                        client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                        tenant_id=user.tenant_id  # ✅ SECURITY: Use user's tenant_id
                     )
                     session.add(setting)
                 else:
@@ -1348,7 +1348,7 @@ async def update_color_schema(
             session.commit()
 
             # 🚀 NEW: Notify ETL service of color schema change
-            await notify_etl_color_schema_change(user.client_id, colors)
+            await notify_etl_color_schema_change(user.tenant_id, colors)
 
             return {
                 "success": True,
@@ -1380,12 +1380,12 @@ async def update_color_schema_mode(
         database = get_database()
         with database.get_write_session_context() as session:
             # ✅ SECURITY: Use current user's client for system settings
-            # No need to query client - use user's client_id directly
+            # No need to query client - use user's tenant_id directly
 
-            # ✅ SECURITY: Get or create the color schema mode setting filtered by client_id
+            # ✅ SECURITY: Get or create the color schema mode setting filtered by tenant_id
             setting = session.query(SystemSettings).filter(
                 SystemSettings.setting_key == "color_schema_mode",
-                SystemSettings.client_id == user.client_id
+                SystemSettings.tenant_id == user.tenant_id
             ).first()
 
             if setting:
@@ -1399,14 +1399,14 @@ async def update_color_schema_mode(
                     setting_value=request.mode,
                     setting_type='string',
                     description="Color schema mode (default or custom)",
-                    client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                    tenant_id=user.tenant_id  # ✅ SECURITY: Use user's tenant_id
                 )
                 session.add(setting)
 
             session.commit()
 
             # 🚀 NEW: Notify ETL service of color schema mode change
-            await notify_etl_color_schema_mode_change(user.client_id, request.mode)
+            await notify_etl_color_schema_mode_change(user.tenant_id, request.mode)
 
             return {
                 "success": True,
@@ -1432,10 +1432,10 @@ async def get_theme_mode(
     try:
         database = get_database()
         with database.get_read_session_context() as session:
-            # ✅ SECURITY: Get theme mode setting filtered by client_id
+            # ✅ SECURITY: Get theme mode setting filtered by tenant_id
             setting = session.query(SystemSettings).filter(
                 SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
+                SystemSettings.tenant_id == user.tenant_id
             ).first()
 
             theme_mode = setting.setting_value if setting else "light"
@@ -1468,10 +1468,10 @@ async def update_theme_mode(
 
         database = get_database()
         with database.get_write_session_context() as session:
-            # ✅ SECURITY: Get or create the theme mode setting filtered by client_id
+            # ✅ SECURITY: Get or create the theme mode setting filtered by tenant_id
             setting = session.query(SystemSettings).filter(
                 SystemSettings.setting_key == "theme_mode",
-                SystemSettings.client_id == user.client_id
+                SystemSettings.tenant_id == user.tenant_id
             ).first()
 
             if setting:
@@ -1485,7 +1485,7 @@ async def update_theme_mode(
                     setting_value=request.mode,
                     setting_type='string',
                     description="User interface theme mode (light or dark)",
-                    client_id=user.client_id  # ✅ SECURITY: Use user's client_id
+                    tenant_id=user.tenant_id  # ✅ SECURITY: Use user's tenant_id
                 )
                 session.add(setting)
 
@@ -1505,9 +1505,9 @@ async def update_theme_mode(
         )
 
 
-# Client Management Endpoints
+# Tenant Management Endpoints
 
-@router.get("/clients", response_model=List[ClientResponse])
+@router.get("/clients", response_model=List[TenantResponse])
 async def get_all_clients(
     skip: int = 0,
     limit: int = 100,
@@ -1518,12 +1518,12 @@ async def get_all_clients(
         database = get_database()
         with database.get_read_session_context() as session:
             # ✅ SECURITY: Only show the current user's client
-            clients = session.query(Client).filter(
-                Client.id == user.client_id
+            clients = session.query(Tenant).filter(
+                Tenant.id == user.tenant_id
             ).offset(skip).limit(limit).all()
 
             return [
-                ClientResponse(
+                TenantResponse(
                     id=client.id,
                     name=client.name,
                     website=client.website,
@@ -1542,9 +1542,9 @@ async def get_all_clients(
         )
 
 
-@router.post("/clients", response_model=ClientResponse)
+@router.post("/clients", response_model=TenantResponse)
 async def create_client(
-    client_data: ClientCreateRequest,
+    client_data: TenantCreateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
     """Create a new client"""
@@ -1554,18 +1554,18 @@ async def create_client(
             from app.core.utils import DateTimeHelper
 
             # Check if client name already exists
-            existing_client = session.query(Client).filter(
-                Client.name == client_data.name
+            existing_client = session.query(Tenant).filter(
+                Tenant.name == client_data.name
             ).first()
 
             if existing_client:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Client name already exists"
+                    detail="Tenant name already exists"
                 )
 
             # Create new client
-            new_client = Client(
+            new_client = Tenant(
                 name=client_data.name,
                 website=client_data.website,
                 active=client_data.active,
@@ -1577,9 +1577,9 @@ async def create_client(
             session.commit()
             session.refresh(new_client)
 
-            logger.info(f"✅ Client created: {new_client.name} by admin {admin_user.email}")
+            logger.info(f"✅ Tenant created: {new_client.name} by admin {admin_user.email}")
 
-            return ClientResponse(
+            return TenantResponse(
                 id=new_client.id,
                 name=new_client.name,
                 website=new_client.website,
@@ -1599,10 +1599,10 @@ async def create_client(
         )
 
 
-@router.put("/clients/{client_id}", response_model=ClientResponse)
+@router.put("/clients/{tenant_id}", response_model=TenantResponse)
 async def update_client(
-    client_id: int,
-    client_data: ClientUpdateRequest,
+    tenant_id: int,
+    client_data: TenantUpdateRequest,
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
     """Update an existing client"""
@@ -1612,24 +1612,24 @@ async def update_client(
             from app.core.utils import DateTimeHelper
 
             # Find the client
-            client = session.query(Client).filter(Client.id == client_id).first()
+            client = session.query(Tenant).filter(Tenant.id == tenant_id).first()
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Check if new name conflicts with existing client
             if client_data.name and client_data.name != client.name:
-                existing_client = session.query(Client).filter(
-                    Client.name == client_data.name,
-                    Client.id != client_id
+                existing_client = session.query(Tenant).filter(
+                    Tenant.name == client_data.name,
+                    Tenant.id != tenant_id
                 ).first()
 
                 if existing_client:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Client name already exists"
+                        detail="Tenant name already exists"
                     )
 
             # Update fields
@@ -1645,9 +1645,9 @@ async def update_client(
             session.commit()
             session.refresh(client)
 
-            logger.info(f"✅ Client updated: {client.name} by admin {admin_user.email}")
+            logger.info(f"✅ Tenant updated: {client.name} by admin {admin_user.email}")
 
-            return ClientResponse(
+            return TenantResponse(
                 id=client.id,
                 name=client.name,
                 website=client.website,
@@ -1667,9 +1667,9 @@ async def update_client(
         )
 
 
-@router.delete("/clients/{client_id}")
+@router.delete("/clients/{tenant_id}")
 async def delete_client(
-    client_id: int,
+    tenant_id: int,
     admin_user: User = Depends(require_permission("admin_panel", "delete"))
 ):
     """Delete a client (with dependency checking)"""
@@ -1677,16 +1677,16 @@ async def delete_client(
         database = get_database()
         with database.get_write_session_context() as session:
             # Find the client
-            client = session.query(Client).filter(Client.id == client_id).first()
+            client = session.query(Tenant).filter(Tenant.id == tenant_id).first()
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Check for dependencies (users, integrations, etc.)
-            user_count = session.query(User).filter(User.client_id == client_id).count()
-            integration_count = session.query(Integration).filter(Integration.client_id == client_id).count()
+            user_count = session.query(User).filter(User.tenant_id == tenant_id).count()
+            integration_count = session.query(Integration).filter(Integration.tenant_id == tenant_id).count()
 
             if user_count > 0 or integration_count > 0:
                 raise HTTPException(
@@ -1716,11 +1716,11 @@ async def delete_client(
             session.delete(client)
             session.commit()
 
-            logger.info(f"✅ Client deleted: {client.name} by admin {admin_user.email}")
+            logger.info(f"✅ Tenant deleted: {client.name} by admin {admin_user.email}")
 
             return {
                 "success": True,
-                "message": f"Client '{client.name}' deleted successfully"
+                "message": f"Tenant '{client.name}' deleted successfully"
             }
 
     except HTTPException:
@@ -1733,9 +1733,9 @@ async def delete_client(
         )
 
 
-@router.post("/clients/{client_id}/logo")
+@router.post("/clients/{tenant_id}/logo")
 async def upload_client_logo(
-    client_id: int,
+    tenant_id: int,
     logo: UploadFile = File(...),
     admin_user: User = Depends(require_permission("admin_panel", "execute"))
 ):
@@ -1763,11 +1763,11 @@ async def upload_client_logo(
             from pathlib import Path
 
             # Find the client
-            client = session.query(Client).filter(Client.id == client_id).first()
+            client = session.query(Tenant).filter(Tenant.id == tenant_id).first()
             if not client:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Client not found"
+                    detail="Tenant not found"
                 )
 
             # Generate unique filename
@@ -1819,7 +1819,7 @@ async def upload_client_logo(
 
             logger.info(f"✅ Logo uploaded for client: {client.name} by admin {admin_user.email}")
 
-            return ClientResponse(
+            return TenantResponse(
                 id=client.id,
                 name=client.name,
                 website=client.website,

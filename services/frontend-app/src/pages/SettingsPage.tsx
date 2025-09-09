@@ -67,7 +67,7 @@ export default function SettingsPage() {
     // Otherwise, use the fallback categorization
     const categories = {
       'Core Data': ['users', 'user_sessions', 'user_permissions', 'clients', 'integrations'],
-      'Issues & Workflow': ['projects', 'issues', 'issue_changelogs', 'issuetypes', 'statuses', 'status_mappings', 'workflows', 'issuetype_mappings', 'issuetype_hierarchies', 'projects_issuetypes', 'projects_statuses'],
+      'WorkItems & Workflow': ['projects', 'issues', 'issue_changelogs', 'issuetypes', 'statuses', 'status_mappings', 'workflows', 'issuetype_mappings', 'issuetype_hierarchies', 'projects_issuetypes', 'projects_statuses'],
       'Development Data': ['repositories', 'pull_requests', 'pull_request_commits', 'pull_request_reviews', 'pull_request_comments'],
       'Linking & Mapping': ['jira_pull_request_links'],
       'System': ['job_schedules', 'system_settings', 'migration_history']

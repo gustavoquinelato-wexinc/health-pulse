@@ -1,6 +1,6 @@
 /**
- * Client-aware Error Boundary component.
- * Catches React errors and logs them with client context.
+ * Tenant-aware Error Boundary component.
+ * Catches React errors and logs them with tenant context.
  * Updated to TypeScript for better type safety.
  */
 
@@ -17,7 +17,7 @@ interface State {
     errorInfo: React.ErrorInfo | null;
 }
 
-class ClientErrorBoundary extends React.Component<Props, State> {
+class TenantErrorBoundary extends React.Component<Props, State> {
     constructor(props: Props) {
         super(props);
         this.state = { hasError: false, error: null, errorInfo: null };
@@ -35,12 +35,12 @@ class ClientErrorBoundary extends React.Component<Props, State> {
             errorInfo
         });
 
-        // Log to client logger with structured data
+        // Log to tenant logger with structured data
         clientLogger.error('React Error Boundary caught error', {
             timestamp: new Date().toISOString(),
             level: 'ERROR',
-            client: clientLogger.clientName,
-            clientId: clientLogger.clientId,
+            tenant: clientLogger.tenantName,
+            tenantId: clientLogger.tenantId,
             userId: clientLogger.userId,
             error: {
                 name: error.name,
@@ -136,4 +136,4 @@ class ClientErrorBoundary extends React.Component<Props, State> {
     }
 }
 
-export default ClientErrorBoundary;
+export default TenantErrorBoundary;

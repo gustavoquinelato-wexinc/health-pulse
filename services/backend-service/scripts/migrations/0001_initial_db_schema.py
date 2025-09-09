@@ -6,10 +6,10 @@ Author: Pulse Platform Team
 Date: 2025-09-02 (Updated for Phase 3-1)
 
 This migration creates the complete initial database schema including:
-- Client management tables with multi-client support (NO vector columns)
-- Authentication and user management for multiple clients
+- Tenant management tables with multi-tenant support (NO vector columns)
+- Authentication and user management for multiple tenants
 - Integration tables with AI provider support and configuration
-- Issue tracking and workflow tables (business data only)
+- Work item tracking and workflow tables (business data only)
 - Development data tables (PRs, commits, etc.) without embeddings
 - Job scheduling and system settings with theme/color customization
 - ML monitoring tables for AI learning and prediction logging
@@ -23,7 +23,7 @@ Phase 3-1 Clean Architecture Implemented:
 ✅ NO vector columns in business tables (vectors moved to Qdrant)
 ✅ Qdrant reference tracking table for vector management
 ✅ Enhanced integrations table with AI provider support
-✅ AI configuration tables (client preferences, usage tracking)
+✅ AI configuration tables (tenant preferences, usage tracking)
 ✅ ML monitoring tables for AI learning and prediction logging
 ✅ Clean CREATE-only statements (no ALTER statements)
 ✅ 3-Database architecture: PostgreSQL Primary + Replica + Qdrant
@@ -105,9 +105,9 @@ def apply(connection):
 
         print("📋 Creating core tables...")
 
-        # 1. Clients table (foundation) - NO vector column
+        # 1. Tenants table (foundation) - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS clients (
+            CREATE TABLE IF NOT EXISTS tenants (
                 id SERIAL,
                 name VARCHAR NOT NULL,
                 website VARCHAR,
@@ -142,7 +142,7 @@ def apply(connection):
 
                 profile_image_filename VARCHAR(255),
                 last_login_at TIMESTAMP,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -151,14 +151,14 @@ def apply(connection):
         
         # 3. User sessions table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_sessions (
+            CREATE TABLE IF NOT EXISTS users_sessions (
                 id SERIAL,
                 user_id INTEGER NOT NULL,
                 token_hash VARCHAR(255) NOT NULL,
                 expires_at TIMESTAMP NOT NULL,
                 ip_address VARCHAR(45),
                 user_agent TEXT,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -167,13 +167,13 @@ def apply(connection):
 
         # 4. User permissions table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_permissions (
+            CREATE TABLE IF NOT EXISTS users_permissions (
                 id SERIAL,
                 user_id INTEGER NOT NULL,
                 resource VARCHAR(100) NOT NULL,
                 action VARCHAR(50) NOT NULL,
                 granted BOOLEAN NOT NULL DEFAULT TRUE,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -193,18 +193,16 @@ def apply(connection):
                 password VARCHAR,
                 base_url TEXT,
                 base_search VARCHAR,
-                model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
+                ai_model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-                -- JSON configuration columns for complex settings
-                model_config JSONB DEFAULT '{}', -- AI model configuration
-                performance_config JSONB DEFAULT '{}', -- Rate limits, timeouts, etc.
-                configuration JSONB DEFAULT '{}', -- General configuration
-                provider_metadata JSONB DEFAULT '{}', -- Provider-specific metadata
+                -- JSON configuration columns for AI providers
+                ai_model_config JSONB DEFAULT '{}', -- AI model configuration
                 cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
                 fallback_integration_id INTEGER, -- FK to another integration for fallback
+                logo_filename VARCHAR(255), -- Filename of integration logo (stored in tenant assets folder)
 
                 -- BaseEntity fields
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -220,7 +218,7 @@ def apply(connection):
                 name VARCHAR NOT NULL,
                 project_type VARCHAR,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -239,7 +237,7 @@ def apply(connection):
                 step_category VARCHAR NOT NULL,
                 is_commitment_point BOOLEAN NOT NULL DEFAULT FALSE,
                 integration_id INTEGER,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -248,61 +246,61 @@ def apply(connection):
 
         # 8. Status mappings table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS status_mappings (
+            CREATE TABLE IF NOT EXISTS statuses_mappings (
                 id SERIAL,
                 status_from VARCHAR NOT NULL,
                 status_to VARCHAR NOT NULL,
                 status_category VARCHAR NOT NULL,
                 workflow_id INTEGER,
                 integration_id INTEGER,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 9. Issue type hierarchies table - NO vector column
+        # 9. WITs hierarchies table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS issuetype_hierarchies (
+            CREATE TABLE IF NOT EXISTS wits_hierarchies (
                 id SERIAL,
                 level_name VARCHAR NOT NULL,
                 level_number INTEGER NOT NULL,
                 description VARCHAR,
                 integration_id INTEGER,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 10. Issue type mappings table - NO vector column
+        # 10. WITs mappings table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS issuetype_mappings (
+            CREATE TABLE IF NOT EXISTS wits_mappings (
                 id SERIAL,
-                issuetype_from VARCHAR NOT NULL,
-                issuetype_to VARCHAR NOT NULL,
-                issuetype_hierarchy_id INTEGER NOT NULL,
+                wit_from VARCHAR NOT NULL,
+                wit_to VARCHAR NOT NULL,
+                wits_hierarchy_id INTEGER NOT NULL,
                 integration_id INTEGER,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 11. Issue types table - NO vector column
+        # 11. WITs table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS issuetypes (
+            CREATE TABLE IF NOT EXISTS wits (
                 id SERIAL,
                 external_id VARCHAR,
                 original_name VARCHAR NOT NULL,
-                issuetype_mapping_id INTEGER,
+                wits_mapping_id INTEGER,
                 description VARCHAR,
                 hierarchy_level INTEGER NOT NULL,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -319,7 +317,7 @@ def apply(connection):
                 category VARCHAR NOT NULL,
                 description VARCHAR,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -329,11 +327,11 @@ def apply(connection):
         print("✅ Workflow and mapping tables created")
         print("📋 Creating relationship tables...")
 
-        # 13. Projects-Issuetypes relationship table
+        # 13. Projects-Work itemtypes relationship table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS projects_issuetypes (
+            CREATE TABLE IF NOT EXISTS projects_wits (
                 project_id INTEGER NOT NULL,
-                issuetype_id INTEGER NOT NULL
+                wit_id INTEGER NOT NULL
             );
         """)
 
@@ -348,9 +346,9 @@ def apply(connection):
         print("✅ Relationship tables created")
         print("📋 Creating main data tables...")
 
-        # 15. Issues table (complete with all custom fields and workflow columns)
+        # 15. Work items table (complete with all custom fields and workflow columns)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS issues (
+            CREATE TABLE IF NOT EXISTS work_items (
                 id SERIAL,
                 external_id VARCHAR,
                 key VARCHAR,
@@ -359,7 +357,7 @@ def apply(connection):
                 summary VARCHAR,
                 description TEXT,
                 acceptance_criteria TEXT,
-                issuetype_id INTEGER,
+                wit_id INTEGER,
                 status_id INTEGER,
                 resolution VARCHAR,
                 story_points INTEGER,
@@ -406,18 +404,18 @@ def apply(connection):
                 custom_field_19 VARCHAR,
                 custom_field_20 VARCHAR,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 16. Issue changelogs table - NO vector column
+        # 16. Work item changelogs table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS issue_changelogs (
+            CREATE TABLE IF NOT EXISTS changelogs (
                 id SERIAL,
-                issue_id INTEGER NOT NULL,
+                work_item_id INTEGER NOT NULL,
                 external_id VARCHAR,
                 from_status_id INTEGER,
                 to_status_id INTEGER,
@@ -426,7 +424,7 @@ def apply(connection):
                 time_in_status_seconds FLOAT,
                 changed_by VARCHAR,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -450,7 +448,7 @@ def apply(connection):
                 default_branch VARCHAR,
                 archived BOOLEAN,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -460,14 +458,14 @@ def apply(connection):
         print("✅ Main data tables created")
         print("📋 Creating development and system tables...")
 
-        # 18. Pull requests table (complete with all columns) - NO vector column
+        # 18. PRs table (complete with all columns) - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pull_requests (
+            CREATE TABLE IF NOT EXISTS prs (
                 id SERIAL,
                 external_id VARCHAR,
                 external_repo_id VARCHAR,
                 repository_id INTEGER NOT NULL,
-                issue_id INTEGER,
+                work_item_id INTEGER,
                 number INTEGER,
                 name VARCHAR,
                 user_name VARCHAR,
@@ -492,37 +490,37 @@ def apply(connection):
                 rework_commit_count INTEGER,
                 review_cycles INTEGER,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 19. Pull request reviews table - NO vector column
+        # 19. PRs reviews table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pull_request_reviews (
+            CREATE TABLE IF NOT EXISTS prs_reviews (
                 id SERIAL,
                 external_id VARCHAR,
-                pull_request_id INTEGER NOT NULL,
+                pr_id INTEGER NOT NULL,
                 author_login VARCHAR,
                 state VARCHAR,
                 body TEXT,
                 submitted_at TIMESTAMP,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 20. Pull request commits table - NO vector column
+        # 20. PRs commits table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pull_request_commits (
+            CREATE TABLE IF NOT EXISTS prs_commits (
                 id SERIAL,
                 external_id VARCHAR,
-                pull_request_id INTEGER NOT NULL,
+                pr_id INTEGER NOT NULL,
                 author_name VARCHAR,
                 author_email VARCHAR,
                 committer_name VARCHAR,
@@ -531,19 +529,19 @@ def apply(connection):
                 authored_date TIMESTAMP,
                 committed_date TIMESTAMP,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
-        # 21. Pull request comments table - NO vector column
+        # 21. PRs comments table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pull_request_comments (
+            CREATE TABLE IF NOT EXISTS prs_comments (
                 id SERIAL,
                 external_id VARCHAR,
-                pull_request_id INTEGER NOT NULL,
+                pr_id INTEGER NOT NULL,
                 author_login VARCHAR,
                 body TEXT,
                 comment_type VARCHAR,
@@ -553,7 +551,7 @@ def apply(connection):
                 created_at_github TIMESTAMP,
                 updated_at_github TIMESTAMP,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -568,17 +566,17 @@ def apply(connection):
                 setting_value VARCHAR NOT NULL,
                 setting_type VARCHAR NOT NULL DEFAULT 'string',
                 description VARCHAR,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(setting_key, client_id)
+                UNIQUE(setting_key, tenant_id)
             );
         """)
 
-        # 23. Job schedules table - NO vector column
+        # 23. ETL jobs table - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS job_schedules (
+            CREATE TABLE IF NOT EXISTS etl_jobs (
                 id SERIAL,
                 job_name VARCHAR NOT NULL,
                 execution_order INTEGER NOT NULL,
@@ -596,19 +594,19 @@ def apply(connection):
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
                 integration_id INTEGER,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(job_name, client_id)
+                UNIQUE(job_name, tenant_id)
             );
         """)
 
-        # 24. Jira pull request links table (complete with all columns) - NO vector column
+        # 24. Jira PR links table (complete with all columns) - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS jira_pull_request_links (
+            CREATE TABLE IF NOT EXISTS wits_prs_links (
                 id SERIAL,
-                issue_id INTEGER NOT NULL,
+                work_item_id INTEGER NOT NULL,
                 external_repo_id VARCHAR NOT NULL,
                 repo_full_name VARCHAR NOT NULL,
                 pull_request_number INTEGER NOT NULL,
@@ -616,7 +614,7 @@ def apply(connection):
                 commit_sha VARCHAR,
                 pr_status VARCHAR,
                 integration_id INTEGER NOT NULL,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -635,11 +633,11 @@ def apply(connection):
             );
         """)
 
-        # 26. Qdrant vectors table - tracks vector references with client isolation (Phase 3-1)
+        # 26. Qdrant vectors table - tracks vector references with tenant isolation (Phase 3-1)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS qdrant_vectors (
                 id SERIAL PRIMARY KEY,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 table_name VARCHAR(50) NOT NULL,
                 record_id INTEGER NOT NULL,
                 qdrant_collection VARCHAR(100) NOT NULL,
@@ -649,43 +647,17 @@ def apply(connection):
                 embedding_provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
                 last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-                UNIQUE(client_id, table_name, record_id, vector_type)
+                UNIQUE(tenant_id, table_name, record_id, vector_type)
             );
         """)
 
-        # 27. Client AI preferences table (inspired by WrenAI's configuration system)
+        # AI tables removed - tenant_ai_preferences and tenant_ai_configuration not needed yet
+
+        # 29. AI usage trackings table (inspired by WrenAI's cost monitoring)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS client_ai_preferences (
+            CREATE TABLE IF NOT EXISTS ai_usage_trackings (
                 id SERIAL PRIMARY KEY,
-                client_id INTEGER NOT NULL,
-                preference_type VARCHAR(50) NOT NULL, -- 'default_models', 'performance', 'cost_limits'
-                configuration JSONB DEFAULT '{}',
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-                UNIQUE(client_id, preference_type)
-            );
-        """)
-
-        # 28. Client AI configuration table (inspired by WrenAI's pipeline configuration)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS client_ai_configuration (
-                id SERIAL PRIMARY KEY,
-                client_id INTEGER NOT NULL,
-                config_category VARCHAR(50) NOT NULL, -- 'embedding_models', 'llm_models', 'pipeline_config'
-                configuration JSONB DEFAULT '{}',
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-                UNIQUE(client_id, config_category)
-            );
-        """)
-
-        # 29. AI usage tracking table (inspired by WrenAI's cost monitoring)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_usage_tracking (
-                id SERIAL PRIMARY KEY,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
                 operation VARCHAR(50) NOT NULL, -- 'embedding', 'text_generation', 'analysis'
                 model_name VARCHAR(100),
@@ -724,14 +696,14 @@ def apply(connection):
             );
         """)
 
-        # 28. Client color settings table (unified architecture)
+        # 28. Tenant colors table (unified architecture)
         print("   🗑️ Dropping existing color tables...")
-        cursor.execute("DROP TABLE IF EXISTS client_accessibility_colors CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS client_color_settings CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS tenant_accessibility_colors CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS tenants_colors CASCADE;")
 
-        print("   🏗️ Creating new unified client_color_settings table...")
+        print("   🏗️ Creating new unified tenants_colors table...")
         cursor.execute("""
-            CREATE TABLE client_color_settings (
+            CREATE TABLE tenants_colors (
                 id SERIAL PRIMARY KEY,
 
                 -- === IDENTIFIERS ===
@@ -759,13 +731,13 @@ def apply(connection):
                 on_gradient_5_1 VARCHAR(7),
 
                 -- === BASE ENTITY FIELDS ===
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
                 -- === NEW UNIFIED UNIQUE CONSTRAINT ===
-                CONSTRAINT uk_client_color_unified UNIQUE(client_id, color_schema_mode, accessibility_level, theme_mode)
+                CONSTRAINT uk_tenants_colors_unified UNIQUE(tenant_id, color_schema_mode, accessibility_level, theme_mode)
             );
         """)
 
@@ -784,37 +756,35 @@ def apply(connection):
             if not cursor.fetchone():
                 cursor.execute(f"ALTER TABLE {table_name} ADD CONSTRAINT {pk_name} PRIMARY KEY ({column});")
 
-        ensure_primary_key('clients', 'pk_clients')
+        ensure_primary_key('tenants', 'pk_tenants')
         ensure_primary_key('users', 'pk_users')
-        ensure_primary_key('user_sessions', 'pk_user_sessions')
-        ensure_primary_key('user_permissions', 'pk_user_permissions')
+        ensure_primary_key('users_sessions', 'pk_users_sessions')
+        ensure_primary_key('users_permissions', 'pk_users_permissions')
         ensure_primary_key('integrations', 'pk_integrations')
         ensure_primary_key('projects', 'pk_projects')
         ensure_primary_key('workflows', 'pk_workflows')
-        ensure_primary_key('status_mappings', 'pk_status_mappings')
-        ensure_primary_key('issuetype_hierarchies', 'pk_issuetype_hierarchies')
-        ensure_primary_key('issuetype_mappings', 'pk_issuetype_mappings')
-        ensure_primary_key('issuetypes', 'pk_issuetypes')
+        ensure_primary_key('statuses_mappings', 'pk_statuses_mappings')
+        ensure_primary_key('wits_hierarchies', 'pk_wits_hierarchies')
+        ensure_primary_key('wits_mappings', 'pk_wits_mappings')
+        ensure_primary_key('wits', 'pk_wits')
         ensure_primary_key('statuses', 'pk_statuses')
-        ensure_primary_key('issues', 'pk_issues')
-        ensure_primary_key('issue_changelogs', 'pk_issue_changelogs')
+        ensure_primary_key('work_items', 'pk_work_items')
+        ensure_primary_key('changelogs', 'pk_changelogs')
         ensure_primary_key('repositories', 'pk_repositories')
-        ensure_primary_key('pull_requests', 'pk_pull_requests')
-        ensure_primary_key('pull_request_reviews', 'pk_pull_request_reviews')
-        ensure_primary_key('pull_request_commits', 'pk_pull_request_commits')
-        ensure_primary_key('pull_request_comments', 'pk_pull_request_comments')
+        ensure_primary_key('prs', 'pk_prs')
+        ensure_primary_key('prs_reviews', 'pk_prs_reviews')
+        ensure_primary_key('prs_commits', 'pk_prs_commits')
+        ensure_primary_key('prs_comments', 'pk_prs_comments')
         ensure_primary_key('system_settings', 'pk_system_settings')
-        ensure_primary_key('job_schedules', 'pk_job_schedules')
-        ensure_primary_key('jira_pull_request_links', 'pk_jira_pull_request_links')
+        ensure_primary_key('etl_jobs', 'pk_etl_jobs')
+        ensure_primary_key('wits_prs_links', 'pk_wits_prs_links')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
         ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
-        ensure_primary_key('client_color_settings', 'pk_client_color_settings')
+        ensure_primary_key('tenants_colors', 'pk_tenants_colors')
 
         # Phase 3-1: New table primary keys
         ensure_primary_key('qdrant_vectors', 'pk_qdrant_vectors')
-        ensure_primary_key('client_ai_preferences', 'pk_client_ai_preferences')
-        ensure_primary_key('client_ai_configuration', 'pk_client_ai_configuration')
-        ensure_primary_key('ai_usage_tracking', 'pk_ai_usage_tracking')
+        # Note: AI/ML table primary keys are added after the tables are created
 
         # Check if migration_history table already has a primary key (from migration runner)
         cursor.execute("""
@@ -831,23 +801,23 @@ def apply(connection):
 
         print("📋 Creating ML monitoring tables...")
 
-        # AI Learning Memory table - stores user feedback and corrections (Phase 3-1 Clean)
+        # AI Learning Memories table - stores user feedback and corrections (Phase 3-1 Clean)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ai_learning_memory (
+            CREATE TABLE IF NOT EXISTS ai_learning_memories (
                 id SERIAL PRIMARY KEY,
                 error_type VARCHAR(50) NOT NULL,
                 user_intent TEXT NOT NULL,
                 failed_query TEXT NOT NULL,
-                specific_issue TEXT NOT NULL,
+                specific_work_item TEXT NOT NULL,
                 corrected_query TEXT,
                 user_feedback TEXT,
                 user_correction TEXT,
                 message_id VARCHAR(255),
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
-                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
             );
         """)
 
@@ -865,11 +835,11 @@ def apply(connection):
                 actual_outcome JSONB,
                 accuracy_score DECIMAL(5,4),
                 prediction_type VARCHAR(50) NOT NULL, -- 'trajectory', 'complexity', 'risk', etc.
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
                 validated_at TIMESTAMP,
 
-                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
             );
         """)
 
@@ -882,16 +852,16 @@ def apply(connection):
                 metric_unit VARCHAR(20),
                 measurement_timestamp TIMESTAMP DEFAULT NOW(),
                 context_data JSONB,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 service_name VARCHAR(50), -- 'backend', 'etl', 'ai'
 
-                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
             );
         """)
 
-        # ML Anomaly Alert table - tracks anomalies detected by ML monitoring
+        # ML Anomaly Alerts table - tracks anomalies detected by ML monitoring
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ml_anomaly_alert (
+            CREATE TABLE IF NOT EXISTS ml_anomaly_alerts (
                 id SERIAL PRIMARY KEY,
                 model_name VARCHAR(100) NOT NULL,
                 severity VARCHAR(20) NOT NULL, -- 'low', 'medium', 'high', 'critical'
@@ -899,16 +869,25 @@ def apply(connection):
                 acknowledged BOOLEAN DEFAULT FALSE,
                 acknowledged_by INTEGER,
                 acknowledged_at TIMESTAMP,
-                client_id INTEGER NOT NULL,
+                tenant_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
                 active BOOLEAN DEFAULT TRUE,
 
-                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
             );
         """)
 
         print("✅ ML monitoring tables created")
+
+        print("📋 Adding AI/ML table primary key constraints...")
+        # AI/ML monitoring table primary keys (added after tables are created)
+        ensure_primary_key('ai_usage_trackings', 'pk_ai_usage_trackings')
+        ensure_primary_key('ai_learning_memories', 'pk_ai_learning_memories')
+        ensure_primary_key('ai_predictions', 'pk_ai_predictions')
+        ensure_primary_key('ai_performance_metrics', 'pk_ai_performance_metrics')
+        ensure_primary_key('ml_anomaly_alerts', 'pk_ml_anomaly_alerts')
+        print("✅ AI/ML table primary key constraints created")
 
         print("📋 Creating foreign key constraints...")
 
@@ -925,97 +904,100 @@ def apply(connection):
                 cursor.execute(f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} {constraint_definition};")
 
         # Core table foreign keys
-        add_constraint_if_not_exists('fk_users_client_id', 'users', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_user_sessions_user_id', 'user_sessions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
-        add_constraint_if_not_exists('fk_user_sessions_client_id', 'user_sessions', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_user_permissions_user_id', 'user_permissions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
-        add_constraint_if_not_exists('fk_user_permissions_client_id', 'user_permissions', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_users_tenant_id', 'users', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_users_sessions_user_id', 'users_sessions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
+        add_constraint_if_not_exists('fk_users_sessions_tenant_id', 'users_sessions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_users_permissions_user_id', 'users_permissions', 'FOREIGN KEY (user_id) REFERENCES users(id)')
+        add_constraint_if_not_exists('fk_users_permissions_tenant_id', 'users_permissions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Integrations and projects
-        add_constraint_if_not_exists('fk_integrations_client_id', 'integrations', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_integrations_tenant_id', 'integrations', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_integrations_fallback', 'integrations', 'FOREIGN KEY (fallback_integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_projects_integration_id', 'projects', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_projects_client_id', 'projects', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_projects_tenant_id', 'projects', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Workflow and mappings
-        add_constraint_if_not_exists('fk_workflows_client_id', 'workflows', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_workflows_tenant_id', 'workflows', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_workflows_integration_id', 'workflows', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_status_mappings_workflow_id', 'status_mappings', 'FOREIGN KEY (workflow_id) REFERENCES workflows(id)')
-        add_constraint_if_not_exists('fk_status_mappings_client_id', 'status_mappings', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_status_mappings_integration_id', 'status_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issuetype_hierarchies_client_id', 'issuetype_hierarchies', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_issuetype_hierarchies_integration_id', 'issuetype_hierarchies', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issuetype_mappings_client_id', 'issuetype_mappings', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_issuetype_mappings_integration_id', 'issuetype_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issuetype_mappings_hierarchy_id', 'issuetype_mappings', 'FOREIGN KEY (issuetype_hierarchy_id) REFERENCES issuetype_hierarchies(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_workflow_id', 'statuses_mappings', 'FOREIGN KEY (workflow_id) REFERENCES workflows(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_tenant_id', 'statuses_mappings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_statuses_mappings_integration_id', 'statuses_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_wits_hierarchies_tenant_id', 'wits_hierarchies', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_wits_hierarchies_integration_id', 'wits_hierarchies', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_wits_mappings_tenant_id', 'wits_mappings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_wits_mappings_integration_id', 'wits_mappings', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_wits_mappings_hierarchy_id', 'wits_mappings', 'FOREIGN KEY (wits_hierarchy_id) REFERENCES wits_hierarchies(id)')
 
-        # Issue types and statuses
-        add_constraint_if_not_exists('fk_issuetypes_integration_id', 'issuetypes', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issuetypes_issuetype_mapping_id', 'issuetypes', 'FOREIGN KEY (issuetype_mapping_id) REFERENCES issuetype_mappings(id)')
-        add_constraint_if_not_exists('fk_issuetypes_client_id', 'issuetypes', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        # WITs and statuses
+        add_constraint_if_not_exists('fk_wits_integration_id', 'wits', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_wits_wits_mapping_id', 'wits', 'FOREIGN KEY (wits_mapping_id) REFERENCES wits_mappings(id)')
+        add_constraint_if_not_exists('fk_wits_tenant_id', 'wits', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_statuses_integration_id', 'statuses', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_statuses_status_mapping_id', 'statuses', 'FOREIGN KEY (status_mapping_id) REFERENCES status_mappings(id)')
-        add_constraint_if_not_exists('fk_statuses_client_id', 'statuses', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_statuses_status_mapping_id', 'statuses', 'FOREIGN KEY (status_mapping_id) REFERENCES statuses_mappings(id)')
+        add_constraint_if_not_exists('fk_statuses_tenant_id', 'statuses', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         print("✅ Core foreign key constraints created")
         print("📋 Creating data table foreign key constraints...")
 
-        # Issues and changelogs
-        add_constraint_if_not_exists('fk_issues_integration_id', 'issues', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issues_project_id', 'issues', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
-        add_constraint_if_not_exists('fk_issues_issuetype_id', 'issues', 'FOREIGN KEY (issuetype_id) REFERENCES issuetypes(id)')
-        add_constraint_if_not_exists('fk_issues_status_id', 'issues', 'FOREIGN KEY (status_id) REFERENCES statuses(id)')
-        add_constraint_if_not_exists('fk_issues_client_id', 'issues', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        # Work items and changelogs
+        add_constraint_if_not_exists('fk_work_items_integration_id', 'work_items', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_work_items_project_id', 'work_items', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
+        add_constraint_if_not_exists('fk_work_items_wit_id', 'work_items', 'FOREIGN KEY (wit_id) REFERENCES wits(id)')
+        add_constraint_if_not_exists('fk_work_items_status_id', 'work_items', 'FOREIGN KEY (status_id) REFERENCES statuses(id)')
+        add_constraint_if_not_exists('fk_work_items_tenant_id', 'work_items', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
-        # Issue changelogs
-        add_constraint_if_not_exists('fk_issue_changelogs_integration_id', 'issue_changelogs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_issue_changelogs_issue_id', 'issue_changelogs', 'FOREIGN KEY (issue_id) REFERENCES issues(id)')
-        add_constraint_if_not_exists('fk_issue_changelogs_from_status_id', 'issue_changelogs', 'FOREIGN KEY (from_status_id) REFERENCES statuses(id)')
-        add_constraint_if_not_exists('fk_issue_changelogs_to_status_id', 'issue_changelogs', 'FOREIGN KEY (to_status_id) REFERENCES statuses(id)')
-        add_constraint_if_not_exists('fk_issue_changelogs_client_id', 'issue_changelogs', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        # Work item changelogs
+        add_constraint_if_not_exists('fk_changelogs_integration_id', 'changelogs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_changelogs_work_item_id', 'changelogs', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_changelogs_from_status_id', 'changelogs', 'FOREIGN KEY (from_status_id) REFERENCES statuses(id)')
+        add_constraint_if_not_exists('fk_changelogs_to_status_id', 'changelogs', 'FOREIGN KEY (to_status_id) REFERENCES statuses(id)')
+        add_constraint_if_not_exists('fk_changelogs_tenant_id', 'changelogs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
-        # Repositories and pull requests
-        add_constraint_if_not_exists('fk_repositories_client_id', 'repositories', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        # Repositories and PRs
+        add_constraint_if_not_exists('fk_repositories_tenant_id', 'repositories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_repositories_integration_id', 'repositories', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_pull_requests_repository_id', 'pull_requests', 'FOREIGN KEY (repository_id) REFERENCES repositories(id)')
-        add_constraint_if_not_exists('fk_pull_requests_issue_id', 'pull_requests', 'FOREIGN KEY (issue_id) REFERENCES issues(id)')
-        add_constraint_if_not_exists('fk_pull_requests_client_id', 'pull_requests', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_pull_requests_integration_id', 'pull_requests', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_prs_repository_id', 'prs', 'FOREIGN KEY (repository_id) REFERENCES repositories(id)')
+        add_constraint_if_not_exists('fk_prs_work_item_id', 'prs', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_prs_tenant_id', 'prs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_prs_integration_id', 'prs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
-        # Pull request related tables
-        add_constraint_if_not_exists('fk_pull_request_reviews_pull_request_id', 'pull_request_reviews', 'FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id)')
-        add_constraint_if_not_exists('fk_pull_request_reviews_client_id', 'pull_request_reviews', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_pull_request_reviews_integration_id', 'pull_request_reviews', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_pull_request_commits_pull_request_id', 'pull_request_commits', 'FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id)')
-        add_constraint_if_not_exists('fk_pull_request_commits_client_id', 'pull_request_commits', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_pull_request_commits_integration_id', 'pull_request_commits', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_pull_request_comments_pull_request_id', 'pull_request_comments', 'FOREIGN KEY (pull_request_id) REFERENCES pull_requests(id)')
-        add_constraint_if_not_exists('fk_pull_request_comments_client_id', 'pull_request_comments', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_pull_request_comments_integration_id', 'pull_request_comments', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        # PR related tables
+        add_constraint_if_not_exists('fk_prs_reviews_pr_id', 'prs_reviews', 'FOREIGN KEY (pr_id) REFERENCES prs(id)')
+        add_constraint_if_not_exists('fk_prs_reviews_tenant_id', 'prs_reviews', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_prs_reviews_integration_id', 'prs_reviews', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_prs_commits_pr_id', 'prs_commits', 'FOREIGN KEY (pr_id) REFERENCES prs(id)')
+        add_constraint_if_not_exists('fk_prs_commits_tenant_id', 'prs_commits', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_prs_commits_integration_id', 'prs_commits', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_prs_comments_pr_id', 'prs_comments', 'FOREIGN KEY (pr_id) REFERENCES prs(id)')
+        add_constraint_if_not_exists('fk_prs_comments_tenant_id', 'prs_comments', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_prs_comments_integration_id', 'prs_comments', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
         # System tables
-        add_constraint_if_not_exists('fk_system_settings_client_id', 'system_settings', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_job_schedules_client_id', 'job_schedules', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_job_schedules_integration_id', 'job_schedules', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_jira_pull_request_links_issue_id', 'jira_pull_request_links', 'FOREIGN KEY (issue_id) REFERENCES issues(id)')
-        add_constraint_if_not_exists('fk_jira_pull_request_links_client_id', 'jira_pull_request_links', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
-        add_constraint_if_not_exists('fk_jira_pull_request_links_integration_id', 'jira_pull_request_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_system_settings_tenant_id', 'system_settings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_etl_jobs_tenant_id', 'etl_jobs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_etl_jobs_integration_id', 'etl_jobs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_wits_prs_links_work_item_id', 'wits_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_wits_prs_links_tenant_id', 'wits_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_wits_prs_links_integration_id', 'wits_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
         # Color table foreign key
-        add_constraint_if_not_exists('fk_client_color_settings_client_id', 'client_color_settings', 'FOREIGN KEY (client_id) REFERENCES clients(id)')
+        add_constraint_if_not_exists('fk_tenants_colors_tenant_id', 'tenants_colors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
         # Phase 3-1: New table foreign keys
-        add_constraint_if_not_exists('fk_qdrant_vectors_client_id', 'qdrant_vectors', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
-        add_constraint_if_not_exists('fk_client_ai_preferences_client_id', 'client_ai_preferences', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
-        add_constraint_if_not_exists('fk_client_ai_configuration_client_id', 'client_ai_configuration', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
-        add_constraint_if_not_exists('fk_ai_usage_tracking_client_id', 'ai_usage_tracking', 'FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_qdrant_vectors_tenant_id', 'qdrant_vectors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        # AI/ML monitoring table foreign key constraints
+        add_constraint_if_not_exists('fk_ai_usage_trackings_tenant_id', 'ai_usage_trackings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_learning_memories_tenant_id', 'ai_learning_memories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_predictions_tenant_id', 'ai_predictions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ai_performance_metrics_tenant_id', 'ai_performance_metrics', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        add_constraint_if_not_exists('fk_ml_anomaly_alerts_tenant_id', 'ml_anomaly_alerts', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
 
         print("✅ Data table foreign key constraints created")
         print("📋 Creating relationship table constraints...")
 
         # Relationship tables (many-to-many)
-        add_constraint_if_not_exists('fk_projects_issuetypes_project_id', 'projects_issuetypes', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
-        add_constraint_if_not_exists('fk_projects_issuetypes_issuetype_id', 'projects_issuetypes', 'FOREIGN KEY (issuetype_id) REFERENCES issuetypes(id)')
+        add_constraint_if_not_exists('fk_projects_wits_project_id', 'projects_wits', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
+        add_constraint_if_not_exists('fk_projects_wits_wit_id', 'projects_wits', 'FOREIGN KEY (wit_id) REFERENCES wits(id)')
         add_constraint_if_not_exists('fk_projects_statuses_project_id', 'projects_statuses', 'FOREIGN KEY (project_id) REFERENCES projects(id)')
         add_constraint_if_not_exists('fk_projects_statuses_status_id', 'projects_statuses', 'FOREIGN KEY (status_id) REFERENCES statuses(id)')
 
@@ -1037,12 +1019,12 @@ def apply(connection):
 
         ensure_unique_constraint('users', 'uk_users_email', 'email')
         ensure_unique_constraint('users', 'uk_users_okta_user_id', 'okta_user_id')
-        ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_client_id', 'setting_key, client_id')
-        ensure_unique_constraint('job_schedules', 'uk_job_schedules_job_name_client_id', 'job_name, client_id')
-        ensure_unique_constraint('job_schedules', 'uk_job_schedules_execution_order_client_id', 'execution_order, client_id')
-        ensure_unique_constraint('integrations', 'uk_integrations_provider_client_id', 'provider, client_id')
-        ensure_unique_constraint('status_mappings', 'uk_status_mappings_from_client', 'status_from, client_id')
-        ensure_unique_constraint('issuetype_mappings', 'uk_issuetype_mappings_from_client', 'issuetype_from, client_id')
+        ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_tenant_id', 'setting_key, tenant_id')
+        ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_job_name_tenant_id', 'job_name, tenant_id')
+        ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_execution_order_tenant_id', 'execution_order, tenant_id')
+        ensure_unique_constraint('integrations', 'uk_integrations_provider_tenant_id', 'provider, tenant_id')
+        ensure_unique_constraint('statuses_mappings', 'uk_statuses_mappings_from_tenant', 'status_from, tenant_id')
+        ensure_unique_constraint('wits_mappings', 'uk_wits_mappings_from_tenant', 'wit_from, tenant_id')
         ensure_unique_constraint('migration_history', 'uk_migration_history_migration_number', 'migration_number')
 
         # Unique constraints for global DORA tables
@@ -1050,129 +1032,126 @@ def apply(connection):
         ensure_unique_constraint('dora_metric_insights', 'uk_dora_insight', 'report_year, metric_name')
 
         # Unique constraints for unified color table
-        ensure_unique_constraint('client_color_settings', 'uk_client_color_unified', 'client_id, color_schema_mode, accessibility_level, theme_mode')
+        ensure_unique_constraint('tenants_colors', 'uk_tenants_colors_unified', 'tenant_id, color_schema_mode, accessibility_level, theme_mode')
 
         print("✅ Unique constraints created")
         print("📋 Creating performance indexes...")
 
         # Performance indexes for frequently queried columns
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_client_id ON users(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_auth_provider ON users(auth_provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_sessions_user_id ON users_sessions(user_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_sessions_expires_at ON users_sessions(expires_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_permissions_user_id ON users_permissions(user_id);")
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_client_id ON integrations(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_tenant_id ON integrations(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_provider ON integrations(provider);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_integration_id ON projects(integration_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_tenant_id ON projects(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_key ON projects(key);")
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_client_id ON workflows(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_tenant_id ON workflows(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_integration_id ON workflows(integration_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_workflows_is_commitment_point ON workflows(is_commitment_point);")
-        # Unique partial index to ensure only one delivery milestone per client/integration combination
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_commitment_point_per_client_integration ON workflows(client_id, integration_id) WHERE is_commitment_point = true;")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_client_id ON status_mappings(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_workflow_id ON status_mappings(workflow_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_status_mappings_status_from ON status_mappings(status_from);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_hierarchies_client_id ON issuetype_hierarchies(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_hierarchies_level_number ON issuetype_hierarchies(level_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_mappings_client_id ON issuetype_mappings(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_mappings_issuetype_from ON issuetype_mappings(issuetype_from);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetype_mappings_hierarchy_id ON issuetype_mappings(issuetype_hierarchy_id);")
+        # Unique partial index to ensure only one delivery milestone per tenant/integration combination
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_commitment_point_per_tenant_integration ON workflows(tenant_id, integration_id) WHERE is_commitment_point = true;")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_tenant_id ON statuses_mappings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_workflow_id ON statuses_mappings(workflow_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_mappings_status_from ON statuses_mappings(status_from);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_hierarchies_tenant_id ON wits_hierarchies(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_hierarchies_level_number ON wits_hierarchies(level_number);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_mappings_tenant_id ON wits_mappings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_mappings_wit_from ON wits_mappings(wit_from);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_mappings_hierarchy_id ON wits_mappings(wits_hierarchy_id);")
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetypes_integration_id ON issuetypes(integration_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetypes_client_id ON issuetypes(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetypes_external_id ON issuetypes(external_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issuetypes_original_name ON issuetypes(original_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_integration_id ON wits(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_tenant_id ON wits(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_external_id ON wits(external_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_original_name ON wits(original_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_integration_id ON statuses(integration_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_client_id ON statuses(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_tenant_id ON statuses(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_external_id ON statuses(external_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_statuses_original_name ON statuses(original_name);")
 
         print("✅ Core table indexes created")
         print("📋 Creating data table indexes...")
 
-        # Issues table indexes (most frequently queried)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_integration_id ON issues(integration_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_client_id ON issues(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_external_id ON issues(external_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_key ON issues(key);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_project_id ON issues(project_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_status_id ON issues(status_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_issuetype_id ON issues(issuetype_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_created ON issues(created);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issues_parent_external_id ON issues(parent_external_id);")
+        # Work items table indexes (most frequently queried)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_integration_id ON work_items(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_tenant_id ON work_items(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_external_id ON work_items(external_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_key ON work_items(key);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_project_id ON work_items(project_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_status_id ON work_items(status_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_wit_id ON work_items(wit_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_created ON work_items(created);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_updated ON work_items(updated);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_parent_external_id ON work_items(parent_external_id);")
 
-        # Issue changelogs indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issue_changelogs_issue_id ON issue_changelogs(issue_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_issue_changelogs_transition_change_date ON issue_changelogs(transition_change_date);")
+        # Work item changelogs indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_work_item_id ON changelogs(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_transition_change_date ON changelogs(transition_change_date);")
 
-        # Repository and pull request indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_client_id ON repositories(client_id);")
+        # Repository and PR indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_tenant_id ON repositories(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_external_id ON repositories(external_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_full_name ON repositories(full_name);")
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_repository_id ON pull_requests(repository_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_issue_id ON pull_requests(issue_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_external_id ON pull_requests(external_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_number ON pull_requests(number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_status ON pull_requests(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_requests_pr_created_at ON pull_requests(pr_created_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_repository_id ON prs(repository_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_work_item_id ON prs(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_external_id ON prs(external_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_number ON prs(number);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_status ON prs(status);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_pr_created_at ON prs(pr_created_at);")
 
-        # Pull request related table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_request_reviews_pull_request_id ON pull_request_reviews(pull_request_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_request_commits_pull_request_id ON pull_request_commits(pull_request_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pull_request_comments_pull_request_id ON pull_request_comments(pull_request_id);")
+        # PR related table indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_reviews_pr_id ON prs_reviews(pr_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_commits_pr_id ON prs_commits(pr_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_comments_pr_id ON prs_comments(pr_id);")
 
         # Jira PR links indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jira_pr_links_issue_id ON jira_pull_request_links(issue_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jira_pr_links_repo_pr ON jira_pull_request_links(external_repo_id, pull_request_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jira_pr_links_repo_full_name ON jira_pull_request_links(repo_full_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_work_item_id ON wits_prs_links(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_pr ON wits_prs_links(external_repo_id, pull_request_number);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_full_name ON wits_prs_links(repo_full_name);")
 
         # System table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_status ON job_schedules(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_last_run_started_at ON job_schedules(last_run_started_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_schedules_integration_id ON job_schedules(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_last_run_started_at ON etl_jobs(last_run_started_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_integration_id ON etl_jobs(integration_id);")
 
         # Color table indexes for fast lookups (unified table)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_client_id ON client_color_settings(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_mode ON client_color_settings(client_id, color_schema_mode);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_color_settings_unified ON client_color_settings(client_id, color_schema_mode, accessibility_level, theme_mode);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_tenant_id ON tenants_colors(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_mode ON tenants_colors(tenant_id, color_schema_mode);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_unified ON tenants_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
 
         # ML monitoring table indexes (Phase 3-1 Clean Architecture)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_client_id ON ai_learning_memory(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_error_type ON ai_learning_memory(error_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memory_message_id ON ai_learning_memory(message_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_client_id ON ai_predictions(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_tenant_id ON ai_learning_memories(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_error_type ON ai_learning_memories(error_type);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_message_id ON ai_learning_memories(message_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_tenant_id ON ai_predictions(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_client_id ON ai_performance_metrics(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_tenant_id ON ai_performance_metrics(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_client_id ON ml_anomaly_alert(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_model ON ml_anomaly_alert(model_name);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_severity ON ml_anomaly_alert(severity);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_acknowledged ON ml_anomaly_alert(acknowledged);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alert_created_at ON ml_anomaly_alert(created_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_tenant_id ON ml_anomaly_alerts(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_model ON ml_anomaly_alerts(model_name);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_severity ON ml_anomaly_alerts(severity);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_acknowledged ON ml_anomaly_alerts(acknowledged);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_created_at ON ml_anomaly_alerts(created_at);")
 
         # Phase 3-1: Qdrant and AI configuration table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_client ON qdrant_vectors(client_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_client ON client_ai_preferences(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_preferences_type ON client_ai_preferences(preference_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_configuration_client ON client_ai_configuration(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_ai_configuration_category ON client_ai_configuration(config_category);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_client ON ai_usage_tracking(client_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_provider ON ai_usage_tracking(provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_operation ON ai_usage_tracking(operation);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_tracking_created_at ON ai_usage_tracking(created_at);")
+        # AI usage tracking table indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
 
         print("✅ All indexes and constraints created successfully!")
 
@@ -1216,39 +1195,64 @@ def rollback(connection):
         # Drop tables in reverse order to handle foreign key dependencies
         # Note: migration_history is dropped last so we can track the rollback
         tables_to_drop = [
+            # AI and ML monitoring tables (no dependencies)
             'ai_performance_metrics',
             'ai_predictions',
             'ai_validation_patterns',
-            'ai_learning_memory',
-            'ml_anomaly_alert',
-            'client_color_settings',
+            'ai_learning_memories',
+            'ai_usage_trackings',  # Added missing AI table
+            'ml_anomaly_alerts',
+
+            # Vector and reference tables (no dependencies)
+            'qdrant_vectors',  # Added missing vector table
+
+            # Configuration and color tables
+            'tenants_colors',
             'dora_metric_insights',
             'dora_market_benchmarks',
-            'jira_pull_request_links',
-            'job_schedules',
+
+            # Junction and link tables (depend on main tables)
+            'wits_prs_links',
+            'etl_jobs',
             'system_settings',
-            'pull_request_comments',
-            'pull_request_commits',
-            'pull_request_reviews',
-            'pull_requests',
+
+            # PR related tables (depend on prs table)
+            'prs_comments',
+            'prs_commits',
+            'prs_reviews',
+            'prs',  # Main PR table
+
+            # Repository table
             'repositories',
-            'issue_changelogs',
-            'issues',
+
+            # Work item related tables (depend on work_items table)
+            'changelogs',
+            'work_items',  # Main work items table
+
+            # Project relationship tables
             'projects_statuses',
-            'projects_issuetypes',
+            'projects_wits',
+
+            # Core configuration tables
             'statuses',
-            'issuetypes',
-            'issuetype_mappings',
-            'issuetype_hierarchies',
-            'status_mappings',
+            'wits',  # Main WIT table
+            'wits_mappings',
+            'wits_hierarchies',
+            'statuses_mappings',
             'workflows',
             'projects',
             'integrations',
-            'user_permissions',
-            'user_sessions',
+
+            # User tables
+            'users_permissions',
+            'users_sessions',
             'users',
-            'clients',
-            'migration_history'  # Drop last
+
+            # Core tenant table
+            'tenants',
+
+            # Migration tracking (drop last)
+            'migration_history'
         ]
 
         for table in tables_to_drop:

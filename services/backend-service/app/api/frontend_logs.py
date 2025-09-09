@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from app.auth.auth_middleware import require_authentication
-from app.core.client_logging_middleware import get_client_logger_from_request
+from app.core.client_logging_middleware import get_tenant_logger_from_request
 from app.models.unified_models import User
 
 
@@ -18,8 +18,8 @@ class FrontendLogEntry(BaseModel):
     timestamp: str = Field(..., description="ISO timestamp of the log entry")
     level: str = Field(..., description="Log level (DEBUG, INFO, WARN, ERROR)")
     message: str = Field(..., description="Log message")
-    client: str = Field(None, description="Client name")
-    clientId: int = Field(None, description="Client ID")
+    tenant: str = Field(None, description="Tenant name")
+    tenantId: int = Field(None, description="Tenant ID")
     userId: int = Field(None, description="User ID")
     url: str = Field(None, description="Page URL where log occurred")
     userAgent: str = Field(None, description="Browser user agent")
@@ -46,21 +46,21 @@ async def receive_frontend_log(
     Receive a single frontend log entry.
     
     This endpoint receives individual log entries from the frontend application
-    and writes them to the appropriate client-specific log file.
+    and writes them to the appropriate tenant-specific log file.
     """
     try:
-        # Get client-aware logger
-        logger = get_client_logger_from_request(request, "frontend_logs")
+        # Get tenant-aware logger
+        logger = get_tenant_logger_from_request(request, "frontend_logs")
         
-        # Validate that the log entry matches the authenticated user's client
-        if log_entry.clientId and log_entry.clientId != current_user.client_id:
+        # Validate that the log entry matches the authenticated user's tenant
+        if log_entry.tenantId and log_entry.tenantId != current_user.tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot log for different client"
+                detail="Cannot log for different tenant"
             )
-        
-        # Ensure client context matches authenticated user
-        log_entry.clientId = current_user.client_id
+
+        # Ensure tenant context matches authenticated user
+        log_entry.tenantId = current_user.tenant_id
         log_entry.userId = current_user.id
         
         # Convert log entry to structured log
@@ -71,7 +71,7 @@ async def receive_frontend_log(
             "frontend_user_agent": log_entry.userAgent,
             "frontend_type": log_entry.type,
             "user_id": current_user.id,
-            "client_id": current_user.client_id
+            "tenant_id": current_user.tenant_id
         }
         
         # Add error details if present
@@ -120,21 +120,21 @@ async def receive_frontend_log_batch(
     Useful for flushing buffered logs from the frontend.
     """
     try:
-        # Get client-aware logger
-        logger = get_client_logger_from_request(request, "frontend_logs")
+        # Get tenant-aware logger
+        logger = get_tenant_logger_from_request(request, "frontend_logs")
         
         processed_count = 0
         error_count = 0
         
         for log_entry in log_batch.logs:
             try:
-                # Validate client context
-                if log_entry.clientId and log_entry.clientId != current_user.client_id:
+                # Validate tenant context
+                if log_entry.tenantId and log_entry.tenantId != current_user.tenant_id:
                     error_count += 1
                     continue
-                
-                # Ensure client context matches authenticated user
-                log_entry.clientId = current_user.client_id
+
+                # Ensure tenant context matches authenticated user
+                log_entry.tenantId = current_user.tenant_id
                 log_entry.userId = current_user.id
                 
                 # Convert log entry to structured log
@@ -145,7 +145,7 @@ async def receive_frontend_log_batch(
                     "frontend_user_agent": log_entry.userAgent,
                     "frontend_type": log_entry.type,
                     "user_id": current_user.id,
-                    "client_id": current_user.client_id,
+                    "tenant_id": current_user.tenant_id,
                     "batch_processing": True
                 }
                 
@@ -181,7 +181,7 @@ async def receive_frontend_log_batch(
             processed=processed_count,
             errors=error_count,
             user_id=current_user.id,
-            client_id=current_user.client_id
+            tenant_id=current_user.tenant_id
         )
         
         return {
@@ -212,19 +212,19 @@ async def get_frontend_logging_status(
     """
     Get frontend logging status and configuration.
     
-    Returns information about frontend logging capabilities and client context.
+    Returns information about frontend logging capabilities and tenant context.
     """
     try:
-        from app.core.client_logging_middleware import get_client_context_from_request
-        
-        client_context = get_client_context_from_request(request)
+        from app.core.client_logging_middleware import get_tenant_context_from_request
+
+        tenant_context = get_tenant_context_from_request(request)
         
         return {
             "status": "active",
-            "client_logging_enabled": True,
-            "client_context": {
-                "client_id": current_user.client_id,
-                "client_name": client_context.get('client_name') if client_context else None,
+            "tenant_logging_enabled": True,
+            "tenant_context": {
+                "tenant_id": current_user.tenant_id,
+                "tenant_name": tenant_context.get('tenant_name') if tenant_context else None,
                 "user_id": current_user.id
                 # Email removed to avoid PII in logs
             },

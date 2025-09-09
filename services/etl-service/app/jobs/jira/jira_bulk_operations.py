@@ -53,34 +53,34 @@ def perform_bulk_insert(session, model_class, data_list, table_name, job_logger:
             param_prefix = f"p{i}_{idx}_"
             
             # Handle primary key columns (use sequence only for actual primary keys)
-            # Foreign key columns (like project_id in issues table) should use actual values, not sequences
+            # Foreign key columns (like project_id in work_items table) should use actual values, not sequences
             value_placeholders = []
             for col in columns:
                 # Only use sequences for actual primary key columns in their respective tables
-                if ((col == 'id' and table_name == 'issues') or
-                    (col == 'id' and table_name == 'issuetypes') or
+                if ((col == 'id' and table_name == 'work_items') or
+                    (col == 'id' and table_name == 'wits') or
                     (col == 'id' and table_name == 'projects') or
                     (col == 'id' and table_name == 'statuses') or
                     (col == 'id' and table_name == 'integrations') or
-                    (col == 'id' and table_name == 'pull_requests') or
-                    (col == 'id' and table_name == 'issue_changelogs') or
+                    (col == 'id' and table_name == 'prs') or
+                    (col == 'id' and table_name == 'changelogs') or
                     (col == 'id' and table_name == 'dev_data')):
 
                     # Use sequence for primary key columns
-                    if table_name == 'issuetypes':
-                        sequence_name = "issuetypes_id_seq"
+                    if table_name == 'wits':
+                        sequence_name = "wits_id_seq"
                     elif table_name == 'projects':
                         sequence_name = "projects_id_seq"
                     elif table_name == 'statuses':
                         sequence_name = "statuses_id_seq"
-                    elif table_name == 'issues':
-                        sequence_name = "issues_id_seq"
+                    elif table_name == 'work_items':
+                        sequence_name = "work_items_id_seq"
                     elif table_name == 'integrations':
                         sequence_name = "integrations_id_seq"
-                    elif table_name == 'pull_requests':
-                        sequence_name = "pullrequests_id_seq"
-                    elif table_name == 'issue_changelogs':
-                        sequence_name = "issue_changelogs_id_seq"
+                    elif table_name == 'prs':
+                        sequence_name = "prs_id_seq"
+                    elif table_name == 'changelogs':
+                        sequence_name = "changelogs_id_seq"
                     elif table_name == 'dev_data':
                         sequence_name = "devdata_id_seq"
 
@@ -133,8 +133,8 @@ def perform_bulk_delete_relationships(session, table_name, relationships_to_dele
     job_logger.progress(f"[DELETE] Starting bulk delete for {len(relationships_list)} {table_name} relationships...")
 
     # Determine column names based on table
-    if table_name == 'projects_issuetypes':
-        col1, col2 = 'project_id', 'issuetype_id'
+    if table_name == 'projects_wits':
+        col1, col2 = 'project_id', 'wit_id'
     elif table_name == 'projects_statuses':
         col1, col2 = 'project_id', 'status_id'
     else:

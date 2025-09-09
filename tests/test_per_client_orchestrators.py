@@ -3,8 +3,8 @@
 Test script to verify multi-instance ETL setup is working correctly.
 
 This script tests the simplified multi-instance approach where:
-- Each ETL instance serves only one client
-- No complex cross-client orchestrator logic
+- Each ETL instance serves only one tenant
+- No complex cross-tenant orchestrator logic
 - Simple, clean, and maintainable code
 """
 
@@ -29,48 +29,48 @@ def test_multi_instance_setup():
 
     print("\n✅ Multi-Instance Test Complete!")
     print("\n🎯 Expected Results:")
-    print("  • WEX ETL instance serves only WEX client data")
-    print("  • TechCorp ETL instance serves only TechCorp client data")
+    print("  • WEX ETL instance serves only WEX tenant data")
+    print("  • TechCorp ETL instance serves only TechCorp tenant data")
     print("  • Each instance has independent orchestrator")
-    print("  • No cross-client interference")
+    print("  • No cross-tenant interference")
     print("  • Much simpler code and architecture")
 
-def test_etl_instance(client_name, base_url):
+def test_etl_instance(tenant_name, base_url):
     """Test a specific ETL instance."""
 
     try:
         # Test health endpoint
-        print(f"  🔍 Testing {client_name} health endpoint...")
+        print(f"  🔍 Testing {tenant_name} health endpoint...")
         response = requests.get(f"{base_url}/health", timeout=5)
         if response.status_code == 200:
-            print(f"    ✅ {client_name} ETL instance is healthy")
+            print(f"    ✅ {tenant_name} ETL instance is healthy")
         else:
-            print(f"    ❌ {client_name} ETL instance health check failed")
+            print(f"    ❌ {tenant_name} ETL instance health check failed")
             return
 
         # Test orchestrator status (requires auth, so expect 401)
-        print(f"  🔍 Testing {client_name} orchestrator endpoint...")
+        print(f"  🔍 Testing {tenant_name} orchestrator endpoint...")
         response = requests.get(f"{base_url}/api/v1/orchestrator/status", timeout=5)
         if response.status_code == 401:
-            print(f"    ✅ {client_name} orchestrator endpoint responding (auth required)")
+            print(f"    ✅ {tenant_name} orchestrator endpoint responding (auth required)")
         else:
-            print(f"    ⚠️ {client_name} orchestrator endpoint unexpected response: {response.status_code}")
+            print(f"    ⚠️ {tenant_name} orchestrator endpoint unexpected response: {response.status_code}")
 
         # Test job status endpoint (requires auth, so expect 401)
-        print(f"  🔍 Testing {client_name} job status endpoint...")
+        print(f"  🔍 Testing {tenant_name} job status endpoint...")
         response = requests.get(f"{base_url}/api/v1/jobs/status", timeout=5)
         if response.status_code == 401:
-            print(f"    ✅ {client_name} job status endpoint responding (auth required)")
+            print(f"    ✅ {tenant_name} job status endpoint responding (auth required)")
         else:
-            print(f"    ⚠️ {client_name} job status endpoint unexpected response: {response.status_code}")
+            print(f"    ⚠️ {tenant_name} job status endpoint unexpected response: {response.status_code}")
 
     except requests.exceptions.ConnectionError:
-        print(f"    ❌ Cannot connect to {client_name} ETL instance at {base_url}")
-        print(f"    💡 Make sure the {client_name} ETL instance is running")
+        print(f"    ❌ Cannot connect to {tenant_name} ETL instance at {base_url}")
+        print(f"    💡 Make sure the {tenant_name} ETL instance is running")
     except requests.exceptions.Timeout:
-        print(f"    ❌ {client_name} ETL instance timeout")
+        print(f"    ❌ {tenant_name} ETL instance timeout")
     except Exception as e:
-        print(f"    ❌ {client_name} ETL instance test error: {e}")
+        print(f"    ❌ {tenant_name} ETL instance test error: {e}")
 
 if __name__ == "__main__":
     test_multi_instance_setup()

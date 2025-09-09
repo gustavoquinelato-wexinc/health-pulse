@@ -4,12 +4,12 @@
  */
 
 import {
-  Issue,
-  PullRequest,
+  WorkItem,
+  Pr,
   User,
   Project,
-  IssuesResponse,
-  PullRequestsResponse,
+  WorkItemsResponse,
+  PrsResponse,
   UsersResponse,
   ProjectsResponse,
   DatabaseHealthResponse,
@@ -26,7 +26,7 @@ import {
 } from '../types';
 
 // @ts-ignore - Import existing JS client for now
-import apiClient from '../utils/apiClient.js';
+import apiTenant from '../utils/apiTenant.js';
 
 class ApiService {
   private baseUrl: string;
@@ -64,112 +64,112 @@ class ApiService {
   }
 
   /**
-   * Issues API
+   * WorkItems API
    */
-  async getIssues(
-    clientId: number,
+  async getWorkItems(
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       project_key?: string;
       status?: string;
       assignee?: string;
       include_ml_fields?: boolean;
     } = {}
-  ): Promise<IssuesResponse> {
+  ): Promise<WorkItemsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      client_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.project_key) additionalParams.append('project_key', params.project_key);
     if (params.status) additionalParams.append('status', params.status);
     if (params.assignee) additionalParams.append('assignee', params.assignee);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/issues?${allParams}`);
+    return apiTenant.get(`/api/v1/work-items?${allParams}`);
   }
 
-  async getIssue(issueId: number, includeMlFields?: boolean): Promise<Issue> {
+  async getWorkItem(workItemId: number, includeMlFields?: boolean): Promise<WorkItem> {
     const params = new URLSearchParams();
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
-    
-    return apiClient.get(`/api/v1/issues/${issueId}?${params.toString()}`);
+
+    return apiTenant.get(`/api/v1/work-items/${workItemId}?${params.toString()}`);
   }
 
-  async createIssue(issueData: Partial<Issue>): Promise<Issue> {
-    return apiClient.post('/api/v1/issues', issueData);
+  async createWorkItem(workItemData: Partial<WorkItem>): Promise<WorkItem> {
+    return apiTenant.post('/api/v1/work-items', workItemData);
   }
 
-  async updateIssue(issueId: number, issueData: Partial<Issue>): Promise<Issue> {
-    return apiClient.put(`/api/v1/issues/${issueId}`, issueData);
+  async updateWorkItem(workItemId: number, workItemData: Partial<WorkItem>): Promise<WorkItem> {
+    return apiTenant.put(`/api/v1/work-items/${workItemId}`, workItemData);
   }
 
-  async deleteIssue(issueId: number): Promise<{ message: string; issue_id: number }> {
-    return apiClient.delete(`/api/v1/issues/${issueId}`);
+  async deleteWorkItem(workItemId: number): Promise<{ message: string; work_item_id: number }> {
+    return apiTenant.delete(`/api/v1/work-items/${workItemId}`);
   }
 
-  async getIssuesStats(clientId: number): Promise<any> {
-    return apiClient.get(`/api/v1/issues/stats?client_id=${clientId}`);
+  async getWorkItemsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/work-items/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Pull Requests API
    */
-  async getPullRequests(
-    clientId: number,
+  async getPrs(
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       repository?: string;
       status?: string;
       user_name?: string;
       include_ml_fields?: boolean;
     } = {}
-  ): Promise<PullRequestsResponse> {
+  ): Promise<PrsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      client_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.repository) additionalParams.append('repository', params.repository);
     if (params.status) additionalParams.append('status', params.status);
     if (params.user_name) additionalParams.append('user_name', params.user_name);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/pull-requests?${allParams}`);
+    return apiTenant.get(`/api/v1/pull-requests?${allParams}`);
   }
 
-  async getPullRequest(prId: number, includeMlFields?: boolean): Promise<PullRequest> {
+  async getPr(prId: number, includeMlFields?: boolean): Promise<Pr> {
     const params = new URLSearchParams();
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
     
-    return apiClient.get(`/api/v1/pull-requests/${prId}?${params.toString()}`);
+    return apiTenant.get(`/api/v1/pull-requests/${prId}?${params.toString()}`);
   }
 
-  async createPullRequest(prData: Partial<PullRequest>): Promise<PullRequest> {
-    return apiClient.post('/api/v1/pull-requests', prData);
+  async createPr(prData: Partial<Pr>): Promise<Pr> {
+    return apiTenant.post('/api/v1/pull-requests', prData);
   }
 
-  async updatePullRequest(prId: number, prData: Partial<PullRequest>): Promise<PullRequest> {
-    return apiClient.put(`/api/v1/pull-requests/${prId}`, prData);
+  async updatePr(prId: number, prData: Partial<Pr>): Promise<Pr> {
+    return apiTenant.put(`/api/v1/pull-requests/${prId}`, prData);
   }
 
-  async deletePullRequest(prId: number): Promise<{ message: string; pr_id: number }> {
-    return apiClient.delete(`/api/v1/pull-requests/${prId}`);
+  async deletePr(prId: number): Promise<{ message: string; pr_id: number }> {
+    return apiTenant.delete(`/api/v1/pull-requests/${prId}`);
   }
 
-  async getPullRequestsStats(clientId: number): Promise<any> {
-    return apiClient.get(`/api/v1/pull-requests/stats?client_id=${clientId}`);
+  async getPrsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/pull-requests/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Projects API
    */
   async getProjects(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       project_type?: string;
       include_ml_fields?: boolean;
@@ -177,15 +177,15 @@ class ApiService {
   ): Promise<ProjectsResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      client_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.project_type) additionalParams.append('project_type', params.project_type);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/projects?${allParams}`);
+    return apiTenant.get(`/api/v1/projects?${allParams}`);
   }
 
   async getProject(projectId: number, includeMlFields?: boolean): Promise<Project> {
@@ -193,7 +193,7 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
     
-    return apiClient.get(`/api/v1/projects/${projectId}?${params.toString()}`);
+    return apiTenant.get(`/api/v1/projects/${projectId}?${params.toString()}`);
   }
 
   async getProjectByKey(projectKey: string, includeMlFields?: boolean): Promise<Project> {
@@ -201,38 +201,38 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
     
-    return apiClient.get(`/api/v1/projects/by-key/${projectKey}?${params.toString()}`);
+    return apiTenant.get(`/api/v1/projects/by-key/${projectKey}?${params.toString()}`);
   }
 
   async createProject(projectData: Partial<Project>): Promise<Project> {
-    return apiClient.post('/api/v1/projects', projectData);
+    return apiTenant.post('/api/v1/projects', projectData);
   }
 
   async updateProject(projectId: number, projectData: Partial<Project>): Promise<Project> {
-    return apiClient.put(`/api/v1/projects/${projectId}`, projectData);
+    return apiTenant.put(`/api/v1/projects/${projectId}`, projectData);
   }
 
   async deleteProject(projectId: number): Promise<{ message: string; project_id: number }> {
-    return apiClient.delete(`/api/v1/projects/${projectId}`);
+    return apiTenant.delete(`/api/v1/projects/${projectId}`);
   }
 
-  async getProjectIssues(
+  async getProjectWorkItems(
     projectId: number,
     params: PaginationParams & { include_ml_fields?: boolean } = {}
   ): Promise<any> {
     const queryParams = this.buildQueryParams(params);
-    return apiClient.get(`/api/v1/projects/${projectId}/issues?${queryParams}`);
+    return apiTenant.get(`/api/v1/projects/${projectId}/work-items?${queryParams}`);
   }
 
-  async getProjectsStats(clientId: number): Promise<any> {
-    return apiClient.get(`/api/v1/projects/stats?client_id=${clientId}`);
+  async getProjectsStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/projects/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Users API
    */
   async getUsers(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & FilterParams & {
       active_only?: boolean;
       include_ml_fields?: boolean;
@@ -240,15 +240,15 @@ class ApiService {
   ): Promise<UsersResponse> {
     const queryParams = this.buildQueryParams({
       ...params,
-      client_id: clientId,
+      tenant_id: tenantId,
     });
-    
+
     const additionalParams = new URLSearchParams();
     if (params.active_only !== undefined) additionalParams.append('active_only', params.active_only.toString());
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/users?${allParams}`);
+    return apiTenant.get(`/api/v1/users?${allParams}`);
   }
 
   async getUser(userId: number, includeMlFields?: boolean): Promise<User> {
@@ -256,7 +256,7 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
     
-    return apiClient.get(`/api/v1/users/${userId}?${params.toString()}`);
+    return apiTenant.get(`/api/v1/users/${userId}?${params.toString()}`);
   }
 
   async getCurrentUser(includeMlFields?: boolean): Promise<User> {
@@ -264,7 +264,7 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
     
-    return apiClient.get(`/api/v1/users/me?${params.toString()}`);
+    return apiTenant.get(`/api/v1/users/me?${params.toString()}`);
   }
 
   async getUserSessions(
@@ -276,86 +276,86 @@ class ApiService {
     if (params.active_only !== undefined) additionalParams.append('active_only', params.active_only.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/users/${userId}/sessions?${allParams}`);
+    return apiTenant.get(`/api/v1/users/${userId}/sessions?${allParams}`);
   }
 
   async getUserPermissions(userId: number): Promise<any> {
-    return apiClient.get(`/api/v1/users/${userId}/permissions`);
+    return apiTenant.get(`/api/v1/users/${userId}/permissions`);
   }
 
-  async getUsersStats(clientId: number): Promise<any> {
-    return apiClient.get(`/api/v1/users/stats?client_id=${clientId}`);
+  async getUsersStats(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/users/stats?tenant_id=${tenantId}`);
   }
 
   /**
    * Health Check APIs
    */
   async getBasicHealth(): Promise<any> {
-    return apiClient.get('/health');
+    return apiTenant.get('/health');
   }
 
   async getDatabaseHealth(): Promise<DatabaseHealthResponse> {
-    return apiClient.get('/health/database');
+    return apiTenant.get('/health/database');
   }
 
   async getMLHealth(): Promise<MLHealthResponse> {
-    return apiClient.get('/health/ml');
+    return apiTenant.get('/health/ml');
   }
 
   async getComprehensiveHealth(): Promise<ComprehensiveHealthResponse> {
-    return apiClient.get('/health/comprehensive');
+    return apiTenant.get('/health/comprehensive');
   }
 
   /**
    * ML Monitoring APIs (Admin only)
    */
   async getLearningMemory(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { error_type?: string } = {}
   ): Promise<LearningMemoryResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.error_type) additionalParams.append('error_type', params.error_type);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/ml/learning-memory?${allParams}`);
+    return apiTenant.get(`/api/v1/ml/learning-memory?${allParams}`);
   }
 
   async getPredictions(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { model_name?: string; prediction_type?: string } = {}
   ): Promise<PredictionsResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.model_name) additionalParams.append('model_name', params.model_name);
     if (params.prediction_type) additionalParams.append('prediction_type', params.prediction_type);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/ml/predictions?${allParams}`);
+    return apiTenant.get(`/api/v1/ml/predictions?${allParams}`);
   }
 
   async getAnomalyAlerts(
-    clientId: number,
+    tenantId: number,
     params: PaginationParams & { acknowledged?: boolean; severity?: string } = {}
   ): Promise<AnomalyAlertsResponse> {
     const queryParams = this.buildQueryParams(params);
     const additionalParams = new URLSearchParams();
     if (params.acknowledged !== undefined) additionalParams.append('acknowledged', params.acknowledged.toString());
     if (params.severity) additionalParams.append('severity', params.severity);
-    additionalParams.append('client_id', clientId.toString());
+    additionalParams.append('tenant_id', tenantId.toString());
 
     const allParams = `${queryParams}&${additionalParams.toString()}`;
-    return apiClient.get(`/api/v1/ml/anomaly-alerts?${allParams}`);
+    return apiTenant.get(`/api/v1/ml/anomaly-alerts?${allParams}`);
   }
 
-  async getMLStats(clientId: number, days: number = 30): Promise<MLStatsResponse> {
-    return apiClient.get(`/api/v1/ml/stats?client_id=${clientId}&days=${days}`);
+  async getMLStats(tenantId: number, days: number = 30): Promise<MLStatsResponse> {
+    return apiTenant.get(`/api/v1/ml/stats?tenant_id=${tenantId}&days=${days}`);
   }
 
-  async getMLMonitoringHealth(clientId: number): Promise<any> {
-    return apiClient.get(`/api/v1/ml/health?client_id=${clientId}`);
+  async getMLMonitoringHealth(tenantId: number): Promise<any> {
+    return apiTenant.get(`/api/v1/ml/health?tenant_id=${tenantId}`);
   }
 
   /**
@@ -363,7 +363,7 @@ class ApiService {
    */
   async login(email: string, password: string, includeMlFields?: boolean): Promise<any> {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
-    return apiClient.post('/api/v1/auth/login', {
+    return apiTenant.post('/api/v1/auth/login', {
       email,
       password,
       include_ml_fields: includeMl,
@@ -371,7 +371,7 @@ class ApiService {
   }
 
   async logout(): Promise<any> {
-    return apiClient.post('/api/v1/auth/logout');
+    return apiTenant.post('/api/v1/auth/logout');
   }
 
   async validateToken(includeMlFields?: boolean): Promise<any> {
@@ -379,7 +379,7 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
 
-    return apiClient.get(`/api/v1/auth/validate?${params.toString()}`);
+    return apiTenant.get(`/api/v1/auth/validate?${params.toString()}`);
   }
 
   async getUserInfo(includeMlFields?: boolean): Promise<any> {
@@ -387,11 +387,11 @@ class ApiService {
     const includeMl = includeMlFields ?? this.defaultIncludeMlFields;
     params.append('include_ml_fields', includeMl.toString());
 
-    return apiClient.get(`/api/v1/auth/user-info?${params.toString()}`);
+    return apiTenant.get(`/api/v1/auth/user-info?${params.toString()}`);
   }
 
   async refreshToken(): Promise<any> {
-    return apiClient.post('/api/v1/auth/refresh');
+    return apiTenant.post('/api/v1/auth/refresh');
   }
 
   /**

@@ -67,7 +67,7 @@ class EpicAnalyzer:
         # Jira Projects to Query
         self.benefits_project_keys = ['bex', 'ben', 'bst', 'eppv', 'hba', 'hdo', 'hds', 'fg', 'epe']
 
-        # --- Initialized Clients ---
+        # --- Initialized Tenants ---
         self.jira_client = self._initialize_jira_client()
         self.ai_client = self._initialize_ai_client()
 
@@ -247,13 +247,13 @@ class EpicAnalyzer:
         print(f"\nFetching epics with JQL: {jql_query}")
         try:
             # Adjust date params if required by your specific get_issues implementation
-            issues = self.jira_client.get_issues(jql_query=jql_query, start_date=None, end_date=None)
+            work_items = self.jira_client.get_issues(jql_query=jql_query, start_date=None, end_date=None)
             smh = MappingHelper()
 
-            for issue in issues:
-                epic_key = issue.get('key')
-                summary = issue.get('fields', {}).get('summary', 'N/A')
-                description = issue.get('fields', {}).get('description', 'N/A')
+            for work_item in work_items:
+                epic_key = work_item.get('key')
+                summary = work_item.get('fields', {}).get('summary', 'N/A')
+                description = work_item.get('fields', {}).get('description', 'N/A')
                 if description is None: description = 'N/A'
 
                 original_status = issue.get('fields', {}).get('status', {}).get('name', '')

@@ -80,7 +80,7 @@ const adminItems: NavigationItem[] = [
     subItems: [
       { id: 'color-scheme', label: 'Color Scheme', path: '/admin/color-scheme' },
       { id: 'user-management', label: 'User Management', path: '/admin/user-management' },
-      { id: 'client-management', label: 'Client Management', path: '/admin/client-management' },
+      { id: 'client-management', label: 'Tenant Management', path: '/admin/client-management' },
       { id: 'notifications', label: 'Notifications', path: '/admin/notifications' }
     ]
   }

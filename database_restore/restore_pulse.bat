@@ -61,11 +61,11 @@ docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% pg_restore -U %PO
 
 REM Note: pg_restore may return error code even on successful restore due to 'does not exist' warnings
 REM Check if tables were actually created to determine success
-docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "\dt" | findstr "issues" >nul
+docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "\dt" | findstr "work_items" >nul
 
 if errorlevel 1 (
     echo.
-    echo ❌ Restore may have failed - no 'issues' table found
+    echo ❌ Restore may have failed - no 'work_items' table found
     echo    Check the output above for errors
     echo.
     pause
@@ -82,8 +82,8 @@ docker exec %CONTAINER_NAME% rm -f /tmp/restore_dump.backup
 
 echo.
 echo 🔍 Verifying restore...
-docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as issue_count FROM issues;"
-docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as pr_count FROM pull_requests;"
+docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as work_item_count FROM work_items;"
+docker exec -e PGPASSWORD=%POSTGRES_PASSWORD% %CONTAINER_NAME% psql -U %POSTGRES_USER% -d %DB_NAME% -c "SELECT COUNT(*) as pr_count FROM prs;"
 
 echo.
 echo 📋 Next steps:

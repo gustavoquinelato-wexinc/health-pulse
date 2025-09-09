@@ -12,7 +12,7 @@ router = APIRouter()
 
 class InvalidateTokenRequest(BaseModel):
     token_hash: str
-    client_id: Optional[int] = None
+    tenant_id: Optional[int] = None
 
 
 def _verify_internal_secret(request: Request):
