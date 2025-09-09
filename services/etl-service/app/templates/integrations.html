@@ -303,8 +303,12 @@ function renderIntegrationsTable() {
         
         // Construct logo path: /assets/{tenant_name}/integrations/{logo_filename}
         const tenantName = '{{ tenant_name|lower }}' || 'wex';  // Get tenant name from template context
-        const logoPath = integration.logo_filename ? `/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
-        const logoHtml = logoPath ?
+        const hasLogo = integration.logo_filename && integration.logo_filename.trim() !== '';
+        const logoPath = hasLogo ? `/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
+
+        // Debug logging
+        console.log(`Integration: ${integration.name}, logo_filename: "${integration.logo_filename}", hasLogo: ${hasLogo}, logoPath: ${logoPath}`);
+        const logoHtml = hasLogo ?
             `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
              <i class="fas fa-plug text-lg hidden" style="color: var(--text-muted);"></i>` :
             `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
