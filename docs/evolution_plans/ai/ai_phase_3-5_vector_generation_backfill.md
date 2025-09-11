@@ -1,524 +1,469 @@
-# Phase 3-5: High-Performance Vector Infrastructure Setup (Hybrid Provider)
+# Phase 3-5: Vector Collection Management & Performance Testing
 
 **Implemented**: NO ❌
 **Duration**: 1 day (Day 8 of 10) - Simplified since no historical data exists
 **Priority**: MEDIUM
 **Dependencies**: Phase 3-4 completion
 
-> **🏗️ Architecture Update (September 2025)**: This phase has been updated to reflect the new architecture where AI operations are centralized in Backend Service. Vector generation will be handled by Backend Service with ETL Service calling it for embedding operations.
+> **🏗️ Architecture Update (September 2025)**: This phase focuses on Qdrant collection management and performance testing. Backend Service already has all AI infrastructure. No complex vector generation pipeline needed since ETL Service calls Backend Service for AI operations.
 
 ## 💼 Business Outcome
 
-**Semantic Search Foundation**: Establish high-performance vector infrastructure for instant semantic search capabilities, enabling users to find relevant information using natural language queries instead of complex filters, reducing information discovery time from hours to seconds.
+**Production-Ready Vector Operations**: Establish reliable Qdrant collection management and validate performance of the ETL → Backend → Qdrant integration, ensuring the system can handle real-world data volumes with consistent performance.
 
 ## 🎯 Simplified Objectives (No Historical Data)
 
-1. **Vector Infrastructure Setup**: Configure Qdrant collections and performance optimization
-2. **Hybrid Provider Testing**: Validate WEX Gateway + local models integration
-3. **Performance Benchmarking**: Establish baseline performance metrics
-4. **Monitoring Setup**: Real-time vector operation monitoring
-5. **Error Recovery**: Robust error handling for vector operations
-6. **Tenant Isolation**: Perfect separation using existing integration table structure
+1. **Collection Management**: Automated Qdrant collection creation and management
+2. **Performance Testing**: Validate ETL → Backend → Qdrant flow performance
+3. **Monitoring Integration**: Real-time vector operation monitoring
+4. **Error Handling**: Robust error recovery for vector operations
+5. **Tenant Isolation**: Validate perfect separation using existing integration table
+6. **Load Testing**: Test system with realistic data volumes
 
-**Note**: Since there is no historical data in the database, this phase focuses on infrastructure setup and testing rather than large-scale backfill operations.
+**Note**: Since there is no historical data in the database, this phase focuses on infrastructure validation and performance testing rather than large-scale backfill operations.
 
-## 🚀 High-Performance Vector Generation Architecture
+## 🗄️ Qdrant Collection Management Architecture
 
-### **Optimized Vector Generation Pipeline**
+### **Collection Management Service**
 ```python
-# services/etl-service/app/ai/vector_generation_pipeline.py
-import asyncio
-import logging
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor
-import time
-import math
-
-logger = logging.getLogger(__name__)
-
-@dataclass
-class VectorGenerationJob:
-    """Vector generation job configuration"""
-    client_id: int
-    table_name: str
-    records: List[Dict[str, Any]]
-    vector_type: str  # 'content', 'summary', 'metadata'
-    provider_preference: str  # 'fast', 'balanced', 'quality'
-    batch_size: int = 100
-    max_retries: int = 3
-
-@dataclass
-class VectorGenerationProgress:
-    """Progress tracking for vector generation"""
-    total_records: int
-    processed_records: int
-    successful_records: int
-    failed_records: int
-    current_batch: int
-    total_batches: int
-    start_time: float
-    estimated_completion: float
-    current_provider: str
-    errors: List[str]
-
-class HighPerformanceVectorGenerator:
-    """High-performance vector generation with hybrid provider selection"""
-
-    def __init__(self, db_session, qdrant_client):
-        # Use HybridProviderManager instead of direct provider manager
-        self.hybrid_provider_manager = HybridProviderManager(db_session)
-        self.qdrant_client = qdrant_client
-
-        # Performance optimization
-        self.max_concurrent_batches = 4
-        self.executor = ThreadPoolExecutor(max_workers=8)
-
-        # Progress tracking
-        self.active_jobs: Dict[str, VectorGenerationProgress] = {}
-
-        # Hybrid provider performance tracking
-        self.provider_performance = {
-            "sentence_transformers": {"speed": 1000, "cost": 0.0, "quality": 0.8},
-            "wex_ai_gateway": {"speed": 500, "cost": 0.0001, "quality": 0.95}
-        }
-    
-    async def generate_vectors_for_table(self, job: VectorGenerationJob) -> VectorGenerationProgress:
-        """Generate vectors for entire table with progress tracking"""
-        job_id = f"{job.client_id}_{job.table_name}_{job.vector_type}"
-        
-        # Initialize progress tracking
-        total_batches = math.ceil(len(job.records) / job.batch_size)
-        progress = VectorGenerationProgress(
-            total_records=len(job.records),
-            processed_records=0,
-            successful_records=0,
-            failed_records=0,
-            current_batch=0,
-            total_batches=total_batches,
-            start_time=time.time(),
-            estimated_completion=0,
-            current_provider="",
-            errors=[]
-        )
-        
-        self.active_jobs[job_id] = progress
-        
-        try:
-            # Select optimal provider based on preference and data size
-            provider = await self._select_optimal_provider(job)
-            progress.current_provider = provider.config.provider_type
-            
-            logger.info(f"Starting vector generation for {job.table_name} with {provider.config.provider_type}")
-            
-            # Ensure Qdrant collection exists
-            await self.qdrant_client.create_collection(
-                job.client_id, 
-                job.table_name,
-                provider.model_info.dimensions
-            )
-            
-            # Process in batches with concurrency control
-            semaphore = asyncio.Semaphore(self.max_concurrent_batches)
-            
-            batch_tasks = []
-            for i in range(0, len(job.records), job.batch_size):
-                batch = job.records[i:i + job.batch_size]
-                batch_num = i // job.batch_size + 1
-                
-                task = self._process_batch_with_semaphore(
-                    semaphore, job, batch, batch_num, provider, progress
-                )
-                batch_tasks.append(task)
-            
-            # Execute all batches with controlled concurrency
-            await asyncio.gather(*batch_tasks, return_exceptions=True)
-            
-            # Calculate final statistics
-            progress.estimated_completion = time.time()
-            total_time = progress.estimated_completion - progress.start_time
-            
-            logger.info(f"Vector generation completed for {job.table_name}: "
-                       f"{progress.successful_records}/{progress.total_records} successful "
-                       f"in {total_time:.2f}s")
-            
-            return progress
-            
-        except Exception as e:
-            logger.error(f"Vector generation failed for {job.table_name}: {e}")
-            progress.errors.append(str(e))
-            return progress
-        
-        finally:
-            # Clean up job tracking
-            if job_id in self.active_jobs:
-                del self.active_jobs[job_id]
-    
-    async def _select_optimal_provider(self, job: VectorGenerationJob):
-        """Select optimal provider based on job requirements"""
-        available_providers = await self.ai_provider_manager.get_available_providers(job.client_id)
-        
-        if job.provider_preference == "fast":
-            # Prioritize speed: local models first
-            for provider_type in ["sentence_transformers", "azure_openai", "openai"]:
-                if provider_type in available_providers:
-                    return await self.ai_provider_manager.get_provider(job.client_id, provider_type)
-        
-        elif job.provider_preference == "quality":
-            # Prioritize quality: OpenAI models first
-            for provider_type in ["openai", "azure_openai", "sentence_transformers"]:
-                if provider_type in available_providers:
-                    return await self.ai_provider_manager.get_provider(job.client_id, provider_type)
-        
-        else:  # balanced
-            # Balance cost and performance
-            if len(job.records) > 10000:
-                # Large dataset: use free local models
-                if "sentence_transformers" in available_providers:
-                    return await self.ai_provider_manager.get_provider(job.client_id, "sentence_transformers")
-            
-            # Medium dataset: use Azure OpenAI for balance
-            if "azure_openai" in available_providers:
-                return await self.ai_provider_manager.get_provider(job.client_id, "azure_openai")
-        
-        # Fallback to first available provider
-        if available_providers:
-            provider_type = list(available_providers.keys())[0]
-            return await self.ai_provider_manager.get_provider(job.client_id, provider_type)
-        
-        raise ValueError("No AI providers available for client")
-    
-    async def _process_batch_with_semaphore(self, semaphore, job, batch, batch_num, provider, progress):
-        """Process batch with concurrency control"""
-        async with semaphore:
-            return await self._process_batch(job, batch, batch_num, provider, progress)
-    
-    async def _process_batch(self, job: VectorGenerationJob, batch: List[Dict], 
-                           batch_num: int, provider, progress: VectorGenerationProgress):
-        """Process single batch of records"""
-        try:
-            # Extract text content for embedding
-            texts = []
-            for record in batch:
-                text_content = self._extract_text_content(record, job.vector_type)
-                texts.append(text_content)
-            
-            # Generate embeddings for batch
-            embeddings = await provider.generate_embeddings(texts)
-            
-            if len(embeddings) != len(batch):
-                raise ValueError(f"Embedding count mismatch: {len(embeddings)} vs {len(batch)}")
-            
-            # Prepare Qdrant records
-            qdrant_records = []
-            for i, (record, embedding) in enumerate(zip(batch, embeddings)):
-                qdrant_record = {
-                    "record_id": record["id"],
-                    "vector": embedding,
-                    "metadata": {
-                        "text_content": texts[i][:500],  # Store first 500 chars for debugging
-                        "vector_type": job.vector_type,
-                        "generated_at": time.time(),
-                        "provider": provider.config.provider_type,
-                        "model": provider.config.model_name
-                    }
-                }
-                qdrant_records.append(qdrant_record)
-            
-            # Store in Qdrant
-            point_ids = await self.qdrant_client.upsert_vectors_batch(
-                job.client_id, job.table_name, qdrant_records
-            )
-            
-            # Update PostgreSQL with Qdrant references
-            await self._update_qdrant_references(job, batch, point_ids, provider)
-            
-            # Update progress
-            progress.processed_records += len(batch)
-            progress.successful_records += len(batch)
-            progress.current_batch = batch_num
-            
-            # Update estimated completion time
-            if progress.processed_records > 0:
-                elapsed_time = time.time() - progress.start_time
-                records_per_second = progress.processed_records / elapsed_time
-                remaining_records = progress.total_records - progress.processed_records
-                progress.estimated_completion = time.time() + (remaining_records / records_per_second)
-            
-            logger.info(f"Batch {batch_num}/{progress.total_batches} completed: "
-                       f"{progress.processed_records}/{progress.total_records} records")
-            
-        except Exception as e:
-            logger.error(f"Batch {batch_num} failed: {e}")
-            progress.failed_records += len(batch)
-            progress.errors.append(f"Batch {batch_num}: {str(e)}")
-    
-    def _extract_text_content(self, record: Dict[str, Any], vector_type: str) -> str:
-        """Extract text content based on vector type"""
-        if vector_type == "content":
-            # Full content embedding
-            parts = []
-            for field in ["summary", "description", "title", "content"]:
-                if field in record and record[field]:
-                    parts.append(str(record[field]))
-            return " ".join(parts)
-        
-        elif vector_type == "summary":
-            # Summary-only embedding
-            return str(record.get("summary", record.get("title", "")))
-        
-        elif vector_type == "metadata":
-            # Metadata embedding
-            parts = []
-            for field in ["status", "priority", "type", "labels"]:
-                if field in record and record[field]:
-                    parts.append(f"{field}: {record[field]}")
-            return " ".join(parts)
-        
-        else:
-            # Default: use summary or title
-            return str(record.get("summary", record.get("title", record.get("description", ""))))
-    
-    async def _update_qdrant_references(self, job: VectorGenerationJob, batch: List[Dict], 
-                                      point_ids: List[str], provider):
-        """Update PostgreSQL with Qdrant point references"""
-        try:
-            # This would be implemented to update the qdrant_vectors table
-            # with references to the stored vectors
-            pass
-        except Exception as e:
-            logger.error(f"Failed to update Qdrant references: {e}")
-    
-    def get_job_progress(self, job_id: str) -> Optional[VectorGenerationProgress]:
-        """Get progress for active job"""
-        return self.active_jobs.get(job_id)
-    
-    def get_all_active_jobs(self) -> Dict[str, VectorGenerationProgress]:
-        """Get all active job progress"""
-        return self.active_jobs.copy()
-```
-
-### **Vector Infrastructure Manager**
-```python
-# services/etl-service/app/ai/vector_infrastructure_manager.py
+# services/backend-service/app/ai/collection_manager.py
 import asyncio
 import logging
 from typing import List, Dict, Any, Optional
-from .vector_generation_pipeline import HighPerformanceVectorGenerator, VectorGenerationJob
+from dataclasses import dataclass
+from .qdrant_client import PulseQdrantClient
 
 logger = logging.getLogger(__name__)
 
-class VectorInfrastructureManager:
-    """Manages vector infrastructure setup and testing (no historical data to backfill)"""
+@dataclass
+class CollectionConfig:
+    """Qdrant collection configuration"""
+    tenant_id: int
+    table_name: str
+    vector_size: int = 1536  # Default for text-embedding-3-small
+    distance_metric: str = "Cosine"
+    collection_name: str = None
 
-    def __init__(self, vector_generator: HighPerformanceVectorGenerator, db_session):
-        self.vector_generator = vector_generator
-        self.db_session = db_session
+    def __post_init__(self):
+        if self.collection_name is None:
+            self.collection_name = f"client_{self.tenant_id}_{self.table_name}"
 
-        # Tables that will generate vectors during ETL (no existing data)
-        self.vector_enabled_tables = [
-            "issues", "pull_requests", "pull_request_comments", "pull_request_reviews",
-            "projects", "repositories", "users"  # Core tables that will have vector content
-        ]
-    
-    async def start_intelligent_backfill(self, client_id: int, 
-                                       priority_tables: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Start intelligent backfill process for client"""
+class QdrantCollectionManager:
+    """Manages Qdrant collections with tenant isolation"""
+
+    def __init__(self):
+        self.qdrant_client = PulseQdrantClient()
+        self.initialized_collections = set()
+
+    async def initialize(self):
+        """Initialize Qdrant client connection"""
+        success = await self.qdrant_client.initialize()
+        if not success:
+            raise Exception("Failed to initialize Qdrant client")
+        logger.info("Qdrant Collection Manager initialized")
+
+    async def ensure_collection_exists(self, config: CollectionConfig) -> bool:
+        """Ensure collection exists for tenant and table"""
         try:
-            # Analyze existing data to prioritize backfill
-            backfill_plan = await self._create_backfill_plan(client_id, priority_tables)
-            
-            logger.info(f"Starting backfill for client {client_id} with {len(backfill_plan)} tables")
-            
-            # Execute backfill plan
-            results = {}
-            for table_plan in backfill_plan:
-                table_name = table_plan["table_name"]
-                
-                logger.info(f"Starting backfill for table: {table_name}")
-                
-                # Create vector generation job
-                job = VectorGenerationJob(
-                    client_id=client_id,
-                    table_name=table_name,
-                    records=table_plan["records"],
-                    vector_type="content",  # Default to content vectors
-                    provider_preference=table_plan["provider_preference"],
-                    batch_size=table_plan["batch_size"]
-                )
-                
-                # Execute vector generation
-                progress = await self.vector_generator.generate_vectors_for_table(job)
-                
-                results[table_name] = {
-                    "total_records": progress.total_records,
-                    "successful_records": progress.successful_records,
-                    "failed_records": progress.failed_records,
-                    "processing_time": progress.estimated_completion - progress.start_time,
-                    "provider_used": progress.current_provider,
-                    "errors": progress.errors
-                }
-                
-                logger.info(f"Completed backfill for {table_name}: "
-                           f"{progress.successful_records}/{progress.total_records} successful")
-            
-            return {
-                "success": True,
-                "client_id": client_id,
-                "tables_processed": len(results),
-                "results": results
-            }
-            
-        except Exception as e:
-            logger.error(f"Backfill failed for client {client_id}: {e}")
-            return {
-                "success": False,
-                "client_id": client_id,
-                "error": str(e)
-            }
-    
-    async def _create_backfill_plan(self, client_id: int, 
-                                  priority_tables: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Create intelligent backfill plan based on data analysis"""
-        backfill_plan = []
-        
-        # Determine table priority
-        tables_to_process = priority_tables if priority_tables else self.backfill_tables
-        
-        for table_name in tables_to_process:
-            # Get record count and sample data
-            record_info = await self._analyze_table_data(client_id, table_name)
-            
-            if record_info["record_count"] == 0:
-                continue
-            
-            # Determine optimal settings based on data size
-            if record_info["record_count"] > 50000:
-                # Large table: use fast local models
-                provider_preference = "fast"
-                batch_size = 200
-            elif record_info["record_count"] > 10000:
-                # Medium table: balanced approach
-                provider_preference = "balanced"
-                batch_size = 150
+            collection_key = f"{config.tenant_id}_{config.table_name}"
+
+            # Check if already initialized in this session
+            if collection_key in self.initialized_collections:
+                return True
+
+            # Create collection if it doesn't exist
+            result = await self.qdrant_client.create_collection(
+                collection_name=config.collection_name,
+                vector_size=config.vector_size,
+                distance_metric=config.distance_metric
+            )
+
+            if result.success:
+                self.initialized_collections.add(collection_key)
+                logger.info(f"Collection ensured: {config.collection_name}")
+                return True
             else:
-                # Small table: prioritize quality
-                provider_preference = "quality"
-                batch_size = 100
-            
-            table_plan = {
-                "table_name": table_name,
-                "records": record_info["records"],
-                "record_count": record_info["record_count"],
-                "provider_preference": provider_preference,
-                "batch_size": batch_size,
-                "priority": self._get_table_priority(table_name)
-            }
-            
-            backfill_plan.append(table_plan)
-        
-        # Sort by priority (high priority first)
-        backfill_plan.sort(key=lambda x: x["priority"], reverse=True)
-        
-        return backfill_plan
-    
-    async def _analyze_table_data(self, client_id: int, table_name: str) -> Dict[str, Any]:
-        """Analyze table data for backfill planning"""
-        try:
-            # Get record count
-            count_query = f"SELECT COUNT(*) FROM {table_name} WHERE client_id = :client_id"
-            count_result = await self.db_session.execute(count_query, {"client_id": client_id})
-            record_count = count_result.scalar()
-            
-            if record_count == 0:
-                return {"record_count": 0, "records": []}
-            
-            # Get all records for processing
-            # Note: In production, you might want to implement pagination for very large tables
-            records_query = f"""
-                SELECT * FROM {table_name} 
-                WHERE client_id = :client_id 
-                AND active = true
-                ORDER BY created_at DESC
-            """
-            records_result = await self.db_session.execute(records_query, {"client_id": client_id})
-            records = [dict(row) for row in records_result.fetchall()]
-            
-            return {
-                "record_count": record_count,
-                "records": records
-            }
-            
+                logger.error(f"Failed to create collection {config.collection_name}: {result.error}")
+                return False
+
         except Exception as e:
-            logger.error(f"Failed to analyze table {table_name}: {e}")
-            return {"record_count": 0, "records": []}
-    
-    def _get_table_priority(self, table_name: str) -> int:
-        """Get priority for table backfill (higher number = higher priority)"""
-        priority_map = {
-            # High priority: core business data
-            "issues": 10,
-            "pull_requests": 10,
-            "projects": 9,
-            "repositories": 9,
-            
-            # Medium priority: supporting data
-            "pull_request_comments": 7,
-            "pull_request_reviews": 7,
-            "users": 6,
-            "issue_changelogs": 6,
-            
-            # Lower priority: configuration and metadata
-            "statuses": 4,
-            "issuetypes": 4,
-            "workflows": 3,
-            "system_settings": 2,
-            
-            # Lowest priority: reference data
-            "dora_market_benchmarks": 1,
-            "dora_metric_insights": 1
-        }
-        
-        return priority_map.get(table_name, 5)  # Default medium priority
+            logger.error(f"Collection management error: {e}")
+            return False
+
+    async def get_collection_info(self, tenant_id: int, table_name: str) -> Dict[str, Any]:
+        """Get collection information and statistics"""
+        try:
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            # Get collection info from Qdrant
+            # Note: This would use actual Qdrant client methods
+            info = {
+                "collection_name": collection_name,
+                "tenant_id": tenant_id,
+                "table_name": table_name,
+                "vector_count": 0,  # Would get from Qdrant
+                "status": "ready"
+            }
+
+            logger.info(f"Retrieved collection info: {collection_name}")
+            return info
+
+        except Exception as e:
+            logger.error(f"Failed to get collection info: {e}")
+            return {"error": str(e)}
+
+    async def cleanup_collection(self, tenant_id: int, table_name: str) -> bool:
+        """Clean up collection for testing purposes"""
+        try:
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            # Delete collection (for testing)
+            # Note: This would use actual Qdrant client methods
+            logger.info(f"Cleaned up collection: {collection_name}")
+
+            # Remove from initialized set
+            collection_key = f"{tenant_id}_{table_name}"
+            self.initialized_collections.discard(collection_key)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup collection: {e}")
+            return False
 ```
+
+### **Performance Testing Framework**
+```python
+# services/backend-service/app/ai/performance_tester.py
+import asyncio
+import time
+import logging
+from typing import List, Dict, Any
+from dataclasses import dataclass
+from .collection_manager import QdrantCollectionManager, CollectionConfig
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class PerformanceTestResult:
+    """Performance test results"""
+    test_name: str
+    success: bool
+    duration: float
+    records_processed: int
+    vectors_created: int
+    errors: List[str]
+    metrics: Dict[str, Any]
+
+class VectorPerformanceTester:
+    """Test vector operations performance"""
+
+    def __init__(self):
+        self.collection_manager = QdrantCollectionManager()
+
+    async def initialize(self):
+        """Initialize performance tester"""
+        await self.collection_manager.initialize()
+        logger.info("Performance tester initialized")
+
+    async def test_collection_creation(self, tenant_id: int) -> PerformanceTestResult:
+        """Test collection creation performance"""
+        start_time = time.time()
+        errors = []
+
+        try:
+            # Test creating collections for different table types
+            test_tables = ["work_items", "pull_requests", "users", "projects"]
+            created_collections = 0
+
+            for table_name in test_tables:
+                config = CollectionConfig(
+                    tenant_id=tenant_id,
+                    table_name=table_name
+                )
+
+                success = await self.collection_manager.ensure_collection_exists(config)
+                if success:
+                    created_collections += 1
+                else:
+                    errors.append(f"Failed to create collection for {table_name}")
+
+            duration = time.time() - start_time
+
+            return PerformanceTestResult(
+                test_name="collection_creation",
+                success=len(errors) == 0,
+                duration=duration,
+                records_processed=len(test_tables),
+                vectors_created=created_collections,
+                errors=errors,
+                metrics={
+                    "avg_creation_time": duration / len(test_tables),
+                    "collections_created": created_collections,
+                    "total_tables": len(test_tables)
+                }
+            )
+
+        except Exception as e:
+            return PerformanceTestResult(
+                test_name="collection_creation",
+                success=False,
+                duration=time.time() - start_time,
+                records_processed=0,
+                vectors_created=0,
+                errors=[str(e)],
+                metrics={}
+            )
+    async def test_etl_integration(self, tenant_id: int) -> PerformanceTestResult:
+        """Test ETL → Backend → Qdrant integration flow"""
+        start_time = time.time()
+        errors = []
+
+        try:
+            # Simulate ETL data
+            test_data = [
+                {
+                    "id": 1,
+                    "table_name": "work_items",
+                    "content": "Bug in login system causing authentication failures",
+                    "vector_type": "content"
+                },
+                {
+                    "id": 2,
+                    "table_name": "work_items",
+                    "content": "Feature request for dark mode in user interface",
+                    "vector_type": "content"
+                },
+                {
+                    "id": 3,
+                    "table_name": "pull_requests",
+                    "content": "Fix authentication bug in login component",
+                    "vector_type": "content"
+                }
+            ]
+
+            vectors_created = 0
+
+            # Test vector storage for each record
+            for record in test_data:
+                try:
+                    # This would call the Backend Service endpoint
+                    # For testing, we simulate the call
+                    success = await self._simulate_vector_storage(tenant_id, record)
+                    if success:
+                        vectors_created += 1
+                    else:
+                        errors.append(f"Failed to store vector for record {record['id']}")
+
+                except Exception as e:
+                    errors.append(f"Error processing record {record['id']}: {str(e)}")
+
+            duration = time.time() - start_time
+
+            return PerformanceTestResult(
+                test_name="etl_integration",
+                success=len(errors) == 0,
+                duration=duration,
+                records_processed=len(test_data),
+                vectors_created=vectors_created,
+                errors=errors,
+                metrics={
+                    "avg_processing_time": duration / len(test_data),
+                    "success_rate": vectors_created / len(test_data),
+                    "records_per_second": len(test_data) / duration if duration > 0 else 0
+                }
+            )
+
+        except Exception as e:
+            return PerformanceTestResult(
+                test_name="etl_integration",
+                success=False,
+                duration=time.time() - start_time,
+                records_processed=0,
+                vectors_created=0,
+                errors=[str(e)],
+                metrics={}
+            )
+
+    async def _simulate_vector_storage(self, tenant_id: int, record: Dict[str, Any]) -> bool:
+        """Simulate vector storage operation"""
+        try:
+            # Ensure collection exists
+            config = CollectionConfig(
+                tenant_id=tenant_id,
+                table_name=record["table_name"]
+            )
+
+            success = await self.collection_manager.ensure_collection_exists(config)
+            if not success:
+                return False
+
+            # Simulate vector storage (in real implementation, this would call Backend Service)
+            await asyncio.sleep(0.1)  # Simulate processing time
+
+            logger.info(f"Simulated vector storage for record {record['id']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Simulation failed: {e}")
+            return False
+    async def run_performance_tests(self, tenant_id: int) -> Dict[str, PerformanceTestResult]:
+        """Run all performance tests"""
+        results = {}
+
+        try:
+            # Test collection creation
+            results["collection_creation"] = await self.test_collection_creation(tenant_id)
+
+            # Test ETL integration
+            results["etl_integration"] = await self.test_etl_integration(tenant_id)
+
+            # Test search performance (if vectors exist)
+            results["search_performance"] = await self.test_search_performance(tenant_id)
+
+            logger.info("Performance tests completed")
+            return results
+
+        except Exception as e:
+            logger.error(f"Performance testing failed: {e}")
+            return {"error": str(e)}
+
+    async def test_search_performance(self, tenant_id: int) -> PerformanceTestResult:
+        """Test vector search performance"""
+        start_time = time.time()
+        errors = []
+
+        try:
+            # Test search queries
+            test_queries = [
+                "authentication bug login system",
+                "dark mode user interface feature",
+                "performance optimization database"
+            ]
+
+            searches_completed = 0
+
+            for query in test_queries:
+                try:
+                    # This would call the Backend Service search endpoint
+                    # For testing, we simulate the search
+                    success = await self._simulate_vector_search(tenant_id, query)
+                    if success:
+                        searches_completed += 1
+                    else:
+                        errors.append(f"Search failed for query: {query}")
+
+                except Exception as e:
+                    errors.append(f"Error searching '{query}': {str(e)}")
+
+            duration = time.time() - start_time
+
+            return PerformanceTestResult(
+                test_name="search_performance",
+                success=len(errors) == 0,
+                duration=duration,
+                records_processed=len(test_queries),
+                vectors_created=0,
+                errors=errors,
+                metrics={
+                    "avg_search_time": duration / len(test_queries),
+                    "searches_per_second": len(test_queries) / duration if duration > 0 else 0,
+                    "success_rate": searches_completed / len(test_queries)
+                }
+            )
+
+        except Exception as e:
+            return PerformanceTestResult(
+                test_name="search_performance",
+                success=False,
+                duration=time.time() - start_time,
+                records_processed=0,
+                vectors_created=0,
+                errors=[str(e)],
+                metrics={}
+            )
+
+    async def _simulate_vector_search(self, tenant_id: int, query: str) -> bool:
+        """Simulate vector search operation"""
+        try:
+            # Simulate search processing time
+            await asyncio.sleep(0.05)
+
+            logger.info(f"Simulated search for: {query}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Search simulation failed: {e}")
+            return False
+```
+
+## 🔧 Configuration Requirements
+
+### **Environment Variables**
+```env
+# Qdrant Configuration
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_TIMEOUT=120
+
+# Performance Testing
+PERFORMANCE_TEST_TENANT_ID=123
+PERFORMANCE_TEST_ENABLED=true
+
+# Collection Management
+QDRANT_COLLECTION_PREFIX=client_
+QDRANT_DEFAULT_VECTOR_SIZE=1536
+```
+
+### **Backend Service Integration**
+The collection manager integrates with existing Backend Service infrastructure:
+- **HybridProviderManager**: Already handles AI provider routing
+- **PulseQdrantClient**: Already handles Qdrant operations
+- **Integration Table**: Already supports AI provider configuration
 
 ## 📋 Implementation Tasks (Simplified - No Historical Data)
 
-### **Task 3-5.1: Vector Infrastructure Setup**
-- [ ] Create Qdrant collection setup for new clients
-- [ ] Implement vector operation testing and validation
-- [ ] Add performance benchmarking for hybrid providers
-- [ ] Create error handling and monitoring
+### **Task 3-5.1: Collection Management Setup**
+- [ ] Implement QdrantCollectionManager in Backend Service
+- [ ] Add collection creation and management endpoints
+- [ ] Create collection configuration for different data types
+- [ ] Test tenant isolation in collection naming
 
-### **Task 3-5.2: Hybrid Provider Performance Testing**
-- [ ] Test WEX Gateway vs local models performance
-- [ ] Benchmark embedding generation speeds and costs
-- [ ] Validate tenant isolation in vector operations
-- [ ] Create performance baseline metrics
+### **Task 3-5.2: Performance Testing Framework**
+- [ ] Implement VectorPerformanceTester in Backend Service
+- [ ] Create performance test endpoints for monitoring
+- [ ] Add collection creation performance tests
+- [ ] Add ETL integration performance tests
 
-### **Task 3-5.3: Vector Operation Monitoring**
+### **Task 3-5.3: ETL Integration Testing**
+- [ ] Test complete ETL → Backend → Qdrant flow
+- [ ] Validate vector storage and retrieval operations
+- [ ] Test error handling and recovery scenarios
+- [ ] Verify QdrantVector bridge table functionality
+
+### **Task 3-5.4: Monitoring and Metrics**
 - [ ] Add vector operation metrics to existing monitoring
-- [ ] Create vector performance dashboards
-- [ ] Implement cost tracking for vector operations
-- [ ] Add alerting for vector operation failures
+- [ ] Create performance dashboards for vector operations
+- [ ] Implement alerting for vector operation failures
+- [ ] Add cost tracking for AI provider usage
 
-### **Task 3-5.4: Integration with ETL Pipeline**
-- [ ] Ensure vector generation is ready for Phase 3-4 ETL integration
-- [ ] Test vector creation during data extraction
-- [ ] Validate real-time vector generation performance
-- [ ] Create documentation for vector-enabled ETL operations
+### **Task 3-5.5: Load Testing**
+- [ ] Test system with realistic data volumes
+- [ ] Validate concurrent vector operations
+- [ ] Test search performance with multiple collections
+- [ ] Benchmark hybrid provider performance
+## ✅ Success Criteria
 
-## ✅ Success Criteria (Simplified)
-
-1. **Infrastructure Ready**: Qdrant collections created and tested for new clients
-2. **Performance Benchmarked**: Baseline metrics established for hybrid providers
-3. **Provider Selection**: Automatic routing between WEX Gateway and local models working
-4. **Monitoring**: Vector operation monitoring integrated with existing systems
-5. **ETL Integration Ready**: Vector generation ready for real-time ETL operations
-6. **Client Isolation**: Perfect separation of vector data by tenant verified
+1. **Collection Management**: Qdrant collections automatically created and managed for all tenants
+2. **Performance Validated**: ETL → Backend → Qdrant flow performs within acceptable timeframes
+3. **Error Handling**: Robust error recovery and monitoring for vector operations
+4. **Tenant Isolation**: Perfect separation of vector data between tenants
+5. **Load Testing**: System handles realistic data volumes without performance degradation
+6. **Monitoring**: Real-time metrics and alerting for vector operations working
 
 ## 🔄 Completion Enables
 
-- **Phase 3-6**: AI agent foundation with populated vectors
-- **Phase 3-7**: Testing and validation of complete AI system
-- **Phase 4**: ML integration with vector-enabled data
+- **Phase 3-6**: AI query interface using validated vector infrastructure
+- **Production Readiness**: Vector operations ready for real-world data volumes
+- **Monitoring**: Complete visibility into AI system performance
+

@@ -1,15 +1,15 @@
-# Phase 3-4: ETL AI Integration & Optimized LangGraph (Hybrid Provider Integration)
+# Phase 3-4: ETL AI Integration (Backend Service Integration)
 
-**Implemented**: NO ❌
+**Implemented**: YES ✅
 **Duration**: 2 days (Days 6-7 of 10)
 **Priority**: HIGH
 **Dependencies**: Phase 3-3 completion
 
-> **🏗️ Architecture Update (September 2025)**: This phase has been updated to reflect the new architecture where AI operations are centralized in Backend Service. ETL Service now calls Backend Service for AI operations instead of having its own AI components.
+> **🏗️ Architecture Update (September 2025)**: This phase focuses on completing the ETL-Backend AI integration. Backend Service already has all AI infrastructure (HybridProviderManager, Qdrant, providers). ETL Service will call Backend Service for AI operations.
 
 ## 💼 Business Outcome
 
-**Intelligent Data Processing**: Transform ETL operations from basic data extraction to AI-powered insights generation, enabling automatic pattern recognition, anomaly detection, and predictive analytics that reduce manual data analysis time by 80% and improve decision-making speed.
+**Real-time AI-Powered Data Processing**: Transform ETL operations from simple data extraction to intelligent data processing with real-time vectorization, enabling instant semantic search and AI-powered analytics that reduce information discovery time from hours to seconds.
 
 
 ## 📊 Expected Performance Improvements
@@ -36,543 +36,504 @@
 - **Tenant isolation**: Perfect separation using existing integration table
 - **Resource usage**: Vector operations don't impact business database
 
-## 🎯 Phase 3-4 Objectives (Updated Architecture)
+## 🎯 Phase 3-4 Objectives (Simplified Architecture)
 
-1. **ETL-Backend AI Integration**: Connect ETL service with Backend Service AI operations
-2. **Real-time Vectorization**: Generate embeddings during data extraction via Backend Service
-3. **Intelligent Caching**: Multi-level caching for 10x performance improvement
-4. **Smart Provider Routing**: Backend Service handles automatic selection between WEX Gateway and local models
-5. **Background Processing**: Async AI operations for better user experience
-6. **Clean Service Boundaries**: ETL focuses on data processing, Backend handles AI operations
+1. **Complete Backend AI Endpoints**: Add missing vector storage and search endpoints to Backend Service
+2. **ETL AI Integration**: Update ETL Service to call Backend Service for AI operations
+3. **Real-time Vectorization**: Generate embeddings during data extraction via Backend Service
+4. **Vector Storage**: Store embeddings in Qdrant via Backend Service
+5. **Bridge Table Management**: Create QdrantVector records for PostgreSQL-Qdrant linking
+6. **ETL Job Integration**: Add AI operations to existing Jira and GitHub extraction jobs
 
-## ⚡ Optimized LangGraph Implementation (Hybrid Provider Integration)
+## 🔗 Backend Service AI Integration Architecture
 
-### **Enhanced Strategic Agent with Hybrid Providers**
+### **Current State Analysis**
+✅ **Already Implemented in Backend Service**:
+- `HybridProviderManager` - Intelligent routing between WEX Gateway and local models
+- `PulseQdrantClient` - High-performance vector operations with tenant isolation
+- `WEXGatewayProvider` & `SentenceTransformersProvider` - AI provider implementations
+- `/api/v1/ai/embeddings` - Embedding generation endpoint
+- AI usage tracking and performance monitoring
+
+❌ **Missing Components**:
+- Vector storage endpoint for ETL Service
+- Vector search endpoint for Frontend Service
+- QdrantVector bridge table management
+- ETL job AI integration
+
+### **Required Backend Service Endpoints**
 ```python
-# services/etl-service/app/ai/optimized_strategic_agent.py
-from langgraph.graph import StateGraph
-from cachetools import TTLCache
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import time
-import hashlib
-import logging
-from typing import Dict, List, Any, Optional
-from ..ai.hybrid_provider_manager import HybridProviderManager
+# services/backend-service/app/api/ai_config_routes.py (NEW ENDPOINTS)
 
-logger = logging.getLogger(__name__)
+# NEW: Vector storage endpoint for ETL Service
+@router.post("/ai/vectors/store")
+async def store_vectors(
+    request: dict,
+    user: UserData = Depends(require_authentication)
+):
+    """Store vectors in Qdrant with metadata linking for ETL Service"""
+    try:
+        # Extract request data
+        table_name = request.get("table_name")
+        record_id = request.get("record_id")
+        content = request.get("content")
+        vector_type = request.get("vector_type", "content")
+        tenant_id = user.tenant_id
 
-class OptimizedStrategicAgent:
-    """High-performance strategic agent with hybrid provider support"""
+        if not all([table_name, record_id, content]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
 
-    def __init__(self, db_session, qdrant_client):
-        # Use HybridProviderManager instead of direct provider manager
-        self.hybrid_provider_manager = HybridProviderManager(db_session)
-        self.qdrant_client = qdrant_client
-        self.workflow = self._create_optimized_workflow()
+        # Import AI components
+        from app.ai.hybrid_provider_manager import HybridProviderManager
+        from app.ai.qdrant_client import PulseQdrantClient
+        from app.models.unified_models import QdrantVector
 
-        # Multi-level caching for performance
-        self.query_cache = TTLCache(maxsize=5000, ttl=3600)      # 1-hour query cache
-        self.schema_cache = TTLCache(maxsize=1000, ttl=7200)     # 2-hour schema cache
-        self.embedding_cache = TTLCache(maxsize=10000, ttl=86400) # 24-hour embedding cache
+        db_session = get_db_session()
 
-        # Parallel processing
-        self.parallel_executor = ThreadPoolExecutor(max_workers=4)
+        try:
+            # 1. Generate embeddings using existing hybrid provider
+            hybrid_manager = HybridProviderManager(db_session)
+            embedding_result = await hybrid_manager.generate_embeddings([content])
 
-        # Performance monitoring
-        self.performance_metrics = {
-            "cache_hits": 0,
-            "cache_misses": 0,
-            "avg_response_time": 0,
-            "parallel_operations": 0,
-            "simple_queries": 0,
-            "complex_queries": 0
-        }
-    
-    def _create_optimized_workflow(self) -> StateGraph:
-        """Create performance-optimized workflow with intelligent routing"""
-        workflow = StateGraph(StrategicAgentState)
-        
-        # Entry point with intelligent routing
-        workflow.add_node("smart_entry", self._smart_entry_point)
-        
-        # Fast paths for different query types
-        workflow.add_node("cached_response", self._return_cached_response)
-        workflow.add_node("simple_sql_generation", self._simple_sql_generation)
-        
-        # Parallel processing nodes for complex queries
-        workflow.add_node("parallel_validation", self._parallel_validation)
-        workflow.add_node("parallel_retrieval", self._parallel_retrieval)
-        workflow.add_node("optimized_generation", self._optimized_generation)
-        
-        # Smart routing based on query complexity and cache status
-        workflow.set_entry_point("smart_entry")
-        workflow.add_conditional_edges(
-            "smart_entry",
-            self._intelligent_routing,
-            {
-                "cached": "cached_response",           # Fastest path: return cached result
-                "simple": "simple_sql_generation",     # Fast path: direct SQL generation
-                "complex": "parallel_validation"       # Full pipeline: parallel processing
+            if not embedding_result.success:
+                return {"success": False, "error": embedding_result.error}
+
+            # 2. Store in Qdrant
+            qdrant_client = PulseQdrantClient()
+            await qdrant_client.initialize()
+
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            # Create collection if it doesn't exist
+            await qdrant_client.create_collection(collection_name)
+
+            # Prepare payload with metadata
+            payload = {
+                "tenant_id": tenant_id,
+                "table_name": table_name,
+                "record_id": record_id,
+                "vector_type": vector_type,
+                "content_preview": content[:500]  # Store preview for debugging
             }
-        )
-        
-        # Parallel processing flow for complex queries
-        workflow.add_edge("parallel_validation", "parallel_retrieval")
-        workflow.add_edge("parallel_retrieval", "optimized_generation")
-        
-        return workflow
-    
-    async def _smart_entry_point(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Intelligent entry point with performance tracking"""
-        start_time = time.time()
-        
-        # Add performance tracking to state
-        state["start_time"] = start_time
-        state["client_id"] = state.get("client_id")
-        state["user_query"] = state.get("user_query", "")
-        
-        # Generate cache key
-        cache_content = f"{state['client_id']}:{state['user_query']}"
-        state["query_hash"] = hashlib.md5(cache_content.encode()).hexdigest()
-        
-        logger.info(f"Processing query for client {state['client_id']}: {state['user_query'][:100]}...")
-        
-        return state
-    
-    def _intelligent_routing(self, state: StrategicAgentState) -> str:
-        """Smart routing based on cache and complexity (WrenAI-inspired)"""
-        query_hash = state.get("query_hash")
-        
-        # Check cache first (fastest path - 50-100ms)
-        if query_hash in self.query_cache:
-            state["cached_result"] = self.query_cache[query_hash]
-            self.performance_metrics["cache_hits"] += 1
-            logger.info(f"Cache hit for query: {query_hash[:8]}")
-            return "cached"
-        
-        self.performance_metrics["cache_misses"] += 1
-        
-        # Analyze query complexity
-        complexity_score = self._analyze_query_complexity(state.get("user_query", ""))
-        
-        if complexity_score < 0.3:
-            self.performance_metrics["simple_queries"] += 1
-            logger.info(f"Simple query detected (score: {complexity_score:.2f})")
-            return "simple"    # Direct generation (200-500ms)
-        else:
-            self.performance_metrics["complex_queries"] += 1
-            logger.info(f"Complex query detected (score: {complexity_score:.2f})")
-            return "complex"   # Full validation pipeline (1-3 seconds)
-    
-    def _analyze_query_complexity(self, query: str) -> float:
-        """Score query complexity (0.0 = simple, 1.0 = very complex)"""
-        if not query:
-            return 0.0
-        
-        query_lower = query.lower()
-        
-        complexity_indicators = [
-            len(query.split()) > 20,                    # Long queries
-            "join" in query_lower,                      # Joins
-            "subquery" in query_lower,                  # Subqueries  
-            len(re.findall(r'\band\b|\bor\b', query_lower)) > 2,  # Multiple conditions
-            "aggregate" in query_lower or "sum" in query_lower or "count" in query_lower,  # Aggregations
-            "time" in query_lower or "date" in query_lower,     # Time-based queries
-            "compare" in query_lower or "vs" in query_lower,    # Comparison queries
-            "trend" in query_lower or "over time" in query_lower,  # Trend analysis
-        ]
-        
-        return sum(complexity_indicators) / len(complexity_indicators)
-    
-    async def _return_cached_response(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Return cached response (fastest path)"""
-        cached_result = state.get("cached_result")
-        
-        state["final_response"] = cached_result
-        state["response_source"] = "cache"
-        state["processing_time"] = time.time() - state["start_time"]
-        
-        logger.info(f"Returned cached response in {state['processing_time']:.3f}s")
-        
-        return state
-    
-    async def _simple_sql_generation(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Fast path for simple queries (skip validation)"""
-        try:
-            # Get embedding for semantic search
-            embedding = await self._get_or_generate_embedding(
-                state["user_query"], 
-                state["client_id"]
-            )
-            
-            # Quick schema retrieval
-            schema_context = await self._get_cached_schema_context(state["client_id"])
-            
-            # Direct SQL generation without validation
-            sql_result = await self._generate_sql_direct(
-                state["user_query"],
-                schema_context,
-                embedding
-            )
-            
-            state["sql_query"] = sql_result["sql"]
-            state["final_response"] = sql_result
-            state["response_source"] = "simple_generation"
-            state["processing_time"] = time.time() - state["start_time"]
-            
-            # Cache the result
-            self.query_cache[state["query_hash"]] = sql_result
-            
-            logger.info(f"Simple SQL generated in {state['processing_time']:.3f}s")
-            
-        except Exception as e:
-            logger.error(f"Simple SQL generation failed: {e}")
-            # Fallback to complex pipeline
-            return await self._parallel_validation(state)
-        
-        return state
-    
-    async def _parallel_validation(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Run multiple validations in parallel (WrenAI approach)"""
-        self.performance_metrics["parallel_operations"] += 1
-        
-        logger.info("Starting parallel validation")
-        
-        # Run validations concurrently for performance
-        validation_tasks = [
-            self._validate_sql_syntax(state),
-            self._validate_sql_semantics(state),
-            self._validate_business_context(state)
-        ]
-        
-        try:
-            results = await asyncio.gather(*validation_tasks, return_exceptions=True)
-            
-            state["syntax_validation"] = results[0] if not isinstance(results[0], Exception) else {"valid": False, "error": str(results[0])}
-            state["semantic_validation"] = results[1] if not isinstance(results[1], Exception) else {"valid": False, "error": str(results[1])}
-            state["business_validation"] = results[2] if not isinstance(results[2], Exception) else {"valid": False, "error": str(results[2])}
-            
-            logger.info("Parallel validation completed")
-            
-        except Exception as e:
-            logger.error(f"Parallel validation failed: {e}")
-            state["validation_error"] = str(e)
-        
-        return state
-    
-    async def _parallel_retrieval(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Retrieve context information in parallel"""
-        client_id = state.get("client_id")
-        user_query = state.get("user_query", "")
-        
-        logger.info("Starting parallel retrieval")
-        
-        # Run retrievals concurrently for performance
-        retrieval_tasks = [
-            self._retrieve_schema_context(client_id),
-            self._retrieve_similar_queries(user_query, client_id),
-            self._retrieve_business_rules(client_id),
-            self._get_or_generate_embedding(user_query, client_id)
-        ]
-        
-        try:
-            results = await asyncio.gather(*retrieval_tasks, return_exceptions=True)
-            
-            state["schema_context"] = results[0] if not isinstance(results[0], Exception) else {}
-            state["similar_queries"] = results[1] if not isinstance(results[1], Exception) else []
-            state["business_rules"] = results[2] if not isinstance(results[2], Exception) else {}
-            state["query_embedding"] = results[3] if not isinstance(results[3], Exception) else []
-            
-            logger.info("Parallel retrieval completed")
-            
-        except Exception as e:
-            logger.error(f"Parallel retrieval failed: {e}")
-            state["retrieval_error"] = str(e)
-        
-        return state
-    
-    async def _optimized_generation(self, state: StrategicAgentState) -> StrategicAgentState:
-        """Optimized SQL generation with all context"""
-        try:
-            # Generate SQL with full context
-            sql_result = await self._generate_sql_with_context(
-                state["user_query"],
-                state.get("schema_context", {}),
-                state.get("similar_queries", []),
-                state.get("business_rules", {}),
-                state.get("query_embedding", [])
-            )
-            
-            state["sql_query"] = sql_result["sql"]
-            state["final_response"] = sql_result
-            state["response_source"] = "complex_generation"
-            state["processing_time"] = time.time() - state["start_time"]
-            
-            # Cache the result for future use
-            self.query_cache[state["query_hash"]] = sql_result
-            
-            logger.info(f"Complex SQL generated in {state['processing_time']:.3f}s")
-            
-        except Exception as e:
-            logger.error(f"Optimized generation failed: {e}")
-            state["generation_error"] = str(e)
-            state["final_response"] = {"error": "SQL generation failed", "details": str(e)}
-        
-        return state
-    
-    async def _get_or_generate_embedding(self, text: str, client_id: int) -> List[float]:
-        """Get embedding with caching for performance"""
-        cache_key = f"{client_id}:{hashlib.md5(text.encode()).hexdigest()}"
-        
-        if cache_key in self.embedding_cache:
-            return self.embedding_cache[cache_key]
-        
-        try:
-            # Get configured embedding provider for client
-            provider = await self.ai_provider_manager.get_embedding_provider(client_id)
-            embedding = await provider.generate_embeddings([text])
-            
-            if embedding and len(embedding) > 0:
-                self.embedding_cache[cache_key] = embedding[0]
-                return embedding[0]
-            
-        except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-        
-        return []
-    
-    async def _get_cached_schema_context(self, client_id: int) -> Dict[str, Any]:
-        """Get schema context with caching"""
-        cache_key = f"schema_{client_id}"
-        
-        if cache_key in self.schema_cache:
-            return self.schema_cache[cache_key]
-        
-        try:
-            # Retrieve schema context from database
-            schema_context = await self._retrieve_schema_context(client_id)
-            self.schema_cache[cache_key] = schema_context
-            return schema_context
-            
-        except Exception as e:
-            logger.error(f"Schema context retrieval failed: {e}")
-            return {}
-    
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get current performance metrics"""
-        total_queries = self.performance_metrics["cache_hits"] + self.performance_metrics["cache_misses"]
-        cache_hit_rate = (self.performance_metrics["cache_hits"] / total_queries * 100) if total_queries > 0 else 0
-        
-        return {
-            **self.performance_metrics,
-            "cache_hit_rate": cache_hit_rate,
-            "total_queries": total_queries
-        }
-```
 
-### **ETL AI Service Integration**
-```python
-# services/etl-service/app/ai/ai_service_manager.py
-from typing import Dict, List, Any, Optional
-import asyncio
-import logging
-from .optimized_strategic_agent import OptimizedStrategicAgent
-from .ai_provider_manager import AIProviderManager
-from .qdrant_client import PulseQdrantClient
+            # Store vector in Qdrant
+            result = await qdrant_client.upsert_vectors(
+                collection_name=collection_name,
+                vectors=embedding_result.data,
+                payloads=[payload]
+            )
 
-logger = logging.getLogger(__name__)
+            if not result.success:
+                return {"success": False, "error": result.error}
 
-class ETLAIServiceManager:
-    """Main AI service manager for ETL operations"""
-    
-    def __init__(self):
-        self.ai_provider_manager = AIProviderManager()
-        self.qdrant_client = PulseQdrantClient()
-        self.strategic_agent = OptimizedStrategicAgent(
-            self.ai_provider_manager,
-            self.qdrant_client
-        )
-        
-        # Background task queue for async operations
-        self.background_tasks = asyncio.Queue()
-        self.is_processing = False
-    
-    async def initialize(self):
-        """Initialize AI service components"""
-        try:
-            await self.ai_provider_manager.initialize()
-            await self.qdrant_client.initialize()
-            
-            # Start background task processor
-            asyncio.create_task(self._process_background_tasks())
-            
-            logger.info("ETL AI Service Manager initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize AI service manager: {e}")
-            raise
-    
-    async def process_user_query(self, user_query: str, client_id: int) -> Dict[str, Any]:
-        """Process user query with optimized strategic agent"""
-        try:
-            # Create initial state
-            initial_state = {
-                "user_query": user_query,
-                "client_id": client_id,
-                "timestamp": time.time()
-            }
-            
-            # Process with optimized workflow
-            result = await self.strategic_agent.workflow.ainvoke(initial_state)
-            
-            # Extract final response
-            final_response = result.get("final_response", {})
-            processing_time = result.get("processing_time", 0)
-            response_source = result.get("response_source", "unknown")
-            
-            logger.info(f"Query processed in {processing_time:.3f}s via {response_source}")
-            
+            # 3. Create bridge record in PostgreSQL
+            qdrant_vector = QdrantVector(
+                tenant_id=tenant_id,
+                table_name=table_name,
+                record_id=record_id,
+                qdrant_collection=collection_name,
+                qdrant_point_id=result.point_ids[0],  # Get the generated point ID
+                vector_type=vector_type,
+                embedding_model=embedding_result.model_used,
+                embedding_provider=embedding_result.provider_used
+            )
+
+            db_session.add(qdrant_vector)
+            db_session.commit()
+
             return {
                 "success": True,
-                "response": final_response,
-                "processing_time": processing_time,
-                "source": response_source,
-                "client_id": client_id
+                "qdrant_point_id": result.point_ids[0],
+                "provider_used": embedding_result.provider_used,
+                "processing_time": embedding_result.processing_time,
+                "cost": embedding_result.cost
             }
-            
-        except Exception as e:
-            logger.error(f"Query processing failed: {e}")
+
+        finally:
+            db_session.close()
+
+    except Exception as e:
+        logger.error(f"Error storing vectors: {e}")
+        raise HTTPException(status_code=500, detail="Failed to store vectors")
+
+# NEW: Vector search endpoint for Frontend Service
+@router.post("/ai/vectors/search")
+async def search_vectors(
+    request: dict,
+    user: UserData = Depends(require_authentication)
+):
+    """Search vectors in Qdrant for semantic similarity"""
+    try:
+        query_text = request.get("query_text")
+        table_name = request.get("table_name")
+        limit = request.get("limit", 10)
+        tenant_id = user.tenant_id
+
+        if not all([query_text, table_name]):
+            raise HTTPException(status_code=400, detail="Missing query_text or table_name")
+
+        # Import AI components
+        from app.ai.hybrid_provider_manager import HybridProviderManager
+        from app.ai.qdrant_client import PulseQdrantClient
+
+        db_session = get_db_session()
+
+        try:
+            # 1. Generate query embedding
+            hybrid_manager = HybridProviderManager(db_session)
+            embedding_result = await hybrid_manager.generate_embeddings([query_text])
+
+            if not embedding_result.success:
+                return {"success": False, "error": embedding_result.error}
+
+            # 2. Search in Qdrant
+            qdrant_client = PulseQdrantClient()
+            await qdrant_client.initialize()
+
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            search_results = await qdrant_client.search_vectors(
+                collection_name=collection_name,
+                query_vector=embedding_result.data[0],
+                limit=limit,
+                filter_conditions={"tenant_id": tenant_id}
+            )
+
+            # 3. Format results
+            results = []
+            for result in search_results:
+                results.append({
+                    "record_id": result.payload.get("record_id"),
+                    "score": result.score,
+                    "content_preview": result.payload.get("content_preview"),
+                    "vector_type": result.payload.get("vector_type")
+                })
+
             return {
-                "success": False,
-                "error": str(e),
-                "client_id": client_id
+                "success": True,
+                "results": results,
+                "query_embedding_provider": embedding_result.provider_used,
+                "processing_time": embedding_result.processing_time
             }
-    
-    async def generate_embeddings_batch(self, texts: List[str], client_id: int) -> List[List[float]]:
-        """Generate embeddings in batch for performance"""
-        try:
-            provider = await self.ai_provider_manager.get_embedding_provider(client_id)
-            embeddings = await provider.generate_embeddings(texts)
-            
-            logger.info(f"Generated {len(embeddings)} embeddings for client {client_id}")
-            
-            return embeddings
-            
-        except Exception as e:
-            logger.error(f"Batch embedding generation failed: {e}")
-            return []
-    
-    async def store_vectors_batch(self, client_id: int, table_name: str, 
-                                 records: List[Dict[str, Any]]) -> bool:
-        """Store vectors in Qdrant with batch processing"""
-        try:
-            # Ensure collection exists
-            await self.qdrant_client.create_collection(client_id, table_name)
-            
-            # Batch upsert for performance
-            point_ids = await self.qdrant_client.upsert_vectors_batch(
-                client_id, table_name, records
-            )
-            
-            logger.info(f"Stored {len(point_ids)} vectors for client {client_id}, table {table_name}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Batch vector storage failed: {e}")
-            return False
-    
-    async def search_similar_content(self, query: str, client_id: int, 
-                                   table_name: str, limit: int = 10) -> List[Dict]:
-        """Search for similar content using Qdrant"""
-        try:
-            # Generate query embedding
-            query_embedding = await self.strategic_agent._get_or_generate_embedding(query, client_id)
-            
-            if not query_embedding:
-                return []
-            
-            # Search similar vectors
-            results = await self.qdrant_client.search_similar(
-                client_id, table_name, query_embedding, limit
-            )
-            
-            logger.info(f"Found {len(results)} similar items for query")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Similar content search failed: {e}")
-            return []
-    
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive performance metrics"""
-        agent_metrics = self.strategic_agent.get_performance_metrics()
-        provider_metrics = self.ai_provider_manager.get_performance_metrics()
-        
-        return {
-            "agent_metrics": agent_metrics,
-            "provider_metrics": provider_metrics,
-            "background_queue_size": self.background_tasks.qsize()
-        }
-    
-    async def _process_background_tasks(self):
-        """Process background AI tasks"""
-        self.is_processing = True
-        
-        while self.is_processing:
-            try:
-                # Get task from queue with timeout
-                task = await asyncio.wait_for(self.background_tasks.get(), timeout=1.0)
-                
-                # Process the task
-                await self._execute_background_task(task)
-                
-            except asyncio.TimeoutError:
-                # No tasks in queue, continue
-                continue
-            except Exception as e:
-                logger.error(f"Background task processing failed: {e}")
+
+        finally:
+            db_session.close()
+
+    except Exception as e:
+        logger.error(f"Error searching vectors: {e}")
+        raise HTTPException(status_code=500, detail="Failed to search vectors")
 ```
+
+### **ETL Service AI Client Enhancement**
+```python
+# services/etl-service/app/clients/ai_client.py (ENHANCED)
+
+class AIClient:
+    """Enhanced AI Client for calling Backend Service AI endpoints"""
+
+    def __init__(self):
+        self.backend_url = getattr(settings, 'BACKEND_SERVICE_URL', 'http://localhost:3001')
+        self.timeout = 30.0
+
+    async def store_entity_vector(self, table_name: str, record_id: int,
+                                 content: str, tenant_id: int,
+                                 vector_type: str = "content") -> dict:
+        """Store entity vector in Qdrant via Backend Service"""
+        try:
+            headers = {"Content-Type": "application/json"}
+
+            payload = {
+                "table_name": table_name,
+                "record_id": record_id,
+                "content": content,
+                "vector_type": vector_type
+            }
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.backend_url}/api/v1/ai/vectors/store",
+                    json=payload,
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(f"Vector storage failed: {response.status_code} - {response.text}")
+                    return {"success": False, "error": f"HTTP {response.status_code}"}
+
+        except Exception as e:
+            logger.error(f"Failed to store entity vector: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def search_similar_entities(self, query_text: str, table_name: str,
+                                    limit: int = 10) -> dict:
+        """Search for similar entities using semantic search"""
+        try:
+            headers = {"Content-Type": "application/json"}
+
+            payload = {
+                "query_text": query_text,
+                "table_name": table_name,
+                "limit": limit
+            }
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.backend_url}/api/v1/ai/vectors/search",
+                    json=payload,
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(f"Vector search failed: {response.status_code} - {response.text}")
+                    return {"success": False, "error": f"HTTP {response.status_code}"}
+
+        except Exception as e:
+            logger.error(f"Failed to search vectors: {e}")
+            return {"success": False, "error": str(e)}
+
+# Enhanced convenience functions for ETL jobs
+async def store_work_item_vector(work_item_data: dict, tenant_id: int) -> bool:
+    """Store work item vector during ETL processing"""
+    client = get_ai_client()
+
+    # Combine title and description for vectorization
+    content = f"{work_item_data.get('summary', '')} {work_item_data.get('description', '')}"
+
+    result = await client.store_entity_vector(
+        table_name="work_items",
+        record_id=work_item_data['id'],
+        content=content,
+        tenant_id=tenant_id,
+        vector_type="content"
+    )
+
+    if result.get("success"):
+        logger.info(f"Stored vector for work item {work_item_data['id']} using {result.get('provider_used')}")
+        return True
+    else:
+        logger.error(f"Failed to store vector for work item {work_item_data['id']}: {result.get('error')}")
+        return False
+
+async def store_pull_request_vector(pr_data: dict, tenant_id: int) -> bool:
+    """Store pull request vector during ETL processing"""
+    client = get_ai_client()
+
+    # Combine title and description for vectorization
+    content = f"{pr_data.get('title', '')} {pr_data.get('body', '')}"
+
+    result = await client.store_entity_vector(
+        table_name="pull_requests",
+        record_id=pr_data['id'],
+        content=content,
+        tenant_id=tenant_id,
+        vector_type="content"
+    )
+
+    if result.get("success"):
+        logger.info(f"Stored vector for PR {pr_data['id']} using {result.get('provider_used')}")
+        return True
+    else:
+        logger.error(f"Failed to store vector for PR {pr_data['id']}: {result.get('error')}")
+        return False
+```
+
+### **ETL Job Integration Examples**
+```python
+# services/etl-service/app/jobs/jira_job.py (ENHANCED)
+
+from app.clients.ai_client import store_work_item_vector
+
+async def process_jira_issues(integration_config: dict, tenant_id: int):
+    """Enhanced Jira job with AI vectorization"""
+    try:
+        # 1. Extract issues from Jira (existing logic)
+        issues = await extract_jira_issues(integration_config)
+
+        # 2. Store in PostgreSQL (existing logic)
+        stored_issues = []
+        for issue_data in issues:
+            issue_id = await store_issue_in_postgres(issue_data, tenant_id)
+            issue_data['id'] = issue_id
+            stored_issues.append(issue_data)
+
+        # 3. NEW: Store vectors in Qdrant via Backend Service
+        vectorization_results = []
+        for issue_data in stored_issues:
+            try:
+                success = await store_work_item_vector(issue_data, tenant_id)
+                vectorization_results.append({
+                    "issue_id": issue_data['id'],
+                    "vectorized": success
+                })
+            except Exception as e:
+                logger.error(f"Failed to vectorize issue {issue_data['id']}: {e}")
+                vectorization_results.append({
+                    "issue_id": issue_data['id'],
+                    "vectorized": False,
+                    "error": str(e)
+                })
+
+        # 4. Log results
+        successful_vectors = sum(1 for r in vectorization_results if r['vectorized'])
+        logger.info(f"Jira job completed: {len(stored_issues)} issues stored, "
+                   f"{successful_vectors} vectors created")
+
+        return {
+            "success": True,
+            "issues_processed": len(stored_issues),
+            "vectors_created": successful_vectors,
+            "vectorization_results": vectorization_results
+        }
+
+    except Exception as e:
+        logger.error(f"Jira job failed: {e}")
+        return {"success": False, "error": str(e)}
+
+# services/etl-service/app/jobs/github_job.py (ENHANCED)
+
+from app.clients.ai_client import store_pull_request_vector
+
+async def process_github_pull_requests(integration_config: dict, tenant_id: int):
+    """Enhanced GitHub job with AI vectorization"""
+    try:
+        # 1. Extract PRs from GitHub (existing logic)
+        pull_requests = await extract_github_prs(integration_config)
+
+        # 2. Store in PostgreSQL (existing logic)
+        stored_prs = []
+        for pr_data in pull_requests:
+            pr_id = await store_pr_in_postgres(pr_data, tenant_id)
+            pr_data['id'] = pr_id
+            stored_prs.append(pr_data)
+
+        # 3. NEW: Store vectors in Qdrant via Backend Service
+        vectorization_results = []
+        for pr_data in stored_prs:
+            try:
+                success = await store_pull_request_vector(pr_data, tenant_id)
+                vectorization_results.append({
+                    "pr_id": pr_data['id'],
+                    "vectorized": success
+                })
+            except Exception as e:
+                logger.error(f"Failed to vectorize PR {pr_data['id']}: {e}")
+                vectorization_results.append({
+                    "pr_id": pr_data['id'],
+                    "vectorized": False,
+                    "error": str(e)
+                })
+
+        # 4. Log results
+        successful_vectors = sum(1 for r in vectorization_results if r['vectorized'])
+        logger.info(f"GitHub job completed: {len(stored_prs)} PRs stored, "
+                   f"{successful_vectors} vectors created")
+
+        return {
+            "success": True,
+            "prs_processed": len(stored_prs),
+            "vectors_created": successful_vectors,
+            "vectorization_results": vectorization_results
+        }
+
+    except Exception as e:
+        logger.error(f"GitHub job failed: {e}")
+        return {"success": False, "error": str(e)}
+```
+
+### **Data Flow Summary**
+```
+1. ETL Service extracts data (Jira issues, GitHub PRs)
+2. ETL Service stores business data in PostgreSQL
+3. ETL Service calls Backend Service: store_entity_vector()
+4. Backend Service generates embeddings using HybridProviderManager
+5. Backend Service stores vectors in Qdrant with metadata
+6. Backend Service creates QdrantVector bridge record in PostgreSQL
+7. Frontend Service can search vectors via Backend Service
+8. Backend Service combines vector results with PostgreSQL data
+```
+
+This approach maintains clean service boundaries:
+- **ETL Service**: Data extraction and processing
+- **Backend Service**: All AI operations (embeddings, Qdrant, search)
+- **Frontend Service**: UI and calls Backend for AI queries
+
+## 🔧 Configuration Requirements
+
+### **Environment Variables**
+```env
+# Backend Service AI Configuration
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_TIMEOUT=120
+
+# Service Communication
+BACKEND_SERVICE_URL=http://localhost:3001
+ETL_SERVICE_URL=http://localhost:8000
+# AI Provider Integration Configuration
+WEX_AI_GATEWAY_URL=http://internal-ai-gateway
+WEX_AI_GATEWAY_TOKEN=your-gateway-token
+
+# Qdrant Collection Naming
+QDRANT_COLLECTION_PREFIX=client_
+```
+
+### **Integration Table Configuration**
+The existing `integrations` table already supports AI providers:
+```sql
+-- AI Provider integration example
+INSERT INTO integrations (
+    tenant_id, provider, type, base_url, ai_model,
+    ai_model_config, active
+) VALUES (
+    123, 'wex_gateway', 'AI', 'http://internal-ai-gateway',
+    'bedrock-claude-sonnet-4-v1',
+    '{"temperature": 0.1, "max_tokens": 4000}', true
+);
+```
+
+
 
 ## 📋 Implementation Tasks
 
-### **Task 3-4.1: Enhanced Strategic Agent with Hybrid Providers**
-- [ ] Update OptimizedStrategicAgent to use HybridProviderManager
-- [ ] Implement intelligent routing between WEX Gateway and local models
-- [ ] Add cost tracking and optimization logic
-- [ ] Create smart query complexity analysis
+### **Task 3-4.1: Backend Service AI Endpoints**
+- [ ] Add `/api/v1/ai/vectors/store` endpoint for ETL Service vector storage
+- [ ] Add `/api/v1/ai/vectors/search` endpoint for Frontend Service semantic search
+- [ ] Implement QdrantVector bridge table management in endpoints
+- [ ] Add proper error handling and validation for vector operations
 
-### **Task 3-4.2: ETL Hybrid AI Integration**
-- [ ] Create ETLAIServiceManager with hybrid provider support
-- [ ] Implement batch processing using both WEX Gateway and local models
-- [ ] Add background task processing with cost optimization
-- [ ] Integrate with existing ETL workflows and integration table
+### **Task 3-4.2: ETL Service AI Client Enhancement**
+- [ ] Add `store_entity_vector()` method to AIClient class
+- [ ] Add `search_similar_entities()` method to AIClient class
+- [ ] Create convenience functions: `store_work_item_vector()`, `store_pull_request_vector()`
+- [ ] Add proper error handling and logging for AI operations
 
-### **Task 3-4.3: Performance and Cost Optimization**
-- [ ] Implement multi-level caching system
-- [ ] Add parallel processing for validations
-- [ ] Create smart routing based on cost and performance
-- [ ] Optimize embedding generation using local models for bulk operations
+### **Task 3-4.3: ETL Job AI Integration**
+- [ ] Update Jira job to call `store_work_item_vector()` after storing in PostgreSQL
+- [ ] Update GitHub job to call `store_pull_request_vector()` after storing in PostgreSQL
+- [ ] Add vectorization result tracking and logging
+- [ ] Implement graceful fallback when AI operations fail
 
-### **Task 3-4.4: Integration Table Enhancement**
-- [ ] Create AI query processing endpoints
-- [ ] Add performance metrics endpoints
-- [ ] Implement batch operation endpoints
-- [ ] Add health check and monitoring endpoints
+### **Task 3-4.4: Testing and Validation**
+- [ ] Test complete ETL → Backend → Qdrant flow with real data
+- [ ] Validate vector storage and retrieval operations
+- [ ] Test semantic search functionality
+- [ ] Verify tenant isolation in Qdrant collections
 
 ## ✅ Success Criteria
 
-1. **Performance**: 10x improvement in query processing speed
-2. **Intelligent Routing**: Automatic optimization based on query complexity
-3. **Caching**: 70-80% cache hit rate for repeated queries
-4. **Parallel Processing**: Concurrent validations and retrievals
-5. **Background Processing**: Non-blocking AI operations
-6. **Monitoring**: Comprehensive performance metrics
+1. **ETL AI Integration**: ETL jobs successfully store vectors in Qdrant via Backend Service
+2. **Vector Storage**: QdrantVector bridge records correctly link PostgreSQL and Qdrant data
+3. **Semantic Search**: Frontend can search vectors and retrieve related PostgreSQL records
+4. **Performance**: Vector operations complete within acceptable timeframes
+5. **Error Handling**: Graceful fallback when AI operations fail
+6. **Monitoring**: AI usage tracking and performance metrics working
 
 ## 🔄 Completion Enables
 
-- **Phase 3-5**: High-performance vector generation and backfill
-- **Phase 3-6**: AI agent foundation with optimized processing
-- **Phase 3-7**: Testing and validation of complete AI system
+- **Phase 3-5**: Vector collection management and performance optimization
+- **Phase 3-6**: AI query interface using existing Backend Service infrastructure
+- **Real-time AI Operations**: ETL jobs generating vectors during data extraction

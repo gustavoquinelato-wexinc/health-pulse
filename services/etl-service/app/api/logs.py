@@ -135,6 +135,115 @@ def create_zip_stream(file_path: Path, chunk_size: int = 8192) -> Iterator[bytes
         raise HTTPException(status_code=500, detail=f"Error creating ZIP file: {str(e)}")
 
 
+@router.get("/logs/download/{filename}")
+async def download_log_file(
+    filename: str,
+    compress: bool = Query(True, description="Compress log file as ZIP (recommended for large files)"),
+    clean: bool = Query(True, description="Remove ANSI color codes for better readability"),
+    user: UserData = Depends(require_authentication)
+):
+    """
+    Download a specific log file by filename with optional ZIP compression and ANSI cleaning.
+
+    Args:
+        filename: Name of the log file to download
+        compress: Whether to compress the file as ZIP (default: True)
+        clean: Whether to remove ANSI color codes (default: True)
+
+    Returns:
+        StreamingResponse: Log file download (ZIP or plain text)
+    """
+    try:
+        # Validate filename to prevent path traversal
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        log_file = LOG_DIR / filename
+        if not log_file.exists():
+            raise HTTPException(status_code=404, detail=f"Log file '{filename}' not found")
+
+        # Get file size
+        file_size = log_file.stat().st_size
+
+        if compress:
+            # Create ZIP file and stream it
+            suffix = "_clean" if clean else "_raw"
+            zip_filename = f"{log_file.stem}{suffix}.zip"
+
+            # Create the ZIP stream
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+                if clean:
+                    # Read file, clean ANSI codes, and add to ZIP
+                    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    cleaned_content = clean_ansi_codes(content)
+                    zip_file.writestr(f"{log_file.stem}_clean.log", cleaned_content)
+                else:
+                    # Add raw file to ZIP
+                    zip_file.write(log_file, log_file.name)
+
+            zip_data = zip_buffer.getvalue()
+            zip_size = len(zip_data)
+
+            return StreamingResponse(
+                io.BytesIO(zip_data),
+                media_type='application/zip',
+                headers={
+                    "Content-Disposition": f"attachment; filename={zip_filename}",
+                    "Content-Length": str(zip_size),
+                    "Cache-Control": "no-cache"
+                }
+            )
+        else:
+            # Check file size limit for uncompressed files (50MB max)
+            max_size = 50 * 1024 * 1024  # 50MB
+            if file_size > max_size:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Uncompressed log file too large ({file_size / 1024 / 1024:.1f}MB). Use compression or download a smaller file."
+                )
+
+            # Stream uncompressed file
+            if clean:
+                # Read, clean, and stream
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                cleaned_content = clean_ansi_codes(content)
+                cleaned_bytes = cleaned_content.encode('utf-8')
+
+                suffix = "_clean"
+                filename_clean = f"{log_file.stem}{suffix}.log"
+
+                return StreamingResponse(
+                    io.BytesIO(cleaned_bytes),
+                    media_type='text/plain',
+                    headers={
+                        "Content-Disposition": f"attachment; filename={filename_clean}",
+                        "Content-Length": str(len(cleaned_bytes)),
+                        "Cache-Control": "no-cache"
+                    }
+                )
+            else:
+                # Stream raw file
+                def file_streamer():
+                    with open(log_file, 'rb') as file:
+                        while chunk := file.read(8192):
+                            yield chunk
+
+                return StreamingResponse(
+                    file_streamer(),
+                    media_type='text/plain',
+                    headers={
+                        "Content-Disposition": f"attachment; filename={log_file.name}",
+                        "Cache-Control": "no-cache"
+                    }
+                )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download log file: {str(e)}")
+
+
 @router.get("/logs/download")
 async def download_logs(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format for specific log file"),
@@ -186,11 +295,11 @@ async def download_logs(
                     # Add raw file to ZIP
                     zip_file.write(log_file, log_file.name)
 
-            zip_size = zip_buffer.tell()
-            zip_buffer.seek(0)
+            zip_data = zip_buffer.getvalue()
+            zip_size = len(zip_data)
 
             return StreamingResponse(
-                io.BytesIO(zip_buffer.getvalue()),
+                io.BytesIO(zip_data),
                 media_type='application/zip',
                 headers={
                     "Content-Disposition": f"attachment; filename={zip_filename}",
@@ -239,7 +348,6 @@ async def download_logs(
                     media_type='text/plain',
                     headers={
                         "Content-Disposition": f"attachment; filename={log_file.name}",
-                        "Content-Length": str(file_size),
                         "Cache-Control": "no-cache"
                     }
                 )

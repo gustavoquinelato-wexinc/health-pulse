@@ -19,9 +19,11 @@ from sqlalchemy import func, case, text
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database, get_db_session
-from app.models.unified_models import Integration, AIUsageTracking
+from app.models.unified_models import Integration, AIUsageTracking, QdrantVector
 from app.auth.auth_middleware import require_authentication, require_admin, UserData
 from app.core.config import settings
+from app.ai.hybrid_provider_manager import HybridProviderManager
+from app.ai.qdrant_client import PulseQdrantClient
 
 logger = get_logger(__name__)
 
@@ -491,3 +493,231 @@ async def generate_embeddings(
     except Exception as e:
         logger.error(f"Error generating embeddings: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate embeddings")
+
+
+# Vector storage endpoint for ETL Service
+@router.post("/ai/vectors/store")
+async def store_entity_vector(
+    request: dict,
+    user: UserData = Depends(require_authentication)
+):
+    """Store entity vector in Qdrant for ETL service"""
+    try:
+        # Extract request parameters
+        entity_data = request.get("entity_data", {})
+        table_name = request.get("table_name")
+        record_id = request.get("record_id")
+        tenant_id = user.tenant_id
+
+        if not entity_data or not table_name or not record_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: entity_data, table_name, record_id"
+            )
+
+        # Create text content for embedding
+        text_content = ""
+        if isinstance(entity_data, dict):
+            # Extract meaningful text fields for embedding
+            text_fields = []
+            for key, value in entity_data.items():
+                if isinstance(value, str) and value.strip():
+                    text_fields.append(f"{key}: {value}")
+            text_content = " | ".join(text_fields)
+        else:
+            text_content = str(entity_data)
+
+        if not text_content.strip():
+            raise HTTPException(status_code=400, detail="No text content found for embedding")
+
+        db_session = get_db_session()
+
+        try:
+            # Initialize hybrid provider manager
+            hybrid_manager = HybridProviderManager(db_session)
+
+            # Generate embedding using cost-optimized provider (local for ETL)
+            embedding_result = await hybrid_manager.generate_embeddings([text_content])
+
+            if not embedding_result.success:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to generate embedding: {embedding_result.error}"
+                )
+
+            embedding = embedding_result.data[0]  # Get first embedding
+
+            # Initialize Qdrant client
+            qdrant_client = PulseQdrantClient()
+
+            # Create collection name with tenant isolation
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            # Ensure collection exists
+            await qdrant_client.ensure_collection_exists(collection_name)
+
+            # Create unique point ID
+            point_id = f"{tenant_id}_{table_name}_{record_id}"
+
+            # Store vector in Qdrant with metadata
+            vector_result = await qdrant_client.upsert_vectors(
+                collection_name=collection_name,
+                vectors=[{
+                    "id": point_id,
+                    "vector": embedding,
+                    "payload": {
+                        "tenant_id": tenant_id,
+                        "table_name": table_name,
+                        "record_id": str(record_id),
+                        "text_content": text_content[:1000],  # Truncate for storage
+                        "created_at": datetime.now().isoformat()
+                    }
+                }]
+            )
+
+            if not vector_result.success:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to store vector in Qdrant: {vector_result.error}"
+                )
+
+            # Create QdrantVector bridge record in PostgreSQL
+            qdrant_vector = QdrantVector(
+                tenant_id=tenant_id,
+                table_name=table_name,
+                record_id=str(record_id),
+                qdrant_collection=collection_name,
+                qdrant_point_id=point_id,
+                vector_type="entity_embedding",
+                created_at=datetime.now()
+            )
+
+            db_session.add(qdrant_vector)
+            db_session.commit()
+
+            return {
+                "success": True,
+                "point_id": point_id,
+                "collection_name": collection_name,
+                "provider_used": embedding_result.provider_used,
+                "processing_time": embedding_result.processing_time,
+                "cost": embedding_result.cost,
+                "message": "Vector stored successfully"
+            }
+
+        finally:
+            db_session.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error storing entity vector: {e}")
+        raise HTTPException(status_code=500, detail="Failed to store entity vector")
+
+
+# Vector search endpoint for ETL Service
+@router.post("/ai/vectors/search")
+async def search_similar_entities(
+    request: dict,
+    user: UserData = Depends(require_authentication)
+):
+    """Search for similar entities using vector similarity"""
+    try:
+        # Extract request parameters
+        query_text = request.get("query_text")
+        table_name = request.get("table_name")
+        similarity_threshold = request.get("similarity_threshold", 0.7)
+        limit = request.get("limit", 10)
+        tenant_id = user.tenant_id
+
+        if not query_text:
+            raise HTTPException(status_code=400, detail="Missing required field: query_text")
+
+        db_session = get_db_session()
+
+        try:
+            # Initialize hybrid provider manager
+            hybrid_manager = HybridProviderManager(db_session)
+
+            # Generate query embedding
+            embedding_result = await hybrid_manager.generate_embeddings([query_text])
+
+            if not embedding_result.success:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to generate query embedding: {embedding_result.error}"
+                )
+
+            query_embedding = embedding_result.data[0]
+
+            # Initialize Qdrant client
+            qdrant_client = PulseQdrantClient()
+
+            # Determine collections to search
+            collections_to_search = []
+            if table_name:
+                # Search specific table
+                collections_to_search.append(f"client_{tenant_id}_{table_name}")
+            else:
+                # Search all collections for this tenant
+                # Get all QdrantVector records for this tenant
+                qdrant_vectors = db_session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == tenant_id
+                ).all()
+
+                collections_to_search = list(set([
+                    qv.qdrant_collection for qv in qdrant_vectors
+                ]))
+
+            all_results = []
+
+            # Search each collection
+            for collection_name in collections_to_search:
+                try:
+                    search_result = await qdrant_client.search_vectors(
+                        collection_name=collection_name,
+                        query_vector=query_embedding,
+                        limit=limit,
+                        score_threshold=similarity_threshold
+                    )
+
+                    if search_result.success and search_result.data:
+                        for result in search_result.data:
+                            all_results.append({
+                                "collection": collection_name,
+                                "point_id": result.get("id"),
+                                "score": result.get("score"),
+                                "payload": result.get("payload", {}),
+                                "table_name": result.get("payload", {}).get("table_name"),
+                                "record_id": result.get("payload", {}).get("record_id")
+                            })
+
+                except Exception as collection_error:
+                    logger.warning(f"Error searching collection {collection_name}: {collection_error}")
+                    continue
+
+            # Sort by score (highest first)
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+
+            # Limit results
+            final_results = all_results[:limit]
+
+            return {
+                "success": True,
+                "query_text": query_text,
+                "results": final_results,
+                "total_found": len(final_results),
+                "collections_searched": collections_to_search,
+                "provider_used": embedding_result.provider_used,
+                "processing_time": embedding_result.processing_time,
+                "cost": embedding_result.cost
+            }
+
+        finally:
+            db_session.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error searching similar entities: {e}")
+        raise HTTPException(status_code=500, detail="Failed to search similar entities")

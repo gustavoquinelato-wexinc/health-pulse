@@ -24,6 +24,29 @@ class EmbeddingResult:
     cost: float
     error: Optional[str] = None
 
+@dataclass
+class VectorStoreResult:
+    """Result from vector storage operation"""
+    success: bool
+    point_id: str
+    collection_name: str
+    provider_used: str
+    processing_time: float
+    cost: float
+    error: Optional[str] = None
+
+@dataclass
+class VectorSearchResult:
+    """Result from vector search operation"""
+    success: bool
+    results: List[Dict[str, Any]]
+    total_found: int
+    collections_searched: List[str]
+    provider_used: str
+    processing_time: float
+    cost: float
+    error: Optional[str] = None
+
 class AIClient:
     """Client for calling Backend Service AI endpoints"""
     
@@ -106,6 +129,189 @@ class AIClient:
                 error=str(e)
             )
     
+    async def store_entity_vector(
+        self,
+        entity_data: Dict[str, Any],
+        table_name: str,
+        record_id: str,
+        auth_token: str = None
+    ) -> VectorStoreResult:
+        """Store entity vector in Qdrant via Backend Service"""
+        try:
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # Add authentication if token provided
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            payload = {
+                "entity_data": entity_data,
+                "table_name": table_name,
+                "record_id": record_id
+            }
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.backend_url}/api/v1/ai/vectors/store",
+                    json=payload,
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    if data.get("success"):
+                        return VectorStoreResult(
+                            success=True,
+                            point_id=data.get("point_id", ""),
+                            collection_name=data.get("collection_name", ""),
+                            provider_used=data.get("provider_used", "unknown"),
+                            processing_time=data.get("processing_time", 0.0),
+                            cost=data.get("cost", 0.0)
+                        )
+                    else:
+                        return VectorStoreResult(
+                            success=False,
+                            point_id="",
+                            collection_name="",
+                            provider_used="unknown",
+                            processing_time=0.0,
+                            cost=0.0,
+                            error=data.get("error", "Unknown error")
+                        )
+                else:
+                    logger.error(f"Vector store returned status {response.status_code}: {response.text}")
+                    return VectorStoreResult(
+                        success=False,
+                        point_id="",
+                        collection_name="",
+                        provider_used="unknown",
+                        processing_time=0.0,
+                        cost=0.0,
+                        error=f"HTTP {response.status_code}: {response.text}"
+                    )
+
+        except httpx.TimeoutException:
+            logger.error("Timeout calling Backend Service for vector storage")
+            return VectorStoreResult(
+                success=False,
+                point_id="",
+                collection_name="",
+                provider_used="unknown",
+                processing_time=0.0,
+                cost=0.0,
+                error="Timeout calling Backend Service"
+            )
+        except Exception as e:
+            logger.error(f"Error calling Backend Service for vector storage: {e}")
+            return VectorStoreResult(
+                success=False,
+                point_id="",
+                collection_name="",
+                provider_used="unknown",
+                processing_time=0.0,
+                cost=0.0,
+                error=str(e)
+            )
+
+    async def search_similar_entities(
+        self,
+        query_text: str,
+        table_name: str = None,
+        similarity_threshold: float = 0.7,
+        limit: int = 10,
+        auth_token: str = None
+    ) -> VectorSearchResult:
+        """Search for similar entities using vector similarity"""
+        try:
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # Add authentication if token provided
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            payload = {
+                "query_text": query_text,
+                "similarity_threshold": similarity_threshold,
+                "limit": limit
+            }
+
+            if table_name:
+                payload["table_name"] = table_name
+
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.backend_url}/api/v1/ai/vectors/search",
+                    json=payload,
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    if data.get("success"):
+                        return VectorSearchResult(
+                            success=True,
+                            results=data.get("results", []),
+                            total_found=data.get("total_found", 0),
+                            collections_searched=data.get("collections_searched", []),
+                            provider_used=data.get("provider_used", "unknown"),
+                            processing_time=data.get("processing_time", 0.0),
+                            cost=data.get("cost", 0.0)
+                        )
+                    else:
+                        return VectorSearchResult(
+                            success=False,
+                            results=[],
+                            total_found=0,
+                            collections_searched=[],
+                            provider_used="unknown",
+                            processing_time=0.0,
+                            cost=0.0,
+                            error=data.get("error", "Unknown error")
+                        )
+                else:
+                    logger.error(f"Vector search returned status {response.status_code}: {response.text}")
+                    return VectorSearchResult(
+                        success=False,
+                        results=[],
+                        total_found=0,
+                        collections_searched=[],
+                        provider_used="unknown",
+                        processing_time=0.0,
+                        cost=0.0,
+                        error=f"HTTP {response.status_code}: {response.text}"
+                    )
+
+        except httpx.TimeoutException:
+            logger.error("Timeout calling Backend Service for vector search")
+            return VectorSearchResult(
+                success=False,
+                results=[],
+                total_found=0,
+                collections_searched=[],
+                provider_used="unknown",
+                processing_time=0.0,
+                cost=0.0,
+                error="Timeout calling Backend Service"
+            )
+        except Exception as e:
+            logger.error(f"Error calling Backend Service for vector search: {e}")
+            return VectorSearchResult(
+                success=False,
+                results=[],
+                total_found=0,
+                collections_searched=[],
+                provider_used="unknown",
+                processing_time=0.0,
+                cost=0.0,
+                error=str(e)
+            )
+
     async def test_connection(self) -> bool:
         """Test connection to Backend Service"""
         try:
@@ -126,32 +332,104 @@ def get_ai_client() -> AIClient:
         _ai_client = AIClient()
     return _ai_client
 
-# Convenience function for ETL jobs
+# Convenience functions for ETL jobs
 async def generate_embeddings_for_etl(texts: List[str]) -> EmbeddingResult:
     """
     Convenience function for ETL jobs to generate embeddings
     Uses system authentication (no user token required)
     """
     client = get_ai_client()
-    
+
     # For ETL operations, we might need to use a service account token
     # For now, we'll try without authentication and handle errors gracefully
     try:
         result = await client.generate_embeddings(texts)
-        
+
         if result.success:
             logger.info(f"Generated {len(result.embeddings)} embeddings using {result.provider_used} "
                        f"in {result.processing_time:.2f}s (cost: ${result.cost:.4f})")
         else:
             logger.error(f"Failed to generate embeddings: {result.error}")
-            
+
         return result
-        
+
     except Exception as e:
         logger.error(f"Error in ETL embedding generation: {e}")
         return EmbeddingResult(
             success=False,
             embeddings=[],
+            provider_used="unknown",
+            processing_time=0.0,
+            cost=0.0,
+            error=str(e)
+        )
+
+async def store_entity_vector_for_etl(
+    entity_data: Dict[str, Any],
+    table_name: str,
+    record_id: str
+) -> VectorStoreResult:
+    """
+    Convenience function for ETL jobs to store entity vectors
+    Uses system authentication (no user token required)
+    """
+    client = get_ai_client()
+
+    try:
+        result = await client.store_entity_vector(entity_data, table_name, record_id)
+
+        if result.success:
+            logger.info(f"Stored vector for {table_name}:{record_id} in {result.collection_name} "
+                       f"using {result.provider_used} in {result.processing_time:.2f}s (cost: ${result.cost:.4f})")
+        else:
+            logger.warning(f"Failed to store vector for {table_name}:{record_id}: {result.error}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in ETL vector storage: {e}")
+        return VectorStoreResult(
+            success=False,
+            point_id="",
+            collection_name="",
+            provider_used="unknown",
+            processing_time=0.0,
+            cost=0.0,
+            error=str(e)
+        )
+
+async def search_similar_entities_for_etl(
+    query_text: str,
+    table_name: str = None,
+    similarity_threshold: float = 0.7,
+    limit: int = 10
+) -> VectorSearchResult:
+    """
+    Convenience function for ETL jobs to search similar entities
+    Uses system authentication (no user token required)
+    """
+    client = get_ai_client()
+
+    try:
+        result = await client.search_similar_entities(
+            query_text, table_name, similarity_threshold, limit
+        )
+
+        if result.success:
+            logger.info(f"Found {result.total_found} similar entities for query '{query_text[:50]}...' "
+                       f"using {result.provider_used} in {result.processing_time:.2f}s (cost: ${result.cost:.4f})")
+        else:
+            logger.warning(f"Failed to search similar entities: {result.error}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in ETL vector search: {e}")
+        return VectorSearchResult(
+            success=False,
+            results=[],
+            total_found=0,
+            collections_searched=[],
             provider_used="unknown",
             processing_time=0.0,
             cost=0.0,

@@ -1656,6 +1656,100 @@
         }
     }
 
+    async function deleteLogFile(filename) {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                showNotification('Authentication required', 'error');
+                return;
+            }
+
+            // Confirm deletion
+            if (!confirm(`Are you sure you want to delete the log file "${filename}"?`)) {
+                return;
+            }
+
+            const response = await fetch(`/api/v1/logs/file/${filename}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                showNotification(result.message, 'success');
+                // Refresh the log files list
+                await populateLogFiles();
+            } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Delete failed' }));
+                showNotification(`Failed to delete ${filename}: ${errorData.detail}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting log file:', error);
+            showNotification(`Failed to delete ${filename}`, 'error');
+        }
+    }
+
+    async function bulkCleanupLogs() {
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                showNotification('Authentication required', 'error');
+                return;
+            }
+
+            // Get selected days from dropdown
+            const daysSelect = document.getElementById('bulkCleanupDays');
+            const days = parseInt(daysSelect.value);
+
+            // Confirm bulk cleanup
+            const confirmMessage = days === 0
+                ? 'Are you sure you want to delete ALL log files? This action cannot be undone.'
+                : `Are you sure you want to delete log files older than ${days} days?`;
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            const response = await fetch(`/api/v1/logs/cleanup?days=${days}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                const deletedCount = result.deleted_files ? result.deleted_files.length : 0;
+                const clearedCount = result.cleared_files ? result.cleared_files.length : 0;
+
+                let message = '';
+                if (deletedCount > 0 && clearedCount > 0) {
+                    message = `Successfully deleted ${deletedCount} files and cleared ${clearedCount} files`;
+                } else if (deletedCount > 0) {
+                    message = `Successfully deleted ${deletedCount} log files`;
+                } else if (clearedCount > 0) {
+                    message = `Successfully cleared ${clearedCount} log files`;
+                } else {
+                    message = 'No log files were found to clean up';
+                }
+
+                showNotification(message, 'success');
+                // Refresh the log files list
+                await populateLogFiles();
+            } else {
+                const errorData = await response.json().catch(() => ({ detail: 'Cleanup failed' }));
+                showNotification(`Failed to cleanup logs: ${errorData.detail}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error during bulk cleanup:', error);
+            showNotification('Failed to cleanup logs', 'error');
+        }
+    }
+
 
 
 
