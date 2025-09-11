@@ -825,7 +825,7 @@ async def get_github_summary(user: UserData = Depends(require_admin_authenticati
         )
 
 @router.get("/api/v1/logs/download/{filename}")
-async def download_log_file(filename: str, token: str = None, user: UserData = Depends(require_admin_authentication)):
+async def download_log_file(filename: str, token: str = None, user: UserData = Depends(require_authentication)):
     """Download a specific log file"""
     try:
         import os

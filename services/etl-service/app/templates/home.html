@@ -1468,50 +1468,57 @@
 
     async function populateLogFiles() {
         try {
-            // Determine tenant-specific log files based on TENANT_NAME
-            // For now, we'll try both legacy and tenant-specific file names
-            const possibleLogFiles = [
-                'etl_service_wex.log',
-                'orchestrator_wex.log',
-                'etl_service_techcorp.log',
-                'orchestrator_techcorp.log',
-                'etl_service.log',  // Legacy fallback
-                'orchestrator.log'  // Legacy fallback
-            ];
-
             const logFilesList = document.getElementById('logFilesList');
             let foundFiles = [];
 
-            // Test which files exist by trying to download them
-            for (const filename of possibleLogFiles) {
-                try {
-                    const token = getAuthToken();
-                    const response = await fetch(`/api/v1/logs/download/${filename}`, {
-                        method: 'HEAD',
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
+            // Use the logs/files API endpoint to get available files
+            try {
+                const token = getAuthToken();
+                const response = await fetch('/api/v1/logs/files', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
 
-                    // If HEAD is not supported, try GET with range header
-                    if (response.status === 405) {
-                        const getResponse = await fetch(`/api/v1/logs/download/${filename}`, {
+                if (response.ok) {
+                    const data = await response.json();
+                    foundFiles = data.files.map(file => file.filename);
+                }
+            } catch (e) {
+                console.warn('Could not fetch log files list, using fallback approach');
+            }
+
+            // If no files found via API, try the download endpoint for common files
+            if (foundFiles.length === 0) {
+                const possibleLogFiles = [
+                    'etl_service_wex.log',
+                    'orchestrator_wex.log',
+                    'etl_service_techcorp.log',
+                    'orchestrator_techcorp.log',
+                    'etl_service.log',  // Legacy fallback
+                    'orchestrator.log'  // Legacy fallback
+                ];
+
+                // Test which files exist by trying to download them (GET only, no HEAD)
+                for (const filename of possibleLogFiles) {
+                    try {
+                        const token = getAuthToken();
+                        const response = await fetch(`/api/v1/logs/download/${filename}`, {
                             headers: {
                                 'Authorization': `Bearer ${token}`,
                                 'Range': 'bytes=0-0'  // Just get first byte to test existence
                             }
                         });
-                        if (getResponse.ok || getResponse.status === 206) {
+
+                        if (response.ok || response.status === 206) {
                             foundFiles.push(filename);
                         }
-                    } else if (response.ok) {
-                        foundFiles.push(filename);
+                    } catch (e) {
+                        // File doesn't exist or other error, skip
+                        continue;
                     }
-                } catch (e) {
-                    // File doesn't exist or other error, skip
-                    continue;
                 }
             }
 
-            // If no files found, show default files
+            // If still no files found, show default files
             if (foundFiles.length === 0) {
                 foundFiles = ['etl_service_wex.log', 'orchestrator_wex.log'];
             }
