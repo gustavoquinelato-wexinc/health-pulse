@@ -219,12 +219,12 @@
         <div class="flex justify-between items-start p-4 border-b" style="border-color: var(--border-color);">
             <div>
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
-                    <i class="fas fa-file-alt mr-2"></i>ETL Service Log Management
+                    <i data-lucide="file-text" class="w-5 h-5 inline mr-2"></i>ETL Service Log Management
                 </h3>
                 <p class="text-sm mt-1" style="color: var(--text-secondary);">Manage all log files in the ETL service directory</p>
             </div>
             <button onclick="hideLogManagement()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-6 h-6"></i>
             </button>
         </div>
         <div class="p-4">
@@ -1390,7 +1390,7 @@
             // Show loading state
             document.getElementById('logManagementContent').innerHTML = `
                 <div class="text-center py-8">
-                    <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--text-secondary);"></i>
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mb-2 mx-auto" style="color: var(--text-secondary);"></i>
                     <p style="color: var(--text-secondary);">Loading log files...</p>
                 </div>
             `;
@@ -1404,6 +1404,9 @@
 
             // Fetch real log data
             await loadLogManagementData();
+
+            // Refresh Lucide icons after content is loaded
+            refreshLucideIcons();
 
         } catch (error) {
             console.error('Failed to load log management:', error);
@@ -1441,7 +1444,7 @@
                                 <option value="0">All logs</option>
                             </select>
                             <button onclick="bulkCleanupLogs()" class="btn-crud-delete px-6 py-1 text-sm whitespace-nowrap" title="Delete files based on selected option">
-                                <i class="fas fa-trash mr-2"></i>Delete All
+                                <i data-lucide="trash-2" class="w-4 h-4 inline mr-2"></i>Delete All
                             </button>
                         </div>
                     </div>
@@ -1458,11 +1461,14 @@
             console.error('Error loading log management data:', error);
             document.getElementById('logManagementContent').innerHTML = `
                 <div class="text-center py-8">
-                    <i class="fas fa-exclamation-triangle text-2xl mb-2 text-red-600"></i>
+                    <i data-lucide="alert-triangle" class="w-8 h-8 mb-2 mx-auto text-red-600"></i>
                     <p class="text-red-600">Failed to load log management data</p>
                     <p class="text-sm" style="color: var(--text-secondary);">${error.message}</p>
                 </div>
             `;
+
+            // Refresh Lucide icons after error content is loaded
+            refreshLucideIcons();
         }
     }
 
@@ -1536,10 +1542,10 @@
                         </div>
                         <div class="flex space-x-2">
                             <button onclick="downloadLogFile('${filename}')" class="btn-neutral-secondary text-xs px-2 py-1" title="Download">
-                                <i class="fas fa-download"></i>
+                                <i data-lucide="download" class="w-4 h-4"></i>
                             </button>
                             <button onclick="deleteLogFile('${filename}')" class="btn-crud-delete text-xs px-2 py-1" title="Delete">
-                                <i class="fas fa-trash"></i>
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </div>
                     </div>
@@ -1548,6 +1554,9 @@
 
             logFilesList.innerHTML = filesHtml;
 
+            // Refresh Lucide icons after populating files
+            refreshLucideIcons();
+
         } catch (error) {
             console.error('Error populating log files:', error);
             document.getElementById('logFilesList').innerHTML = `
@@ -1555,6 +1564,9 @@
                     <p style="color: var(--text-secondary);">Unable to load log files</p>
                 </div>
             `;
+
+            // Refresh Lucide icons even in error state
+            refreshLucideIcons();
         }
     }
 
