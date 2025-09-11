@@ -25,8 +25,8 @@
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
         <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-                <i class="fas fa-robot text-lg" style="color: var(--color-1);"></i>
+            <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+                <i data-lucide="bot" class="w-7 h-7" style="color: var(--color-1);"></i>
             </div>
             <div>
                 <h2 class="text-xl font-semibold" style="color: var(--text-primary);">ETL Orchestrator</h2>
@@ -46,7 +46,7 @@
         <!-- Next Run Timer -->
         <div class="flex items-center space-x-4">
             <div class="flex items-center space-x-2">
-                <i class="fas fa-clock text-sm" style="color: var(--text-secondary);"></i>
+                <i data-lucide="clock" class="w-4 h-4" style="color: var(--text-secondary);"></i>
                 <span class="text-sm font-medium" style="color: var(--text-secondary);">Next run in:</span>
             </div>
             <div id="countdownTimer" class="text-lg font-mono font-bold px-3 py-1 rounded" style="color: var(--color-1); background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
@@ -57,16 +57,16 @@
         <!-- Control Buttons -->
         <div class="flex items-center space-x-2">
             <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="action-icon-btn force-pending" title="Run Now">
-                <i class="fas fa-flag-checkered"></i>
+                <i data-lucide="flag"></i>
             </button>
             <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm" title="Pause">
-                <i class="fas fa-pause"></i>
+                <i data-lucide="pause"></i>
             </button>
             <button onclick="showLogManagement()" class="btn-neutral-secondary" title="Logs">
-                <i class="fas fa-file-alt"></i>
+                <i data-lucide="file-text"></i>
             </button>
             <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm" title="Settings">
-                <i class="fas fa-cog"></i>
+                <i data-lucide="settings"></i>
             </button>
         </div>
     </div>
@@ -219,12 +219,12 @@
         <div class="flex justify-between items-start p-4 border-b" style="border-color: var(--border-color);">
             <div>
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">
-                    <i class="fas fa-file-alt mr-2"></i>ETL Service Log Management
+                    <i data-lucide="file-text" class="w-5 h-5 inline mr-2"></i>ETL Service Log Management
                 </h3>
                 <p class="text-sm mt-1" style="color: var(--text-secondary);">Manage all log files in the ETL service directory</p>
             </div>
             <button onclick="hideLogManagement()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-6 h-6"></i>
             </button>
         </div>
         <div class="p-4">
@@ -1044,6 +1044,9 @@
             });
         }
 
+        // Re-initialize Lucide icons after job cards are rendered
+        refreshLucideIcons();
+
         updateOrchestratorButtonState(jobsData);
     }
 
@@ -1294,19 +1297,19 @@
                     ${!canActivateSafe || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
-                <i class="fas fa-clock"></i>
+                <i data-lucide="clock"></i>
             </button>
             <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}', ${jobData.id})"
                     ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canUnpause && !isInactive ? 'resume' : (canPauseSafe && !isInactive ? 'pause-resume' : 'disabled')}"
                     title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
-                <i class="fas fa-${canUnpause ? 'play' : 'pause'}"></i>
+                <i data-lucide="${canUnpause ? 'play' : 'pause'}"></i>
             </button>
             <button onclick="showJobDetails('${jobName}', ${jobData.id})"
                     ${isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${isInactive ? 'disabled' : 'details'}"
                     title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
-                <i class="fas fa-info-circle"></i>
+                <i data-lucide="info"></i>
             </button>
         `;
 
@@ -1387,7 +1390,7 @@
             // Show loading state
             document.getElementById('logManagementContent').innerHTML = `
                 <div class="text-center py-8">
-                    <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--text-secondary);"></i>
+                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin mb-2 mx-auto" style="color: var(--text-secondary);"></i>
                     <p style="color: var(--text-secondary);">Loading log files...</p>
                 </div>
             `;
@@ -1401,6 +1404,9 @@
 
             // Fetch real log data
             await loadLogManagementData();
+
+            // Refresh Lucide icons after content is loaded
+            refreshLucideIcons();
 
         } catch (error) {
             console.error('Failed to load log management:', error);
@@ -1438,7 +1444,7 @@
                                 <option value="0">All logs</option>
                             </select>
                             <button onclick="bulkCleanupLogs()" class="btn-crud-delete px-6 py-1 text-sm whitespace-nowrap" title="Delete files based on selected option">
-                                <i class="fas fa-trash mr-2"></i>Delete All
+                                <i data-lucide="trash-2" class="w-4 h-4 inline mr-2"></i>Delete All
                             </button>
                         </div>
                     </div>
@@ -1455,60 +1461,70 @@
             console.error('Error loading log management data:', error);
             document.getElementById('logManagementContent').innerHTML = `
                 <div class="text-center py-8">
-                    <i class="fas fa-exclamation-triangle text-2xl mb-2 text-red-600"></i>
+                    <i data-lucide="alert-triangle" class="w-8 h-8 mb-2 mx-auto text-red-600"></i>
                     <p class="text-red-600">Failed to load log management data</p>
                     <p class="text-sm" style="color: var(--text-secondary);">${error.message}</p>
                 </div>
             `;
+
+            // Refresh Lucide icons after error content is loaded
+            refreshLucideIcons();
         }
     }
 
     async function populateLogFiles() {
         try {
-            // Determine tenant-specific log files based on TENANT_NAME
-            // For now, we'll try both legacy and tenant-specific file names
-            const possibleLogFiles = [
-                'etl_service_wex.log',
-                'orchestrator_wex.log',
-                'etl_service_techcorp.log',
-                'orchestrator_techcorp.log',
-                'etl_service.log',  // Legacy fallback
-                'orchestrator.log'  // Legacy fallback
-            ];
-
             const logFilesList = document.getElementById('logFilesList');
             let foundFiles = [];
 
-            // Test which files exist by trying to download them
-            for (const filename of possibleLogFiles) {
-                try {
-                    const token = getAuthToken();
-                    const response = await fetch(`/api/v1/logs/download/${filename}`, {
-                        method: 'HEAD',
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
+            // Use the logs/files API endpoint to get available files
+            try {
+                const token = getAuthToken();
+                const response = await fetch('/api/v1/logs/files', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
 
-                    // If HEAD is not supported, try GET with range header
-                    if (response.status === 405) {
-                        const getResponse = await fetch(`/api/v1/logs/download/${filename}`, {
+                if (response.ok) {
+                    const data = await response.json();
+                    foundFiles = data.files.map(file => file.filename);
+                }
+            } catch (e) {
+                console.warn('Could not fetch log files list, using fallback approach');
+            }
+
+            // If no files found via API, try the download endpoint for common files
+            if (foundFiles.length === 0) {
+                const possibleLogFiles = [
+                    'etl_service_wex.log',
+                    'orchestrator_wex.log',
+                    'etl_service_techcorp.log',
+                    'orchestrator_techcorp.log',
+                    'etl_service.log',  // Legacy fallback
+                    'orchestrator.log'  // Legacy fallback
+                ];
+
+                // Test which files exist by trying to download them (GET only, no HEAD)
+                for (const filename of possibleLogFiles) {
+                    try {
+                        const token = getAuthToken();
+                        const response = await fetch(`/api/v1/logs/download/${filename}`, {
                             headers: {
                                 'Authorization': `Bearer ${token}`,
                                 'Range': 'bytes=0-0'  // Just get first byte to test existence
                             }
                         });
-                        if (getResponse.ok || getResponse.status === 206) {
+
+                        if (response.ok || response.status === 206) {
                             foundFiles.push(filename);
                         }
-                    } else if (response.ok) {
-                        foundFiles.push(filename);
+                    } catch (e) {
+                        // File doesn't exist or other error, skip
+                        continue;
                     }
-                } catch (e) {
-                    // File doesn't exist or other error, skip
-                    continue;
                 }
             }
 
-            // If no files found, show default files
+            // If still no files found, show default files
             if (foundFiles.length === 0) {
                 foundFiles = ['etl_service_wex.log', 'orchestrator_wex.log'];
             }
@@ -1526,10 +1542,10 @@
                         </div>
                         <div class="flex space-x-2">
                             <button onclick="downloadLogFile('${filename}')" class="btn-neutral-secondary text-xs px-2 py-1" title="Download">
-                                <i class="fas fa-download"></i>
+                                <i data-lucide="download" class="w-4 h-4"></i>
                             </button>
                             <button onclick="deleteLogFile('${filename}')" class="btn-crud-delete text-xs px-2 py-1" title="Delete">
-                                <i class="fas fa-trash"></i>
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </div>
                     </div>
@@ -1538,6 +1554,9 @@
 
             logFilesList.innerHTML = filesHtml;
 
+            // Refresh Lucide icons after populating files
+            refreshLucideIcons();
+
         } catch (error) {
             console.error('Error populating log files:', error);
             document.getElementById('logFilesList').innerHTML = `
@@ -1545,6 +1564,9 @@
                     <p style="color: var(--text-secondary);">Unable to load log files</p>
                 </div>
             `;
+
+            // Refresh Lucide icons even in error state
+            refreshLucideIcons();
         }
     }
 
@@ -1662,12 +1684,12 @@
     function getStatusIcon(status) {
         switch (status) {
             // Database status values (uppercase)
-            case 'RUNNING': return 'spinner fa-spin';
+            case 'RUNNING': return 'loader-2'; // Will need animate-spin class
             case 'PENDING': return 'clock';
             case 'FINISHED': return 'check-circle';
             case 'PAUSED': return 'pause-circle';
             case 'NOT_STARTED': return 'circle';
-            case 'ERROR': return 'exclamation-triangle';
+            case 'ERROR': return 'alert-triangle';
             // Special API status values
             case 'inactive': return 'circle'; // For inactive integrations
             default: return 'exclamation-triangle';
@@ -1916,6 +1938,59 @@
     // Orchestrator Control Functions
     let orchestratorStarting = false; // Prevent multiple simultaneous starts
 
+    function disableOrchestratorButtons() {
+        // Disable pause/resume button
+        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+        if (pauseBtn) {
+            pauseBtn.disabled = true;
+            pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
+            pauseBtn.title = 'Orchestrator starting...';
+        }
+
+        // Disable logs button
+        const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
+        if (logsBtn) {
+            logsBtn.disabled = true;
+            logsBtn.className = 'btn-neutral-secondary opacity-50 cursor-not-allowed';
+            logsBtn.title = 'Logs unavailable while orchestrator is starting';
+        }
+
+        // Disable settings button
+        const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
+        if (settingsBtn) {
+            settingsBtn.disabled = true;
+            settingsBtn.className = 'btn-neutral-primary-sm opacity-50 cursor-not-allowed';
+            settingsBtn.title = 'Settings unavailable while orchestrator is starting';
+        }
+    }
+
+    function disableAllJobButtons() {
+        // Get all job cards and disable their action buttons
+        const jobCards = document.querySelectorAll('[data-job]');
+        jobCards.forEach(jobCard => {
+            const actionButtons = jobCard.querySelectorAll('.action-icon-btn');
+            actionButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                btn.classList.remove('force-pending', 'pause-resume', 'resume', 'details');
+                btn.classList.add('disabled');
+
+                // Update title based on button type
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    if (icon.classList.contains('fa-clock') || icon.getAttribute('data-lucide') === 'clock') {
+                        btn.title = 'Cannot activate while orchestrator is starting';
+                    } else if (icon.classList.contains('fa-pause') || icon.getAttribute('data-lucide') === 'pause' ||
+                              icon.classList.contains('fa-play') || icon.getAttribute('data-lucide') === 'play') {
+                        btn.title = 'Cannot pause/resume while orchestrator is starting';
+                    } else if (icon.classList.contains('fa-info') || icon.getAttribute('data-lucide') === 'info') {
+                        btn.title = 'Details unavailable while orchestrator is starting';
+                    }
+                }
+            });
+        });
+    }
+
     async function forceStartOrchestrator() {
         const button = event.target.closest('button');
 
@@ -1937,6 +2012,15 @@
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             button.disabled = true;
 
+            // Immediately disable all orchestrator control buttons
+            disableOrchestratorButtons();
+
+            // Immediately disable all job action buttons
+            disableAllJobButtons();
+
+            // Refresh Lucide icons after button state changes
+            refreshLucideIcons();
+
 
 
             const token = getAuthToken();
@@ -1950,21 +2034,36 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.log('Orchestrator started successfully');
                 // Refresh both job data and orchestrator status after a short delay
+                // Don't re-enable buttons here - let the refresh functions handle proper state
                 setTimeout(() => {
                     refreshData();
                     refreshOrchestratorStatus();
+                    // Reset the orchestrator starting flag after refresh
+                    orchestratorStarting = false;
+                    // Reset the force start button
+                    button.innerHTML = originalText;
+                    button.disabled = false;
                 }, 1000);
             } else {
                 console.error(`Failed to start orchestrator: ${result.detail}`);
+                // Re-enable buttons on error
+                button.innerHTML = originalText;
+                button.disabled = false;
+                orchestratorStarting = false;
+                // Refresh to restore proper button states
+                refreshData();
+                refreshOrchestratorStatus();
             }
         } catch (error) {
             console.error(`Error starting orchestrator: ${error.message}`);
-        } finally {
+            // Re-enable buttons on error
             button.innerHTML = originalText;
             button.disabled = false;
-            orchestratorStarting = false; // Reset flag
+            orchestratorStarting = false;
+            // Refresh to restore proper button states
+            refreshData();
+            refreshOrchestratorStatus();
         }
     }
 
@@ -1981,7 +2080,6 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.warn('Orchestrator paused');
                 setTimeout(refreshOrchestratorStatus, 500);
             } else {
                 console.error(`Failed to pause orchestrator: ${result.detail}`);
@@ -2004,7 +2102,6 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.warn('Orchestrator resumed');
                 setTimeout(refreshOrchestratorStatus, 500);
             } else {
                 console.error(`Failed to resume orchestrator: ${result.detail}`);
@@ -2120,9 +2217,10 @@
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
                     pauseBtn.className = 'btn-status-success-sm';
-                    pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                    pauseBtn.innerHTML = '<i data-lucide="play"></i>';
                     pauseBtn.title = 'Resume';
                     pauseBtn.disabled = false;
+                    refreshLucideIcons();
                 }
                 if (runNowBtn) {
                     runNowBtn.disabled = false;
@@ -2150,8 +2248,9 @@
 
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
-                    pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    pauseBtn.innerHTML = '<i data-lucide="pause"></i>';
                     pauseBtn.title = 'Pause';
+                    refreshLucideIcons();
                     if (jobsRunning) {
                         pauseBtn.disabled = true;
                         pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
@@ -3656,6 +3755,16 @@
             `;
         }
     }
+
+    // Function to re-initialize Lucide icons after dynamic content updates
+    function refreshLucideIcons() {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    // Call refreshLucideIcons after major DOM updates
+    // This should be called after job cards are rendered, modals are updated, etc.
 </script>
 {% endblock %}
 

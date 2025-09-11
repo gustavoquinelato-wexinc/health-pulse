@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
     HOST: str = Field(default="0.0.0.0", env="ETL_HOST")
     PORT: int = Field(default=8000, env="ETL_PORT")
+
+    # Service URLs (no hardcoded URLs)
+    BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
     
     # PostgreSQL Configuration
     POSTGRES_HOST: str

@@ -14,7 +14,7 @@
             <p class="text-lg" style="color: var(--text-secondary);">Manage status mappings between integrations</p>
         </div>
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Mapping
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Mapping
         </button>
     </div>
 </div>
@@ -23,7 +23,7 @@
 <div class="mb-6">
     <div class="flex items-center justify-end">
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Mapping
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Mapping
         </button>
     </div>
 </div>
@@ -80,7 +80,7 @@
     <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Status Mappings</h2>
         <button onclick="loadStatusMappings()" class="btn-neutral-secondary">
-            <i class="fas fa-refresh mr-1"></i>Refresh
+            <i data-lucide="refresh-cw" class="w-4 h-4 mr-1"></i>Refresh
         </button>
     </div>
     
@@ -105,13 +105,13 @@
     
     <!-- Loading State -->
     <div id="loadingState" class="p-8 text-center">
-        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <i data-lucide="loader-2" class="w-8 h-8 mb-2 animate-spin mx-auto" style="color: var(--crud-edit);"></i>
         <p class="text-sm" style="color: var(--text-secondary);">Loading status mappings...</p>
     </div>
-    
+
     <!-- Empty State -->
     <div id="emptyState" class="p-8 text-center hidden">
-        <i class="fas fa-exchange-alt text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <i data-lucide="arrow-left-right" class="w-16 h-16 mb-4 mx-auto" style="color: var(--text-muted);"></i>
         <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Status Mappings Found</h3>
         <p class="text-sm" style="color: var(--text-secondary);">Use the Create Mapping button above to get started.</p>
     </div>
@@ -123,7 +123,7 @@
         <div class="flex items-center justify-between p-6 border-b border-default">
             <h2 id="statusMappingModalTitle" class="text-xl font-semibold text-primary">Create Status Mapping</h2>
             <button onclick="closeModal('statusMappingModal')" class="text-muted hover:text-primary transition-colors">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </div>
         <div class="p-6">
@@ -168,7 +168,7 @@
                 Cancel
             </button>
             <button type="submit" class="btn-crud-create">
-                <i class="fas fa-save mr-2"></i>Save Mapping
+                <i data-lucide="save" class="w-4 h-4 mr-2"></i>Save Mapping
             </button>
         </div>
     </form>
@@ -200,7 +200,7 @@
             Cancel
         </button>
         <button type="button" onclick="confirmDeleteStatusMapping()" class="btn-crud-delete">
-            <i class="fas fa-trash mr-2"></i>Delete Mapping
+            <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i>Delete Mapping
         </button>
     </div>
 {% endcall %}
@@ -229,7 +229,7 @@
             Cancel
         </button>
         <button type="button" onclick="confirmDeactivateStatusMapping()" class="btn-crud-warning">
-            <i class="fas fa-pause mr-2"></i>Deactivate
+            <i data-lucide="pause" class="w-4 h-4 mr-2"></i>Deactivate
         </button>
     </div>
 {% endcall %}
@@ -306,13 +306,14 @@
             // Show error state
             const emptyState = document.getElementById('emptyState');
             emptyState.innerHTML = `
-                <i class="fas fa-exclamation-triangle text-4xl mb-4" style="color: var(--status-error);"></i>
+                <i data-lucide="alert-triangle" class="w-16 h-16 mb-4 mx-auto" style="color: var(--status-error);"></i>
                 <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">Error Loading Status Mappings</h3>
                 <p class="text-sm mb-4" style="color: var(--text-secondary);">Unable to load status mappings. Please try again.</p>
                 <button onclick="loadStatusMappings()" class="btn-neutral-primary">
-                    <i class="fas fa-redo mr-2"></i>Retry
+                    <i data-lucide="rotate-cw" class="w-4 h-4 mr-2"></i>Retry
                 </button>
             `;
+            refreshLucideIcons();
             emptyState.classList.remove('hidden');
         }
     }
@@ -451,19 +452,19 @@
                 '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
 
             // Create integration icon based on integration name
-            let integrationIcon = '<i class="fas fa-question-circle text-lg" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+            let integrationIcon = '<i data-lucide="help-circle" class="w-5 h-5" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
 
             if (mapping.integration_name) {
                 const integrationName = mapping.integration_name.toLowerCase();
 
                 if (integrationName.includes('jira')) {
-                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                    integrationIcon = '<i data-lucide="ticket" class="w-5 h-5" style="color: #0052CC;" title="Jira"></i>';
                 } else if (integrationName.includes('github')) {
-                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                    integrationIcon = '<i data-lucide="github" class="w-5 h-5" style="color: #000000;" title="GitHub"></i>';
                 } else if (integrationName.includes('aha')) {
-                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                    integrationIcon = '<i data-lucide="lightbulb" class="w-5 h-5" style="color: #FF6B35;" title="Aha!"></i>';
                 } else if (integrationName.includes('azure') || integrationName.includes('devops')) {
-                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
+                    integrationIcon = '<i data-lucide="cloud" class="w-5 h-5" style="color: #0078D4;" title="Azure DevOps"></i>';
                 }
             }
 
@@ -477,18 +478,18 @@
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
                     <div class="flex justify-center space-x-1">
                         <button onclick="editStatusMapping(${mapping.id})" class="btn-crud-edit-sm" title="Edit">
-                            <i class="fas fa-edit"></i>
+                            <i data-lucide="edit" class="w-4 h-4"></i>
                         </button>
                         ${mapping.active ?
                             `<button onclick="showPauseModal(${mapping.id}, '${mapping.status_from} → ${mapping.status_to}')" class="btn-status-warning-xs" title="Pause">
-                                <i class="fas fa-pause"></i>
+                                <i data-lucide="pause" class="w-4 h-4"></i>
                             </button>` :
                             `<button onclick="resumeStatusMapping(${mapping.id})" class="btn-status-success-xs" title="Resume">
-                                <i class="fas fa-play"></i>
+                                <i data-lucide="play" class="w-4 h-4"></i>
                             </button>`
                         }
                         <button onclick="deleteStatusMapping(${mapping.id})" class="btn-crud-delete-sm" title="Delete">
-                            <i class="fas fa-trash"></i>
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
                 </td>
@@ -496,6 +497,9 @@
 
             tableBody.appendChild(row);
         });
+
+        // Re-initialize Lucide icons after table rendering
+        refreshLucideIcons();
     }
 
     function applyFilters() {
@@ -903,6 +907,13 @@
                 document.body.removeChild(notification);
             }, 300);
         }, 3000);
+    }
+
+    // Function to re-initialize Lucide icons after dynamic content updates
+    function refreshLucideIcons() {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     }
 </script>
 {% endblock %}

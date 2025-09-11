@@ -14,7 +14,7 @@
             <p class="text-lg" style="color: var(--text-secondary);">Manage workflow steps and configurations</p>
         </div>
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Workflow
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Workflow
         </button>
     </div>
 </div>
@@ -23,7 +23,7 @@
 <div class="mb-6">
     <div class="flex items-center justify-end">
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Workflow
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Workflow
         </button>
     </div>
 </div>
@@ -78,7 +78,7 @@
     <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Workflows</h2>
         <button onclick="loadWorkflows()" class="btn-neutral-secondary">
-            <i class="fas fa-refresh mr-1"></i>Refresh
+            <i data-lucide="refresh-cw" class="w-4 h-4 mr-1"></i>Refresh
         </button>
     </div>
 
@@ -109,7 +109,7 @@
             <tbody id="workflowsTableBody" style="background-color: var(--bg-secondary);">
                 <tr>
                     <td colspan="6" class="px-6 py-4 text-center" style="color: var(--text-muted);">
-                        <i class="fas fa-spinner fa-spin mr-2"></i>Loading workflows...
+                        <i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin inline"></i>Loading workflows...
                     </td>
                 </tr>
             </tbody>
@@ -118,7 +118,7 @@
 
     <!-- Empty State -->
     <div id="emptyState" class="hidden p-8 text-center">
-        <i class="fas fa-project-diagram text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <i data-lucide="workflow" class="w-16 h-16 mb-4 mx-auto" style="color: var(--text-muted);"></i>
         <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No workflows found</h3>
         <p class="mb-4" style="color: var(--text-secondary);">Get started by creating your first workflow step using the Create button above.</p>
     </div>
@@ -130,7 +130,7 @@
         <div class="flex items-center justify-between p-6 border-b border-default">
             <h2 id="workflowModalTitle" class="text-xl font-semibold text-primary">Create Workflow</h2>
             <button onclick="closeModal('workflowModal')" class="text-muted hover:text-primary transition-colors">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </div>
         <div class="p-6">
@@ -173,7 +173,7 @@
                 Cancel
             </button>
             <button type="submit" class="btn-crud-create">
-                <i class="fas fa-save mr-2"></i>Save Workflow
+                <i data-lucide="save" class="w-4 h-4 mr-2"></i>Save Workflow
             </button>
         </div>
     </form>
@@ -205,7 +205,7 @@
             Cancel
         </button>
         <button type="button" onclick="confirmDeleteWorkflow()" class="btn-crud-delete">
-            <i class="fas fa-trash mr-2"></i>Delete Workflow
+            <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i>Delete Workflow
         </button>
     </div>
 {% endcall %}
@@ -234,7 +234,7 @@
             Cancel
         </button>
         <button type="button" onclick="confirmDeactivateWorkflow()" class="btn-crud-warning">
-            <i class="fas fa-pause mr-2"></i>Deactivate
+            <i data-lucide="pause" class="w-4 h-4 mr-2"></i>Deactivate
         </button>
     </div>
 {% endcall %}
@@ -380,19 +380,19 @@
             const integrationName = integration ? integration.name : 'Unknown';
 
             // Create integration icon based on integration name
-            let integrationIcon = '<i class="fas fa-question-circle text-lg" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+            let integrationIcon = '<i data-lucide="help-circle" class="w-5 h-5" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
 
             if (integration && integration.name) {
                 const integrationNameLower = integration.name.toLowerCase();
 
                 if (integrationNameLower.includes('jira')) {
-                    integrationIcon = '<i class="fab fa-atlassian text-lg" style="color: #0052CC;" title="Jira"></i>';
+                    integrationIcon = '<i data-lucide="ticket" class="w-5 h-5" style="color: #0052CC;" title="Jira"></i>';
                 } else if (integrationNameLower.includes('github')) {
-                    integrationIcon = '<i class="fab fa-github text-lg" style="color: #000000;" title="GitHub"></i>';
+                    integrationIcon = '<i data-lucide="github" class="w-5 h-5" style="color: #000000;" title="GitHub"></i>';
                 } else if (integrationNameLower.includes('aha')) {
-                    integrationIcon = '<i class="fas fa-lightbulb text-lg" style="color: #FF6B35;" title="Aha!"></i>';
+                    integrationIcon = '<i data-lucide="lightbulb" class="w-5 h-5" style="color: #FF6B35;" title="Aha!"></i>';
                 } else if (integrationNameLower.includes('azure') || integrationNameLower.includes('devops')) {
-                    integrationIcon = '<i class="fab fa-microsoft text-lg" style="color: #0078D4;" title="Azure DevOps"></i>';
+                    integrationIcon = '<i data-lucide="cloud" class="w-5 h-5" style="color: #0078D4;" title="Azure DevOps"></i>';
                 }
             }
 
@@ -445,18 +445,18 @@
                 <td class="px-6 py-4 whitespace-nowrap text-center">
                     <div class="flex justify-center space-x-1">
                         <button onclick="editWorkflow(${workflow.id})" class="btn-crud-edit-sm" title="Edit">
-                            <i class="fas fa-edit"></i>
+                            <i data-lucide="edit" class="w-4 h-4"></i>
                         </button>
                         ${workflow.active ?
                             `<button onclick="showPauseModal(${workflow.id}, '${workflow.step_name || 'Unnamed Step'}')" class="btn-status-warning-xs" title="Pause">
-                                <i class="fas fa-pause"></i>
+                                <i data-lucide="pause" class="w-4 h-4"></i>
                             </button>` :
                             `<button onclick="resumeWorkflow(${workflow.id})" class="btn-status-success-xs" title="Resume">
-                                <i class="fas fa-play"></i>
+                                <i data-lucide="play" class="w-4 h-4"></i>
                             </button>`
                         }
                         <button onclick="deleteWorkflow(${workflow.id})" class="btn-crud-delete-sm" title="Delete">
-                            <i class="fas fa-trash"></i>
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
                 </td>
@@ -464,6 +464,9 @@
 
             tbody.appendChild(row);
         });
+
+        // Re-initialize Lucide icons after table rendering
+        refreshLucideIcons();
     }
 
     function applyFilters() {
@@ -882,6 +885,13 @@
                 document.body.removeChild(notification);
             }, 300);
         }, 3000);
+    }
+
+    // Function to re-initialize Lucide icons after dynamic content updates
+    function refreshLucideIcons() {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     }
 </script>
 {% endblock %}

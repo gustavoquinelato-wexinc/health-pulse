@@ -57,7 +57,7 @@ class IntegrationResponse(BaseModel):
 class IntegrationCreateRequest(BaseModel):
     provider: str
     type: str
-    base_url: str
+    base_url: Optional[str] = None  # Optional for embedding integrations
     username: Optional[str] = None
     password: Optional[str] = None
     base_search: Optional[str] = None
@@ -69,7 +69,7 @@ class IntegrationCreateRequest(BaseModel):
     active: bool = True
 
 class IntegrationUpdateRequest(BaseModel):
-    base_url: str
+    base_url: Optional[str] = None  # Optional for embedding integrations
     username: Optional[str] = None
     password: Optional[str] = None
     base_search: Optional[str] = None
@@ -324,6 +324,13 @@ async def create_integration(
                     detail=f"Integration with provider '{create_data.provider}' already exists"
                 )
 
+            # Validate type-specific required fields
+            if create_data.type == "Data" and not create_data.base_url:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Base URL is required for Data integrations"
+                )
+
             # Create new integration
             new_integration = Integration(
                 provider=create_data.provider,
@@ -396,7 +403,7 @@ async def get_integrations(
                 integration_responses.append(IntegrationResponse(
                     id=integration.id,
                     name=integration.provider or "Unknown",
-                    integration_type=integration.provider or "Unknown",  # Using provider as type
+                    integration_type=integration.type or "Unknown",  # Using type field (Data/AI/Embedding)
                     base_url=integration.base_url,
                     username=integration.username,
                     ai_model=integration.ai_model,  # Include AI model name
@@ -524,6 +531,13 @@ async def update_integration(
                     detail="Integration not found"
                 )
 
+            # Validate type-specific required fields
+            if integration.type == "Data" and not update_data.base_url:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Base URL is required for Data integrations"
+                )
+
             # Update fields
             integration.base_url = update_data.base_url
             integration.username = update_data.username
@@ -587,7 +601,7 @@ async def activate_integration(
             integration.last_updated_at = datetime.utcnow()
             session.commit()
 
-            logger.info(f"Admin {user.email} activated integration {integration.name}")
+            logger.info(f"Admin {user.email} activated integration {integration.provider}")
 
             return {"message": "Integration activated successfully"}
 
@@ -609,7 +623,7 @@ async def deactivate_integration(
     """Deactivate an integration"""
     try:
         database = get_database()
-        with database.get_admin_session_context() as session:
+        with database.get_write_session_context() as session:
             from datetime import datetime
 
             integration = session.query(Integration).filter(
@@ -627,7 +641,7 @@ async def deactivate_integration(
             integration.last_updated_at = datetime.utcnow()
             session.commit()
 
-            logger.info(f"Admin {user.email} deactivated integration {integration.name}")
+            logger.info(f"Admin {user.email} deactivated integration {integration.provider}")
 
             return {"message": "Integration deactivated successfully"}
 
@@ -685,7 +699,7 @@ async def delete_integration(
             session.delete(integration)
             session.commit()
 
-            logger.info(f"Admin {user.email} deleted integration {integration.name}")
+            logger.info(f"Admin {user.email} deleted integration {integration.provider}")
 
             return {"message": "Integration deleted successfully"}
 
@@ -1578,7 +1592,7 @@ async def update_workflow(
                             Integration.tenant_id == user.tenant_id
                         ).first()
                         if integration:
-                            integration_name = integration.name
+                            integration_name = integration.provider
 
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -1841,7 +1855,7 @@ async def create_workflow(
                             Integration.tenant_id == user.tenant_id
                         ).first()
                         if integration:
-                            integration_name = integration.name
+                            integration_name = integration.provider
 
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,

@@ -184,7 +184,7 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "jira", "data_source", jira_username, jira_password, jira_url,
+            "Jira", "Data", jira_username, jira_password, jira_url,
             "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
             "jira.svg",
             tenant_id, jira_active
@@ -231,7 +231,7 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "github", "data_source", None, github_password, "https://api.github.com",
+            "GitHub", "Data", None, github_password, "https://api.github.com",
             "health-", None,
             "github.svg",
             tenant_id, github_active
@@ -241,7 +241,7 @@ def apply(connection):
         if github_result:
             github_integration_id = github_result['id']
         else:
-            cursor.execute("SELECT id FROM integrations WHERE provider = 'github' AND tenant_id = %s;", (tenant_id,))
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'GitHub' AND tenant_id = %s;", (tenant_id,))
             github_integration_id = cursor.fetchone()['id']
 
         print(f"   ✅ GitHub integration created (ID: {github_integration_id}, active: {github_active})")
@@ -268,10 +268,15 @@ def apply(connection):
                 ON CONFLICT (provider, tenant_id) DO NOTHING
                 RETURNING id;
             """, (
-                "wex_ai_gateway", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
-                None, ai_model,
-                json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                "",
+                "WEX AI Gateway", "AI", None, encrypted_ai_key, ai_gateway_base_url,
+                None, "bedrock-claude-sonnet-4-v1",
+                json.dumps({
+                    "temperature": 0.3,
+                    "max_tokens": 700,
+                    "gateway_route": True,
+                    "source": "external"
+                }),
+                "wex-ai-gateway.svg",
                 tenant_id, True
             ))
 
@@ -289,16 +294,21 @@ def apply(connection):
                 cursor.execute("""
                     INSERT INTO integrations (
                         provider, type, username, password, base_url, base_search, ai_model,
-                        ai_model_config, fallback_integration_id, logo_filename, tenant_id, active, created_at, last_updated_at
+                        ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (provider, tenant_id) DO NOTHING
                     RETURNING id;
                 """, (
-                    "wex_ai_gateway_fallback", "ai_provider", None, encrypted_ai_key, ai_gateway_base_url,
-                    None, ai_fallback_model,
-                    json.dumps({"temperature": 0.3, "max_tokens": 700}),
-                    ai_gateway_integration_id, "",
+                    "WEX AI Gateway Fallback", "AI", None, encrypted_ai_key, ai_gateway_base_url,
+                    None, "azure-gpt-4o-mini",
+                    json.dumps({
+                        "temperature": 0.3,
+                        "max_tokens": 700,
+                        "gateway_route": True,
+                        "source": "external"
+                    }),
+                    "wex-ai-gateway-fallback.svg",
                     tenant_id, True
                 ))
 
@@ -314,6 +324,66 @@ def apply(connection):
         else:
             print("   ⚠️ AI Gateway credentials not found in .env - skipping AI Gateway integration")
 
+        # Create embedding integrations
+        print("   📋 Creating embedding integrations...")
+
+        # Free local embedding
+        cursor.execute("""
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, ai_model,
+                ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, tenant_id) DO NOTHING
+            RETURNING id;
+        """, (
+            "Local Embeddings", "Embedding", None, None, None,
+            None, "all-MiniLM-L6-v2",
+            json.dumps({
+                "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
+                "cost_tier": "free",
+                "gateway_route": False,
+                "source": "local"
+            }),
+            "local-embeddings.svg",
+            tenant_id, True
+        ))
+
+        local_embedding_result = cursor.fetchone()
+        if local_embedding_result:
+            local_embedding_id = local_embedding_result['id']
+            print(f"   ✅ Local embedding integration created (ID: {local_embedding_id})")
+
+        # Paid external embedding (WEX AI Gateway)
+        if ai_gateway_base_url and encrypted_ai_key:
+            cursor.execute("""
+                INSERT INTO integrations (
+                    provider, type, username, password, base_url, base_search, ai_model,
+                    ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (provider, tenant_id) DO NOTHING
+                RETURNING id;
+            """, (
+                "WEX Embeddings", "Embedding", None, encrypted_ai_key, ai_gateway_base_url,
+                None, "azure-text-embedding-3-small",
+                json.dumps({
+                    "model_path": "azure-text-embedding-3-small",
+                    "cost_tier": "paid",
+                    "gateway_route": True,
+                    "source": "external"
+                }),
+                "wex-embeddings.svg",
+                tenant_id, False  # Set to inactive by default, local is primary
+            ))
+
+            paid_embedding_result = cursor.fetchone()
+            if paid_embedding_result:
+                paid_embedding_id = paid_embedding_result['id']
+                print(f"   ✅ WEX embedding integration created (ID: {paid_embedding_id})")
+        else:
+            print("   ⚠️ AI Gateway credentials not found - skipping WEX embedding integration")
+
         # Create WEX Fabric integration (placeholder for future)
         print("   📋 Creating WEX Fabric integration...")
         cursor.execute("""
@@ -325,7 +395,7 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "wex_fabric", "data_warehouse", "wex_fabric_user", None, "https://fabric.wex.com",
+            "WEX Fabric", "Data", None, None, "https://fabric.wex.com",
             None, None,
             "fabric.svg",
             tenant_id, False  # Inactive until implemented
@@ -351,7 +421,7 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "active_directory", "identity_provider", "wex_ad_user", None, "https://login.microsoftonline.com",
+            "WEX AD", "Data", None, None, "https://login.microsoftonline.com",
             None, None,
             "ad.svg",
             tenant_id, False  # Inactive until implemented

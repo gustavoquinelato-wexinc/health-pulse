@@ -70,18 +70,20 @@ const navigationItems: NavigationItem[] = [
 
 
 
-// Admin settings - only for admins
+// Settings - only for admins
 const adminItems: NavigationItem[] = [
   {
-    id: 'admin',
+    id: 'settings',
     label: 'System Overview',
     icon: Settings,
-    path: '/admin',
+    path: '/settings',
     subItems: [
-      { id: 'color-scheme', label: 'Color Scheme', path: '/admin/color-scheme' },
-      { id: 'user-management', label: 'User Management', path: '/admin/user-management' },
-      { id: 'client-management', label: 'Tenant Management', path: '/admin/client-management' },
-      { id: 'notifications', label: 'Notifications', path: '/admin/notifications' }
+      { id: 'ai-config', label: 'AI Configuration', path: '/settings/ai-config' },
+      { id: 'ai-performance', label: 'AI Performance', path: '/settings/ai-performance' },
+      { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
+      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
+      { id: 'client-management', label: 'Tenant Management', path: '/settings/client-management' },
+      { id: 'user-management', label: 'User Management', path: '/settings/user-management' }
     ]
   }
 ]

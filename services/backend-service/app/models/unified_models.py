@@ -193,8 +193,8 @@ class Integration(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # Core integration fields
-    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'jira', 'github', 'openai', 'wex_ai_gateway'
-    type = Column(String(50), nullable=False, name="type")  # 'data_source', 'ai_provider', 'notification'
+    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', 'Local Embeddings'
+    type = Column(String(50), nullable=False, name="type")  # 'Data', 'AI', 'Embedding'
     username = Column(String, name="username")
     password = Column(String, name="password")
     base_url = Column(Text, name="base_url")

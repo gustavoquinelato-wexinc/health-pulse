@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-The Integration Management System provides a comprehensive interface for managing external system connections including data sources (Jira, GitHub) and AI providers (WEX AI Gateway, OpenAI, Azure). The system supports tenant-based isolation, file upload for logos, and conditional configuration based on integration type.
+The Integration Management System provides a comprehensive interface for managing external system connections including data sources (Jira, GitHub), AI providers (WEX AI Gateway), and embedding providers (Local Embeddings, WEX Embeddings). The system supports tenant-based isolation, flexible JSON-based routing configuration, and conditional configuration based on integration type.
 
 ## 🏗️ Architecture
 
@@ -18,20 +18,20 @@ The `integrations` table serves as the unified configuration store for all exter
 ```sql
 CREATE TABLE integrations (
     id SERIAL PRIMARY KEY,
-    provider VARCHAR(50) NOT NULL,           -- 'jira', 'github', 'wex_ai_gateway'
-    type VARCHAR(50) NOT NULL,               -- 'data_source', 'ai_provider', 'notification'
+    provider VARCHAR(50) NOT NULL,           -- 'Jira', 'GitHub', 'WEX AI Gateway', 'Local Embeddings'
+    type VARCHAR(50) NOT NULL,               -- 'Data', 'AI', 'Embedding'
     username VARCHAR,
     password VARCHAR,                        -- Encrypted using SECRET_KEY
     base_url TEXT,
     base_search VARCHAR,                     -- Search filters for data sources
     ai_model VARCHAR(100),                   -- AI model name
 
-    -- JSON configuration columns (simplified)
-    ai_model_config JSONB DEFAULT '{}',     -- AI model parameters
+    -- JSON configuration columns (flexible routing)
+    ai_model_config JSONB DEFAULT '{}',     -- AI model parameters with routing config
     cost_config JSONB DEFAULT '{}',         -- Cost tracking and limits
     fallback_integration_id INTEGER,        -- FK to fallback integration
     logo_filename VARCHAR(255),             -- Tenant-specific logo file
-    
+
     -- BaseEntity fields
     tenant_id INTEGER NOT NULL,
     active BOOLEAN DEFAULT TRUE,
@@ -206,24 +206,76 @@ All data source fields plus:
 
 ## 🔄 Integration Types
 
-### Data Sources
+### Data Sources (type = "Data")
 - **Jira**: Issue tracking and project management
 - **GitHub**: Code repositories and development metrics
-- **Custom**: Any REST API data source
+- **WEX Fabric**: Data warehouse integration
+- **WEX AD**: Active Directory user management
 
-### AI Providers
-- **WEX AI Gateway**: Internal AI service
-- **OpenAI**: GPT models and embeddings
-- **Azure OpenAI**: Enterprise AI services
-- **Custom**: Any AI API provider
+### AI Providers (type = "AI")
+- **WEX AI Gateway**: Primary AI service with external models
+- **WEX AI Gateway Fallback**: Backup AI service for redundancy
 
-### Configuration Examples
+### Embedding Providers (type = "Embedding")
+- **Local Embeddings**: Free local models (Sentence Transformers)
+- **WEX Embeddings**: Paid external embeddings via WEX AI Gateway
+
+## 🚀 Flexible AI Configuration
+
+The system uses JSON-based configuration in `ai_model_config` for flexible routing and provider management:
+
+### AI Provider Configuration
+```json
+{
+  "temperature": 0.3,
+  "max_tokens": 700,
+  "gateway_route": true,    // Routes through WEX AI Gateway
+  "source": "external"     // Uses external cloud models
+}
+```
+
+### Local Embedding Configuration
+```json
+{
+  "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
+  "cost_tier": "free",
+  "gateway_route": false,   // Direct local processing
+  "source": "local"        // Uses local models
+}
+```
+*Database fields: `ai_model = "all-MiniLM-L6-v2"`, `ai_model_config` contains the JSON above*
+
+### External Embedding Configuration
+```json
+{
+  "model_path": "azure-text-embedding-3-small",
+  "cost_tier": "paid",
+  "gateway_route": true,    // Routes through WEX AI Gateway
+  "source": "external"     // Uses external API
+}
+```
+
+## 🎯 Smart Provider Selection
+
+The system automatically selects the appropriate provider based on context:
+
+### ETL Operations (Data Processing)
+- **Prefers**: `gateway_route: false` (local models)
+- **Purpose**: Cost-effective data vectorization
+- **Selection**: `type = 'Embedding' AND active = true` with local preference
+
+### Frontend Operations (AI Agents)
+- **Prefers**: `gateway_route: true` (external via gateway)
+- **Purpose**: High-quality AI interactions
+- **Selection**: `type = 'AI' AND active = true` for text generation
+
+### Legacy Configuration Examples (Updated)
 
 #### Jira Integration
 ```json
 {
-  "provider": "jira",
-  "type": "data_source",
+  "provider": "Jira",
+  "type": "Data",
   "base_url": "https://company.atlassian.net",
   "username": "api_user@company.com",
   "password": "encrypted_token",
@@ -231,21 +283,18 @@ All data source fields plus:
 }
 ```
 
-#### AI Provider Integration
+#### WEX AI Gateway Integration
 ```json
 {
-  "provider": "wex_ai_gateway",
-  "type": "ai_provider",
+  "provider": "WEX AI Gateway",
+  "type": "AI",
   "base_url": "https://ai-gateway.wex.com",
-  "model": "gpt-4o-mini",
-  "model_config": {
+  "ai_model": "bedrock-claude-sonnet-4-v1",
+  "ai_model_config": {
     "temperature": 0.3,
     "max_tokens": 700,
-    "top_p": 0.9
-  },
-  "provider_metadata": {
-    "region": "us-east-1",
-    "deployment": "production"
+    "gateway_route": true,
+    "source": "external"
   },
   "cost_config": {
     "max_monthly_cost": 1000,

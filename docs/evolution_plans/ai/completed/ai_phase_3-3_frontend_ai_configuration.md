@@ -1,103 +1,113 @@
-# Phase 3-3: Frontend AI Configuration Interface
+# Phase 3-3: Frontend AI Configuration Interface (Integration Management Enhancement)
 
-**Implemented**: NO ❌
+**Implemented**: YES ✅ ❌
 **Duration**: 2 days (Days 4-5 of 10)
 **Priority**: HIGH
 **Dependencies**: Phase 3-2 completion
 
+## 💼 Business Outcome
+
+**Self-Service AI Management**: Enable business users to configure and optimize AI providers without IT intervention, reducing configuration time from days to minutes while providing real-time cost visibility and performance monitoring for data-driven AI investment decisions.
+
 ## 🎯 Objectives
 
-1. **AI Configuration UI**: User-friendly interface for AI model selection and configuration
-2. **Multi-Provider Management**: Frontend for managing multiple AI providers (OpenAI, Azure, etc.)
-3. **Performance Monitoring**: Real-time AI usage and cost tracking dashboard
-4. **Configuration Validation**: Frontend validation of AI provider settings
-5. **User Empowerment**: Business users control their AI experience through intuitive interface
-6. **WrenAI-Inspired UX**: Clean, professional AI configuration experience
+1. **Enhanced Integration Management**: Extend existing integration management UI for AI providers
+2. **Hybrid Provider Configuration**: UI for WEX AI Gateway + local models configuration
+3. **Real-time Usage Monitoring**: Dashboard for AI usage and cost tracking
+4. **Model Selection Interface**: User-friendly AI model selection and configuration
+5. **Backward Compatibility**: Preserve existing integration management functionality
+6. **Simplified UX**: Leverage existing integration patterns for consistency
 
-## 🎨 Frontend Architecture
+## 🎨 Frontend Architecture (Extending Existing Integration Management)
 
-### **AI Configuration Menu Structure**
+### **Enhanced Integration Management Structure**
 ```
-ETL Service Sidebar (Port 8000)
-├─ Home
-├─ DORA Metrics
-├─ Engineering Analytics
-├─ Settings
-│   ├─ System Settings
-│   ├─ User Management
-│   └─ AI Configuration ← NEW
-│       ├─ AI Providers
-│       ├─ Model Selection
-│       ├─ Performance Settings
-│       ├─ Cost Management
-│       └─ Usage Analytics
+ETL Service Integration Management (Port 8000)
+├─ Existing: /integrations
+│   ├─ Data Sources (Jira, GitHub) ← EXISTING
+│   └─ AI Providers ← ENHANCED
+│       ├─ WEX AI Gateway (Primary)
+│       ├─ Local Models (Sentence Transformers)
+│       └─ Direct Providers (Future)
+└─ New: /ai-analytics
+    ├─ Usage Dashboard
+    ├─ Cost Tracking
+    └─ Performance Metrics
 ```
 
-### **AI Configuration Components**
+### **Enhanced Integration Components**
 
-#### **1. AI Provider Management Component**
+#### **1. Enhanced Integration Form (AI Provider Support)**
 ```typescript
-// services/frontend-app/src/components/ai/AIProviderManagement.tsx
-import React, { useState, useEffect } from 'react';
-import { Card, Form, Select, Input, Button, Switch, Alert, Tabs } from 'antd';
-import { CloudOutlined, SettingOutlined, DollarOutlined } from '@ant-design/icons';
+// services/frontend-app/src/components/integrations/IntegrationForm.tsx
+// Extend existing IntegrationForm to support AI providers
 
-interface AIProvider {
+interface AIProviderIntegration {
   id: number;
-  provider_type: string;
-  model_name: string;
-  integration_name: string;
+  provider: string;           // 'wex_ai_gateway', 'sentence_transformers'
+  type: string;              // 'ai_provider'
+  base_url?: string;         // For WEX Gateway
+  ai_model: string;          // Model name
+  ai_model_config: any;      // Model configuration JSON
+  cost_config: any;          // Cost tracking JSON
+  fallback_integration_id?: number;
   active: boolean;
-  model_config: any;
-  performance_config: any;
-  cost_config: any;
 }
 
-const AIProviderManagement: React.FC = () => {
-  const [providers, setProviders] = useState<AIProvider[]>([]);
+// Enhanced integration form for AI providers
+const EnhancedIntegrationForm: React.FC = () => {
+  const [integrations, setIntegrations] = useState<AIProviderIntegration[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  const providerOptions = [
-    { value: 'openai', label: 'OpenAI', icon: '🤖' },
-    { value: 'azure_openai', label: 'Azure OpenAI', icon: '☁️' },
-    { value: 'sentence_transformers', label: 'Local Models (Free)', icon: '💻' },
-    { value: 'custom_gateway', label: 'Custom Gateway', icon: '🔧' },
-    { value: 'google_gemini', label: 'Google Gemini', icon: '🔍' },
-    { value: 'anthropic_claude', label: 'Anthropic Claude', icon: '🧠' }
+  // Hybrid provider options (WEX Gateway + Local)
+  const aiProviderOptions = [
+    {
+      value: 'wex_ai_gateway',
+      label: 'WEX AI Gateway (Primary)',
+      icon: '🚀',
+      description: 'Internal WEX AI service with multiple models'
+    },
+    {
+      value: 'sentence_transformers',
+      label: 'Local Models (Zero Cost)',
+      icon: '💻',
+      description: 'Local Sentence Transformers for embeddings'
+    }
   ];
 
+  // Model options for each provider
   const modelOptions = {
-    openai: [
-      { value: 'text-embedding-ada-002', label: 'Ada-002 (Balanced)', cost: '$0.0001/1K' },
-      { value: 'text-embedding-3-small', label: 'Embedding-3-Small (Fast)', cost: '$0.00002/1K' },
-      { value: 'text-embedding-3-large', label: 'Embedding-3-Large (Quality)', cost: '$0.00013/1K' }
+    wex_ai_gateway: [
+      { value: 'azure-gpt-4o-mini', label: 'GPT-4o Mini (Fast)', cost: 'Low', use_case: 'Classification, SQL' },
+      { value: 'bedrock-claude-sonnet-4-v1', label: 'Claude Sonnet (Strategic)', cost: 'Medium', use_case: 'Analysis' },
+      { value: 'azure-text-embedding-3-small', label: 'Text Embedding (Semantic)', cost: 'Low', use_case: 'Search' }
     ],
     sentence_transformers: [
-      { value: 'all-MiniLM-L6-v2', label: 'MiniLM-L6-v2 (Fast)', cost: 'Free' },
-      { value: 'all-mpnet-base-v2', label: 'MPNet-Base-v2 (Quality)', cost: 'Free' }
+      { value: 'all-MiniLM-L6-v2', label: 'MiniLM-L6-v2 (Fast)', cost: 'Free', dimensions: 384 },
+      { value: 'all-mpnet-base-v2', label: 'MPNet-Base-v2 (Quality)', cost: 'Free', dimensions: 768 }
     ]
   };
 
   return (
-    <div className="ai-provider-management">
+    <div className="enhanced-integration-form">
       <Card title="AI Provider Configuration" extra={<SettingOutlined />}>
         <Tabs defaultActiveKey="providers">
-          <Tabs.TabPane tab="Providers" key="providers">
-            <ProviderConfigurationForm 
-              providers={providers}
-              providerOptions={providerOptions}
+          <Tabs.TabPane tab="AI Providers" key="providers">
+            <AIProviderConfigurationForm
+              integrations={integrations}
+              providerOptions={aiProviderOptions}
               modelOptions={modelOptions}
-              onSave={handleSaveProvider}
+              onSave={handleSaveAIProvider}
             />
           </Tabs.TabPane>
-          
-          <Tabs.TabPane tab="Performance" key="performance">
-            <PerformanceSettings />
+
+          <Tabs.TabPane tab="Model Settings" key="models">
+            <ModelConfigurationPanel />
           </Tabs.TabPane>
-          
-          <Tabs.TabPane tab="Cost Management" key="cost">
-            <CostManagement />
+
+          <Tabs.TabPane tab="Usage Analytics" key="analytics">
+            <AIUsageAnalytics />
           </Tabs.TabPane>
         </Tabs>
       </Card>

@@ -109,7 +109,7 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenants (
                 id SERIAL,
-                name VARCHAR NOT NULL,
+                name VARCHAR NOT NULL UNIQUE,
                 website VARCHAR,
                 assets_folder VARCHAR(100),
                 logo_filename VARCHAR(255) DEFAULT 'default-logo.png',

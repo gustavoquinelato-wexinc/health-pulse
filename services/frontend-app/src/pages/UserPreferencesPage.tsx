@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
+import { User, Accessibility, Lock, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
@@ -406,9 +407,9 @@ export default function UserPreferencesPage() {
               <div className="border-b border-tertiary">
                 <nav className="flex space-x-8 px-6">
                   {[
-                    { id: 'profile', label: 'Profile Information', icon: '👤' },
-                    { id: 'accessibility', label: 'Accessibility', icon: '♿' },
-                    { id: 'password', label: 'Password', icon: '🔒' }
+                    { id: 'profile', label: 'Profile Information', icon: User },
+                    { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+                    { id: 'password', label: 'Password', icon: Lock }
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -418,7 +419,7 @@ export default function UserPreferencesPage() {
                         : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
                         }`}
                     >
-                      <span>{tab.icon}</span>
+                      <tab.icon className="w-4 h-4" />
                       <span>{tab.label}</span>
                     </button>
                   ))}
