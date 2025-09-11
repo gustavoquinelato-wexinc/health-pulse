@@ -335,6 +335,10 @@ app.include_router(ml_monitoring_router, prefix="/api/v1", tags=["ML Monitoring"
 from app.api.centralized_auth_routes import router as centralized_auth_router
 app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", tags=["Centralized Auth"])
 
+# Include AI Configuration routes
+from app.api.ai_config_routes import router as ai_config_router
+app.include_router(ai_config_router, prefix="/api/v1", tags=["AI Configuration"])
+
 # Backend Service - API only, no static files or web routes
 
 

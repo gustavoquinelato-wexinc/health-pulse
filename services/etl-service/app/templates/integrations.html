@@ -14,7 +14,7 @@
             <p class="text-lg" style="color: var(--text-secondary);">Manage system integrations and connections</p>
         </div>
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Integration
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Integration
         </button>
     </div>
 </div>
@@ -23,9 +23,12 @@
 <!-- Integrations Table -->
 <div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
     <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
-        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">System Integrations</h2>
+        <div>
+            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Data & Embedding Integrations</h2>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">Manage data sources and embedding providers for ETL operations</p>
+        </div>
         <button onclick="loadIntegrations()" class="btn-neutral-secondary">
-            <i class="fas fa-refresh mr-1"></i>Refresh
+            <i data-lucide="refresh-cw" class="w-4 h-4 mr-1"></i>Refresh
         </button>
     </div>
 
@@ -50,13 +53,13 @@
 
     <!-- Loading State -->
     <div id="loadingState" class="p-8 text-center">
-        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <i data-lucide="loader-2" class="w-8 h-8 mb-2 animate-spin mx-auto" style="color: var(--crud-edit);"></i>
         <p class="text-sm" style="color: var(--text-secondary);">Loading integrations...</p>
     </div>
 
     <!-- Empty State -->
     <div id="emptyState" class="p-8 text-center hidden">
-        <i class="fas fa-plug text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <i data-lucide="plug" class="w-16 h-16 mb-4 mx-auto" style="color: var(--text-muted);"></i>
         <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Integrations Found</h3>
         <p class="text-sm" style="color: var(--text-secondary);">Use the Create Integration button above to get started.</p>
     </div>
@@ -64,41 +67,42 @@
 
 <!-- Create/Edit Integration Modal -->
 <div id="integrationModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
-    <div class="modal-content max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between p-6 border-b border-default">
             <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Integration</h3>
             <button onclick="closeModal('integrationModal')" class="text-muted hover:text-primary transition-colors">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-6 h-6"></i>
             </button>
         </div>
         <div class="p-6">
             <form id="integrationForm">
                 <input type="hidden" id="integrationId" name="id">
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider</label>
-                        <input type="text" id="provider" name="provider" required placeholder="e.g., jira, github, wex_ai_gateway" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                        <input type="text" id="provider" name="provider" required placeholder="e.g., jira, github, local_embeddings" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Type</label>
                         <select id="type" name="type" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                             <option value="">Select Type</option>
-                            <option value="data_source">Data Source</option>
-                            <option value="ai_provider">AI Provider</option>
-                            <option value="data_warehouse">Data Warehouse</option>
-                            <option value="identity_provider">Identity Provider</option>
+                            <option value="Data">Data</option>
+                            <option value="Embedding">Embedding</option>
                         </select>
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <!-- Base URL and Logo - Hidden for Embedding types -->
+                <div id="dataProviderFields" class="grid grid-cols-1 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base URL</label>
-                        <input type="url" id="baseUrl" name="base_url" placeholder="https://example.com" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">
+                            Base URL <span id="baseUrlRequired" class="text-red-500">*</span>
+                        </label>
+                        <input type="url" id="baseUrl" name="base_url" placeholder="https://example.com" required class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Logo File</label>
                         <div class="space-y-2">
@@ -111,46 +115,30 @@
                     </div>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <!-- Username/Password - Hidden for Embedding types -->
+                <div id="credentialFields" class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Username</label>
                         <input type="text" id="username" name="username" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Password/Token</label>
                         <input type="password" id="password" name="password" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                     </div>
                 </div>
-                
+
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Base Search</label>
-                    <input type="text" id="baseSearch" name="base_search" placeholder="Optional search filter" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                </div>
-                
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model (AI Providers)</label>
-                    <input type="text" id="model" name="model" placeholder="e.g., gpt-4o-mini" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model</label>
+                    <input type="text" id="model" name="ai_model" placeholder="e.g., all-MiniLM-L6-v2, gpt-4o-mini" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                 </div>
 
-                <!-- AI Provider Specific Fields -->
-                <div id="aiProviderFields" style="display: none;">
+                <!-- Embedding Provider Specific Fields -->
+                <div id="embeddingProviderFields" style="display: none;">
                     <div class="mb-4">
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model Configuration</label>
-                        <textarea id="modelConfig" name="model_config" rows="3" placeholder='{"temperature": 0.3, "max_tokens": 700}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
-                        <small class="text-muted">JSON configuration for AI model parameters (temperature, max_tokens, etc.)</small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Provider Metadata</label>
-                        <textarea id="providerMetadata" name="provider_metadata" rows="3" placeholder='{"region": "us-east-1", "endpoint": "custom"}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
-                        <small class="text-muted">JSON metadata specific to the AI provider (region, endpoint, etc.)</small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Cost Configuration</label>
-                        <textarea id="costConfig" name="cost_config" rows="3" placeholder='{"max_monthly_cost": 1000, "cost_per_token": 0.0001}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
-                        <small class="text-muted">JSON configuration for cost tracking and limits</small>
+                        <textarea id="modelConfig" name="ai_model_config" rows="3" placeholder='{"model_path": "/models/sentence-transformers/all-MiniLM-L6-v2", "cost_tier": "free", "gateway_route": false}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <small class="text-muted">JSON configuration for embedding model parameters (model_path, cost_tier, gateway_route, etc.)</small>
                     </div>
 
                     <div class="mb-4">
@@ -158,7 +146,7 @@
                         <select id="fallbackIntegration" name="fallback_integration_id" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
                             <option value="">No fallback</option>
                         </select>
-                        <small class="text-muted">Select another AI integration to use as fallback if this one fails</small>
+                        <small class="text-muted">Select another embedding integration to use as fallback if this one fails</small>
                     </div>
                 </div>
 
@@ -191,9 +179,12 @@ let integrations = [];
 // Function to show fallback icon when image fails to load
 function showFallbackIcon(imgElement) {
     const iconElement = document.createElement('i');
-    iconElement.className = 'fas fa-plug text-lg';
+    iconElement.setAttribute('data-lucide', 'plug');
+    iconElement.className = 'w-6 h-6';
     iconElement.style.color = 'var(--text-muted)';
     imgElement.parentNode.replaceChild(iconElement, imgElement);
+    // Re-initialize Lucide icons for the new element
+    lucide.createIcons();
 }
 
 // Load data on page load
@@ -218,11 +209,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Add type change event listener to show/hide AI provider fields
+    // Add type change event listener to show/hide provider-specific fields
     const typeSelect = document.getElementById('type');
     if (typeSelect) {
         typeSelect.addEventListener('change', function() {
-            toggleAIProviderFields();
+            toggleProviderFields();
         });
     }
 
@@ -230,20 +221,46 @@ document.addEventListener('DOMContentLoaded', function() {
     loadFallbackIntegrations();
 });
 
-function toggleAIProviderFields() {
+function toggleProviderFields() {
     const typeSelect = document.getElementById('type');
-    const aiProviderFields = document.getElementById('aiProviderFields');
+    const dataProviderFields = document.getElementById('dataProviderFields');
+    const credentialFields = document.getElementById('credentialFields');
+    const embeddingProviderFields = document.getElementById('embeddingProviderFields');
+    const baseUrlInput = document.getElementById('baseUrl');
+    const baseUrlRequired = document.getElementById('baseUrlRequired');
 
-    if (typeSelect && aiProviderFields) {
-        if (typeSelect.value === 'ai_provider') {
-            aiProviderFields.style.display = 'block';
+    if (typeSelect) {
+        const selectedType = typeSelect.value;
+
+        if (selectedType === 'Embedding') {
+            // Show embedding-specific fields, hide data provider fields
+            if (embeddingProviderFields) embeddingProviderFields.style.display = 'block';
+            if (dataProviderFields) dataProviderFields.style.display = 'none';
+            if (credentialFields) credentialFields.style.display = 'none';
+            // Base URL not required for embedding integrations
+            if (baseUrlInput) baseUrlInput.removeAttribute('required');
+            if (baseUrlRequired) baseUrlRequired.style.display = 'none';
+        } else if (selectedType === 'Data') {
+            // Show data provider fields, hide embedding fields
+            if (embeddingProviderFields) embeddingProviderFields.style.display = 'none';
+            if (dataProviderFields) dataProviderFields.style.display = 'block';
+            if (credentialFields) credentialFields.style.display = 'block';
+            // Base URL required for data integrations
+            if (baseUrlInput) baseUrlInput.setAttribute('required', 'required');
+            if (baseUrlRequired) baseUrlRequired.style.display = 'inline';
         } else {
-            aiProviderFields.style.display = 'none';
+            // Hide all provider-specific fields
+            if (embeddingProviderFields) embeddingProviderFields.style.display = 'none';
+            if (dataProviderFields) dataProviderFields.style.display = 'block';
+            if (credentialFields) credentialFields.style.display = 'block';
+            // Base URL required by default
+            if (baseUrlInput) baseUrlInput.setAttribute('required', 'required');
+            if (baseUrlRequired) baseUrlRequired.style.display = 'inline';
         }
     }
 }
 
-async function loadFallbackIntegrations() {
+async function loadFallbackIntegrations(currentIntegrationId = null) {
     try {
         const response = await fetch('/api/v1/admin/integrations', {
             credentials: 'include'
@@ -255,8 +272,12 @@ async function loadFallbackIntegrations() {
             // Clear existing options except "No fallback"
             fallbackSelect.innerHTML = '<option value="">No fallback</option>';
 
-            // Add AI provider integrations as options
-            integrations.filter(i => i.integration_type === 'ai_provider').forEach(integration => {
+            // Add Embedding provider integrations as options (for embedding fallback)
+            // Exclude the current integration being edited
+            integrations.filter(i =>
+                i.integration_type === 'Embedding' &&
+                i.id !== currentIntegrationId
+            ).forEach(integration => {
                 const option = document.createElement('option');
                 option.value = integration.id;
                 option.textContent = integration.name;
@@ -278,7 +299,17 @@ async function loadIntegrations() {
             credentials: 'include'
         });
         if (response.ok) {
-            integrations = await response.json();
+            const allIntegrations = await response.json();
+
+            // Filter to show only Data and Embedding types (exclude AI providers)
+            // Note: API returns integration_type field, not type field
+            integrations = allIntegrations.filter(integration => {
+                // Map integration names to types since API doesn't return the type field correctly
+                const dataProviders = ['Jira', 'GitHub', 'WEX Fabric', 'WEX AD'];
+                const embeddingProviders = ['Local Embeddings', 'WEX Embeddings'];
+
+                return dataProviders.includes(integration.name) || embeddingProviders.includes(integration.name);
+            });
 
             renderIntegrationsTable();
         } else {
@@ -317,7 +348,7 @@ function renderIntegrationsTable() {
 
         const logoHtml = hasLogo ?
             `<img src="${logoPath}" alt="${integration.name}" class="w-6 h-6 object-contain" onerror="showFallbackIcon(this)">` :
-            `<i class="fas fa-plug text-lg" style="color: var(--text-muted);"></i>`;
+            `<i data-lucide="plug" class="w-6 h-6" style="color: var(--text-muted);"></i>`;
         
         row.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">
@@ -335,24 +366,27 @@ function renderIntegrationsTable() {
             <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                 <div class="flex justify-center space-x-1">
                     <button onclick="editIntegration(${integration.id})" class="btn-crud-edit-sm" title="Edit">
-                        <i class="fas fa-edit"></i>
+                        <i data-lucide="edit" class="w-4 h-4"></i>
                     </button>
                     ${integration.active ?
                         `<button onclick="pauseIntegration(${integration.id})" class="btn-status-warning-xs" title="Pause">
-                            <i class="fas fa-pause"></i>
+                            <i data-lucide="pause" class="w-4 h-4"></i>
                         </button>` :
                         `<button onclick="resumeIntegration(${integration.id})" class="btn-status-success-xs" title="Resume">
-                            <i class="fas fa-play"></i>
+                            <i data-lucide="play" class="w-4 h-4"></i>
                         </button>`
                     }
                     <button onclick="deleteIntegration(${integration.id})" class="btn-crud-delete-sm" title="Delete">
-                        <i class="fas fa-trash"></i>
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
                 </div>
             </td>
         `;
         tbody.appendChild(row);
     });
+
+    // Re-initialize Lucide icons after adding new content
+    lucide.createIcons();
 }
 
 function showCreateModal() {
@@ -366,14 +400,17 @@ function showCreateModal() {
     document.getElementById('logoFilename').value = '';
     document.getElementById('currentLogo').style.display = 'none';
 
-    // Clear AI provider fields
+    // Clear embedding provider fields
     document.getElementById('modelConfig').value = '';
-    document.getElementById('providerMetadata').value = '';
-    document.getElementById('costConfig').value = '';
     document.getElementById('fallbackIntegration').value = '';
 
-    // Hide AI provider fields initially
-    document.getElementById('aiProviderFields').style.display = 'none';
+    // Hide embedding provider fields initially and show data provider fields
+    document.getElementById('embeddingProviderFields').style.display = 'none';
+    document.getElementById('dataProviderFields').style.display = 'block';
+    document.getElementById('credentialFields').style.display = 'block';
+
+    // Load fallback integrations for new integration (no exclusions)
+    loadFallbackIntegrations();
 
     openModal('integrationModal');
 }
@@ -419,21 +456,21 @@ async function editIntegration(id) {
         // Show masked password if exists
         document.getElementById('password').value = integration.password_masked || '';
 
-        document.getElementById('baseSearch').value = integration.base_search || '';
-        document.getElementById('model').value = integration.model || '';
+        document.getElementById('model').value = integration.ai_model || '';
 
-        // Load AI provider specific fields if type is ai_provider
-        if (integration.integration_type === 'ai_provider') {
-            document.getElementById('modelConfig').value = integration.model_config ? JSON.stringify(integration.model_config, null, 2) : '';
-            document.getElementById('providerMetadata').value = integration.provider_metadata ? JSON.stringify(integration.provider_metadata, null, 2) : '';
-            document.getElementById('costConfig').value = integration.cost_config ? JSON.stringify(integration.cost_config, null, 2) : '';
+        // Load Embedding provider specific fields if type is Embedding
+        if (integration.integration_type === 'Embedding') {
+            document.getElementById('modelConfig').value = integration.ai_model_config ? JSON.stringify(integration.ai_model_config, null, 2) : '';
             document.getElementById('fallbackIntegration').value = integration.fallback_integration_id || '';
         }
 
         document.getElementById('active').checked = integration.active;
 
-        // Show/hide AI provider fields based on type
-        toggleAIProviderFields();
+        // Show/hide provider-specific fields based on type
+        toggleProviderFields();
+
+        // Load fallback integrations excluding the current one
+        await loadFallbackIntegrations(integration.id);
 
         openModal('integrationModal');
 
@@ -448,43 +485,29 @@ async function saveIntegration() {
     const formData = new FormData(form);
     const id = formData.get('id');
 
+    // Client-side validation
+    const type = formData.get('type');
+    const baseUrl = formData.get('base_url');
+
+    if (type === 'Data' && (!baseUrl || baseUrl.trim() === '')) {
+        showError('Base URL is required for Data integrations');
+        return;
+    }
+
     // Store file for upload after integration save
     let logoFilename = formData.get('logo_filename') || null; // Current filename
     const logoFile = formData.get('logo_file');
 
-
-    // Parse JSON fields for AI providers
+    // Parse JSON fields for Embedding providers
     let modelConfig = null;
-    let providerMetadata = null;
-    let costConfig = null;
 
     try {
-        const modelConfigText = formData.get('model_config');
+        const modelConfigText = formData.get('ai_model_config');
         if (modelConfigText && modelConfigText.trim()) {
             modelConfig = JSON.parse(modelConfigText);
         }
     } catch (e) {
         showError('Invalid JSON in Model Configuration');
-        return;
-    }
-
-    try {
-        const providerMetadataText = formData.get('provider_metadata');
-        if (providerMetadataText && providerMetadataText.trim()) {
-            providerMetadata = JSON.parse(providerMetadataText);
-        }
-    } catch (e) {
-        showError('Invalid JSON in Provider Metadata');
-        return;
-    }
-
-    try {
-        const costConfigText = formData.get('cost_config');
-        if (costConfigText && costConfigText.trim()) {
-            costConfig = JSON.parse(costConfigText);
-        }
-    } catch (e) {
-        showError('Invalid JSON in Cost Configuration');
         return;
     }
 
@@ -495,11 +518,8 @@ async function saveIntegration() {
         logo_filename: logoFilename,
         username: formData.get('username') || null,
         password: formData.get('password') || null,
-        base_search: formData.get('base_search') || null,
-        model: formData.get('model') || null,
-        model_config: modelConfig,
-        provider_metadata: providerMetadata,
-        cost_config: costConfig,
+        ai_model: formData.get('ai_model') || null,
+        ai_model_config: modelConfig,
         fallback_integration_id: formData.get('fallback_integration_id') || null,
         active: formData.has('active')
     };

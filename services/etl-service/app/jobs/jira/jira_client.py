@@ -244,8 +244,11 @@ class JiraAPIClient:
             List of all issues matching the JQL query
         """
         if not jql:
-            # Default JQL to fetch recently updated issues
-            jql = f"updated >= -30d ORDER BY updated DESC"
+            # Default JQL to fetch recently updated issues (use absolute date format)
+            from datetime import datetime, timedelta, timezone
+            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            default_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
+            jql = f"updated >= '{default_date}' ORDER BY updated DESC"
 
         all_issues = []
         next_page_token = None

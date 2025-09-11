@@ -873,26 +873,26 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         else:
             last_sync = (job_schedule.last_success_at if job_schedule else None) or datetime.now() - timedelta(days=30)
 
-        # Format datetime for Jira JQL (use relative date format for API v3 compatibility)
+        # Format datetime for Jira JQL (use absolute datetime format for precision)
         from datetime import datetime, timedelta, timezone
 
-        # Calculate days ago from last sync
-        now_utc = datetime.now(timezone.utc)
-
-        # Ensure last_sync is timezone-aware
+        # Ensure last_sync is timezone-aware (assume UTC if no timezone)
         if last_sync.tzinfo is None:
             last_sync = last_sync.replace(tzinfo=timezone.utc)
 
-        days_ago = (now_utc - last_sync).days
+        # Add a small buffer (subtract 5 minutes) to avoid missing issues updated right at the boundary
+        # This helps catch any issues that might have been updated during the previous sync
+        buffered_sync_time = last_sync - timedelta(minutes=5)
 
-        # Use relative date format which is more reliable with API v3
-        if days_ago <= 0:
-            jira_date_filter = "updated >= -1d"  # At least 1 day
-        else:
-            jira_date_filter = f"updated >= -{days_ago}d"  # Always use actual last_sync_at date
+        # Convert to Jira-compatible absolute datetime format
+        # Jira JQL supports: 'YYYY-MM-DD HH:MM' (preferred) or 'YYYY-MM-DD HH:MM:SS'
+        # Using YYYY-MM-DD HH:MM format for better compatibility and readability
+        jira_date = buffered_sync_time.strftime('%Y-%m-%d %H:%M')
+        jira_date_filter = f"updated >= '{jira_date}'"
 
         # Log the actual date being used for sync
-        job_logger.progress(f"[DATE_LOGIC] Using start_date: {last_sync.strftime('%Y-%m-%d %H:%M')} ({days_ago} days ago)")
+        job_logger.progress(f"[DATE_LOGIC] Using absolute datetime: {jira_date} UTC (buffered by 5 minutes from {last_sync.strftime('%Y-%m-%d %H:%M')})")
+        job_logger.debug(f"[DATE_LOGIC] Original last_sync: {last_sync}, Buffered: {buffered_sync_time}")
 
         # Construct JQL query: base_search AND updated timestamp
         jql_parts = []
@@ -901,7 +901,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if integration.base_search:
             jql_parts.append(f"({integration.base_search})")
 
-        # Add updated timestamp filter (use relative date format)
+        # Add updated timestamp filter (use absolute datetime format for precision)
         jql_parts.append(jira_date_filter)
 
         # Combine all parts with AND
@@ -982,7 +982,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             else:
                 job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
 
-            return {'success': True, 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': []}
+            return {'success': True, 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': [], 'issues_with_code_changes': []}
 
         # Get existing issues to determine updates vs inserts
         external_ids = [issue.get('id') for issue in all_issues if issue.get('id')]
@@ -1026,6 +1026,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         issues_to_update = []
         processed_count = 0
         processed_issue_keys = []
+        processed_issues_with_code_changes = []  # Track issues with code_changed = True
         issue_changelogs = {}  # Store changelog data by issue key
         current_time = datetime.now()
 
@@ -1155,6 +1156,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                 if issue_key:
                     processed_issue_keys.append(issue_key)
 
+                    # Track issues with code changes for dev_status processing
+                    if processed_issue.get('code_changed', False):
+                        processed_issues_with_code_changes.append(issue_key)
+
                     # Process changelogs from the issue data (already included via expand=changelog)
                     changelog_data = issue_data.get('changelog', {})
                     if changelog_data and changelog_data.get('histories'):
@@ -1259,13 +1264,14 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             'issues_processed': processed_count,
             'changelogs_processed': changelogs_processed,
             'issue_keys': processed_issue_keys,
+            'issues_with_code_changes': processed_issues_with_code_changes,  # Issues with code_changed = True
             'issue_changelogs': issue_changelogs  # Include extracted changelog data
         }
 
     except Exception as e:
         session.rollback()
         job_logger.error(f"Error in work items and changelogs extraction: {str(e)}")
-        return {'success': False, 'error': str(e), 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': [], 'issue_changelogs': {}}
+        return {'success': False, 'error': str(e), 'issues_processed': 0, 'changelogs_processed': 0, 'issue_keys': [], 'issues_with_code_changes': [], 'issue_changelogs': {}}
 
 
 
@@ -1948,7 +1954,11 @@ async def extract_work_items_and_changelogs_session_free(
                 if integration_base_search:
                     jql_query = f"({integration_base_search}) ORDER BY updated DESC"
                 else:
-                    jql_query = "updated >= -365d ORDER BY updated DESC"  # Use relative date format
+                    # Fallback: Use absolute date format for last 30 days (more reasonable than 365 days)
+                    from datetime import datetime, timedelta, timezone
+                    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+                    fallback_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
+                    jql_query = f"updated >= '{fallback_date}' ORDER BY updated DESC"
 
                 job_logger.progress(f"[API] Fetching issues with JQL: {jql_query}")
 

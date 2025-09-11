@@ -25,8 +25,8 @@
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
         <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
-                <i class="fas fa-robot text-lg" style="color: var(--color-1);"></i>
+            <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
+                <i data-lucide="bot" class="w-7 h-7" style="color: var(--color-1);"></i>
             </div>
             <div>
                 <h2 class="text-xl font-semibold" style="color: var(--text-primary);">ETL Orchestrator</h2>
@@ -46,7 +46,7 @@
         <!-- Next Run Timer -->
         <div class="flex items-center space-x-4">
             <div class="flex items-center space-x-2">
-                <i class="fas fa-clock text-sm" style="color: var(--text-secondary);"></i>
+                <i data-lucide="clock" class="w-4 h-4" style="color: var(--text-secondary);"></i>
                 <span class="text-sm font-medium" style="color: var(--text-secondary);">Next run in:</span>
             </div>
             <div id="countdownTimer" class="text-lg font-mono font-bold px-3 py-1 rounded" style="color: var(--color-1); background-color: var(--bg-tertiary); border: 1px solid var(--border-color);">
@@ -57,16 +57,16 @@
         <!-- Control Buttons -->
         <div class="flex items-center space-x-2">
             <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="action-icon-btn force-pending" title="Run Now">
-                <i class="fas fa-flag-checkered"></i>
+                <i data-lucide="flag"></i>
             </button>
             <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm" title="Pause">
-                <i class="fas fa-pause"></i>
+                <i data-lucide="pause"></i>
             </button>
             <button onclick="showLogManagement()" class="btn-neutral-secondary" title="Logs">
-                <i class="fas fa-file-alt"></i>
+                <i data-lucide="file-text"></i>
             </button>
             <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm" title="Settings">
-                <i class="fas fa-cog"></i>
+                <i data-lucide="settings"></i>
             </button>
         </div>
     </div>
@@ -1044,6 +1044,9 @@
             });
         }
 
+        // Re-initialize Lucide icons after job cards are rendered
+        refreshLucideIcons();
+
         updateOrchestratorButtonState(jobsData);
     }
 
@@ -1294,19 +1297,19 @@
                     ${!canActivateSafe || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canActivateSafe && !isInactive ? 'force-pending' : 'disabled'}"
                     title="${isInactive ? 'Job is inactive - activate first' : forcePendingTitle}">
-                <i class="fas fa-clock"></i>
+                <i data-lucide="clock"></i>
             </button>
             <button onclick="${canUnpause ? 'unpauseJob' : 'pauseJob'}('${jobName}', ${jobData.id})"
                     ${!(canPauseSafe || canUnpause) || isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${canUnpause && !isInactive ? 'resume' : (canPauseSafe && !isInactive ? 'pause-resume' : 'disabled')}"
                     title="${isInactive ? 'Job is inactive - activate first' : pauseTitle}">
-                <i class="fas fa-${canUnpause ? 'play' : 'pause'}"></i>
+                <i data-lucide="${canUnpause ? 'play' : 'pause'}"></i>
             </button>
             <button onclick="showJobDetails('${jobName}', ${jobData.id})"
                     ${isInactive ? 'disabled' : ''}
                     class="action-icon-btn ${isInactive ? 'disabled' : 'details'}"
                     title="${isInactive ? 'Job is inactive - activate first' : 'View job details'}">
-                <i class="fas fa-info-circle"></i>
+                <i data-lucide="info"></i>
             </button>
         `;
 
@@ -1662,12 +1665,12 @@
     function getStatusIcon(status) {
         switch (status) {
             // Database status values (uppercase)
-            case 'RUNNING': return 'spinner fa-spin';
+            case 'RUNNING': return 'loader-2'; // Will need animate-spin class
             case 'PENDING': return 'clock';
             case 'FINISHED': return 'check-circle';
             case 'PAUSED': return 'pause-circle';
             case 'NOT_STARTED': return 'circle';
-            case 'ERROR': return 'exclamation-triangle';
+            case 'ERROR': return 'alert-triangle';
             // Special API status values
             case 'inactive': return 'circle'; // For inactive integrations
             default: return 'exclamation-triangle';
@@ -1916,6 +1919,59 @@
     // Orchestrator Control Functions
     let orchestratorStarting = false; // Prevent multiple simultaneous starts
 
+    function disableOrchestratorButtons() {
+        // Disable pause/resume button
+        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+        if (pauseBtn) {
+            pauseBtn.disabled = true;
+            pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
+            pauseBtn.title = 'Orchestrator starting...';
+        }
+
+        // Disable logs button
+        const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
+        if (logsBtn) {
+            logsBtn.disabled = true;
+            logsBtn.className = 'btn-neutral-secondary opacity-50 cursor-not-allowed';
+            logsBtn.title = 'Logs unavailable while orchestrator is starting';
+        }
+
+        // Disable settings button
+        const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
+        if (settingsBtn) {
+            settingsBtn.disabled = true;
+            settingsBtn.className = 'btn-neutral-primary-sm opacity-50 cursor-not-allowed';
+            settingsBtn.title = 'Settings unavailable while orchestrator is starting';
+        }
+    }
+
+    function disableAllJobButtons() {
+        // Get all job cards and disable their action buttons
+        const jobCards = document.querySelectorAll('[data-job]');
+        jobCards.forEach(jobCard => {
+            const actionButtons = jobCard.querySelectorAll('.action-icon-btn');
+            actionButtons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                btn.classList.remove('force-pending', 'pause-resume', 'resume', 'details');
+                btn.classList.add('disabled');
+
+                // Update title based on button type
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    if (icon.classList.contains('fa-clock') || icon.getAttribute('data-lucide') === 'clock') {
+                        btn.title = 'Cannot activate while orchestrator is starting';
+                    } else if (icon.classList.contains('fa-pause') || icon.getAttribute('data-lucide') === 'pause' ||
+                              icon.classList.contains('fa-play') || icon.getAttribute('data-lucide') === 'play') {
+                        btn.title = 'Cannot pause/resume while orchestrator is starting';
+                    } else if (icon.classList.contains('fa-info') || icon.getAttribute('data-lucide') === 'info') {
+                        btn.title = 'Details unavailable while orchestrator is starting';
+                    }
+                }
+            });
+        });
+    }
+
     async function forceStartOrchestrator() {
         const button = event.target.closest('button');
 
@@ -1937,6 +1993,15 @@
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             button.disabled = true;
 
+            // Immediately disable all orchestrator control buttons
+            disableOrchestratorButtons();
+
+            // Immediately disable all job action buttons
+            disableAllJobButtons();
+
+            // Refresh Lucide icons after button state changes
+            refreshLucideIcons();
+
 
 
             const token = getAuthToken();
@@ -1950,21 +2015,36 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.log('Orchestrator started successfully');
                 // Refresh both job data and orchestrator status after a short delay
+                // Don't re-enable buttons here - let the refresh functions handle proper state
                 setTimeout(() => {
                     refreshData();
                     refreshOrchestratorStatus();
+                    // Reset the orchestrator starting flag after refresh
+                    orchestratorStarting = false;
+                    // Reset the force start button
+                    button.innerHTML = originalText;
+                    button.disabled = false;
                 }, 1000);
             } else {
                 console.error(`Failed to start orchestrator: ${result.detail}`);
+                // Re-enable buttons on error
+                button.innerHTML = originalText;
+                button.disabled = false;
+                orchestratorStarting = false;
+                // Refresh to restore proper button states
+                refreshData();
+                refreshOrchestratorStatus();
             }
         } catch (error) {
             console.error(`Error starting orchestrator: ${error.message}`);
-        } finally {
+            // Re-enable buttons on error
             button.innerHTML = originalText;
             button.disabled = false;
-            orchestratorStarting = false; // Reset flag
+            orchestratorStarting = false;
+            // Refresh to restore proper button states
+            refreshData();
+            refreshOrchestratorStatus();
         }
     }
 
@@ -1981,7 +2061,6 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.warn('Orchestrator paused');
                 setTimeout(refreshOrchestratorStatus, 500);
             } else {
                 console.error(`Failed to pause orchestrator: ${result.detail}`);
@@ -2120,9 +2199,10 @@
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
                     pauseBtn.className = 'btn-status-success-sm';
-                    pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                    pauseBtn.innerHTML = '<i data-lucide="play"></i>';
                     pauseBtn.title = 'Resume';
                     pauseBtn.disabled = false;
+                    refreshLucideIcons();
                 }
                 if (runNowBtn) {
                     runNowBtn.disabled = false;
@@ -2150,8 +2230,9 @@
 
                 if (pauseBtn) {
                     pauseBtn.classList.remove('hidden');
-                    pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    pauseBtn.innerHTML = '<i data-lucide="pause"></i>';
                     pauseBtn.title = 'Pause';
+                    refreshLucideIcons();
                     if (jobsRunning) {
                         pauseBtn.disabled = true;
                         pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
@@ -3656,6 +3737,16 @@
             `;
         }
     }
+
+    // Function to re-initialize Lucide icons after dynamic content updates
+    function refreshLucideIcons() {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    // Call refreshLucideIcons after major DOM updates
+    // This should be called after job cards are rendered, modals are updated, etc.
 </script>
 {% endblock %}
 

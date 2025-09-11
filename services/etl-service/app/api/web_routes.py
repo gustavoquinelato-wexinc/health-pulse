@@ -1098,7 +1098,7 @@ async def wits_mappings_page(request: Request):
                     )
                     if response_color.status_code == 200:
                         data = response_color.json()
-                        if data.get("success"):
+                        if data.get("success") and data.get("color_data"):
                             # Also get user-specific theme mode from backend
                             theme_response = await client.get(
                                 f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
@@ -1111,13 +1111,34 @@ async def wits_mappings_page(request: Request):
                                 if theme_data.get('success'):
                                     theme_mode = theme_data.get('mode', 'light')
 
-                            # Combine color schema and theme data
-                            color_schema_data = {
-                                "success": True,
-                                "mode": data.get("mode", "default"),
-                                "colors": data.get("colors", {}),
-                                "theme": theme_mode
-                            }
+                            # Process unified color data
+                            color_data = data.get("color_data", [])
+                            color_schema_mode = data.get("color_schema_mode", "default")
+
+                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
+                            current_colors = next((c for c in color_data if
+                                                 c.get('color_schema_mode') == color_schema_mode and
+                                                 c.get('theme_mode') == theme_mode and
+                                                 c.get('accessibility_level') == 'regular'), None)
+                            if not current_colors:
+                                current_colors = next((c for c in color_data if
+                                                     c.get('color_schema_mode') == color_schema_mode and
+                                                     c.get('accessibility_level') == 'regular'), None)
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
         except Exception as e:
             logger.debug(f"Could not fetch color schema: {e}")
 

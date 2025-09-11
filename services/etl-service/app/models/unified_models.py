@@ -91,8 +91,8 @@ class Integration(Base, BaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # Core integration fields
-    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'jira', 'github', 'openai', 'wex_ai_gateway'
-    type = Column(String(50), nullable=False, quote=False, name="type")  # 'data_source', 'ai_provider', 'notification'
+    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', 'Local Embeddings'
+    type = Column(String(50), nullable=False, quote=False, name="type")  # 'Data', 'AI', 'Embedding'
     username = Column(String, quote=False, name="username")
     password = Column(String, quote=False, name="password")
     base_url = Column(Text, quote=False, name="base_url")
@@ -980,6 +980,7 @@ class AIUsageTracking(Base, BaseEntity):
     output_tokens = Column(Integer, default=0, quote=False, name="output_tokens")
     total_tokens = Column(Integer, default=0, quote=False, name="total_tokens")
     cost = Column(Float, default=0.0, quote=False, name="cost")
+    processing_time = Column(Float, default=0.0, quote=False, name="processing_time")  # Time in seconds
     request_metadata = Column(JSON, default={}, quote=False, name="request_metadata")
 
     # Relationships

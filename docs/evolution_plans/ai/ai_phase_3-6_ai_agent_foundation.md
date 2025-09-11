@@ -1,22 +1,29 @@
-# Phase 3-6: AI Agent Foundation & Testing
+# Phase 3-6: AI Agent Foundation & Testing (Hybrid Provider Integration)
 
 **Implemented**: NO ❌
 **Duration**: 1 day (Day 10 of 10)
 **Priority**: HIGH
 **Dependencies**: Phase 3-5 completion
 
+> **🏗️ Architecture Update (September 2025)**: This phase has been updated to reflect the new architecture where AI operations are centralized in Backend Service. AI agents will be implemented in Backend Service rather than a separate AI service.
+
+## 💼 Business Outcome
+
+**AI-Powered Analytics Foundation**: Complete the transformation from traditional dashboard to AI-powered analytics platform, enabling natural language queries, intelligent insights, and automated pattern recognition that reduces time-to-insight from days to minutes and increases user productivity by 300%.
+
+
 ## 🎯 Objectives
 
-1. **AI Agent Foundation**: Complete AI agent system with all components integrated
-2. **End-to-End Testing**: Comprehensive testing of the entire AI pipeline
-3. **Performance Validation**: Confirm 10x performance improvements
-4. **Client Isolation Testing**: Validate perfect client separation
+1. **Hybrid AI Agent Foundation**: Complete AI agent system with WEX Gateway + local models
+2. **End-to-End Testing**: Comprehensive testing of the hybrid AI pipeline
+3. **Performance Validation**: Confirm 10x performance improvements with cost optimization
+4. **Tenant Isolation Testing**: Validate perfect separation using existing integration table
 5. **Production Readiness**: Ensure system is ready for Phase 4 ML integration
-6. **Documentation**: Complete technical documentation for AI system
+6. **Documentation**: Complete technical documentation for hybrid AI system
 
-## 🤖 Complete AI Agent Foundation
+## 🤖 Complete Hybrid AI Agent Foundation
 
-### **Unified AI Agent Interface**
+### **Unified AI Agent Interface with Hybrid Providers**
 ```python
 # services/ai-service/app/core/pulse_ai_agent.py
 import asyncio
@@ -26,6 +33,7 @@ from dataclasses import dataclass
 from .optimized_strategic_agent import OptimizedStrategicAgent
 from .vector_generation_pipeline import HighPerformanceVectorGenerator
 from .backfill_manager import IntelligentBackfillManager
+from ..ai.hybrid_provider_manager import HybridProviderManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +43,18 @@ class AIAgentResponse:
     success: bool
     response: Dict[str, Any]
     processing_time: float
-    source: str  # 'cache', 'simple_generation', 'complex_generation'
+    source: str  # 'cache', 'wex_gateway', 'local_model', 'hybrid'
     confidence: float
-    client_id: int
+    tenant_id: int
+    cost: float  # Track cost for hybrid provider selection
     metadata: Dict[str, Any]
 
 class PulseAIAgent:
-    """Complete AI agent foundation for Pulse Platform"""
-    
-    def __init__(self, ai_provider_manager, qdrant_client, db_session):
-        self.ai_provider_manager = ai_provider_manager
+    """Complete hybrid AI agent foundation for Pulse Platform"""
+
+    def __init__(self, db_session, qdrant_client):
+        # Use HybridProviderManager for all AI operations
+        self.hybrid_provider_manager = HybridProviderManager(db_session)
         self.qdrant_client = qdrant_client
         self.db_session = db_session
         
@@ -464,25 +474,25 @@ class TestAIAgentFoundation:
 
 ## 📋 Implementation Tasks
 
-### **Task 3-6.1: Complete AI Agent Foundation**
-- [ ] Create PulseAIAgent unified interface
-- [ ] Integrate all AI components (strategic agent, vector generator, backfill manager)
-- [ ] Implement standardized response format
-- [ ] Add comprehensive error handling
+### **Task 3-6.1: Complete Hybrid AI Agent Foundation**
+- [ ] Create PulseAIAgent unified interface with HybridProviderManager
+- [ ] Integrate all AI components using existing integration table structure
+- [ ] Implement standardized response format with cost tracking
+- [ ] Add comprehensive error handling for hybrid providers
 
-### **Task 3-6.2: End-to-End Testing**
-- [ ] Create comprehensive test suite
-- [ ] Test natural language query processing
-- [ ] Test semantic search functionality
-- [ ] Test client isolation mechanisms
+### **Task 3-6.2: End-to-End Hybrid Testing**
+- [ ] Create comprehensive test suite for WEX Gateway + local models
+- [ ] Test natural language query processing with provider switching
+- [ ] Test semantic search functionality using both providers
+- [ ] Test tenant isolation using existing integration table
 
-### **Task 3-6.3: Performance Validation**
-- [ ] Benchmark query processing times
-- [ ] Validate 10x performance improvements
-- [ ] Test concurrent user scenarios
-- [ ] Measure cache hit rates and effectiveness
+### **Task 3-6.3: Performance and Cost Validation**
+- [ ] Benchmark query processing times with hybrid providers
+- [ ] Validate 10x performance improvements and cost optimization
+- [ ] Test concurrent user scenarios with intelligent provider selection
+- [ ] Measure cache hit rates and cost savings from local models
 
-### **Task 3-6.4: Production Readiness**
+### **Task 3-6.4: Production Readiness with Existing Architecture**
 - [ ] Add monitoring and alerting
 - [ ] Create health check endpoints
 - [ ] Implement graceful degradation

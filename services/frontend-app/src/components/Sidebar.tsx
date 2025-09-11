@@ -38,12 +38,6 @@ const navigationItems = [
     icon: '⚙️',
     active: false,
     badge: null
-  },
-  {
-    name: 'Settings',
-    icon: '🔧',
-    active: false,
-    badge: null
   }
 ]
 
@@ -54,6 +48,7 @@ const recentItems = [
 ]
 
 export default function Sidebar() {
+
   return (
     <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 bg-secondary border-r border-default overflow-y-auto">
       <div className="p-4 space-y-6">
@@ -78,8 +73,7 @@ export default function Sidebar() {
                           : item.name === 'Portfolio View' ? '/engineering'
                             : item.name === 'Executive KPIs' ? '/engineering'
                               : item.name === 'ETL Jobs' ? '/admin'
-                                : item.name === 'Settings' ? '/admin'
-                                  : '/home'
+                                : '/home'
                   }
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${item.active
                     ? 'shadow-lg text-[color:var(--on-gradient-1-2)]'
@@ -152,6 +146,28 @@ export default function Sidebar() {
             >
               📊 Generate Report
             </motion.button>
+          </div>
+        </div>
+
+        {/* Settings Section */}
+        <div className="space-y-2">
+          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">
+            Settings
+          </h2>
+          <div className="space-y-1">
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.6 }}
+            >
+              <Link
+                to="/settings"
+                className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-secondary hover:bg-tertiary hover:text-primary transition-colors"
+              >
+                <span className="text-lg">🔧</span>
+                <span>Settings</span>
+              </Link>
+            </motion.div>
           </div>
         </div>
 

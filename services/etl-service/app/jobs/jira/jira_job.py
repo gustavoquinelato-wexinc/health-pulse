@@ -685,32 +685,44 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         logger.info("Step 4: Extracting dev_status data and creating PR links...")
         await websocket_manager.send_progress_update("Jira", 50.0, "Extracting dev_status data and creating PR links...")
 
-        # Get issues with code_changed = True from the current extraction
-        # Use hybrid approach: current extraction + recently updated issues
-        current_issue_keys = set(issues_result.get('issue_keys', []))
+        # Get issues with code_changed = True from the current extraction ONLY
+        # This is more efficient and logical - only process dev_status for newly extracted issues with code changes
+        current_issues_with_code_changes = issues_result.get('issues_with_code_changes', [])
 
-        # Get recently updated issues with code changes (since last sync)
-        recent_code_changed_issues = []
-        if job_schedule.last_success_at:
-            recent_code_changed_issues = session.query(WorkItem.key).filter(
-                WorkItem.integration_id == integration.id,
-                WorkItem.code_changed == True,
-                WorkItem.last_updated_at > job_schedule.last_success_at
-            ).all()
+        if not current_issues_with_code_changes:
+            logger.info("No issues with code changes found in current extraction - skipping dev_status processing")
+            await websocket_manager.send_progress_update("Jira", 90.0, "No dev_status processing needed - no code changes detected")
 
-        recent_keys = {issue.key for issue in recent_code_changed_issues}
-        all_keys_to_process = current_issue_keys | recent_keys
+            # Final completion
+            await websocket_manager.send_progress_update("Jira", 100.0, f"Extraction completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs")
+            await websocket_manager.send_completion(
+                "Jira",
+                True,
+                {
+                    'issues_processed': issues_result['issues_processed'],
+                    'changelogs_processed': issues_result['changelogs_processed'],
+                    'pr_links_created': 0,
+                    'message': f"Successfully extracted {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs"
+                }
+            )
 
-        # Get the actual WorkItem objects for processing
+            return {
+                'success': True,
+                'issues_processed': issues_result['issues_processed'],
+                'changelogs_processed': issues_result['changelogs_processed'],
+                'pr_links_created': 0,
+                'dev_status_processed': 0
+            }
+
+        # Get the actual WorkItem objects for the issues with code changes
         issues_with_code_changes = session.query(WorkItem).filter(
             WorkItem.integration_id == integration.id,
-            WorkItem.key.in_(all_keys_to_process),
+            WorkItem.key.in_(current_issues_with_code_changes),
             WorkItem.code_changed == True
         ).all()
 
-        logger.info(f"Found {len(issues_with_code_changes)} issues with code changes")
-        logger.info(f"   • From current extraction: {len(current_issue_keys)}")
-        logger.info(f"   • Recently updated: {len(recent_keys)}")
+        logger.info(f"Found {len(issues_with_code_changes)} issues with code changes from current extraction")
+        logger.info(f"   • All from current extraction: {len(current_issues_with_code_changes)}")
         total_issues = len(issues_with_code_changes)
 
         pr_links_created = 0

@@ -213,8 +213,30 @@ body {
 }
 
 .status-finished {
-    background-color: var(--status-info);
+    background-color: var(--status-success);
     color: white;
+}
+
+/* Status badge for RUNNING jobs with spinning animation */
+.status-badge-running {
+    background-color: var(--status-running);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Ensure spinning animation works */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
 }
 
 .status-paused {
@@ -1331,7 +1353,7 @@ textarea:disabled {
 }
 
 .status-badge-finished {
-    background-color: var(--status-info);
+    background-color: var(--status-success);
     color: white;
 }
 

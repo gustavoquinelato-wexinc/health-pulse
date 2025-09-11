@@ -53,13 +53,13 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
-                <i class="fas fa-users-cog mr-3"></i>Admin Panel
+                <i data-lucide="users-cog" class="w-8 h-8 mr-3 inline"></i>Admin Panel
             </h1>
             <p class="text-lg" style="color: var(--text-secondary);">Manage users, roles, and system settings</p>
         </div>
         <div class="flex items-center space-x-3">
             <button onclick="refreshStats()" class="btn-neutral-secondary">
-                <i class="fas fa-sync-alt mr-2"></i>Refresh
+                <i data-lucide="refresh-cw" class="w-4 h-4 mr-2"></i>Refresh
             </button>
         </div>
     </div>
@@ -69,23 +69,23 @@
 <div class="admin-section">
     <div class="section-header">
         <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
-            <i class="fas fa-database mr-2"></i>Database Statistics
+            <i data-lucide="database" class="w-5 h-5 mr-2 inline"></i>Database Statistics
         </h2>
     </div>
     <div class="section-content">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <div class="stats-card p-6 text-center">
-                <i class="fas fa-hdd text-3xl mb-3" style="color: var(--color-4);"></i>
+                <i data-lucide="hard-drive" class="w-12 h-12 mb-3 mx-auto" style="color: var(--color-4);"></i>
                 <h3 class="text-2xl font-bold mb-1" style="color: var(--text-primary);" id="database-size">-</h3>
                 <p class="text-sm" style="color: var(--text-muted);">Database Size</p>
             </div>
             <div class="stats-card p-6 text-center">
-                <i class="fas fa-table text-3xl mb-3" style="color: var(--color-2);"></i>
+                <i data-lucide="table" class="w-12 h-12 mb-3 mx-auto" style="color: var(--color-2);"></i>
                 <h3 class="text-2xl font-bold mb-1" style="color: var(--text-primary);" id="table-count">-</h3>
                 <p class="text-sm" style="color: var(--text-muted);">Active Tables</p>
             </div>
             <div class="stats-card p-6 text-center">
-                <i class="fas fa-database text-3xl mb-3" style="color: var(--color-1);"></i>
+                <i data-lucide="database" class="w-12 h-12 mb-3 mx-auto" style="color: var(--color-1);"></i>
                 <h3 class="text-2xl font-bold mb-1" style="color: var(--text-primary);" id="total-records">-</h3>
                 <p class="text-sm" style="color: var(--text-muted);">Total Records</p>
             </div>
@@ -97,28 +97,28 @@
 <div class="admin-section">
     <div class="section-header">
         <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
-            <i class="fas fa-users mr-2"></i>User Management
+            <i data-lucide="users" class="w-5 h-5 mr-2 inline"></i>User Management
         </h2>
     </div>
     <div class="section-content">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div class="stats-card p-4 text-center">
-                <i class="fas fa-users text-2xl mb-2" style="color: var(--color-1);"></i>
+                <i data-lucide="users" class="w-8 h-8 mb-2 mx-auto" style="color: var(--color-1);"></i>
                 <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="total-users">-</h3>
                 <p class="text-xs" style="color: var(--text-muted);">Total Users</p>
             </div>
             <div class="stats-card p-4 text-center">
-                <i class="fas fa-user-check text-2xl mb-2" style="color: var(--color-3);"></i>
+                <i data-lucide="user-check" class="w-8 h-8 mb-2 mx-auto" style="color: var(--color-3);"></i>
                 <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="active-users">-</h3>
                 <p class="text-xs" style="color: var(--text-muted);">Active Users</p>
             </div>
             <div class="stats-card p-4 text-center">
-                <i class="fas fa-user-clock text-2xl mb-2" style="color: var(--color-4);"></i>
+                <i data-lucide="clock" class="w-8 h-8 mb-2 mx-auto" style="color: var(--color-4);"></i>
                 <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="logged-users">-</h3>
                 <p class="text-xs" style="color: var(--text-muted);">Logged Users</p>
             </div>
             <div class="stats-card p-4 text-center">
-                <i class="fas fa-user-shield text-2xl mb-2" style="color: var(--color-5);"></i>
+                <i data-lucide="shield-check" class="w-8 h-8 mb-2 mx-auto" style="color: var(--color-5);"></i>
                 <h3 class="text-xl font-bold mb-1" style="color: var(--text-primary);" id="admin-users">-</h3>
                 <p class="text-xs" style="color: var(--text-muted);">Admin Users</p>
             </div>
@@ -129,7 +129,7 @@
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Users</h3>
                 <button onclick="showCreateUserModal()" class="btn-crud-create">
-                    <i class="fas fa-plus mr-2"></i>Add User
+                    <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Add User
                 </button>
             </div>
             <div class="overflow-x-auto">
@@ -146,7 +146,7 @@
                     <tbody id="users-table-body" style="background-color: var(--bg-secondary);">
                         <tr>
                             <td colspan="5" class="px-6 py-4 text-center" style="color: var(--text-muted);">
-                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading users...
+                                <i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin inline"></i>Loading users...
                             </td>
                         </tr>
                     </tbody>
@@ -160,7 +160,7 @@
 <div class="admin-section">
     <div class="section-header">
         <h2 class="text-xl font-semibold" style="color: var(--text-primary);">
-            <i class="fas fa-plug mr-2"></i>Integrations
+            <i data-lucide="plug" class="w-5 h-5 mr-2 inline"></i>Integrations
         </h2>
     </div>
     <div class="section-content">
@@ -168,7 +168,7 @@
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
                 <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Active Integrations</h3>
                 <button onclick="refreshIntegrations()" class="btn-neutral-secondary">
-                    <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    <i data-lucide="refresh-cw" class="w-4 h-4 mr-2"></i>Refresh
                 </button>
             </div>
             <div class="overflow-x-auto">
@@ -185,7 +185,7 @@
                     <tbody id="integrations-table-body" style="background-color: var(--bg-secondary);">
                         <tr>
                             <td colspan="5" class="px-6 py-4 text-center" style="color: var(--text-muted);">
-                                <i class="fas fa-spinner fa-spin mr-2"></i>Loading integrations...
+                                <i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin inline"></i>Loading integrations...
                             </td>
                         </tr>
                     </tbody>
@@ -325,14 +325,14 @@
                 <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : 'Never'}</td>
                 <td class="px-6 py-4 text-sm">
                     <button onclick="editUser(${user.id})" class="btn-neutral-secondary mr-2">
-                        <i class="fas fa-edit"></i>
+                        <i data-lucide="edit" class="w-4 h-4"></i>
                     </button>
-                    ${user.active ? 
+                    ${user.active ?
                         `<button onclick="deactivateUser(${user.id})" class="btn-crud-delete">
-                            <i class="fas fa-user-slash"></i>
+                            <i data-lucide="user-x" class="w-4 h-4"></i>
                         </button>` :
                         `<button onclick="activateUser(${user.id})" class="btn-crud-create">
-                            <i class="fas fa-user-check"></i>
+                            <i data-lucide="user-check" class="w-4 h-4"></i>
                         </button>`
                     }
                 </td>
@@ -340,6 +340,9 @@
             
             tbody.appendChild(row);
         });
+
+        // Re-initialize Lucide icons after adding new content
+        lucide.createIcons();
     }
 
     // Load integrations
@@ -392,16 +395,19 @@
                 <td class="px-6 py-4 text-sm" style="color: var(--text-secondary);">${integration.last_sync_at ? new Date(integration.last_sync_at).toLocaleDateString() : 'Never'}</td>
                 <td class="px-6 py-4 text-sm">
                     <button onclick="editIntegration(${integration.id})" class="btn-neutral-secondary mr-2">
-                        <i class="fas fa-edit"></i>
+                        <i data-lucide="edit" class="w-4 h-4"></i>
                     </button>
                     <button onclick="deactivateIntegration(${integration.id})" class="btn-crud-delete">
-                        <i class="fas fa-pause"></i>
+                        <i data-lucide="pause" class="w-4 h-4"></i>
                     </button>
                 </td>
             `;
             
             tbody.appendChild(row);
         });
+
+        // Re-initialize Lucide icons after adding new content
+        lucide.createIcons();
     }
 
     // Refresh functions

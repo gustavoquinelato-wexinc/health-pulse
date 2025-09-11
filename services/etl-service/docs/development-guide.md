@@ -118,6 +118,52 @@ python scripts/generate_secret_key.py --count 3
 - **Multiple Formats**: Hex, base64, and raw binary output options
 - **Environment Ready**: Output formatted for .env files
 
+## 🎨 **UI Components & Icons**
+
+### **Icon System - Lucide Icons**
+
+The ETL service uses [Lucide Icons](https://lucide.dev/) for all UI elements, providing a consistent and modern icon set.
+
+**Key Features:**
+- **Lightweight**: SVG-based icons with minimal footprint
+- **Consistent**: Unified design language across all UI elements
+- **Accessible**: Built-in accessibility features
+- **Dynamic**: Icons can be updated after DOM changes
+
+**Usage in Templates:**
+```html
+<!-- Static icons -->
+<i data-lucide="clock"></i>
+<i data-lucide="pause"></i>
+<i data-lucide="play"></i>
+
+<!-- Dynamic icons -->
+<i data-lucide="${canUnpause ? 'play' : 'pause'}"></i>
+```
+
+**Icon Refresh Function:**
+```javascript
+// Call after dynamic content updates
+function refreshLucideIcons() {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+// Usage after DOM updates
+updateJobCards(jobsData);
+refreshLucideIcons(); // Ensures new icons are rendered
+```
+
+**Common Icons Used:**
+- `clock` - Job activation/pending actions
+- `pause`/`play` - Job control actions
+- `info` - Details and information
+- `flag` - Force start actions
+- `settings` - Configuration
+- `file-text` - Logs and documentation
+- `bot` - AI and automation features
+
 ## 🔧 **Development Workflow**
 
 ### **Initial Setup**

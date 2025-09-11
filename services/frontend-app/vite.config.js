@@ -16,6 +16,7 @@ export default defineConfig(function (_a) {
         server: {
             host: true, // Required for Docker
             port: 3000,
+            strictPort: true, // Fail if port is already in use instead of auto-incrementing
             watch: {
                 usePolling: true,
             },

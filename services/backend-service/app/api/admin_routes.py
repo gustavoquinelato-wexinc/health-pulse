@@ -203,6 +203,8 @@ class TenantUpdateRequest(BaseModel):
     name: Optional[str] = None
     website: Optional[str] = None
     active: Optional[bool] = None
+    assets_folder: Optional[str] = None
+    logo_filename: Optional[str] = None
 
 class PermissionMatrixResponse(BaseModel):
     roles: List[str]
@@ -1482,11 +1484,18 @@ async def get_all_tenants(
     """Get current user's client information"""
     try:
         database = get_database()
-        with database.get_read_session_context() as session:
+        with database.get_write_session_context() as session:
             # ✅ SECURITY: Only show the current user's tenant
             tenants = session.query(Tenant).filter(
                 Tenant.id == user.tenant_id
             ).offset(skip).limit(limit).all()
+
+            # Auto-fix any assets_folder case issues
+            for tenant in tenants:
+                if tenant.assets_folder and tenant.assets_folder != tenant.assets_folder.lower():
+                    tenant.assets_folder = tenant.assets_folder.lower()
+                    session.commit()
+                    logger.info(f"Auto-corrected assets_folder case for tenant {tenant.name}")
 
             return [
                 TenantResponse(
@@ -1529,36 +1538,36 @@ async def create_tenant(
                     detail="Tenant with this name already exists"
                 )
 
-            # Create new client
-            new_client = Tenant(
-                name=client_data.name,
-                website=client_data.website,
-                active=client_data.active if client_data.active is not None else True,
-                created_at=DateTimeHelper.utcnow(),
-                last_updated_at=DateTimeHelper.utcnow()
+            # Create new tenant
+            new_tenant = Tenant(
+                name=tenant_data.name,
+                website=tenant_data.website,
+                active=tenant_data.active if tenant_data.active is not None else True,
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
-            session.add(new_client)
+            session.add(new_tenant)
             session.commit()
 
-            logger.info(f"Admin {admin_user.email} created client {new_client.name}")
+            logger.info(f"Admin {admin_user.email} created tenant {new_tenant.name}")
 
             return TenantResponse(
-                id=new_client.id,
-                name=new_client.name,
-                website=new_client.website,
-                active=new_client.active,
-                assets_folder=new_client.assets_folder,
-                logo_filename=new_client.logo_filename
+                id=new_tenant.id,
+                name=new_tenant.name,
+                website=new_tenant.website,
+                active=new_tenant.active,
+                assets_folder=new_tenant.assets_folder,
+                logo_filename=new_tenant.logo_filename
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating client: {e}")
+        logger.error(f"Error creating tenant: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create client"
+            detail="Failed to create tenant"
         )
 
 
@@ -1586,46 +1595,54 @@ async def update_tenant(
                 )
 
             # Update fields if provided
-            if client_data.name is not None:
-                # Check if name is already taken by another client
-                existing_client = session.query(Tenant).filter(
-                    Tenant.name == client_data.name,
+            if tenant_data.name is not None:
+                # Check if name is already taken by another tenant
+                existing_tenant = session.query(Tenant).filter(
+                    Tenant.name == tenant_data.name,
                     Tenant.id != tenant_id
                 ).first()
 
-                if existing_client:
+                if existing_tenant:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Name already taken by another client"
+                        detail="Name already taken by another tenant"
                     )
-                client_to_update.name = client_data.name
+                tenant_to_update.name = tenant_data.name
 
-            if client_data.website is not None:
-                client_to_update.website = client_data.website
+            if tenant_data.website is not None:
+                tenant_to_update.website = tenant_data.website
 
-            if client_data.active is not None:
-                client_to_update.active = client_data.active
+            if tenant_data.active is not None:
+                tenant_to_update.active = tenant_data.active
 
-            client_to_update.last_updated_at = DateTimeHelper.utcnow()
+            if tenant_data.assets_folder is not None:
+                # Ensure assets_folder is always lowercase for consistency
+                tenant_to_update.assets_folder = tenant_data.assets_folder.lower() if tenant_data.assets_folder else None
+
+            if tenant_data.logo_filename is not None:
+                tenant_to_update.logo_filename = tenant_data.logo_filename
+
+            tenant_to_update.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
-            logger.info(f"Admin {admin_user.email} updated client {client_to_update.name}")
+            logger.info(f"Admin {admin_user.email} updated tenant {tenant_to_update.name}")
 
             return TenantResponse(
-                id=client_to_update.id,
-                name=client_to_update.name,
-                website=client_to_update.website,
-                active=client_to_update.active,
-                logo_filename=client_to_update.logo_filename
+                id=tenant_to_update.id,
+                name=tenant_to_update.name,
+                website=tenant_to_update.website,
+                active=tenant_to_update.active,
+                assets_folder=tenant_to_update.assets_folder,
+                logo_filename=tenant_to_update.logo_filename
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating client {tenant_id}: {e}")
+        logger.error(f"Error updating tenant {tenant_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update client"
+            detail="Failed to update tenant"
         )
 
 
@@ -1702,11 +1719,12 @@ async def upload_tenant_logo(
                     detail="Tenant not found"
                 )
 
-            # Validate file type - only PNG files allowed
-            if logo.content_type != "image/png":
+            # Validate file type - allow PNG, JPG, JPEG, and SVG
+            allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"]
+            if logo.content_type not in allowed_types:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid file type. Only PNG files are allowed."
+                    detail="Invalid file type. Only PNG, JPG, JPEG, and SVG files are allowed."
                 )
 
             # Validate file size (max 5MB)
@@ -1717,13 +1735,42 @@ async def upload_tenant_logo(
                     detail="File size must be less than 5MB."
                 )
 
-            # Generate client-specific filename (always PNG)
-            client_name_lower = client.name.lower()
-            client_filename = f"{client_name_lower}-logo.png"
+            # Preserve original filename with proper sanitization
+            import re
+
+            # Get original filename or fallback
+            original_filename = logo.filename or "logo"
+
+            # Sanitize filename: remove/replace unsafe characters
+            # Keep alphanumeric, dots, hyphens, underscores
+            safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', original_filename)
+
+            # Ensure filename doesn't start with dot or dash
+            safe_filename = re.sub(r'^[.-]+', '', safe_filename)
+
+            # Limit length to prevent filesystem issues
+            if len(safe_filename) > 100:
+                name_part, ext_part = safe_filename.rsplit('.', 1) if '.' in safe_filename else (safe_filename, '')
+                safe_filename = name_part[:95] + ('.' + ext_part if ext_part else '')
+
+            # Fallback if filename becomes empty after sanitization
+            if not safe_filename or safe_filename == '.':
+                # Determine file extension based on content type
+                extension_map = {
+                    "image/png": "png",
+                    "image/jpeg": "jpg",
+                    "image/jpg": "jpg",
+                    "image/svg+xml": "svg"
+                }
+                file_extension = extension_map.get(logo.content_type, "png")
+                safe_filename = f"logo.{file_extension}"
+
+            client_filename = safe_filename
 
             # Create client-specific directories (relative to project root)
             # Path: services/backend-service/app/api/admin_routes.py -> go up 3 levels to project root
             project_root = Path(__file__).parent.parent.parent.parent.parent
+            client_name_lower = client.name.lower().replace(' ', '_').replace('-', '_')
             frontend_client_dir = project_root / f"services/frontend-app/public/assets/{client_name_lower}"
             etl_client_dir = project_root / f"services/etl-service/app/static/assets/{client_name_lower}"
 
@@ -1742,9 +1789,10 @@ async def upload_tenant_logo(
                 f.write(file_content)
 
             # Update client record with assets folder and filename
+            # Ensure assets_folder is always lowercase for consistency
             client.assets_folder = client_name_lower
             client.logo_filename = client_filename
-            client.last_updated_at = DateTimeHelper.now_utc()
+            client.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
             logger.info(f"Admin {admin_user.email} uploaded logo for client {client.name}")
