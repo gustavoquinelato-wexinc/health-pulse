@@ -1,9 +1,16 @@
-# Phase 3-4: ETL AI Integration & Optimized LangGraph
+# Phase 3-4: ETL AI Integration & Optimized LangGraph (Hybrid Provider Integration)
 
 **Implemented**: NO ❌
 **Duration**: 2 days (Days 6-7 of 10)
 **Priority**: HIGH
 **Dependencies**: Phase 3-3 completion
+
+> **🏗️ Architecture Update (September 2025)**: This phase has been updated to reflect the new architecture where AI operations are centralized in Backend Service. ETL Service now calls Backend Service for AI operations instead of having its own AI components.
+
+## 💼 Business Outcome
+
+**Intelligent Data Processing**: Transform ETL operations from basic data extraction to AI-powered insights generation, enabling automatic pattern recognition, anomaly detection, and predictive analytics that reduce manual data analysis time by 80% and improve decision-making speed.
+
 
 ## 📊 Expected Performance Improvements
 
@@ -18,24 +25,29 @@
 - **Cache hit ratio**: 70-80% for repeated queries
 - **Concurrent requests**: 10x improvement with proper caching
 
+### **Cost Optimization:**
+- **Local models**: Zero cost for embeddings (Sentence Transformers)
+- **WEX Gateway**: Cost-effective for complex analysis
+- **Smart routing**: Automatic selection based on task complexity
+
 ### **Scalability:**
 - **Current capacity**: 1M records with performance degradation
 - **New capacity**: 10M+ records with consistent performance
-- **Client isolation**: Perfect separation at collection level
+- **Tenant isolation**: Perfect separation using existing integration table
 - **Resource usage**: Vector operations don't impact business database
 
-## 🎯 Phase 3-4 Objectives
+## 🎯 Phase 3-4 Objectives (Updated Architecture)
 
-1. **ETL AI Integration**: Connect ETL service with multi-provider AI framework
-2. **Optimized LangGraph**: High-performance strategic agent with parallel processing
+1. **ETL-Backend AI Integration**: Connect ETL service with Backend Service AI operations
+2. **Real-time Vectorization**: Generate embeddings during data extraction via Backend Service
 3. **Intelligent Caching**: Multi-level caching for 10x performance improvement
-4. **Smart Routing**: Skip unnecessary steps for simple queries
+4. **Smart Provider Routing**: Backend Service handles automatic selection between WEX Gateway and local models
 5. **Background Processing**: Async AI operations for better user experience
-6. **WrenAI-Inspired Pipeline**: Configuration-driven AI pipeline architecture
+6. **Clean Service Boundaries**: ETL focuses on data processing, Backend handles AI operations
 
-## ⚡ Optimized LangGraph Implementation
+## ⚡ Optimized LangGraph Implementation (Hybrid Provider Integration)
 
-### **High-Performance Strategic Agent**
+### **Enhanced Strategic Agent with Hybrid Providers**
 ```python
 # services/etl-service/app/ai/optimized_strategic_agent.py
 from langgraph.graph import StateGraph
@@ -46,25 +58,27 @@ import time
 import hashlib
 import logging
 from typing import Dict, List, Any, Optional
+from ..ai.hybrid_provider_manager import HybridProviderManager
 
 logger = logging.getLogger(__name__)
 
 class OptimizedStrategicAgent:
-    """High-performance strategic agent with WrenAI-inspired optimizations"""
-    
-    def __init__(self, ai_provider_manager, qdrant_client):
-        self.ai_provider_manager = ai_provider_manager
+    """High-performance strategic agent with hybrid provider support"""
+
+    def __init__(self, db_session, qdrant_client):
+        # Use HybridProviderManager instead of direct provider manager
+        self.hybrid_provider_manager = HybridProviderManager(db_session)
         self.qdrant_client = qdrant_client
         self.workflow = self._create_optimized_workflow()
-        
-        # Multi-level caching for performance (WrenAI approach)
+
+        # Multi-level caching for performance
         self.query_cache = TTLCache(maxsize=5000, ttl=3600)      # 1-hour query cache
-        self.schema_cache = TTLCache(maxsize=1000, ttl=7200)     # 2-hour schema cache  
+        self.schema_cache = TTLCache(maxsize=1000, ttl=7200)     # 2-hour schema cache
         self.embedding_cache = TTLCache(maxsize=10000, ttl=86400) # 24-hour embedding cache
-        
+
         # Parallel processing
         self.parallel_executor = ThreadPoolExecutor(max_workers=4)
-        
+
         # Performance monitoring
         self.performance_metrics = {
             "cache_hits": 0,
@@ -524,25 +538,25 @@ class ETLAIServiceManager:
 
 ## 📋 Implementation Tasks
 
-### **Task 3-4.1: Optimized LangGraph Implementation**
-- [ ] Create OptimizedStrategicAgent with parallel processing
-- [ ] Implement intelligent routing and caching
-- [ ] Add performance monitoring and metrics
+### **Task 3-4.1: Enhanced Strategic Agent with Hybrid Providers**
+- [ ] Update OptimizedStrategicAgent to use HybridProviderManager
+- [ ] Implement intelligent routing between WEX Gateway and local models
+- [ ] Add cost tracking and optimization logic
 - [ ] Create smart query complexity analysis
 
-### **Task 3-4.2: ETL AI Service Integration**
-- [ ] Create ETLAIServiceManager
-- [ ] Implement batch processing for embeddings
-- [ ] Add background task processing
-- [ ] Integrate with existing ETL workflows
+### **Task 3-4.2: ETL Hybrid AI Integration**
+- [ ] Create ETLAIServiceManager with hybrid provider support
+- [ ] Implement batch processing using both WEX Gateway and local models
+- [ ] Add background task processing with cost optimization
+- [ ] Integrate with existing ETL workflows and integration table
 
-### **Task 3-4.3: Performance Optimization**
+### **Task 3-4.3: Performance and Cost Optimization**
 - [ ] Implement multi-level caching system
 - [ ] Add parallel processing for validations
-- [ ] Create smart routing for different query types
-- [ ] Optimize embedding generation and storage
+- [ ] Create smart routing based on cost and performance
+- [ ] Optimize embedding generation using local models for bulk operations
 
-### **Task 3-4.4: API Endpoints**
+### **Task 3-4.4: Integration Table Enhancement**
 - [ ] Create AI query processing endpoints
 - [ ] Add performance metrics endpoints
 - [ ] Implement batch operation endpoints

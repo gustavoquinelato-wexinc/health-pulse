@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { Bell } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
@@ -43,8 +44,8 @@ export default function NotificationsPage() {
 
             {/* Coming Soon Message */}
             <div className="card p-8 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-white text-2xl">🔔</span>
+              <div className="w-16 h-16 bg-gradient-to-br from-color-4 to-color-5 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Bell className="w-8 h-8 text-white" />
               </div>
               <h3 className="text-xl font-semibold text-primary mb-2">Coming Soon</h3>
               <p className="text-secondary mb-6">

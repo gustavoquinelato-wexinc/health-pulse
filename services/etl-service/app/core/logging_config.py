@@ -348,6 +348,10 @@ class JobLogger:
         """Log job warning."""
         self.logger.warning(message, **kwargs)
 
+    def debug(self, message: str, **kwargs):
+        """Log job debug information."""
+        self.logger.debug(message, **kwargs)
+
     def complete(self, duration: float = None, **kwargs):
         """Log job completion (alias for success)."""
         self.success(duration=duration, **kwargs)

@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
-import { Activity, Database, RefreshCw, Users } from 'lucide-react'
+import { Activity, Database, RefreshCw, Settings, Users, BarChart3, Palette } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
@@ -467,6 +468,116 @@ export default function SettingsPage() {
                   )}
                 </motion.div>
               )}
+            </motion.div>
+
+            {/* Admin Settings Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="card p-8"
+            >
+              <div className="flex items-center space-x-3 mb-6">
+                <div className="w-10 h-10 bg-color-3 rounded-lg flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-primary">Admin Settings</h2>
+                  <p className="text-sm text-secondary">System configuration and management tools</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* AI Configuration */}
+                <Link
+                  to="/settings/ai-config"
+                  className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-6 text-white hover:from-indigo-600 hover:to-indigo-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <span className="text-xl">🧠</span>
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">AI</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">AI Configuration</h3>
+                  <p className="text-sm opacity-90">Manage AI providers and settings</p>
+                </Link>
+
+                {/* AI Performance */}
+                <Link
+                  to="/settings/ai-performance"
+                  className="bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl p-6 text-white hover:from-pink-600 hover:to-pink-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <BarChart3 className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">METRICS</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">AI Performance</h3>
+                  <p className="text-sm opacity-90">Monitor AI usage and performance</p>
+                </Link>
+
+                {/* Color Scheme Settings */}
+                <Link
+                  to="/settings/color-scheme"
+                  className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white hover:from-purple-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <Palette className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">THEME</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Color Scheme</h3>
+                  <p className="text-sm opacity-90">Customize platform colors and themes</p>
+                </Link>
+
+                {/* Notifications */}
+                <Link
+                  to="/settings/notifications"
+                  className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white hover:from-orange-600 hover:to-orange-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <span className="text-xl">🔔</span>
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">ALERTS</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Notifications</h3>
+                  <p className="text-sm opacity-90">Configure system alerts and notifications</p>
+                </Link>
+
+                {/* Tenant Management */}
+                <Link
+                  to="/settings/client-management"
+                  className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white hover:from-green-600 hover:to-green-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <span className="text-xl">🏢</span>
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">TENANTS</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Tenant Management</h3>
+                  <p className="text-sm opacity-90">Manage client organizations and settings</p>
+                </Link>
+
+                {/* User Management */}
+                <Link
+                  to="/settings/user-management"
+                  className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white hover:from-blue-600 hover:to-blue-700 transition-all duration-200 transform hover:scale-105"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded">USERS</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">User Management</h3>
+                  <p className="text-sm opacity-90">Manage users, roles, and permissions</p>
+                </Link>
+              </div>
             </motion.div>
           </motion.div>
         </main>

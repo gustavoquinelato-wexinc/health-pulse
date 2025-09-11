@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
-import { LogOut, UserX } from 'lucide-react'
+import { LogOut, UserX, Edit, Pause, Play, X, Users, Lock, Shield, Check, Minus, Eye } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CollapsedSidebar from '../components/CollapsedSidebar'
@@ -449,9 +449,9 @@ export default function UserManagementPage() {
             <div className="border-b border-tertiary">
               <nav className="flex space-x-8">
                 {[
-                  { id: 'users', label: 'Users', icon: '👥' },
-                  { id: 'sessions', label: 'Active Sessions', icon: '🔐' },
-                  { id: 'permissions', label: 'Permissions', icon: '🛡️' }
+                  { id: 'users', label: 'Users', icon: Users },
+                  { id: 'sessions', label: 'Active Sessions', icon: Lock },
+                  { id: 'permissions', label: 'Permissions', icon: Shield }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -461,7 +461,7 @@ export default function UserManagementPage() {
                       : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
                       }`}
                   >
-                    <span>{tab.icon}</span>
+                    <tab.icon className="w-4 h-4" />
                     <span>{tab.label}</span>
                   </button>
                 ))}
@@ -548,7 +548,7 @@ export default function UserManagementPage() {
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${user.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                                     }`}>
                                     {user.active ? 'Active' : 'Inactive'}
                                   </span>
@@ -560,27 +560,27 @@ export default function UserManagementPage() {
                                   <div className="flex justify-end space-x-2">
                                     <button
                                       onClick={() => openEditModal(user)}
-                                      className="text-blue-600 hover:text-blue-900 font-bold text-lg"
+                                      className="text-blue-600 hover:text-blue-700 transition-colors duration-150"
                                       title="Edit"
                                     >
-                                      ✎
+                                      <Edit className="w-4 h-4" />
                                     </button>
                                     <button
                                       onClick={() => user.active ? openDeactivateModal(user) : handleActivateUser(user)}
                                       className={user.active
-                                        ? "text-yellow-600 hover:text-yellow-800 font-bold text-lg"
-                                        : "text-green-600 hover:text-green-900 font-bold text-lg"
+                                        ? "text-orange-600 hover:text-orange-700 transition-colors duration-150"
+                                        : "text-green-600 hover:text-green-700 transition-colors duration-150"
                                       }
                                       title={user.active ? "Deactivate" : "Activate"}
                                     >
-                                      {user.active ? "⏸" : "▶"}
+                                      {user.active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                                     </button>
                                     <button
                                       onClick={() => openDeleteModal(user)}
-                                      className="text-red-600 hover:text-red-900 font-bold text-lg"
+                                      className="text-red-600 hover:text-red-700 transition-colors duration-150"
                                       title="Delete"
                                     >
-                                      ✕
+                                      <X className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </td>
@@ -730,19 +730,31 @@ export default function UserManagementPage() {
                               </thead>
                               <tbody className="bg-primary divide-y divide-tertiary">
                                 {[
-                                  { resource: 'Admin Panel', admin: '✅', user: '❌', view: '❌' },
-                                  { resource: 'User Management', admin: '✅', user: '❌', view: '❌' },
-                                  { resource: 'System Settings', admin: '✅', user: '❌', view: '❌' },
-                                  { resource: 'ETL Operations', admin: '✅', user: '📖', view: '📖' },
-                                  { resource: 'Dashboards', admin: '✅', user: '✅', view: '📖' },
-                                  { resource: 'Reports', admin: '✅', user: '✅', view: '📖' },
-                                  { resource: 'Log Downloads', admin: '✅', user: '✅', view: '❌' }
+                                  { resource: 'Admin Panel', admin: 'full', user: 'none', view: 'none' },
+                                  { resource: 'User Management', admin: 'full', user: 'none', view: 'none' },
+                                  { resource: 'System Settings', admin: 'full', user: 'none', view: 'none' },
+                                  { resource: 'ETL Operations', admin: 'full', user: 'read', view: 'read' },
+                                  { resource: 'Dashboards', admin: 'full', user: 'full', view: 'read' },
+                                  { resource: 'Reports', admin: 'full', user: 'full', view: 'read' },
+                                  { resource: 'Log Downloads', admin: 'full', user: 'full', view: 'none' }
                                 ].map((row, index) => (
                                   <tr key={index}>
                                     <td className="px-4 py-3 text-sm font-medium text-primary">{row.resource}</td>
-                                    <td className="px-4 py-3 text-center text-sm">{row.admin}</td>
-                                    <td className="px-4 py-3 text-center text-sm">{row.user}</td>
-                                    <td className="px-4 py-3 text-center text-sm">{row.view}</td>
+                                    <td className="px-4 py-3 text-center text-sm">
+                                      {row.admin === 'full' && <Check className="w-4 h-4 text-green-600 mx-auto" />}
+                                      {row.admin === 'read' && <Eye className="w-4 h-4 text-blue-600 mx-auto" />}
+                                      {row.admin === 'none' && <Minus className="w-4 h-4 text-gray-400 mx-auto" />}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-sm">
+                                      {row.user === 'full' && <Check className="w-4 h-4 text-green-600 mx-auto" />}
+                                      {row.user === 'read' && <Eye className="w-4 h-4 text-blue-600 mx-auto" />}
+                                      {row.user === 'none' && <Minus className="w-4 h-4 text-gray-400 mx-auto" />}
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-sm">
+                                      {row.view === 'full' && <Check className="w-4 h-4 text-green-600 mx-auto" />}
+                                      {row.view === 'read' && <Eye className="w-4 h-4 text-blue-600 mx-auto" />}
+                                      {row.view === 'none' && <Minus className="w-4 h-4 text-gray-400 mx-auto" />}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>

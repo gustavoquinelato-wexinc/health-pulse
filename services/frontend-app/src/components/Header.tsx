@@ -44,6 +44,7 @@ export default function Header() {
   const [showQuickActions, setShowQuickActions] = useState(false)
   const [showRecentItems, setShowRecentItems] = useState(false)
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null)
+  const [tenantLoading, setTenantLoading] = useState(true)
   const [userProfileImage, setUserProfileImage] = useState<string | null>(null)
 
   // Function to get authentication token from localStorage or cookies
@@ -66,8 +67,12 @@ export default function Header() {
   // Fetch current user's client information
   const fetchCurrentTenant = async () => {
     try {
+      setTenantLoading(true)
       const token = getAuthToken()
-      if (!token) return
+      if (!token) {
+        setTenantLoading(false)
+        return
+      }
 
       const response = await axios.get('/api/v1/admin/tenants', {
         headers: {
@@ -81,6 +86,8 @@ export default function Header() {
       }
     } catch (error) {
       console.error('Failed to fetch tenant information:', error)
+    } finally {
+      setTenantLoading(false)
     }
   }
 
@@ -102,6 +109,12 @@ export default function Header() {
           assets_folder,
           logo_filename
         } : null)
+
+        // Force a small delay to ensure the file is fully written to disk
+        setTimeout(() => {
+          // Trigger a re-render by updating the timestamp in getLogoUrl
+          setCurrentTenant(prev => prev ? { ...prev } : null)
+        }, 100)
       }
     }
 
@@ -130,8 +143,12 @@ export default function Header() {
       const timestamp = Date.now()
       return `/assets/${currentTenant.assets_folder}/${currentTenant.logo_filename}?t=${timestamp}`
     }
-    // Fallback to default WEX logo
-    return '/wex-logo-image.png'
+    // Only show fallback if we're done loading and still no logo
+    if (!tenantLoading) {
+      return '/wex-logo-image.png'
+    }
+    // Return null while loading to prevent flash
+    return null
   }
 
   // ETL navigation function with color data transfer
@@ -275,20 +292,30 @@ export default function Header() {
   return (
     <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
       {/* Logo and Title */}
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center">
         {/* Tenant Logo */}
-        <div className="h-8">
-          <img
-            src={getLogoUrl()}
-            alt={`${currentTenant?.name || 'Tenant'} Logo`}
-            className="h-full object-contain"
-          />
+        <div className="h-8 flex items-center" style={{ minWidth: '32px', maxWidth: '120px' }}>
+          {tenantLoading ? (
+            // Loading placeholder - subtle animation
+            <div className="h-6 w-20 bg-gray-200 rounded animate-pulse"></div>
+          ) : getLogoUrl() ? (
+            <img
+              src={getLogoUrl()}
+              alt={`${currentTenant?.name || 'Tenant'} Logo`}
+              className="h-full max-w-full object-contain"
+            />
+          ) : (
+            // Fallback text when no logo is available
+            <span className="text-sm font-medium text-primary whitespace-nowrap">
+              {currentTenant?.name || 'Tenant'}
+            </span>
+          )}
         </div>
 
-        {/* Divider */}
-        <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+        {/* Adaptive Divider - closer spacing */}
+        <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-3"></div>
 
-        {/* Pulse Brand */}
+        {/* Pulse Brand - closer spacing */}
         <div className="flex items-center space-x-2">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center"

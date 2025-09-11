@@ -27,7 +27,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 ┌─────────────────┐              ┌─────────────────┐
 │  Backend        │              │  ETL Service    │
 │  Service        │◄────────────►│  (FastAPI)      │
-│  (FastAPI)      │              │  Port: 8000     │
+│  (FastAPI)      │              │  Port: 8002     │
 │  Port: 3001     │              │                 │
 │                 │              │ • Data Extract  │
 │ • Authentication│              │ • Job Control   │
@@ -36,8 +36,13 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 │ • API Gateway   │              │ • Admin APIs    │
 │ • Client Mgmt   │              │ • ML Data Prep  │
 │ • ML Monitoring │              │ • Integration   │
-│ • Integration   │              │ • AI Agent      │
-│ • RBAC & JWT    │              │ • LangGraph     │
+│ • AI Operations │              │ • Calls Backend │
+│ • Flexible AI   │              │   for AI        │
+│ • Embeddings    │              │                 │
+│ • Chat Agents   │              │                 │
+│ • Vector Ops    │              │                 │
+│ • JSON Routing  │              │                 │
+│ • RBAC & JWT    │              │                 │
 └─────────────────┘              └─────────────────┘
                     │                       │
                     └───────────────────────┼─────┐
@@ -320,7 +325,22 @@ CREATE INDEX idx_projects_embedding_hnsw ON projects USING hnsw (embedding vecto
 
 ### AI Enhancement Overview
 
-Pulse Platform has evolved through multiple AI phases, culminating in a clean 3-database architecture optimized for performance and scalability. The current implementation provides production-ready AI capabilities with dedicated vector storage.
+Pulse Platform has evolved through multiple AI phases, culminating in a clean 3-database architecture optimized for performance and scalability. The current implementation provides production-ready AI capabilities with dedicated vector storage and flexible JSON-based provider management.
+
+### Flexible AI Provider Framework ✅ **NEW**
+
+**Zero-Schema-Change Architecture**: All AI provider routing logic is stored in JSON configuration, enabling unlimited provider flexibility without database migrations.
+
+**Simplified Integration Types**:
+- **Data**: Jira, GitHub, WEX Fabric, WEX AD
+- **AI**: WEX AI Gateway, WEX AI Gateway Fallback
+- **Embedding**: Local Embeddings (free), WEX Embeddings (paid)
+
+**Context-Aware Provider Selection**:
+- **ETL Operations**: Automatically prefer local models (`gateway_route: false`) for cost-effective data processing
+- **Frontend Operations**: Automatically prefer gateway providers (`gateway_route: true`) for high-quality AI interactions
+
+**Future-Proof Design**: Easy addition of new providers (Ollama, custom LLMs, external APIs) without schema changes.
 
 ### 3-Database Architecture
 
@@ -524,6 +544,7 @@ The platform implements a comprehensive structured logging system with the follo
 - [Installation & Setup](installation-setup.md) - Requirements, deployment, database setup
 
 **AI & Advanced Features:**
+- [Flexible AI Providers](flexible-ai-providers.md) - JSON-based provider management and routing
 - [AI Agent Architecture](hackathon/ai-agent-architecture.md) - LangGraph workflows and strategic intelligence
 - [AI Evolution Plans](evolution_plans/ai/) - AI development phases and roadmap
 - [Development Guide](../services/etl-service/docs/development-guide.md) - Development, testing, debugging

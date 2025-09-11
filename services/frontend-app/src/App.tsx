@@ -16,11 +16,14 @@ import TenantManagementPage from './pages/TenantManagementPage'
 import HomePage from './pages/HomePage'
 import LeadTimeForChangesPage from './pages/LeadTimeForChangesPage'
 import LoginPage from './pages/LoginPage'
+import NotFoundPage from './pages/NotFoundPage'
 import NotificationsPage from './pages/NotificationsPage'
 import SettingsPage from './pages/SettingsPage'
 import TimeToRestorePage from './pages/TimeToRestorePage'
 import UserManagementPage from './pages/UserManagementPage'
 import UserPreferencesPage from './pages/UserPreferencesPage'
+import AIConfigurationPage from './pages/ai/AIConfigurationPage'
+import AIPerformancePage from './pages/ai/AIPerformancePage'
 import BranchingPage from './pages/engineering/Deployments/BranchingPage'
 import CadencePage from './pages/engineering/Deployments/CadencePage'
 import FlowEfficiencyPage from './pages/engineering/LeadTime/FlowEfficiencyPage'
@@ -152,9 +155,9 @@ function App() {
                   }
                 />
 
-                {/* Admin Settings Routes - Admin only */}
+                {/* Settings Routes - Admin only */}
                 <Route
-                  path="/admin"
+                  path="/settings"
                   element={
                     <AdminRoute>
                       <SettingsPage />
@@ -162,7 +165,7 @@ function App() {
                   }
                 />
                 <Route
-                  path="/admin/color-scheme"
+                  path="/settings/color-scheme"
                   element={
                     <AdminRoute>
                       <ColorSchemeSettingsPage />
@@ -170,7 +173,7 @@ function App() {
                   }
                 />
                 <Route
-                  path="/admin/user-management"
+                  path="/settings/user-management"
                   element={
                     <AdminRoute>
                       <UserManagementPage />
@@ -178,7 +181,7 @@ function App() {
                   }
                 />
                 <Route
-                  path="/admin/client-management"
+                  path="/settings/client-management"
                   element={
                     <AdminRoute>
                       <TenantManagementPage />
@@ -186,23 +189,36 @@ function App() {
                   }
                 />
                 <Route
-                  path="/admin/notifications"
+                  path="/settings/notifications"
                   element={
                     <AdminRoute>
                       <NotificationsPage />
                     </AdminRoute>
                   }
                 />
+                <Route
+                  path="/settings/ai-config"
+                  element={
+                    <AdminRoute>
+                      <AIConfigurationPage />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="/settings/ai-performance"
+                  element={
+                    <AdminRoute>
+                      <AIPerformancePage />
+                    </AdminRoute>
+                  }
+                />
 
-                {/* Legacy redirects for backward compatibility */}
-                <Route path="/settings" element={<Navigate to="/admin" replace />} />
-                <Route path="/settings/color-scheme" element={<Navigate to="/admin/color-scheme" replace />} />
-                <Route path="/settings/user-management" element={<Navigate to="/admin/user-management" replace />} />
-                <Route path="/settings/client-management" element={<Navigate to="/admin/client-management" replace />} />
-                <Route path="/settings/user-preferences" element={<Navigate to="/profile" replace />} />
-                <Route path="/settings/notifications" element={<Navigate to="/admin/notifications" replace />} />
+
 
                 <Route path="/" element={<Navigate to="/home" replace />} />
+
+                {/* 404 Not Found - Must be last route */}
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </div>
           </Router>

@@ -48,6 +48,7 @@ from app.api.admin_routes import router as admin_router
 from app.api.web_routes import router as web_router
 from app.api.websocket_routes import router as websocket_router
 
+
 # Suppress ALL noisy logs immediately to reduce terminal noise
 import logging
 
@@ -457,6 +458,8 @@ app.include_router(
     web_router,
     tags=["Web Interface"]
 )
+
+
 
 # Include WebSocket routes
 app.include_router(

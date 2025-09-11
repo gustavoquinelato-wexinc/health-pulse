@@ -12,7 +12,7 @@
                     onmouseenter="showSubmenu(event, 'home')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path == '/home' %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
-                <i class="fas fa-home text-lg"></i>
+                <i data-lucide="home" class="w-5 h-5"></i>
             </a>
         </div>
 
@@ -24,9 +24,11 @@
                     onmouseenter="showSubmenu(event, 'integrations')"
                     onmouseleave="hideSubmenu()"
                     {% if current_path == '/integrations' %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
-                <i class="fas fa-plug text-lg"></i>
+                <i data-lucide="plug" class="w-5 h-5"></i>
             </a>
         </div>
+
+
 
         <!-- Work Item Types with Hover Submenu -->
         <div class="relative" id="wits-menu">
@@ -35,8 +37,8 @@
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'wits')"
                     onmouseleave="hideSubmenu()"
-                    {% if current_path.startswith('/wits') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2)); color: var(--on-gradient-1-2);"{% endif %}>
-                <i class="fas fa-list-alt text-lg"></i>
+                    {% if current_path.startswith('/wits') %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
+                <i data-lucide="list" class="w-5 h-5"></i>
             </a>
         </div>
 
@@ -47,21 +49,21 @@
                     tabindex="0"
                     onmouseenter="showSubmenu(event, 'statuses')"
                     onmouseleave="hideSubmenu()"
-                    {% if current_path.startswith('/statuses') or current_path.startswith('/workflow') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2)); color: var(--on-gradient-1-2);"{% endif %}>
-                <i class="fas fa-sync-alt text-lg"></i>
+                    {% if current_path.startswith('/statuses') or current_path.startswith('/workflow') %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
             </a>
         </div>
 
-        <!-- Admin (only for admin users) -->
+        <!-- Settings (only for admin users) -->
         {% if user and user.role == 'admin' %}
-        <div class="relative" id="admin-menu">
-            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/admin') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    href="/admin"
+        <div class="relative" id="settings-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/settings') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/settings"
                     tabindex="0"
-                    onmouseenter="showSubmenu(event, 'admin')"
+                    onmouseenter="showSubmenu(event, 'settings')"
                     onmouseleave="hideSubmenu()"
-                    {% if current_path.startswith('/admin') %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2)); color: var(--on-gradient-1-2);"{% endif %}>
-                <i class="fas fa-cog text-lg"></i>
+                    {% if current_path.startswith('/settings') %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
+                <i data-lucide="settings" class="w-5 h-5"></i>
             </a>
         </div>
         {% endif %}
@@ -88,6 +90,8 @@
     </div>
 </div>
 
+
+
 <div id="submenu-wits" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
      onmouseenter="keepSubmenuOpen()"
      onmouseleave="hideSubmenu()">
@@ -95,13 +99,13 @@
         Work Item Types
     </div>
     <a href="/wits-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/wits-hierarchies' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/wits-hierarchies' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-        <i class="fas fa-layer-group mr-2"></i>
+       {% if current_path == '/wits-hierarchies' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="layers" class="w-4 h-4 mr-2"></i>
         Hierarchies
     </a>
     <a href="/wits-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/wits-mappings' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/wits-mappings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-        <i class="fas fa-sitemap mr-2"></i>
+       {% if current_path == '/wits-mappings' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="network" class="w-4 h-4 mr-2"></i>
         Mappings
     </a>
 </div>
@@ -113,27 +117,27 @@
         Statuses
     </div>
     <a href="/statuses-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/statuses-mappings' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/statuses-mappings' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-        <i class="fas fa-exchange-alt mr-2"></i>
+       {% if current_path == '/statuses-mappings' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="arrow-left-right" class="w-4 h-4 mr-2"></i>
         Mappings
     </a>
     <a href="/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/workflows' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/workflows' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-        <i class="fas fa-project-diagram mr-2"></i>
+       {% if current_path == '/workflows' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="workflow" class="w-4 h-4 mr-2"></i>
         Workflows
     </a>
 </div>
 
-<div id="submenu-admin" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+<div id="submenu-settings" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
      onmouseenter="keepSubmenuOpen()"
      onmouseleave="hideSubmenu()">
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
-        Admin
+        Settings
     </div>
-    <a href="/admin" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/admin' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/admin' %}style="background: linear-gradient(to bottom right, var(--color-1), var(--color-2));"{% endif %}>
-        <i class="fas fa-tachometer-alt mr-2"></i>
-        Admin Panel
+    <a href="/settings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/settings' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/settings' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="gauge" class="w-4 h-4 mr-2"></i>
+        System Overview
     </a>
 </div>
 {% endmacro %}

@@ -14,7 +14,7 @@
             <p class="text-lg" style="color: var(--text-secondary);">Manage work item type hierarchical relationships</p>
         </div>
         <button onclick="showCreateModal()" class="btn-crud-create">
-            <i class="fas fa-plus mr-2"></i>Create Hierarchy
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Hierarchy
         </button>
     </div>
 </div>
@@ -25,7 +25,7 @@
     <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Work Item Type Hierarchies</h2>
         <button onclick="loadHierarchies()" class="btn-neutral-secondary">
-            <i class="fas fa-refresh mr-1"></i>Refresh
+            <i data-lucide="refresh-cw" class="w-4 h-4 mr-1"></i>Refresh
         </button>
     </div>
 
@@ -50,13 +50,13 @@
 
     <!-- Loading State -->
     <div id="loadingState" class="p-8 text-center">
-        <i class="fas fa-spinner fa-spin text-2xl mb-2" style="color: var(--crud-edit);"></i>
+        <i data-lucide="loader-2" class="w-8 h-8 mb-2 animate-spin mx-auto" style="color: var(--crud-edit);"></i>
         <p class="text-sm" style="color: var(--text-secondary);">Loading work item type hierarchies...</p>
     </div>
 
     <!-- Empty State -->
     <div id="emptyState" class="p-8 text-center hidden">
-        <i class="fas fa-layer-group text-4xl mb-4" style="color: var(--text-muted);"></i>
+        <i data-lucide="layers" class="w-16 h-16 mb-4 mx-auto" style="color: var(--text-muted);"></i>
         <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Work Item Type Hierarchies Found</h3>
         <p class="text-sm" style="color: var(--text-secondary);">Use the Create Hierarchy button above to get started.</p>
     </div>
@@ -68,7 +68,7 @@
         <div class="flex items-center justify-between p-6 border-b border-default">
             <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Work Item Type Hierarchy</h3>
             <button onclick="closeModal('hierarchyModal')" class="text-muted hover:text-primary transition-colors">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </div>
         <div class="p-6">
@@ -121,7 +121,7 @@
         <div class="flex items-center justify-between p-6 border-b border-default">
             <h3 class="text-xl font-semibold text-primary">Pause Work Item Type Hierarchy</h3>
             <button onclick="closeModal('pauseHierarchyModal')" class="text-muted hover:text-primary transition-colors">
-                <i class="fas fa-times text-xl"></i>
+                <i data-lucide="x" class="w-5 h-5"></i>
             </button>
         </div>
         <div class="p-6">
@@ -145,7 +145,7 @@
         <div class="flex justify-end space-x-3 p-6 border-t border-default">
             <button type="button" onclick="closeModal('pauseHierarchyModal')" class="btn-neutral-secondary">Cancel</button>
             <button type="button" onclick="confirmPauseHierarchy()" class="btn-crud-warning">
-                <i class="fas fa-pause mr-2"></i>Pause
+                <i data-lucide="pause" class="w-4 h-4 mr-2"></i>Pause
             </button>
         </div>
     </div>
@@ -252,24 +252,27 @@ function renderHierarchiesTable() {
             <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                 <div class="flex justify-center space-x-1">
                     <button onclick="editHierarchy(${hierarchy.id})" class="btn-crud-edit-sm" title="Edit">
-                        <i class="fas fa-edit"></i>
+                        <i data-lucide="edit" class="w-4 h-4"></i>
                     </button>
                     ${hierarchy.active ?
                         `<button onclick="showPauseModal(${hierarchy.id}, '${hierarchy.level_name}')" class="btn-status-warning-xs" title="Pause">
-                            <i class="fas fa-pause"></i>
+                            <i data-lucide="pause" class="w-4 h-4"></i>
                         </button>` :
                         `<button onclick="resumeHierarchy(${hierarchy.id})" class="btn-status-success-xs" title="Resume">
-                            <i class="fas fa-play"></i>
+                            <i data-lucide="play" class="w-4 h-4"></i>
                         </button>`
                     }
                     <button onclick="deleteHierarchy(${hierarchy.id})" class="btn-crud-delete-sm" title="Delete">
-                        <i class="fas fa-trash"></i>
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
                 </div>
             </td>
         `;
         tbody.appendChild(row);
     });
+
+    // Re-initialize Lucide icons after table rendering
+    refreshLucideIcons();
 }
 
 function showCreateModal() {
@@ -454,6 +457,13 @@ function showSuccess(message) {
 function showError(message) {
     // Implementation depends on your notification system
     alert(message);
+}
+
+// Function to re-initialize Lucide icons after dynamic content updates
+function refreshLucideIcons() {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
 }
 </script>
 
