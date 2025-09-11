@@ -2083,7 +2083,6 @@
 
             const result = await response.json();
             if (response.ok) {
-                console.warn('Orchestrator resumed');
                 setTimeout(refreshOrchestratorStatus, 500);
             } else {
                 console.error(`Failed to resume orchestrator: ${result.detail}`);
