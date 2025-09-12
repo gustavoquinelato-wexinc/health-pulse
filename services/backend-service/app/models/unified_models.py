@@ -62,6 +62,7 @@ class Tenant(Base):
     # Phase 3-1: New AI architecture relationships
     qdrant_vectors = relationship("QdrantVector", back_populates="tenant")
     ai_usage_trackings = relationship("AIUsageTracking", back_populates="tenant")
+    vectorization_queue = relationship("VectorizationQueue", back_populates="tenant")
 
 
 class BaseEntity:
@@ -1097,7 +1098,7 @@ class MLAnomalyAlert(Base, BaseEntity):
 
 # ===== PHASE 3-1: NEW MODELS FOR CLEAN ARCHITECTURE =====
 
-class QdrantVector(Base, BaseEntity):
+class QdrantVector(Base):
     """Tracks vector references in Qdrant with client isolation (Phase 3-1)."""
     __tablename__ = 'qdrant_vectors'
     __table_args__ = (
@@ -1106,6 +1107,7 @@ class QdrantVector(Base, BaseEntity):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
     table_name = Column(String(50), nullable=False, quote=False, name="table_name")
     record_id = Column(Integer, nullable=False, quote=False, name="record_id")
     qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")
@@ -1113,6 +1115,7 @@ class QdrantVector(Base, BaseEntity):
     vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
     embedding_model = Column(String(100), nullable=False, quote=False, name="embedding_model")
     embedding_provider = Column(String(50), nullable=False, quote=False, name="embedding_provider")
+
     last_updated_at = Column(DateTime(timezone=True), default=func.now(), quote=False, name="last_updated_at")
 
     # Relationships
@@ -1122,11 +1125,12 @@ class QdrantVector(Base, BaseEntity):
 
 
 
-class AIUsageTracking(Base, BaseEntity):
+class AIUsageTracking(Base):
     """AI usage trackings table (inspired by WrenAI's cost monitoring)."""
     __tablename__ = 'ai_usage_trackings'
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
     provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'openai', 'azure', 'sentence_transformers'
     operation = Column(String(50), nullable=False, quote=False, name="operation")  # 'embedding', 'text_generation', 'analysis'
     model_name = Column(String(100), quote=False, name="model_name")
@@ -1136,6 +1140,45 @@ class AIUsageTracking(Base, BaseEntity):
     total_tokens = Column(Integer, default=0, quote=False, name="total_tokens")
     cost = Column(Numeric(10, 4), default=0.0, quote=False, name="cost")
     request_metadata = Column(JSON, default={}, quote=False, name="request_metadata")
+    created_at = Column(DateTime(timezone=True), default=func.now(), quote=False, name="created_at")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="ai_usage_trackings")
+
+
+class VectorizationQueue(Base):
+    """Async vectorization queue for ETL processing."""
+    __tablename__ = 'vectorization_queue'
+    __table_args__ = (
+        UniqueConstraint('table_name', 'record_db_id', 'operation', 'tenant_id'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Core queue fields
+    table_name = Column(String(50), nullable=False, quote=False, name="table_name")
+    record_db_id = Column(Integer, nullable=False, quote=False, name="record_db_id")
+    operation = Column(String(10), nullable=False, quote=False, name="operation")  # 'insert', 'update', 'delete'
+
+    # Status tracking
+    status = Column(String(20), nullable=False, default='pending', quote=False, name="status")  # 'pending', 'processing', 'completed', 'failed'
+
+    # Timestamps
+    created_at = Column(DateTime, default=func.now(), quote=False, name="created_at")
+    started_at = Column(DateTime, quote=False, name="started_at")
+    completed_at = Column(DateTime, quote=False, name="completed_at")
+
+    # Error handling
+    error_message = Column(Text, quote=False, name="error_message")
+    last_error_at = Column(DateTime, quote=False, name="last_error_at")
+
+    # Embedded data for processing
+    entity_data = Column(JSON, quote=False, name="entity_data")  # Store extracted data directly
+    qdrant_metadata = Column(JSON, quote=False, name="qdrant_metadata")  # Pre-computed Qdrant fields
+
+    # Tenant isolation
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="vectorization_queue")

@@ -23,6 +23,8 @@ from .jira_client import JiraAPIClient
 from .jira_processor import JiraDataProcessor
 from .jira_bulk_operations import perform_bulk_insert
 from sqlalchemy import text
+from app.clients.ai_client import store_entity_vector_for_etl, bulk_store_entity_vectors_for_etl, bulk_update_entity_vectors_for_etl
+from app.jobs.vectorization_helper import VectorizationQueueHelper
 
 logger = get_logger(__name__)
 
@@ -237,7 +239,7 @@ def extract_pr_links_from_dev_status(dev_details: Dict) -> List[Dict]:
     return pr_links
 
 
-def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
+async def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated issue types from Jira in a combined operation.
     This combines project extraction with project-issuetype relationship extraction.
@@ -252,6 +254,12 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
     logger.info("Starting combined projects and issue types extraction")
 
     try:
+        # Initialize vectorization queue helper
+        from app.jobs.vectorization_helper import VectorizationQueueHelper
+        from app.core.config import get_settings
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
         # Extract project keys from integration base_search column
         project_keys = None
 
@@ -371,6 +379,11 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
 
         if projects_to_insert:
             perform_bulk_insert(session, Project, projects_to_insert, "projects", job_logger)
+
+            # Store for later vectorization queueing
+            vectorization_helper.queue_entities_for_vectorization(
+                projects_to_insert, "projects", "insert"
+            )
 
         # Get all projects with their database IDs for issue type extraction
         all_projects = session.query(Project).filter(
@@ -514,6 +527,11 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
         if issuetypes_to_insert:
             perform_bulk_insert(session, Wit, issuetypes_to_insert, "wits", job_logger)
 
+            # Store for later vectorization queueing
+            vectorization_helper.queue_entities_for_vectorization(
+                issuetypes_to_insert, "wits", "insert"
+            )
+
         # Get updated issue types for relationship creation
         all_issuetypes = session.query(Wit).filter(
             Wit.integration_id == integration.id
@@ -586,7 +604,7 @@ def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPIClient
         return {'projects_processed': 0, 'issuetypes_processed': 0, 'relationships_processed': 0}
 
 
-def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
+async def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger) -> Dict[str, Any]:
     """
     Extract projects and their associated statuses from Jira in a combined operation.
     This goes directly to get_project_statuses to extract both statuses and relationships efficiently.
@@ -599,6 +617,12 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
     logger.info("Starting combined projects and statuses extraction")
 
     try:
+        # Initialize vectorization queue helper
+        from app.jobs.vectorization_helper import VectorizationQueueHelper
+        from app.core.config import get_settings
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
         # Get all projects from database (should already exist from step 1)
         all_projects = session.query(Project).filter(
             Project.integration_id == integration.id
@@ -746,6 +770,11 @@ def extract_projects_and_statuses(session: Session, jira_client: JiraAPIClient, 
         if statuses_to_insert:
             perform_bulk_insert(session, Status, statuses_to_insert, "statuses", job_logger)
 
+            # Store for later vectorization queueing
+            vectorization_helper.queue_entities_for_vectorization(
+                statuses_to_insert, "statuses", "insert"
+            )
+
         # Get updated statuses for relationship creation
         all_statuses = session.query(Status).filter(
             Status.integration_id == integration.id
@@ -824,6 +853,12 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
     try:
         processor = JiraDataProcessor(session, integration)
 
+        # Initialize vectorization queue helper
+        from app.core.config import get_settings
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+
         # Capture extraction start time (to be saved at the end) - using configured timezone
         from datetime import datetime
         from app.core.utils import DateTimeHelper
@@ -871,7 +906,12 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         if start_date:
             last_sync = start_date
         else:
-            last_sync = (job_schedule.last_success_at if job_schedule else None) or datetime.now() - timedelta(days=30)
+            if job_schedule and job_schedule.last_success_at:
+                last_sync = job_schedule.last_success_at
+            else:
+                # Default to 2 years ago for first run (reasonable historical data)
+                last_sync = datetime.now() - timedelta(days=2*365)  # 2 years ago
+                job_logger.progress(f"[FIRST_RUN] No previous sync found - fetching all data from {last_sync.strftime('%Y-%m-%d')}")
 
         # Format datetime for Jira JQL (use absolute datetime format for precision)
         from datetime import datetime, timedelta, timezone
@@ -944,7 +984,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     'issue_keys': []
                 }
 
-            # ✅ Connection should be alive thanks to periodic heartbeat during API calls
+            # Connection should be alive thanks to periodic heartbeat during API calls
             job_logger.progress("[CONNECTION] API fetch completed with active database connection")
         job_logger.progress(f"[TOTAL] Total issues fetched: {len(all_issues)}")
 
@@ -1109,6 +1149,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         'external_id': external_id,
                         'key': processed_issue.get('key'),
                         'summary': processed_issue.get('summary'),
+                        'description': processed_issue.get('description'),  # Add for vectorization
+                        'acceptance_criteria': processed_issue.get('acceptance_criteria'),  # Add for vectorization
                         'team': processed_issue.get('team'),
                         'created': processed_issue.get('created'),
                         'updated': processed_issue.get('updated'),
@@ -1231,18 +1273,26 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                     # For now, just log the intent
 
             job_logger.progress(f"[COMPLETED] Completed chunked bulk inserting {len(issues_to_insert)} new issues")
+
+            # Store inserted issues for later vectorization queueing
+            if issues_to_insert:
+                vectorization_helper.queue_entities_for_vectorization(
+                    issues_to_insert, "work_items", "insert"
+                )
         else:
             # Still commit updates if no inserts
             session.commit()
 
         job_logger.progress(f"[SUCCESS] Successfully processed {processed_count} issues total with chunked commits")
 
+        # Note: AI vectorization is now handled asynchronously via queue
+
         # Now process changelogs for all processed issues
         job_logger.progress(f"[STARTING] Starting changelog processing for {len(processed_issue_keys)} issues...")
 
         changelogs_processed = 0
         if processed_issue_keys:
-            changelogs_processed = process_changelogs_for_work_items(
+            changelogs_processed = await process_changelogs_for_work_items(
                 session, jira_client, integration, processed_issue_keys,
                 statuses_dict, job_logger, issue_changelogs, websocket_manager
             )
@@ -1258,6 +1308,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             job_logger.progress(f"[SYNC_TIME] Updated job_schedule last_success_at to: {truncated_start_time.strftime('%Y-%m-%d %H:%M')}")
         else:
             job_logger.progress("[SYNC_TIME] Skipped updating job_schedule last_success_at (test mode)")
+
+        # Note: Entities are now saved immediately during extraction steps
+        # This section will be moved to the main job completion to trigger processing
+        job_logger.progress("[VECTORIZATION] All entities saved to vectorization queue during extraction")
 
         return {
             'success': True,
@@ -1276,7 +1330,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
 
 
-def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClient, integration: Integration,
+async def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClient, integration: Integration,
                                      work_item_keys: List[str], statuses_dict: Dict[str, Any], job_logger,
                                      work_item_changelogs: Dict[str, List[Dict]] = None, websocket_manager=None) -> int:
     """Process changelogs for a list of work items and calculate enhanced workflow metrics.
@@ -1294,6 +1348,13 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
         Number of changelogs processed
     """
     try:
+        # Initialize vectorization queue helper
+        from app.jobs.vectorization_helper import VectorizationQueueHelper
+        from app.core.config import get_settings
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+
         processor = JiraDataProcessor(session, integration)
 
         # Get all issues from database that we need to process (with batching)
@@ -1496,6 +1557,43 @@ def process_changelogs_for_work_items(session: Session, jira_client: JiraAPIClie
                 job_logger.progress(f"[COMMITTED] Committed {len(chunk)} changelogs (total: {total_inserted}/{len(changelogs_to_insert)})")
 
             job_logger.progress(f"[COMPLETED] Completed chunked bulk inserting {len(changelogs_to_insert)} changelogs")
+
+            # Queue changelogs for async vectorization
+            if changelogs_to_insert:
+                # Enhance changelog data with status names for better vectorization
+                enhanced_changelogs = []
+                for changelog_data in changelogs_to_insert:
+                    try:
+                        # Get status names for better context
+                        from_status_name = None
+                        to_status_name = None
+
+                        if changelog_data.get('from_status_id'):
+                            from_status = session.query(Status).filter(Status.id == changelog_data['from_status_id']).first()
+                            if from_status:
+                                from_status_name = from_status.original_name
+
+                        if changelog_data.get('to_status_id'):
+                            to_status = session.query(Status).filter(Status.id == changelog_data['to_status_id']).first()
+                            if to_status:
+                                to_status_name = to_status.original_name
+
+                        # Create enhanced changelog data
+                        enhanced_changelog = changelog_data.copy()
+                        enhanced_changelog['from_status_name'] = from_status_name
+                        enhanced_changelog['to_status_name'] = to_status_name
+
+                        # Skip changelogs without meaningful content
+                        if to_status_name:
+                            enhanced_changelogs.append(enhanced_changelog)
+
+                    except Exception as e:
+                        job_logger.warning(f"Error enhancing changelog {changelog_data.get('external_id', 'unknown')}: {e}")
+
+                # Store enhanced changelogs for later vectorization queueing
+                vectorization_helper.queue_entities_for_vectorization(
+                    enhanced_changelogs, "changelogs", "insert"
+                )
 
         # Calculate and update enhanced workflow metrics from database changelogs
         if issues_in_db:
@@ -1823,7 +1921,7 @@ def _calculate_direct_completion(metrics: Dict, changelogs: List, statuses_dict:
 # Legacy date calculation functions removed - replaced by calculate_enhanced_workflow_metrics
 
 
-def extract_issue_dev_details(session: Session, integration, jira_client, issues_with_external_ids: List[Dict[str, str]]) -> Dict[str, Any]:
+async def extract_issue_dev_details(session: Session, integration, jira_client, issues_with_external_ids: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     Extract development details for issues that have code_changed = True.
 
@@ -2157,5 +2255,11 @@ async def process_issues_chunk_simple(
             'changelogs_processed': 0,
             'issue_keys': []
         }
+
+
+# Note: process_bulk_ai_vectors function removed - vectorization is now handled asynchronously via queue
+
+# Removed function: async def process_bulk_ai_vectors(...) - replaced with async queue system
+
 
 

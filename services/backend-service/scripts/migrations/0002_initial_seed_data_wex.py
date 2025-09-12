@@ -336,16 +336,16 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "Local Embeddings", "Embedding", None, None, None,
-            None, "all-MiniLM-L6-v2",
+            "MPNet base-v2", "Embedding", None, None, None,
+            None, "all-mpnet-base-v2",
             json.dumps({
-                "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
+                "model_path": "models/sentence-transformers/all-mpnet-base-v2",
                 "cost_tier": "free",
                 "gateway_route": False,
                 "source": "local"
             }),
             "local-embeddings.svg",
-            tenant_id, True
+            tenant_id, False  # Set to inactive - using external embeddings as primary
         ))
 
         local_embedding_result = cursor.fetchone()
@@ -364,7 +364,7 @@ def apply(connection):
                 ON CONFLICT (provider, tenant_id) DO NOTHING
                 RETURNING id;
             """, (
-                "WEX Embeddings", "Embedding", None, encrypted_ai_key, ai_gateway_base_url,
+                "Azure 3-small", "Embedding", None, encrypted_ai_key, ai_gateway_base_url,
                 None, "azure-text-embedding-3-small",
                 json.dumps({
                     "model_path": "azure-text-embedding-3-small",
@@ -373,7 +373,7 @@ def apply(connection):
                     "source": "external"
                 }),
                 "wex-embeddings.svg",
-                tenant_id, False  # Set to inactive by default, local is primary
+                tenant_id, True  # Set to active - external embeddings as primary
             ))
 
             paid_embedding_result = cursor.fetchone()

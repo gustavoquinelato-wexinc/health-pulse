@@ -20,8 +20,14 @@ class SentenceTransformersProvider:
 
     def __init__(self, integration: Integration):
         self.integration = integration
-        self.model_name = integration.ai_model or "all-MiniLM-L6-v2"
         self.model_config = integration.ai_model_config or {}
+
+        # Use local model path if specified, otherwise use model name
+        self.model_path = self.model_config.get('model_path')
+        if self.model_path:
+            self.model_name = self.model_path  # Use local path
+        else:
+            self.model_name = integration.ai_model or "all-mpnet-base-v2"  # Fallback to download
         
         # Model and performance tracking
         self.model = None
@@ -40,8 +46,11 @@ class SentenceTransformersProvider:
             # Import here to avoid dependency issues if not installed
             from sentence_transformers import SentenceTransformer
             
-            logger.info(f"Loading Sentence Transformers model: {self.model_name}")
-            
+            if self.model_path:
+                logger.info(f"Loading local Sentence Transformers model from: {self.model_path}")
+            else:
+                logger.info(f"Loading Sentence Transformers model: {self.model_name}")
+
             # Load model in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             self.model = await loop.run_in_executor(

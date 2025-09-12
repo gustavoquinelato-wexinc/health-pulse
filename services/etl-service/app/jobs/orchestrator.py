@@ -31,6 +31,94 @@ import asyncio
 
 logger = get_logger(__name__)
 
+# Simple token storage for job execution context
+_job_auth_tokens = {}
+
+def _set_job_auth_token(tenant_id: int, token: str):
+    """Store auth token for job execution"""
+    _job_auth_tokens[tenant_id] = token
+
+def _get_job_auth_token(tenant_id: int) -> str:
+    """Get auth token for job execution"""
+    # First try to get user token (for manual jobs)
+    user_token = _job_auth_tokens.get(tenant_id)
+    if user_token:
+        return user_token
+
+    # For automated jobs, get system token
+    return _get_system_token(tenant_id)
+
+def _clear_job_auth_token(tenant_id: int):
+    """Clear auth token after job execution"""
+    _job_auth_tokens.pop(tenant_id, None)
+
+
+# System token cache for automated jobs
+_system_tokens = {}
+
+def _get_system_token(tenant_id: int) -> str:
+    """Get system token for automated ETL jobs"""
+    # Check if we have a cached system token
+    if tenant_id in _system_tokens:
+        return _system_tokens[tenant_id]
+
+    # Create system token for this tenant
+    try:
+        token = _create_system_token_sync(tenant_id)
+        if token:
+            _system_tokens[tenant_id] = token
+            logger.info(f"System token created for tenant {tenant_id}")
+        return token
+    except Exception as e:
+        logger.error(f"Failed to get system token for tenant {tenant_id}: {e}")
+        return None
+
+
+def _create_system_token_sync(tenant_id: int) -> str:
+    """Create system token synchronously using the system admin user"""
+    try:
+        import requests
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+
+        # Use the system admin user that exists in each tenant
+        system_email = "admin@pulse.com"
+        system_password = "pulse"
+
+        # Login to get token
+        response = requests.post(
+            f"{backend_url}/auth/login",
+            json={
+                "email": system_email,
+                "password": system_password
+            },
+            timeout=10.0
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            token = data.get("token")  # Backend service returns "token" not "access_token"
+            if token:
+                logger.info(f"System token created successfully for tenant {tenant_id}")
+                return token
+            else:
+                logger.error(f"No token in login response for tenant {tenant_id}: {data}")
+        else:
+            logger.error(f"System user login failed for tenant {tenant_id}: {response.status_code} - {response.text}")
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to create system token for tenant {tenant_id}: {e}")
+        return None
+
+
+def _clear_system_token(tenant_id: int):
+    """Clear cached system token (e.g., when it expires)"""
+    _system_tokens.pop(tenant_id, None)
+
 
 def find_next_ready_job(session: Session, tenant_id: int, current_order: int) -> JobSchedule:
     """
@@ -178,7 +266,7 @@ def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: st
 
 
 
-async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id=None):
+async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id=None, user_token=None):
     """
     Trigger a Jira sync job via the orchestration system for a specific client.
 
@@ -188,6 +276,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
         tenant_id: Tenant ID to trigger job for (required for client isolation)
+        user_token: User authentication token for AI operations
 
     Returns:
         Dict containing job execution results
@@ -259,6 +348,11 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
 
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - NORMAL MODE")
 
+            # Store user token for job execution (if provided)
+            if user_token:
+                # Store token in a simple global context for this job execution
+                _set_job_auth_token(tenant_id, user_token)
+
             # Trigger the orchestrator to process the job for this client only (non-blocking)
             asyncio.create_task(run_orchestrator_for_client(tenant_id))
 
@@ -280,7 +374,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
         }
 
 
-async def trigger_github_sync(force_manual=False, execution_params=None, tenant_id=None):
+async def trigger_github_sync(force_manual=False, execution_params=None, tenant_id=None, user_token=None):
     """
     Trigger a GitHub sync job via the orchestration system for a specific client.
 
@@ -290,6 +384,7 @@ async def trigger_github_sync(force_manual=False, execution_params=None, tenant_
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
         tenant_id: Tenant ID to trigger job for (required for client isolation)
+        user_token: User authentication token for AI operations
 
     Returns:
         Dict containing job execution results
@@ -361,6 +456,11 @@ async def trigger_github_sync(force_manual=False, execution_params=None, tenant_
 
                 logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - NORMAL MODE")
 
+            # Store user token for job execution (if provided)
+            if user_token:
+                # Store token in a simple global context for this job execution
+                _set_job_auth_token(tenant_id, user_token)
+
             # Trigger the orchestrator to process the job for this client only (non-blocking)
             asyncio.create_task(run_orchestrator_for_client(tenant_id))
 
@@ -406,17 +506,17 @@ async def run_orchestrator():
             logger.info(f"Processing jobs for {len(tenants)} active tenants")
 
         # Process each client's jobs independently based on their individual settings
-        for client in clients:
+        for tenant in tenants:
             try:
                 # SECURITY: Check if this client's orchestrator should run based on their settings
-                should_run = await should_run_orchestrator_for_client(client.id)
+                should_run = await should_run_orchestrator_for_client(tenant.id)
                 if should_run:
-                    logger.info(f"Processing jobs for client: {client.name} (ID: {client.id}) - interval elapsed")
-                    await run_orchestrator_for_client(client.id)
+                    logger.info(f"Processing jobs for client: {tenant.name} (ID: {tenant.id}) - interval elapsed")
+                    await run_orchestrator_for_client(tenant.id)
                 else:
-                    logger.debug(f"Skipping client {client.name} (ID: {client.id}) - interval not elapsed or disabled")
+                    logger.debug(f"Skipping client {tenant.name} (ID: {tenant.id}) - interval not elapsed or disabled")
             except Exception as e:
-                logger.error(f"Error processing jobs for client {client.name}: {e}")
+                logger.error(f"Error processing jobs for client {tenant.name}: {e}")
                 continue
 
     except Exception as e:

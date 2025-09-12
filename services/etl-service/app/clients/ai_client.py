@@ -138,13 +138,23 @@ class AIClient:
     ) -> VectorStoreResult:
         """Store entity vector in Qdrant via Backend Service"""
         try:
-            headers = {
-                "Content-Type": "application/json"
-            }
+            # Check if auth token is available
+            if not auth_token:
+                logger.warning(f"[AI_VECTORS] ⚠️ No authentication token available - skipping AI vectorization for {table_name}:{record_id}")
+                return VectorStoreResult(
+                    success=True,
+                    vector_id=None,
+                    collection_name=None,
+                    processing_time=0.0,
+                    cost=0.0,
+                    provider_used="none",
+                    error="No authentication token - AI vectorization skipped"
+                )
 
-            # Add authentication if token provided
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {auth_token}"
+            }
 
             payload = {
                 "entity_data": entity_data,
@@ -367,16 +377,17 @@ async def generate_embeddings_for_etl(texts: List[str]) -> EmbeddingResult:
 async def store_entity_vector_for_etl(
     entity_data: Dict[str, Any],
     table_name: str,
-    record_id: str
+    record_id: str,
+    auth_token: str = None
 ) -> VectorStoreResult:
     """
     Convenience function for ETL jobs to store entity vectors
-    Uses system authentication (no user token required)
+    Requires auth token for backend service authentication
     """
     client = get_ai_client()
 
     try:
-        result = await client.store_entity_vector(entity_data, table_name, record_id)
+        result = await client.store_entity_vector(entity_data, table_name, record_id, auth_token=auth_token)
 
         if result.success:
             logger.info(f"Stored vector for {table_name}:{record_id} in {result.collection_name} "
@@ -434,4 +445,196 @@ async def search_similar_entities_for_etl(
             processing_time=0.0,
             cost=0.0,
             error=str(e)
+        )
+
+
+@dataclass
+class BulkVectorResult:
+    """Result from bulk vector operations"""
+    success: bool
+    vectors_stored: int = 0
+    vectors_updated: int = 0
+    vectors_failed: int = 0
+    error: Optional[str] = None
+    processing_time: float = 0.0
+    provider_used: Optional[str] = None
+
+
+async def bulk_store_entity_vectors_for_etl(
+    entities: List[Dict[str, Any]],
+    auth_token: str = None
+) -> BulkVectorResult:
+    """
+    Bulk store entity vectors via Backend Service.
+
+    Args:
+        entities: List of entity data dicts with keys:
+                 - entity_data: Dict with entity content
+                 - record_id: Unique record identifier
+                 - table_name: Database table name
+        auth_token: User authentication token for Backend Service
+
+    Returns:
+        BulkVectorResult with operation results
+    """
+    try:
+        if not entities:
+            return BulkVectorResult(success=True, vectors_stored=0)
+
+        # Check if auth token is available
+        if not auth_token:
+            logger.warning("[AI_VECTORS] No authentication token available - skipping AI vectorization")
+            return BulkVectorResult(
+                success=True,
+                vectors_stored=0,
+                vectors_failed=0,
+                processing_time=0.0,
+                provider_used="none",
+                error="No authentication token - AI vectorization skipped"
+            )
+
+        import time
+        start_time = time.time()
+
+        # Prepare bulk request payload
+        payload = {
+            "entities": entities,
+            "operation": "bulk_store"
+        }
+
+        # Get Backend Service URL from environment
+        import os
+        backend_url = os.getenv("BACKEND_SERVICE_URL", "http://localhost:3001")
+
+        # Prepare headers with authentication
+        headers = {"Content-Type": "application/json"}
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+        # Call Backend Service bulk endpoint
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{backend_url}/api/v1/ai/vectors/bulk",
+                json=payload,
+                headers=headers
+            )
+
+            processing_time = time.time() - start_time
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    return BulkVectorResult(
+                        success=True,
+                        vectors_stored=data.get("vectors_stored", 0),
+                        vectors_failed=data.get("vectors_failed", 0),
+                        processing_time=processing_time,
+                        provider_used=data.get("provider_used")
+                    )
+                else:
+                    return BulkVectorResult(
+                        success=False,
+                        error=data.get("error", "Unknown error"),
+                        processing_time=processing_time
+                    )
+            else:
+                return BulkVectorResult(
+                    success=False,
+                    error=f"Backend Service returned {response.status_code}: {response.text}",
+                    processing_time=processing_time
+                )
+
+    except Exception as e:
+        return BulkVectorResult(
+            success=False,
+            error=f"Error calling Backend Service: {str(e)}"
+        )
+
+
+async def bulk_update_entity_vectors_for_etl(
+    entities: List[Dict[str, Any]],
+    auth_token: str = None
+) -> BulkVectorResult:
+    """
+    Bulk update entity vectors via Backend Service.
+
+    Args:
+        entities: List of entity data dicts with keys:
+                 - entity_data: Dict with entity content
+                 - record_id: Unique record identifier
+                 - table_name: Database table name
+        auth_token: User authentication token for Backend Service
+
+    Returns:
+        BulkVectorResult with operation results
+    """
+    try:
+        if not entities:
+            return BulkVectorResult(success=True, vectors_updated=0)
+
+        # Check if auth token is available
+        if not auth_token:
+            logger.warning("[AI_VECTORS] ⚠️ No authentication token available - skipping AI vectorization")
+            return BulkVectorResult(
+                success=True,
+                vectors_updated=0,
+                vectors_failed=0,
+                processing_time=0.0,
+                provider_used="none",
+                error="No authentication token - AI vectorization skipped"
+            )
+
+        import time
+        start_time = time.time()
+
+        # Prepare bulk request payload
+        payload = {
+            "entities": entities,
+            "operation": "bulk_update"
+        }
+
+        # Get Backend Service URL from environment
+        import os
+        backend_url = os.getenv("BACKEND_SERVICE_URL", "http://localhost:3001")
+
+        # Prepare headers with authentication
+        headers = {"Content-Type": "application/json"}
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+        # Call Backend Service bulk endpoint
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{backend_url}/api/v1/ai/vectors/bulk",
+                json=payload,
+                headers=headers
+            )
+
+            processing_time = time.time() - start_time
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    return BulkVectorResult(
+                        success=True,
+                        vectors_updated=data.get("vectors_updated", 0),
+                        vectors_failed=data.get("vectors_failed", 0),
+                        processing_time=processing_time,
+                        provider_used=data.get("provider_used")
+                    )
+                else:
+                    return BulkVectorResult(
+                        success=False,
+                        error=data.get("error", "Unknown error"),
+                        processing_time=processing_time
+                    )
+            else:
+                return BulkVectorResult(
+                    success=False,
+                    error=f"Backend Service returned {response.status_code}: {response.text}",
+                    processing_time=processing_time
+                )
+
+    except Exception as e:
+        return BulkVectorResult(
+            success=False,
+            error=f"Error calling Backend Service: {str(e)}"
         )

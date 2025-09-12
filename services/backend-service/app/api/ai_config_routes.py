@@ -556,8 +556,12 @@ async def store_entity_vector(
             # Ensure collection exists
             await qdrant_client.ensure_collection_exists(collection_name)
 
-            # Create unique point ID
-            point_id = f"{tenant_id}_{table_name}_{record_id}"
+            # Create unique point ID (UUID format for Qdrant compatibility)
+            import uuid
+            import hashlib
+            # Create deterministic UUID based on tenant_id, table_name, record_id
+            unique_string = f"{tenant_id}_{table_name}_{record_id}"
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
 
             # Store vector in Qdrant with metadata
             vector_result = await qdrant_client.upsert_vectors(
@@ -585,11 +589,12 @@ async def store_entity_vector(
             qdrant_vector = QdrantVector(
                 tenant_id=tenant_id,
                 table_name=table_name,
-                record_id=str(record_id),
+                record_id=record_id,
                 qdrant_collection=collection_name,
                 qdrant_point_id=point_id,
                 vector_type="entity_embedding",
-                created_at=datetime.now()
+                embedding_model=embedding_result.provider_used,
+                embedding_provider=embedding_result.provider_used
             )
 
             db_session.add(qdrant_vector)
@@ -721,3 +726,930 @@ async def search_similar_entities(
     except Exception as e:
         logger.error(f"Error searching similar entities: {e}")
         raise HTTPException(status_code=500, detail="Failed to search similar entities")
+
+
+# Bulk vector operations endpoint for ETL Service
+@router.post("/ai/vectors/bulk")
+async def bulk_vector_operations(
+    request: dict,
+    user: UserData = Depends(require_authentication)
+):
+    """Bulk vector operations for ETL jobs"""
+    try:
+        entities = request.get("entities", [])
+        operation = request.get("operation", "bulk_store")
+
+        logger.info(f"[ETL_REQUEST] Received bulk vector request: operation={operation}, entities_count={len(entities)}")
+        if entities:
+            first_entity = entities[0]
+            logger.info(f"[ETL_REQUEST] First entity structure: {list(first_entity.keys())}")
+            logger.info(f"[ETL_REQUEST] First entity data: {first_entity.get('entity_data', {})}")
+            logger.info(f"[ETL_REQUEST] First entity record_id: {first_entity.get('record_id')} (type: {type(first_entity.get('record_id'))})")
+            logger.info(f"[ETL_REQUEST] First entity table_name: {first_entity.get('table_name')}")
+
+
+
+
+
+        if not entities:
+            return {"success": True, "vectors_stored": 0, "vectors_updated": 0}
+
+        # Import AI components
+        from app.ai.hybrid_provider_manager import HybridProviderManager
+        from app.ai.qdrant_client import PulseQdrantClient
+        from app.models.unified_models import QdrantVector
+        from app.core.database import get_database
+
+        tenant_id = user.tenant_id
+        database = get_database()
+
+        with database.get_write_session_context() as db_session:
+            # Initialize AI components
+            hybrid_manager = HybridProviderManager(db_session)
+            await hybrid_manager.initialize_providers(tenant_id)  # Initialize providers for this tenant
+            qdrant_client = PulseQdrantClient()
+            await qdrant_client.initialize()
+
+            vectors_stored = 0
+            vectors_updated = 0
+            vectors_failed = 0
+            provider_used = None
+
+            if operation == "bulk_store":
+                # Bulk store new vectors
+                for entity in entities:
+                    try:
+                        entity_data = entity.get("entity_data", {})
+                        record_id = entity.get("record_id")
+                        table_name = entity.get("table_name")
+
+                        if not all([entity_data, record_id, table_name]):
+                            logger.warning(f"[ETL_REQUEST] Missing required data for entity: entity_data={bool(entity_data)}, record_id={record_id}, table_name={table_name}")
+                            vectors_failed += 1
+                            continue
+
+                        # Create text content for embedding
+                        logger.info(f"[ETL_REQUEST] Processing entity record_id={record_id}, table={table_name}")
+                        logger.info(f"[ETL_REQUEST] Entity data keys: {list(entity_data.keys())}")
+
+                        text_parts = []
+                        for key, value in entity_data.items():
+                            if value is not None:
+                                text_part = f"{key}: {str(value)}"
+                                text_parts.append(text_part)
+                                logger.info(f"[ETL_REQUEST] Added text part: '{text_part}'")
+
+                        text_content = " | ".join(text_parts)
+                        logger.info(f"[ETL_REQUEST] Generated text_content: '{text_content}' (length: {len(text_content)})")
+
+                        if not text_content.strip():
+                            logger.error(f"[ETL_REQUEST] Empty text content for record_id={record_id}")
+                            vectors_failed += 1
+                            continue
+
+                        # Generate embedding
+                        logger.info(f"[ETL_REQUEST] Generating embedding for record_id={record_id}")
+                        embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
+                        if not embedding_result.success:
+                            logger.error(f"[ETL_REQUEST] Embedding generation failed for record_id={record_id}: {embedding_result.error}")
+                            vectors_failed += 1
+                            continue
+
+                        logger.info(f"[ETL_REQUEST] Embedding generated successfully for record_id={record_id}, provider={embedding_result.provider_used}")
+
+                        provider_used = embedding_result.provider_used
+                        embedding = embedding_result.data[0]
+
+                        # Store in Qdrant
+                        collection_name = f"client_{tenant_id}_{table_name}"
+                        logger.info(f"[ETL_REQUEST] Storing vector in Qdrant collection: {collection_name}")
+                        # Create deterministic UUID for point ID
+                        import uuid
+                        unique_string = f"{tenant_id}_{table_name}_{record_id}"
+                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+
+                        # Ensure collection exists
+                        await qdrant_client.ensure_collection_exists(collection_name)
+
+                        # Prepare metadata payload
+                        metadata = {
+                            "tenant_id": tenant_id,
+                            "table_name": table_name,
+                            "record_id": record_id,
+                            **entity_data
+                        }
+
+                        # Store vector in Qdrant
+                        store_result = await qdrant_client.upsert_vectors(
+                            collection_name=collection_name,
+                            vectors=[{
+                                "id": point_id,
+                                "vector": embedding,
+                                "payload": metadata
+                            }]
+                        )
+
+                        if store_result.success:
+                            # Create bridge record in PostgreSQL
+                            bridge_record = QdrantVector(
+                                tenant_id=tenant_id,
+                                table_name=table_name,
+                                record_id=record_id,
+                                qdrant_collection=collection_name,
+                                qdrant_point_id=point_id,
+                                vector_type="entity_embedding",
+                                embedding_model=embedding_result.provider_used,
+                                embedding_provider=embedding_result.provider_used
+                            )
+                            db_session.add(bridge_record)
+                            vectors_stored += 1
+                        else:
+                            vectors_failed += 1
+
+                    except Exception as e:
+                        logger.error(f"Error storing vector for {entity.get('record_id')}: {e}")
+                        vectors_failed += 1
+
+                # Commit all bridge records
+                db_session.commit()
+
+            elif operation == "bulk_update":
+                # Bulk update existing vectors
+                for entity in entities:
+                    try:
+                        entity_data = entity.get("entity_data", {})
+                        record_id = entity.get("record_id")
+                        table_name = entity.get("table_name")
+
+                        if not all([entity_data, record_id, table_name]):
+                            vectors_failed += 1
+                            continue
+
+                        # Find existing vector record
+                        existing_vector = db_session.query(QdrantVector).filter(
+                            QdrantVector.tenant_id == tenant_id,
+                            QdrantVector.table_name == table_name,
+                            QdrantVector.record_id == record_id
+                        ).first()
+
+                        if not existing_vector:
+                            vectors_failed += 1
+                            continue
+
+                        # Create text content for embedding
+                        text_parts = []
+                        for key, value in entity_data.items():
+                            if value and isinstance(value, str):
+                                text_parts.append(f"{key}: {value}")
+
+                        text_content = " | ".join(text_parts)
+                        if not text_content.strip():
+                            vectors_failed += 1
+                            continue
+
+                        # Generate new embedding
+                        embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
+                        if not embedding_result.success:
+                            vectors_failed += 1
+                            continue
+
+                        provider_used = embedding_result.provider_used
+                        embedding = embedding_result.data[0]
+
+                        # Prepare metadata payload
+                        metadata = {
+                            "tenant_id": tenant_id,
+                            "table_name": table_name,
+                            "record_id": record_id,
+                            **entity_data
+                        }
+
+                        # Update vector in Qdrant
+                        update_result = await qdrant_client.upsert_vectors(
+                            collection_name=existing_vector.collection_name,
+                            vectors=[{
+                                "id": existing_vector.point_id,
+                                "vector": embedding,
+                                "payload": metadata
+                            }]
+                        )
+
+                        if update_result.success:
+                            # Update bridge record metadata
+                            existing_vector.vector_metadata = entity_data
+                            existing_vector.updated_at = datetime.utcnow()
+                            vectors_updated += 1
+                        else:
+                            vectors_failed += 1
+
+                    except Exception as e:
+                        logger.error(f"Error updating vector for {entity.get('record_id')}: {e}")
+                        vectors_failed += 1
+
+                # Commit all updates
+                db_session.commit()
+
+        result = {
+            "success": True,
+            "vectors_stored": vectors_stored,
+            "vectors_updated": vectors_updated,
+            "vectors_failed": vectors_failed,
+            "provider_used": provider_used
+        }
+
+        logger.info(f"[ETL_REQUEST] Final result: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in bulk vector operations: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# Vectorization Queue Endpoints
+
+class VectorizationQueueRequest(BaseModel):
+    tenant_id: int
+
+class VectorizationCleanupRequest(BaseModel):
+    tenant_id: int
+    retention_hours: Optional[int] = 24
+
+class VectorizationFailedCleanupRequest(BaseModel):
+    tenant_id: int
+    retention_days: Optional[int] = 7
+    confirm_delete_failed: bool = False  # Safety flag
+
+class QdrantCleanupRequest(BaseModel):
+    tenant_id: Optional[int] = None  # If None, cleans all tenants
+    confirm_delete_all: bool = False  # Safety flag
+
+@router.post("/ai/vectors/process-queue")
+async def process_vectorization_queue(
+    request: VectorizationQueueRequest,
+    user: UserData = Depends(require_authentication)
+):
+    """Process vectorization queue for a tenant (async)"""
+    try:
+        from fastapi import BackgroundTasks
+        from app.models.unified_models import VectorizationQueue
+
+        tenant_id = request.tenant_id
+
+        logger.info(f"[QUEUE_PROCESSOR] Received vectorization trigger request for tenant {tenant_id}")
+        logger.info(f"[QUEUE_PROCESSOR] User: {user.username} (tenant: {user.tenant_id})")
+
+        # Verify user has access to this tenant
+        if user.tenant_id != tenant_id:
+            logger.warning(f"[QUEUE_PROCESSOR] Access denied: user tenant {user.tenant_id} != requested tenant {tenant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this tenant"
+            )
+
+        # Start background processing
+        import asyncio
+        asyncio.create_task(process_tenant_vectorization_queue(tenant_id))
+
+        logger.info(f"[QUEUE_PROCESSOR] Started async vectorization processing for tenant {tenant_id}")
+
+        return {"status": "processing_started", "tenant_id": tenant_id}
+
+    except Exception as e:
+        logger.error(f"Error starting vectorization queue processing: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start processing: {str(e)}"
+        )
+
+
+@router.post("/ai/vectors/cleanup-queue")
+async def cleanup_vectorization_queue(
+    request: VectorizationCleanupRequest,
+    user: UserData = Depends(require_admin)  # Admin only for manual cleanup
+):
+    """Manually clean up old vectorization queue records"""
+    try:
+        from app.models.unified_models import VectorizationQueue
+
+        tenant_id = request.tenant_id
+        retention_hours = request.retention_hours
+
+        with get_db_session() as session:
+            await cleanup_old_completed_records(session, tenant_id, retention_hours)
+
+            # Get current queue stats
+            pending_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'pending'
+            ).count()
+
+            processing_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'processing'
+            ).count()
+
+            completed_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'completed'
+            ).count()
+
+            failed_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed'
+            ).count()
+
+        logger.info(f"[CLEANUP] Manual cleanup completed for tenant {tenant_id}")
+
+        return {
+            "status": "cleanup_completed",
+            "tenant_id": tenant_id,
+            "retention_hours": retention_hours,
+            "current_queue_stats": {
+                "pending": pending_count,
+                "processing": processing_count,
+                "completed": completed_count,
+                "failed": failed_count
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error in manual cleanup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup: {str(e)}"
+        )
+
+
+@router.post("/ai/vectors/cleanup-failed-queue")
+async def cleanup_failed_vectorization_queue(
+    request: VectorizationFailedCleanupRequest,
+    user: UserData = Depends(require_admin)  # Admin only
+):
+    """Manually clean up old FAILED vectorization queue records (admin only with confirmation)"""
+    try:
+        from app.models.unified_models import VectorizationQueue
+        from datetime import datetime, timedelta
+
+        tenant_id = request.tenant_id
+        retention_days = request.retention_days
+        confirm_delete = request.confirm_delete_failed
+
+        if not confirm_delete:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Must set confirm_delete_failed=true to delete failed records"
+            )
+
+        with get_db_session() as session:
+            # Calculate cutoff time for failed records
+            failed_cutoff_time = datetime.utcnow() - timedelta(days=retention_days)
+
+            # Get count before deletion for reporting
+            failed_count_before = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed',
+                VectorizationQueue.last_error_at < failed_cutoff_time
+            ).count()
+
+            # Delete old failed records
+            failed_deleted_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed',
+                VectorizationQueue.last_error_at < failed_cutoff_time
+            ).delete()
+
+            session.commit()
+
+            # Get remaining failed count
+            remaining_failed_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed'
+            ).count()
+
+        logger.info(f"[FAILED_CLEANUP] Tenant {tenant_id}: Deleted {failed_deleted_count} old failed records (older than {retention_days} days)")
+
+        return {
+            "status": "failed_cleanup_completed",
+            "tenant_id": tenant_id,
+            "retention_days": retention_days,
+            "failed_records_deleted": failed_deleted_count,
+            "remaining_failed_records": remaining_failed_count,
+            "warning": "Failed records contain valuable debugging information. Consider investigating before deletion."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in failed records cleanup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup failed records: {str(e)}"
+        )
+
+
+@router.post("/ai/vectors/cleanup-qdrant")
+async def cleanup_qdrant_collections(
+    request: QdrantCleanupRequest,
+    user: UserData = Depends(require_admin)  # Admin only
+):
+    """Completely clean up Qdrant collections (DANGEROUS - Admin only with confirmation)"""
+    try:
+        from app.ai.qdrant_client import PulseQdrantClient
+        from app.models.unified_models import QdrantVector
+
+        tenant_id = request.tenant_id
+        confirm_delete = request.confirm_delete_all
+
+        if not confirm_delete:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Must set confirm_delete_all=true to delete Qdrant collections"
+            )
+
+        qdrant_client = PulseQdrantClient()
+        deleted_collections = []
+        failed_deletions = []
+
+        with get_db_session() as session:
+            if tenant_id:
+                # Clean up specific tenant's collections
+                logger.info(f"[QDRANT_CLEANUP] Cleaning up collections for tenant {tenant_id}")
+
+                # Get collections for this tenant from database
+                qdrant_records = session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == tenant_id
+                ).all()
+
+                # Get unique collection names
+                collections_to_delete = set(record.qdrant_collection for record in qdrant_records)
+
+            else:
+                # Clean up ALL collections (nuclear option)
+                logger.warning("[QDRANT_CLEANUP] NUCLEAR CLEANUP: Deleting ALL Qdrant collections")
+
+                # Get all collections from Qdrant directly
+                try:
+                    collections_info = await qdrant_client.list_collections()
+                    collections_to_delete = set(collections_info.get('collections', []))
+                except Exception as e:
+                    logger.error(f"Failed to list Qdrant collections: {e}")
+                    collections_to_delete = set()
+
+                # Also get collections from database
+                qdrant_records = session.query(QdrantVector).all()
+                db_collections = set(record.qdrant_collection for record in qdrant_records)
+                collections_to_delete.update(db_collections)
+
+            # Delete each collection
+            for collection_name in collections_to_delete:
+                try:
+                    success = await qdrant_client.delete_collection(collection_name)
+                    if success:
+                        deleted_collections.append(collection_name)
+                        logger.info(f"[QDRANT_CLEANUP] Deleted collection: {collection_name}")
+                    else:
+                        failed_deletions.append(collection_name)
+                        logger.error(f"[QDRANT_CLEANUP] Failed to delete collection: {collection_name}")
+                except Exception as e:
+                    failed_deletions.append(collection_name)
+                    logger.error(f"[QDRANT_CLEANUP] Error deleting collection {collection_name}: {e}")
+
+            # Clean up database records
+            if tenant_id:
+                # Delete QdrantVector records for specific tenant
+                db_deleted_count = session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == tenant_id
+                ).delete()
+            else:
+                # Delete ALL QdrantVector records
+                db_deleted_count = session.query(QdrantVector).delete()
+
+            session.commit()
+
+        result = {
+            "status": "qdrant_cleanup_completed",
+            "tenant_id": tenant_id or "ALL_TENANTS",
+            "collections_deleted": deleted_collections,
+            "failed_deletions": failed_deletions,
+            "database_records_deleted": db_deleted_count,
+            "total_collections_processed": len(collections_to_delete),
+            "warning": "This operation permanently deletes all vector data. Make sure you have backups if needed."
+        }
+
+        logger.info(f"[QDRANT_CLEANUP] Cleanup completed: {len(deleted_collections)} collections deleted, {len(failed_deletions)} failed")
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in Qdrant cleanup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup Qdrant: {str(e)}"
+        )
+
+
+async def process_tenant_vectorization_queue(tenant_id: int, batch_size: int = 20):
+    """Process pending vectorization items for a tenant"""
+    try:
+        from app.models.unified_models import VectorizationQueue
+        from datetime import datetime
+        from app.core.database import get_database
+
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Check total queue items first
+            total_queue_items = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id
+            ).count()
+
+            pending_queue_items = session.query(VectorizationQueue).filter(
+                VectorizationQueue.status == 'pending',
+                VectorizationQueue.tenant_id == tenant_id
+            ).count()
+
+            logger.info(f"[QUEUE_PROCESSOR] Queue status for tenant {tenant_id}: {pending_queue_items} pending, {total_queue_items} total")
+
+            # Get pending items
+            pending_items = session.query(VectorizationQueue).filter(
+                VectorizationQueue.status == 'pending',
+                VectorizationQueue.tenant_id == tenant_id
+            ).order_by(
+                VectorizationQueue.created_at.asc()
+            ).limit(batch_size).all()
+
+            if not pending_items:
+                logger.info(f"[QUEUE_PROCESSOR] No pending vectorization items for tenant {tenant_id}")
+                return
+
+            total_items = len(pending_items)
+            logger.info(f"[QUEUE_PROCESSOR] Processing {total_items} vectorization items for tenant {tenant_id}")
+
+            # Send start notification
+            await send_vectorization_progress(tenant_id, 0, f"Starting vectorization of {total_items} entities...")
+
+            # Process in smaller batches with more frequent progress updates
+            processed_count = 0
+            successful_count = 0
+            failed_count = 0
+            batch_size = 5  # Smaller batches for more frequent updates
+            total_batches = (total_items + batch_size - 1) // batch_size  # Ceiling division
+
+            for i in range(0, len(pending_items), batch_size):
+                batch = pending_items[i:i+batch_size]
+                batch_num = (i // batch_size) + 1
+
+                # Send progress update before processing batch
+                progress_percentage = (processed_count / total_items) * 100
+                await send_vectorization_progress(
+                    tenant_id,
+                    progress_percentage,
+                    f"Processing batch {batch_num}/{total_batches} ({len(batch)} entities)..."
+                )
+
+                # Process batch and get detailed results
+                batch_result = await process_vectorization_batch(session, batch)
+                batch_successful = batch_result.get('vectors_stored', 0)
+                batch_failed = batch_result.get('vectors_failed', 0)
+
+                processed_count += len(batch)
+                successful_count += batch_successful
+                failed_count += batch_failed
+
+                # Send progress update after processing batch with detailed info
+                progress_percentage = (processed_count / total_items) * 100
+                status_msg = f"Batch {batch_num}/{total_batches} complete: {batch_successful} success, {batch_failed} failed"
+                await send_vectorization_progress(
+                    tenant_id,
+                    progress_percentage,
+                    status_msg
+                )
+
+                # Small delay to prevent overwhelming the websocket
+                import asyncio
+                await asyncio.sleep(0.1)
+
+            # Send completion notification with summary
+            completion_msg = f"Vectorization complete: {successful_count} successful, {failed_count} failed ({total_items} total)"
+            await send_vectorization_progress(tenant_id, 100, completion_msg)
+
+            # Clean up old completed records to prevent exponential growth
+            await cleanup_old_completed_records(session, tenant_id)
+
+    except Exception as e:
+        logger.error(f"[QUEUE_PROCESSOR] Error processing vectorization queue for tenant {tenant_id}: {e}")
+        # Send error notification
+        await send_vectorization_progress(tenant_id, 0, f"Vectorization failed: {str(e)}")
+
+
+async def process_vectorization_batch(session, batch_items):
+    """Process a batch of vectorization items and return detailed results"""
+    try:
+        from datetime import datetime
+
+        # Mark as processing
+        for item in batch_items:
+            item.status = 'processing'
+            item.started_at = datetime.utcnow()
+        session.commit()
+
+        # Prepare for bulk vectorization
+        entities_to_vectorize = []
+        for item in batch_items:
+            entities_to_vectorize.append({
+                "entity_data": item.entity_data,  # Direct from queue
+                "record_id": item.qdrant_metadata["record_id"],
+                "table_name": item.qdrant_metadata["table_name"]
+            })
+
+        # Bulk vectorize using existing function
+        result = await bulk_vectorize_entities_from_queue(entities_to_vectorize, batch_items[0].tenant_id, session)
+        vectors_stored = result.get("vectors_stored", 0)
+        vectors_failed = result.get("vectors_failed", 0)
+
+        # Update status with more granular tracking
+        successful_items = 0
+        failed_items = 0
+
+        for i, item in enumerate(batch_items):
+            if i < vectors_stored:
+                item.status = 'completed'
+                item.completed_at = datetime.utcnow()
+                item.error_message = None  # Clear any previous errors
+                successful_items += 1
+            else:
+                item.status = 'failed'
+                item.error_message = result.get("error_details", "Vectorization processing failed")
+                item.last_error_at = datetime.utcnow()
+                failed_items += 1
+
+        session.commit()
+
+        batch_result = {
+            "vectors_stored": successful_items,
+            "vectors_failed": failed_items,
+            "total_processed": len(batch_items)
+        }
+
+        logger.info(f"[QUEUE_PROCESSOR] Processed batch: {successful_items} successful, {failed_items} failed")
+        return batch_result
+
+    except Exception as e:
+        # Mark batch as failed
+        for item in batch_items:
+            item.status = 'failed'
+            item.error_message = str(e)
+            item.last_error_at = datetime.utcnow()
+        session.commit()
+
+        logger.error(f"[QUEUE_PROCESSOR] Batch processing failed: {e}")
+        return {
+            "vectors_stored": 0,
+            "vectors_failed": len(batch_items),
+            "total_processed": len(batch_items),
+            "error": str(e)
+        }
+
+
+async def send_vectorization_progress(tenant_id: int, percentage: float, message: str, job_name: str = None):
+    """Send vectorization progress update via websocket to ETL service"""
+    try:
+        import httpx
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        etl_service_url = settings.ETL_SERVICE_URL  # e.g., http://localhost:8000
+
+        # Determine job name - try to detect from recent vectorization queue entries
+        if not job_name:
+            job_name = await _detect_current_job_name(tenant_id) or "Vectorization"
+
+        # Send progress update to ETL service websocket
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{etl_service_url}/api/vectorization_progress",
+                json={
+                    "tenant_id": tenant_id,
+                    "job_name": job_name,
+                    "percentage": percentage,
+                    "message": f"[VECTORIZATION] {message}"
+                },
+                timeout=2.0  # Short timeout - non-critical
+            )
+            logger.debug(f"[WEBSOCKET] Sent vectorization progress to {job_name}: {percentage}% - {message}")
+    except Exception as e:
+        logger.debug(f"[WEBSOCKET] Failed to send vectorization progress: {e}")
+        # Non-critical - don't fail vectorization if websocket fails
+
+
+async def _detect_current_job_name(tenant_id: int) -> str:
+    """Detect the current job name based on recent vectorization queue entries"""
+    try:
+        from app.models.unified_models import VectorizationQueue
+
+        with get_db_session() as session:
+            # Get the most recent queue entry to determine job context
+            recent_entry = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status.in_(['pending', 'processing'])
+            ).order_by(VectorizationQueue.created_at.desc()).first()
+
+            if recent_entry:
+                table_name = recent_entry.table_name
+                # Map table names to likely job names
+                if table_name in ['work_items', 'changelogs', 'projects', 'statuses', 'wits']:
+                    return "Jira"
+                elif table_name in ['prs', 'prs_commits', 'prs_reviews', 'prs_comments']:
+                    return "GitHub"
+                else:
+                    return "Jira"  # Default fallback
+
+            return "Jira"  # Default fallback
+
+    except Exception as e:
+        logger.debug(f"Failed to detect job name: {e}")
+        return "Jira"  # Default fallback
+
+
+async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], tenant_id: int, db_session) -> Dict[str, Any]:
+    """Vectorize entities from the queue using existing infrastructure"""
+    try:
+        # Use the existing bulk vectorization logic
+        provider_manager = HybridProviderManager(db_session)
+        await provider_manager.initialize_providers(tenant_id)
+        qdrant_client = PulseQdrantClient()
+        await qdrant_client.initialize()
+
+        vectors_stored = 0
+        vectors_failed = 0
+
+        for entity in entities:
+            try:
+                # Get entity data and metadata
+                entity_data = entity["entity_data"]
+                record_id = entity["record_id"]
+                table_name = entity["table_name"]
+
+                # Create text content for vectorization
+                text_content = create_text_content_from_entity(entity_data, table_name)
+
+                if not text_content:
+                    vectors_failed += 1
+                    continue
+
+                # Generate embedding
+                embedding_result = await provider_manager.generate_embeddings([text_content], tenant_id)
+
+                if not embedding_result.success:
+                    logger.warning(f"[QUEUE_PROCESSOR] Failed to generate embedding for {table_name} {record_id}: {embedding_result.error}")
+                    vectors_failed += 1
+                    continue
+
+                # Extract the first (and only) embedding from the result
+                embedding_vector = embedding_result.data[0] if embedding_result.data else None
+                if not embedding_vector:
+                    logger.warning(f"[QUEUE_PROCESSOR] No embedding data returned for {table_name} {record_id}")
+                    vectors_failed += 1
+                    continue
+
+                # Store in Qdrant
+                collection_name = f"client_{tenant_id}_{table_name}"
+                # Use integer point ID for Qdrant (not string)
+                point_id = int(record_id)
+
+                # Ensure collection exists before upserting
+                await qdrant_client.ensure_collection_exists(
+                    collection_name=collection_name,
+                    vector_size=len(embedding_vector)
+                )
+
+                # Prepare vector data for upsert
+                vector_data = [{
+                    'id': point_id,
+                    'vector': embedding_vector,
+                    'payload': {
+                        **entity_data,
+                        'tenant_id': tenant_id,
+                        'table_name': table_name,
+                        'record_id': record_id
+                    }
+                }]
+
+                store_result = await qdrant_client.upsert_vectors(
+                    collection_name=collection_name,
+                    vectors=vector_data
+                )
+
+                if store_result.success:
+                    vectors_stored += 1
+                    logger.debug(f"[QUEUE_PROCESSOR] Stored vector for {table_name} {record_id}")
+                else:
+                    vectors_failed += 1
+                    logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")
+
+            except Exception as e:
+                logger.error(f"[QUEUE_PROCESSOR] Error processing entity {entity.get('record_id', 'unknown')}: {e}")
+                vectors_failed += 1
+
+        return {
+            "vectors_stored": vectors_stored,
+            "vectors_failed": vectors_failed
+        }
+
+    except Exception as e:
+        logger.error(f"[QUEUE_PROCESSOR] Error in bulk vectorization: {e}")
+        return {
+            "vectors_stored": 0,
+            "vectors_failed": len(entities)
+        }
+
+
+def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str) -> str:
+    """Create text content for vectorization based on entity type"""
+    try:
+        if table_name == "changelogs":
+            parts = []
+            if entity_data.get("from_status_name"):
+                parts.append(f"From: {entity_data['from_status_name']}")
+            if entity_data.get("to_status_name"):
+                parts.append(f"To: {entity_data['to_status_name']}")
+            if entity_data.get("changed_by"):
+                parts.append(f"Changed by: {entity_data['changed_by']}")
+            if entity_data.get("work_item_key"):
+                parts.append(f"Issue: {entity_data['work_item_key']}")
+            return " | ".join(parts)
+
+        elif table_name == "work_items":
+            parts = []
+            if entity_data.get("key"):
+                parts.append(f"Key: {entity_data['key']}")
+            if entity_data.get("summary"):
+                parts.append(f"Summary: {entity_data['summary']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get("status_name"):
+                parts.append(f"Status: {entity_data['status_name']}")
+            return " | ".join(parts)
+
+        elif table_name == "prs_commits":
+            parts = []
+            if entity_data.get("message"):
+                parts.append(f"Message: {entity_data['message']}")
+            if entity_data.get("author_name"):
+                parts.append(f"Author: {entity_data['author_name']}")
+            if entity_data.get("sha"):
+                parts.append(f"SHA: {entity_data['sha'][:8]}")
+            return " | ".join(parts)
+
+        elif table_name == "prs":
+            parts = []
+            if entity_data.get("title"):
+                parts.append(f"Title: {entity_data['title']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get("author"):
+                parts.append(f"Author: {entity_data['author']}")
+            return " | ".join(parts)
+
+        else:
+            # Generic fallback
+            return " | ".join([f"{k}: {v}" for k, v in entity_data.items() if v and k != "external_id"])
+
+    except Exception as e:
+        logger.error(f"Error creating text content for {table_name}: {e}")
+        return ""
+
+
+async def cleanup_old_completed_records(session, tenant_id: int, retention_hours: int = 24):
+    """
+    Clean up old COMPLETED vectorization records to prevent exponential data growth.
+
+    IMPORTANT: This function ONLY deletes successfully completed records.
+    Failed records are preserved for debugging and potential retry.
+    Use the separate cleanup-failed-queue endpoint to manually clean failed records.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from app.models.unified_models import VectorizationQueue
+
+        # Calculate cutoff time (keep records for retention_hours)
+        cutoff_time = datetime.utcnow() - timedelta(hours=retention_hours)
+
+        # Delete ONLY old completed records (successful vectorizations)
+        deleted_count = session.query(VectorizationQueue).filter(
+            VectorizationQueue.tenant_id == tenant_id,
+            VectorizationQueue.status == 'completed',
+            VectorizationQueue.completed_at < cutoff_time
+        ).delete()
+
+        # DO NOT delete failed records - keep them for debugging and potential retry
+        # Failed records should be manually reviewed and cleaned up by administrators
+
+        session.commit()
+
+        if deleted_count > 0:
+            logger.info(f"[CLEANUP] Tenant {tenant_id}: Deleted {deleted_count} old completed records (keeping all failed records for debugging)")
+
+    except Exception as e:
+        logger.error(f"[CLEANUP] Error cleaning up old records for tenant {tenant_id}: {e}")
+        session.rollback()

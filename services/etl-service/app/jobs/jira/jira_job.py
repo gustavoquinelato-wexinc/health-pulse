@@ -61,7 +61,7 @@ async def execute_jira_extraction_by_mode(
             from app.jobs.jira.jira_extractors import extract_projects_and_issuetypes
             from app.core.logging_config import JobLogger
             job_logger = JobLogger("Jira")
-            result = extract_projects_and_issuetypes(session, jira_client, jira_integration, job_logger)
+            result = await extract_projects_and_issuetypes(session, jira_client, jira_integration, job_logger)
             return {'success': True, **result}
 
         elif execution_mode == JiraExecutionMode.STATUSES:
@@ -69,7 +69,7 @@ async def execute_jira_extraction_by_mode(
             from app.jobs.jira.jira_extractors import extract_projects_and_statuses
             from app.core.logging_config import JobLogger
             job_logger = JobLogger("Jira")
-            result = extract_projects_and_statuses(session, jira_client, jira_integration, job_logger)
+            result = await extract_projects_and_statuses(session, jira_client, jira_integration, job_logger)
             return {'success': True, **result}
 
         elif execution_mode == JiraExecutionMode.ISSUES:
@@ -621,7 +621,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         # Step 1: Extract projects and issue types
         logger.info("Step 1: Extracting projects and issue types...")
         await websocket_manager.send_progress_update("Jira", 10.0, "Extracting projects and issue types...")
-        projects_result = extract_projects_and_issuetypes(session, jira_client, integration, job_logger)
+        projects_result = await extract_projects_and_issuetypes(session, jira_client, integration, job_logger)
         if not projects_result.get('projects_processed', 0):
             logger.warning("No projects found or processed")
             await websocket_manager.send_exception("Jira", "WARNING", "No projects found or processed")
@@ -629,7 +629,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         # Step 2: Extract projects and statuses
         logger.info("Step 2: Extracting projects and statuses...")
         await websocket_manager.send_progress_update("Jira", 20.0, "Extracting projects and statuses...")
-        statuses_result = extract_projects_and_statuses(session, jira_client, integration, job_logger)
+        statuses_result = await extract_projects_and_statuses(session, jira_client, integration, job_logger)
         if not statuses_result.get('statuses_processed', 0):
             logger.warning("No statuses found or processed")
             await websocket_manager.send_exception("Jira", "WARNING", "No statuses found or processed")
@@ -846,6 +846,66 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         # Final commit
         session.commit()
 
+        # Phase 3-4: Queue WIT-PR links for async vectorization (NEW ARCHITECTURE)
+        if pr_links_created > 0:
+            logger.info(f"Queueing {pr_links_created} new WIT-PR links for async vectorization...")
+            try:
+                # Initialize vectorization queue helper
+                from app.jobs.vectorization_helper import VectorizationQueueHelper
+                from app.core.config import get_settings
+                settings = get_settings()
+                backend_url = settings.BACKEND_SERVICE_URL
+                vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+
+                # Get all newly created WIT-PR links for this integration
+                wit_pr_links = session.query(WitPrLinks).filter(
+                    WitPrLinks.integration_id == integration.id,
+                    WitPrLinks.active == True
+                ).all()
+
+                # Prepare entities for vectorization queueing
+                entities_to_queue = []
+                for link in wit_pr_links:
+                    try:
+                        # Get work item details for context
+                        work_item = session.query(WorkItem).filter(WorkItem.id == link.work_item_id).first()
+
+                        # Create entity data for vectorization
+                        entity_data = {
+                            "id": link.id,  # Database ID for record_db_id
+                            "work_item_key": work_item.key if work_item else None,
+                            "work_item_summary": work_item.summary if work_item else None,
+                            "repo_full_name": link.repo_full_name,
+                            "pull_request_number": link.pull_request_number,
+                            "branch_name": link.branch_name,
+                            "commit_sha": link.commit_sha,
+                            "pr_status": link.pr_status,
+                            "link_type": "jira_github_connection"
+                        }
+
+                        # Remove None values to create cleaner text content
+                        entity_data = {k: v for k, v in entity_data.items() if v is not None}
+
+                        # Skip links without meaningful content
+                        if not entity_data.get("work_item_key") or not entity_data.get("repo_full_name"):
+                            continue
+
+                        entities_to_queue.append(entity_data)
+
+                    except Exception as e:
+                        logger.warning(f"Error preparing WIT-PR link {link.id} for vectorization queueing: {e}")
+
+                # Queue WIT-PR links for async vectorization (saved immediately)
+                if entities_to_queue:
+                    vectorization_helper.queue_entities_for_vectorization(
+                        entities_to_queue, "wits_prs_links", "insert"
+                    )
+                    logger.info(f"Successfully saved {len(entities_to_queue)} WIT-PR links to vectorization queue")
+
+            except Exception as e:
+                logger.error(f"Error queueing WIT-PR links for vectorization: {e}")
+                # Don't fail the entire job if vectorization queueing fails
+
         # Summary of dev_status processing
         logger.info(f"Dev_status processing complete: {issues_processed} issues processed, {pr_links_created} PR links created, {dev_status_skipped} issues skipped")
 
@@ -856,7 +916,25 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         ).count()
         logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.tenant_id}")
 
-        # Step 5: All processing completed - send final progress update
+        # Step 5: Trigger vectorization processing for all saved entities
+        await websocket_manager.send_progress_update("Jira", 95.0, "[VECTORIZATION] Starting vectorization processing...")
+
+        try:
+            from app.jobs.orchestrator import _get_job_auth_token
+            auth_token = _get_job_auth_token(integration.tenant_id)
+
+            logger.info("[VECTORIZATION] Triggering async vectorization for all extracted entities...")
+            vectorization_result = await vectorization_helper.trigger_vectorization_only(auth_token)
+
+            await websocket_manager.send_progress_update("Jira", 98.0, "[VECTORIZATION] Vectorization processing started in background")
+            logger.info(f"[VECTORIZATION] {vectorization_result.get('message', 'Processing started')}")
+
+        except Exception as e:
+            logger.error(f"[VECTORIZATION] Failed to trigger vectorization processing: {e}")
+            await websocket_manager.send_progress_update("Jira", 98.0, "[VECTORIZATION] Warning: Vectorization trigger failed")
+            # Don't fail the entire job if vectorization trigger fails
+
+        # Step 6: All processing completed - send final progress update
         await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
 
         # Small delay to ensure progress update is processed before completion notification

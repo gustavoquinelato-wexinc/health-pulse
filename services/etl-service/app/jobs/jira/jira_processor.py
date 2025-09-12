@@ -125,14 +125,14 @@ class JiraDataProcessor:
             )
 
             if result.success:
-                logger.debug(f"✅ Stored vector for issue {issue_key} in {result.collection_name}")
+                logger.debug(f"SUCCESS: Stored vector for issue {issue_key} in {result.collection_name}")
                 return True
             else:
-                logger.warning(f"⚠️ Failed to store vector for issue {issue_key}: {result.error}")
+                logger.warning(f"WARNING: Failed to store vector for issue {issue_key}: {result.error}")
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Error storing vector for issue {issue_key}: {e}")
+            logger.error(f"ERROR: Error storing vector for issue {issue_key}: {e}")
             return False
     
     def _parse_datetime(self, date_str: str) -> datetime:

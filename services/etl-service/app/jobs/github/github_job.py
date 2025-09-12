@@ -581,6 +581,32 @@ async def run_github_sync(
                 # Get final rate limit status
                 final_rate_limits = await get_github_rate_limits_internal(github_token)
 
+                # Trigger vectorization processing for all saved entities
+                await websocket_manager.send_progress_update("GitHub", 95.0, "[VECTORIZATION] Starting vectorization processing...")
+
+                try:
+                    from app.jobs.vectorization_helper import VectorizationQueueHelper
+                    from app.jobs.orchestrator import _get_job_auth_token
+
+                    # Create vectorization helper (backend URL will be determined from settings)
+                    from app.core.config import get_settings
+                    settings = get_settings()
+                    backend_url = settings.BACKEND_SERVICE_URL or "http://localhost:3001"
+
+                    vectorization_helper = VectorizationQueueHelper(github_integration.tenant_id, backend_url)
+                    auth_token = _get_job_auth_token(github_integration.tenant_id)
+
+                    logger.info("[VECTORIZATION] Triggering async vectorization for all extracted entities...")
+                    vectorization_result = await vectorization_helper.trigger_vectorization_only(auth_token)
+
+                    await websocket_manager.send_progress_update("GitHub", 98.0, "[VECTORIZATION] Vectorization processing started in background")
+                    logger.info(f"[VECTORIZATION] {vectorization_result.get('message', 'Processing started')}")
+
+                except Exception as e:
+                    logger.error(f"[VECTORIZATION] Failed to trigger vectorization processing: {e}")
+                    await websocket_manager.send_progress_update("GitHub", 98.0, "[VECTORIZATION] Warning: Vectorization trigger failed")
+                    # Don't fail the entire job if vectorization trigger fails
+
                 # Send final progress update
                 await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync completed successfully")
 
@@ -1046,6 +1072,58 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         if total_changes > 0:
             session.commit()
             logger.info(f"Committed {total_changes} repository changes")
+
+            # Phase 3-4: Bulk AI vector processing for new repositories
+            if repos_to_insert:
+                logger.info(f"Processing {len(repos_to_insert)} new repositories for AI vectorization...")
+                try:
+                    from app.clients.ai_client import bulk_store_entity_vectors_for_etl
+
+                    # Prepare entities for bulk vector creation
+                    entities_to_create = []
+                    for repo_data in repos_to_insert:
+                        try:
+                            # Create entity data for AI processing
+                            entity_data = {
+                                "external_id": repo_data.get("external_id"),
+                                "name": repo_data.get("name"),
+                                "full_name": repo_data.get("full_name"),
+                                "description": repo_data.get("description"),
+                                "language": repo_data.get("language"),
+                                "default_branch": repo_data.get("default_branch"),
+                                "is_private": repo_data.get("is_private"),
+                                "archived": repo_data.get("archived")
+                            }
+
+                            # Remove None values to create cleaner text content
+                            entity_data = {k: v for k, v in entity_data.items() if v is not None}
+
+                            # Skip repositories without meaningful content (name is minimum)
+                            if not entity_data.get("name"):
+                                continue
+
+                            entities_to_create.append({
+                                "entity_data": entity_data,
+                                "record_id": str(repo_data.get("external_id")),  # Use repo external ID as record ID
+                                "table_name": "repositories"
+                            })
+
+                        except Exception as e:
+                            logger.warning(f"Error preparing repository {repo_data.get('name', 'unknown')} for vector creation: {e}")
+
+                    # Bulk create vectors for repositories
+                    if entities_to_create:
+                        from app.jobs.orchestrator import _get_job_auth_token
+                        auth_token = _get_job_auth_token(integration.tenant_id)
+                        result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
+                        if result.success:
+                            logger.info(f"SUCCESS: Bulk created {result.vectors_stored} vectors for new repositories")
+                        else:
+                            logger.error(f"FAILED: Failed to bulk create repository vectors: {result.error}")
+
+                except Exception as e:
+                    logger.error(f"Error in repository AI vector processing: {e}")
+                    # Don't fail the entire job if AI processing fails
 
         total_processed = len(repos_to_insert) + repos_updated + repos_skipped
         logger.info(f"Repository discovery completed!")

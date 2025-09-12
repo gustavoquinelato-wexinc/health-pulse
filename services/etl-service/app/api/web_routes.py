@@ -2229,6 +2229,7 @@ async def handle_user_theme_change(request: Request):
 @router.post("/api/v1/jobs/{job_name}/start")
 async def start_job(
     job_name: str,
+    request: Request,
     execution_params: Optional[JobExecutionParams] = None,
     user: UserData = Depends(require_admin_authentication)
 ):
@@ -2247,7 +2248,22 @@ async def start_job(
         else:
             logger.info(f"Force starting job {job_name} in MANUAL MODE (default parameters)")
 
-        # SECURITY: Use client-aware trigger functions with user's tenant_id
+        # Extract user token for job authentication
+        user_token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            user_token = auth_header.split(" ")[1]
+        else:
+            # Fallback to cookie
+            user_token = request.cookies.get("pulse_token")
+
+        if not user_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication token required for job execution"
+            )
+
+        # SECURITY: Use client-aware trigger functions with user's tenant_id and token
         # Run in background to avoid blocking the web request
         import asyncio
         job_name_lower = job_name.lower()
@@ -2255,7 +2271,8 @@ async def start_job(
             asyncio.create_task(trigger_jira_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                tenant_id=user.tenant_id
+                tenant_id=user.tenant_id,
+                user_token=user_token
             ))
             result = {
                 'status': 'triggered',
@@ -2266,7 +2283,8 @@ async def start_job(
             asyncio.create_task(trigger_github_sync(
                 force_manual=True,
                 execution_params=execution_params,
-                tenant_id=user.tenant_id
+                tenant_id=user.tenant_id,
+                user_token=user_token
             ))
             result = {
                 'status': 'triggered',
@@ -3525,6 +3543,40 @@ async def websocket_test():
 </html>
     """
     return HTMLResponse(content=html_content)
+
+
+@router.post("/api/vectorization_progress")
+async def vectorization_progress_update(request: Request):
+    """Receive vectorization progress updates from backend service and forward to websockets."""
+    try:
+        from app.core.websocket_manager import get_websocket_manager
+
+        data = await request.json()
+        tenant_id = data.get('tenant_id')
+        job_name = data.get('job_name', 'Jira')
+        percentage = data.get('percentage', 0.0)
+        message = data.get('message', 'Vectorization in progress...')
+
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.send_progress_update(job_name, percentage, message)
+
+        connections = websocket_manager.get_connection_count(job_name)
+
+        return {
+            "success": True,
+            "message": "Vectorization progress forwarded to websockets",
+            "job_name": job_name,
+            "percentage": percentage,
+            "step": message,
+            "connections": connections
+        }
+
+    except Exception as e:
+        logger.error(f"Error forwarding vectorization progress: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @router.post("/api/test_websocket")

@@ -26,8 +26,8 @@ All routing logic is stored in the `ai_model_config` JSONB column, enabling flex
 {
   "temperature": 0.3,
   "max_tokens": 700,
-  "gateway_route": true,    // Routes through WEX AI Gateway
-  "source": "external"     // Uses external cloud models
+  "gateway_route": true,    // Uses WEX AI Gateway as intermediary
+  "source": "external"     // Uses external cloud models (not local)
 }
 ```
 
@@ -36,8 +36,8 @@ All routing logic is stored in the `ai_model_config` JSONB column, enabling flex
 {
   "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
   "cost_tier": "free",
-  "gateway_route": false,   // Direct local processing
-  "source": "local"        // Uses local models
+  "gateway_route": false,   // Direct connection (no gateway intermediary)
+  "source": "local"        // Uses local models (not external)
 }
 ```
 *Note: `ai_model` field would contain just `"all-MiniLM-L6-v2"` (model name only)*
@@ -47,8 +47,8 @@ All routing logic is stored in the `ai_model_config` JSONB column, enabling flex
 {
   "model_path": "azure-text-embedding-3-small",
   "cost_tier": "paid",
-  "gateway_route": true,    // Routes through WEX AI Gateway
-  "source": "external"     // Uses external API
+  "gateway_route": true,    // Uses WEX AI Gateway as intermediary
+  "source": "external"     // Uses external API (not local)
 }
 ```
 
@@ -80,9 +80,9 @@ embedding_provider = await hybrid_manager.get_embedding_provider(
 
 | Context | Type | Preference | Routing | Purpose |
 |---------|------|------------|---------|---------|
-| ETL | Embedding | `gateway_route: false` | Local | Cost-effective data vectorization |
-| Frontend | Embedding | `gateway_route: true` | Gateway | High-quality semantic search |
-| Frontend | AI | `gateway_route: true` | Gateway | Advanced text generation |
+| ETL | Embedding | `source: "local"` | Local | Cost-effective data vectorization |
+| Frontend | Embedding | `source: "external"` | External | High-quality semantic search |
+| Frontend | AI | `gateway_route: true` | Via Gateway | Advanced text generation |
 
 ## 🚀 Future-Proof Design
 
