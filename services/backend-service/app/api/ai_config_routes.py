@@ -1418,6 +1418,176 @@ async def process_vectorization_batch(session, batch_items):
         }
 
 
+# Vectorization Statistics Endpoints
+
+@router.get("/vectorization/queue-stats")
+async def get_vectorization_queue_stats(
+    user: UserData = Depends(require_authentication)
+):
+    """Get vectorization queue statistics for the current tenant"""
+    try:
+        from app.models.unified_models import VectorizationQueue
+
+        tenant_id = user.tenant_id
+
+        with get_db_session() as session:
+            # Count items by status
+            pending_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'pending'
+            ).count()
+
+            processing_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'processing'
+            ).count()
+
+            completed_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'completed'
+            ).count()
+
+            failed_count = session.query(VectorizationQueue).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed'
+            ).count()
+
+            total_count = pending_count + processing_count + completed_count + failed_count
+
+            # Get last updated timestamp
+            last_updated = session.query(func.max(VectorizationQueue.updated_at)).filter(
+                VectorizationQueue.tenant_id == tenant_id
+            ).scalar()
+
+            # Calculate processing stats if we have data
+            processing_stats = None
+            if completed_count > 0:
+                # Calculate success rate
+                success_rate = f"{(completed_count / (completed_count + failed_count) * 100):.1f}%" if (completed_count + failed_count) > 0 else "N/A"
+
+                # Get recent processing info
+                recent_completed = session.query(VectorizationQueue).filter(
+                    VectorizationQueue.tenant_id == tenant_id,
+                    VectorizationQueue.status == 'completed'
+                ).order_by(VectorizationQueue.updated_at.desc()).limit(10).all()
+
+                if recent_completed:
+                    # Calculate average processing time (if we have created_at and updated_at)
+                    processing_times = []
+                    for item in recent_completed:
+                        if item.created_at and item.updated_at:
+                            processing_time = (item.updated_at - item.created_at).total_seconds()
+                            processing_times.append(processing_time)
+
+                    avg_processing_time = f"{sum(processing_times) / len(processing_times):.1f}s" if processing_times else "N/A"
+                    last_run = recent_completed[0].updated_at.isoformat() if recent_completed[0].updated_at else None
+                else:
+                    avg_processing_time = "N/A"
+                    last_run = None
+
+                processing_stats = {
+                    "success_rate": success_rate,
+                    "avg_processing_time": avg_processing_time,
+                    "last_batch_size": min(10, completed_count),  # Assuming batch size of 10
+                    "last_run": last_run
+                }
+
+            return {
+                "pending": pending_count,
+                "processing": processing_count,
+                "completed": completed_count,
+                "failed": failed_count,
+                "total": total_count,
+                "last_updated": last_updated.isoformat() if last_updated else None,
+                "processing_stats": processing_stats
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching vectorization queue stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch queue statistics")
+
+
+@router.get("/vectorization/vector-stats")
+async def get_vector_database_stats(
+    user: UserData = Depends(require_authentication)
+):
+    """Get vector database (Qdrant) statistics for the current tenant"""
+    try:
+        from app.core.ai_providers import get_hybrid_provider_manager
+
+        tenant_id = user.tenant_id
+
+        # Get Qdrant client through the hybrid provider manager
+        with get_db_session() as session:
+            hybrid_manager = get_hybrid_provider_manager(session)
+            qdrant_client = hybrid_manager.get_qdrant_client()
+
+            if not qdrant_client:
+                return {
+                    "collections": [],
+                    "total_vectors": 0,
+                    "error": "Qdrant client not available"
+                }
+
+            try:
+                # Get collection info for this tenant
+                collections_info = []
+                total_vectors = 0
+
+                # List all collections and filter by tenant
+                collections = qdrant_client.get_collections()
+
+                for collection in collections.collections:
+                    collection_name = collection.name
+
+                    # Check if this collection belongs to our tenant
+                    # Collections are typically named like "tenant_{tenant_id}_{table_name}"
+                    if collection_name.startswith(f"tenant_{tenant_id}_"):
+                        try:
+                            # Get collection info
+                            collection_info = qdrant_client.get_collection(collection_name)
+                            vectors_count = collection_info.vectors_count or 0
+                            total_vectors += vectors_count
+
+                            # Extract table name from collection name
+                            table_name = collection_name.replace(f"tenant_{tenant_id}_", "")
+
+                            collections_info.append({
+                                "name": table_name,
+                                "full_name": collection_name,
+                                "vectors_count": vectors_count,
+                                "status": collection_info.status.name if hasattr(collection_info, 'status') else "Unknown",
+                                "disk_usage": f"{collection_info.disk_usage / (1024*1024):.1f} MB" if hasattr(collection_info, 'disk_usage') and collection_info.disk_usage else "Unknown"
+                            })
+                        except Exception as e:
+                            logger.warning(f"Could not get info for collection {collection_name}: {e}")
+                            collections_info.append({
+                                "name": collection_name.replace(f"tenant_{tenant_id}_", ""),
+                                "full_name": collection_name,
+                                "vectors_count": 0,
+                                "status": "Error",
+                                "disk_usage": "Unknown"
+                            })
+
+                return {
+                    "collections": collections_info,
+                    "total_vectors": total_vectors,
+                    "tenant_id": tenant_id
+                }
+
+            except Exception as e:
+                logger.error(f"Error accessing Qdrant collections: {e}")
+                return {
+                    "collections": [],
+                    "total_vectors": 0,
+                    "error": f"Failed to access vector database: {str(e)}"
+                }
+
+    except Exception as e:
+        logger.error(f"Error fetching vector database stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch vector database statistics")
+
+
 async def send_vectorization_progress(tenant_id: int, percentage: float, message: str, job_name: str = None):
     """Send vectorization progress update via websocket to ETL service"""
     try:

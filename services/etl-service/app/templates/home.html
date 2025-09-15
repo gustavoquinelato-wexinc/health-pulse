@@ -2644,6 +2644,12 @@
                 return;
             }
 
+            if (jobName.toLowerCase() === 'vectorization') {
+                // Show Vectorization-specific modal with queue and vector data
+                await showVectorizationDetailsModal();
+                return;
+            }
+
             // For other jobs, show regular job details using job ID
             const response = await fetch(`/api/v1/jobs/${jobId}/details`, {
                 headers: {
@@ -3869,6 +3875,198 @@
                 </div>
             `;
         }
+    }
+
+    // Vectorization-specific modal functions
+    async function showVectorizationDetailsModal() {
+        try {
+            // Fetch vectorization queue and vector data from API
+            const [queueResponse, vectorResponse] = await Promise.all([
+                fetch('/api/v1/vectorization/queue-stats', {
+                    headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+                }),
+                fetch('/api/v1/vectorization/vector-stats', {
+                    headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+                })
+            ]);
+
+            let queueData = null;
+            let vectorData = null;
+
+            if (queueResponse.ok) {
+                queueData = await queueResponse.json();
+            }
+
+            if (vectorResponse.ok) {
+                vectorData = await vectorResponse.json();
+            }
+
+            displayVectorizationDetailsModal(queueData, vectorData);
+
+        } catch (error) {
+            console.error('Error fetching vectorization details:', error);
+            showNotification('Failed to load vectorization details: ' + error.message, 'error');
+        }
+    }
+
+    function displayVectorizationDetailsModal(queueData, vectorData) {
+        // Set icon and title for Vectorization
+        const jobIcon = document.getElementById('jobDetailsIcon');
+        const jobTitle = document.getElementById('jobDetailsTitle');
+
+        jobIcon.innerHTML = '<i data-lucide="zap" class="mr-2" style="color: var(--text-primary);"></i>';
+        jobTitle.textContent = 'Vectorization Job Details';
+
+        const content = document.getElementById('jobDetailsContent');
+
+        content.innerHTML = `
+            <div class="space-y-6">
+                <!-- Queue Statistics -->
+                <div class="bg-card border border-border rounded-lg p-4">
+                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
+                        <i data-lucide="database" class="mr-2 w-5 h-5"></i>
+                        Vectorization Queue
+                    </h4>
+                    ${queueData ? `
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-blue-600">${queueData.pending || 0}</div>
+                                <div class="text-sm" style="color: var(--text-secondary);">Pending</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-yellow-600">${queueData.processing || 0}</div>
+                                <div class="text-sm" style="color: var(--text-secondary);">Processing</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-green-600">${queueData.completed || 0}</div>
+                                <div class="text-sm" style="color: var(--text-secondary);">Completed</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-2xl font-bold text-red-600">${queueData.failed || 0}</div>
+                                <div class="text-sm" style="color: var(--text-secondary);">Failed</div>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-4 border-t" style="border-color: var(--border-color);">
+                            <div class="flex justify-between text-sm">
+                                <span style="color: var(--text-secondary);">Total Items:</span>
+                                <span class="font-medium" style="color: var(--text-primary);">${queueData.total || 0}</span>
+                            </div>
+                            <div class="flex justify-between text-sm mt-2">
+                                <span style="color: var(--text-secondary);">Last Updated:</span>
+                                <span class="font-medium" style="color: var(--text-primary);">${queueData.last_updated ? new Date(queueData.last_updated).toLocaleString() : 'Never'}</span>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="text-center py-4">
+                            <span style="color: var(--text-muted);">Queue statistics unavailable</span>
+                        </div>
+                    `}
+                </div>
+
+                <!-- Vector Database Statistics -->
+                <div class="bg-card border border-border rounded-lg p-4">
+                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
+                        <i data-lucide="layers" class="mr-2 w-5 h-5"></i>
+                        Vector Database (Qdrant)
+                    </h4>
+                    ${vectorData ? `
+                        <div class="space-y-4">
+                            ${vectorData.collections && vectorData.collections.length > 0 ? `
+                                <div class="grid gap-3">
+                                    ${vectorData.collections.map(collection => `
+                                        <div class="border rounded-lg p-3" style="border-color: var(--border-color);">
+                                            <div class="flex justify-between items-center">
+                                                <span class="font-medium" style="color: var(--text-primary);">${collection.name}</span>
+                                                <span class="text-sm px-2 py-1 rounded" style="background-color: var(--bg-tertiary); color: var(--text-secondary);">
+                                                    ${collection.vectors_count || 0} vectors
+                                                </span>
+                                            </div>
+                                            <div class="mt-2 text-sm grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <span style="color: var(--text-secondary);">Status:</span>
+                                                    <span class="ml-1" style="color: var(--text-primary);">${collection.status || 'Unknown'}</span>
+                                                </div>
+                                                <div>
+                                                    <span style="color: var(--text-secondary);">Size:</span>
+                                                    <span class="ml-1" style="color: var(--text-primary);">${collection.disk_usage || 'Unknown'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : `
+                                <div class="text-center py-4">
+                                    <span style="color: var(--text-muted);">No vector collections found</span>
+                                </div>
+                            `}
+
+                            ${vectorData.total_vectors ? `
+                                <div class="mt-4 pt-4 border-t" style="border-color: var(--border-color);">
+                                    <div class="flex justify-between text-sm">
+                                        <span style="color: var(--text-secondary);">Total Vectors:</span>
+                                        <span class="font-medium" style="color: var(--text-primary);">${vectorData.total_vectors}</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm mt-2">
+                                        <span style="color: var(--text-secondary);">Total Collections:</span>
+                                        <span class="font-medium" style="color: var(--text-primary);">${vectorData.collections ? vectorData.collections.length : 0}</span>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : `
+                        <div class="text-center py-4">
+                            <span style="color: var(--text-muted);">Vector database statistics unavailable</span>
+                        </div>
+                    `}
+                </div>
+
+                <!-- Processing Statistics -->
+                <div class="bg-card border border-border rounded-lg p-4">
+                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
+                        <i data-lucide="activity" class="mr-2 w-5 h-5"></i>
+                        Processing Metrics
+                    </h4>
+                    ${queueData && queueData.processing_stats ? `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <div class="flex justify-between text-sm">
+                                    <span style="color: var(--text-secondary);">Success Rate:</span>
+                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.success_rate || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span style="color: var(--text-secondary);">Avg Processing Time:</span>
+                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.avg_processing_time || 'N/A'}</span>
+                                </div>
+                            </div>
+                            <div class="space-y-2">
+                                <div class="flex justify-between text-sm">
+                                    <span style="color: var(--text-secondary);">Last Batch Size:</span>
+                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.last_batch_size || 'N/A'}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span style="color: var(--text-secondary);">Last Run:</span>
+                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.last_run ? new Date(queueData.processing_stats.last_run).toLocaleString() : 'Never'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="text-center py-4">
+                            <span style="color: var(--text-muted);">Processing metrics will appear after job runs</span>
+                        </div>
+                    `}
+                </div>
+            </div>
+        `;
+
+        // Refresh Lucide icons for the new content
+        refreshLucideIcons();
+
+        // Show modal with proper display
+        const modal = document.getElementById('jobDetailsModal');
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.classList.remove('hidden');
     }
 
     // Function to re-initialize Lucide icons after dynamic content updates
