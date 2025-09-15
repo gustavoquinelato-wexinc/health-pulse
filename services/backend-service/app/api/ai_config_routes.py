@@ -996,7 +996,7 @@ async def process_vectorization_queue(
         tenant_id = request.tenant_id
 
         logger.info(f"[QUEUE_PROCESSOR] Received vectorization trigger request for tenant {tenant_id}")
-        logger.info(f"[QUEUE_PROCESSOR] User: {user.username} (tenant: {user.tenant_id})")
+        logger.info(f"[QUEUE_PROCESSOR] User: {user.email} (tenant: {user.tenant_id})")
 
         # Verify user has access to this tenant
         if user.tenant_id != tenant_id:
