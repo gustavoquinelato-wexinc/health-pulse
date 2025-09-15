@@ -882,6 +882,12 @@ def apply(connection):
                 "execution_order": 4,
                 "status": "NOT_STARTED",
                 "integration_id": ad_integration_id
+            },
+            {
+                "job_name": "Vectorization",
+                "execution_order": 5,
+                "status": "NOT_STARTED",
+                "integration_id": ai_provider_integration_id  # Use AI provider integration
             }
         ]
 

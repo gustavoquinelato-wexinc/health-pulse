@@ -665,6 +665,9 @@ async def run_orchestrator_for_client(tenant_id: int):
         elif job_name_lower == 'wex ad':
             logger.info("TRIGGERING: Active Directory sync job...")
             asyncio.create_task(run_ad_sync_async(pending_job_id))
+        elif job_name_lower == 'vectorization':
+            logger.info("TRIGGERING: Vectorization job...")
+            asyncio.create_task(run_vectorization_sync_async(pending_job_id))
         else:
             logger.error(f"ERROR: Unknown job name: {pending_job_name}")
             # Reset job to PENDING if unknown (separate session)
@@ -1298,7 +1301,171 @@ def get_job_status(tenant_id: int = None):
                 }
 
             return status
-            
+
     except Exception as e:
         logger.error(f"ERROR: Failed to get job status: {e}")
         return {}
+
+
+async def run_vectorization_sync_async(job_schedule_id: int):
+    """
+    Async wrapper for Vectorization job.
+    Handles job lifecycle and error management.
+    """
+    try:
+        logger.info(f"STARTING: Vectorization job (ID: {job_schedule_id})")
+
+        # Import here to avoid circular imports
+        from app.jobs.vectorization.vectorization_job import run_vectorization_sync
+
+        # Use shorter session for job execution
+        database = get_database()
+        with database.get_job_session_context() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            # Execute the job
+            result = await run_vectorization_sync(session, job_schedule)
+
+        # Mark job as completed and set next job to PENDING
+        with database.get_write_session_context() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            tenant_id = job_schedule.tenant_id
+            current_order = job_schedule.execution_order
+
+            # Check if job was successful
+            if result.get('status') == 'success':
+                # Mark current job as finished
+                job_schedule.set_finished()
+                logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
+            else:
+                # Mark job as failed
+                error_msg = result.get('message', 'Unknown error')
+                job_schedule.set_failed(error_msg)
+                logger.error(f"Vectorization job failed: {error_msg}")
+
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, tenant_id, current_order)
+
+            if next_job:
+                next_job.status = 'PENDING'
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+            else:
+                logger.info("No more jobs in sequence - cycle complete")
+
+            session.commit()
+
+            # Handle orchestrator scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.tenant_id == tenant_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast retry for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
+                        orchestrator_scheduler.schedule_fast_retry('Vectorization')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
+
+    except Exception as e:
+        logger.error(f"Vectorization job error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Set job back to PENDING on unexpected error
+        database = get_database()
+        try:
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.status = 'PENDING'
+                    job_schedule.error_message = str(e)
+                    logger.info("Successfully updated Vectorization job schedule with error status")
+        except Exception as session_error:
+            logger.error(f"Vectorization job session error: {session_error}")
+
+
+async def trigger_vectorization_sync(force_manual=False, execution_params=None, tenant_id=None):
+    """
+    Trigger a Vectorization job.
+
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+        execution_params: Optional execution parameters for the job
+        tenant_id: Tenant ID to trigger job for (required for client isolation)
+
+    Returns:
+        Dict containing job execution results
+    """
+    if tenant_id is None:
+        return {
+            'status': 'error',
+            'message': 'tenant_id is required for job execution'
+        }
+
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the vectorization job for this client (case-insensitive)
+            vectorization_job = session.query(JobSchedule).filter(
+                func.lower(JobSchedule.job_name) == 'vectorization',
+                JobSchedule.tenant_id == tenant_id
+            ).first()
+
+            if not vectorization_job:
+                return {
+                    'status': 'error',
+                    'message': f'Vectorization job not found for tenant {tenant_id}'
+                }
+
+            if force_manual:
+                # Set vectorization job to PENDING, all others to NOT_STARTED
+                all_jobs = session.query(JobSchedule).filter(
+                    JobSchedule.tenant_id == tenant_id,
+                    JobSchedule.active == True
+                ).all()
+
+                for job in all_jobs:
+                    if job.job_name.lower() == 'vectorization':
+                        job.status = 'PENDING'
+                        job.error_message = None
+                    else:
+                        job.status = 'NOT_STARTED'
+                        job.error_message = None
+
+                session.commit()
+
+        return {
+            'status': 'triggered',
+            'message': f'Vectorization job triggered successfully for client {tenant_id}',
+            'job_name': 'Vectorization'
+        }
+
+    except Exception as e:
+        logger.error(f"Error triggering vectorization sync: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to trigger vectorization sync: {str(e)}'
+        }

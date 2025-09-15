@@ -916,26 +916,8 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         ).count()
         logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.tenant_id}")
 
-        # Step 5: Trigger vectorization processing for all saved entities
-        await websocket_manager.send_progress_update("Jira", 95.0, "[VECTORIZATION] Starting vectorization processing...")
-
-        try:
-            from app.jobs.orchestrator import _get_job_auth_token
-            auth_token = _get_job_auth_token(integration.tenant_id)
-
-            logger.info("[VECTORIZATION] Triggering async vectorization for all extracted entities...")
-            vectorization_result = await vectorization_helper.trigger_vectorization_only(auth_token)
-
-            await websocket_manager.send_progress_update("Jira", 98.0, "[VECTORIZATION] Vectorization processing started in background")
-            logger.info(f"[VECTORIZATION] {vectorization_result.get('message', 'Processing started')}")
-
-        except Exception as e:
-            logger.error(f"[VECTORIZATION] Failed to trigger vectorization processing: {e}")
-            await websocket_manager.send_progress_update("Jira", 98.0, "[VECTORIZATION] Warning: Vectorization trigger failed")
-            # Don't fail the entire job if vectorization trigger fails
-
-        # Step 6: All processing completed - send final progress update
-        await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created")
+        # Step 5: All processing completed - send final progress update
+        await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created. Vectorization will be processed by dedicated job.")
 
         # Small delay to ensure progress update is processed before completion notification
         import asyncio

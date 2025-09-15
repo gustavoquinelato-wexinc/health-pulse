@@ -581,34 +581,8 @@ async def run_github_sync(
                 # Get final rate limit status
                 final_rate_limits = await get_github_rate_limits_internal(github_token)
 
-                # Trigger vectorization processing for all saved entities
-                await websocket_manager.send_progress_update("GitHub", 95.0, "[VECTORIZATION] Starting vectorization processing...")
-
-                try:
-                    from app.jobs.vectorization_helper import VectorizationQueueHelper
-                    from app.jobs.orchestrator import _get_job_auth_token
-
-                    # Create vectorization helper (backend URL will be determined from settings)
-                    from app.core.config import get_settings
-                    settings = get_settings()
-                    backend_url = settings.BACKEND_SERVICE_URL or "http://localhost:3001"
-
-                    vectorization_helper = VectorizationQueueHelper(github_integration.tenant_id, backend_url)
-                    auth_token = _get_job_auth_token(github_integration.tenant_id)
-
-                    logger.info("[VECTORIZATION] Triggering async vectorization for all extracted entities...")
-                    vectorization_result = await vectorization_helper.trigger_vectorization_only(auth_token)
-
-                    await websocket_manager.send_progress_update("GitHub", 98.0, "[VECTORIZATION] Vectorization processing started in background")
-                    logger.info(f"[VECTORIZATION] {vectorization_result.get('message', 'Processing started')}")
-
-                except Exception as e:
-                    logger.error(f"[VECTORIZATION] Failed to trigger vectorization processing: {e}")
-                    await websocket_manager.send_progress_update("GitHub", 98.0, "[VECTORIZATION] Warning: Vectorization trigger failed")
-                    # Don't fail the entire job if vectorization trigger fails
-
                 # Send final progress update
-                await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync completed successfully")
+                await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync completed successfully. Vectorization will be processed by dedicated job.")
 
                 # Small delay to ensure progress update is processed before completion notification
                 import asyncio
