@@ -1119,6 +1119,27 @@
         const hasCustomLogo = integrationLogoFilename && integrationLogoFilename.trim() !== '';
         const logoPath = hasCustomLogo ? `/static/assets/${tenantName}/integrations/${integrationLogoFilename}` : null;
 
+        // Get Lucide icon for jobs without integrations
+        function getJobLucideIcon(jobName) {
+            const name = jobName.toLowerCase();
+            switch (name) {
+                case 'vectorization':
+                    return 'zap'; // Lightning bolt for vectorization processing
+                case 'jira':
+                    return 'ticket'; // Ticket icon for Jira
+                case 'github':
+                    return 'git-branch'; // Git branch for GitHub
+                case 'wex fabric':
+                case 'fabric':
+                    return 'database'; // Database icon for Fabric
+                case 'wex ad':
+                case 'ad':
+                    return 'users'; // Users icon for Active Directory
+                default:
+                    return 'cog'; // Default gear icon for unknown jobs
+            }
+        }
+
         card.innerHTML = `
             <!-- Job Title with Icon on Left and Status -->
             <div class="mb-6">
@@ -1128,7 +1149,7 @@
                         <div class="w-10 h-10 rounded-md flex items-center justify-center relative" style="background-color: rgba(var(--color-1-rgb), 0.1);">
                             ${hasCustomLogo ?
                                 `<img src="${logoPath}" alt="${jobTitle}" class="w-6 h-6 object-contain">` :
-                                `<div class="w-6 h-6 rounded" style="background-color: rgba(var(--color-1-rgb), 0.3);"></div>`
+                                `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-6 h-6" style="color: var(--color-1);"></i>`
                             }
                         </div>
                         <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
