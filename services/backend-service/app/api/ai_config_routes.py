@@ -1331,10 +1331,17 @@ async def process_tenant_vectorization_queue(tenant_id: int, batch_size: int = 2
 
             # Send completion notification with summary
             completion_msg = f"Vectorization complete: {successful_count} successful, {failed_count} failed ({total_items} total)"
-            await send_vectorization_progress(tenant_id, 100, completion_msg)
+            await send_vectorization_progress(tenant_id, 95, completion_msg)
 
-            # Clean up old completed records to prevent exponential growth
-            await cleanup_old_completed_records(session, tenant_id)
+            # Clean up completed records immediately after processing
+            logger.info(f"[QUEUE_PROCESSOR] Starting cleanup of completed records for tenant {tenant_id}")
+            await send_vectorization_progress(tenant_id, 98, "Cleaning up completed records...")
+
+            cleanup_result = await cleanup_completed_records_immediately(session, tenant_id)
+            cleanup_msg = f"Cleanup complete: {cleanup_result['deleted_count']} completed records removed"
+            logger.info(f"[QUEUE_PROCESSOR] {cleanup_msg}")
+
+            await send_vectorization_progress(tenant_id, 100, f"{completion_msg}. {cleanup_msg}")
 
     except Exception as e:
         logger.error(f"[QUEUE_PROCESSOR] Error processing vectorization queue for tenant {tenant_id}: {e}")
@@ -1653,3 +1660,58 @@ async def cleanup_old_completed_records(session, tenant_id: int, retention_hours
     except Exception as e:
         logger.error(f"[CLEANUP] Error cleaning up old records for tenant {tenant_id}: {e}")
         session.rollback()
+
+
+async def cleanup_completed_records_immediately(session, tenant_id: int):
+    """
+    Clean up ALL completed vectorization records immediately after processing.
+    This is called after successful vectorization to keep the queue clean.
+
+    Args:
+        session: Database session
+        tenant_id: Tenant ID for cleanup
+
+    Returns:
+        Dict with cleanup results
+    """
+    try:
+        from app.models.unified_models import VectorizationQueue
+
+        # Count completed items before deletion
+        completed_count = session.query(VectorizationQueue).filter(
+            VectorizationQueue.tenant_id == tenant_id,
+            VectorizationQueue.status == 'completed'
+        ).count()
+
+        if completed_count == 0:
+            logger.debug(f"[CLEANUP] No completed items to clean up for tenant {tenant_id}")
+            return {
+                'success': True,
+                'deleted_count': 0,
+                'message': 'No completed items to clean up'
+            }
+
+        # Delete ALL completed items (they've been successfully vectorized)
+        deleted_count = session.query(VectorizationQueue).filter(
+            VectorizationQueue.tenant_id == tenant_id,
+            VectorizationQueue.status == 'completed'
+        ).delete(synchronize_session=False)
+
+        session.commit()
+
+        logger.info(f"[CLEANUP] Immediately cleaned up {deleted_count} completed vectorization items for tenant {tenant_id}")
+
+        return {
+            'success': True,
+            'deleted_count': deleted_count,
+            'message': f'Successfully cleaned up {deleted_count} completed items'
+        }
+
+    except Exception as e:
+        logger.error(f"[CLEANUP] Error in immediate cleanup: {e}")
+        session.rollback()
+        return {
+            'success': False,
+            'deleted_count': 0,
+            'error': f"Cleanup failed: {str(e)}"
+        }

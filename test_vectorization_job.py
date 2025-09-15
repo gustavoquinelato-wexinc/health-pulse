@@ -105,9 +105,9 @@ async def test_orchestrator_integration():
 
 async def main():
     """Main test function."""
-    
-    print("🎯 Testing New Vectorization Job Architecture")
-    print("=" * 50)
+
+    print("🎯 Testing Enhanced Vectorization Job with Progress Tracking & Cleanup")
+    print("=" * 70)
     
     # Test 1: Basic job functionality
     job_test_passed = await test_vectorization_job()

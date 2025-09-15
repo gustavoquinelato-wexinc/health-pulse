@@ -21,6 +21,7 @@ from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import JobSchedule, Integration
 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+from app.core.websocket_manager import websocket_manager
 
 logger = get_logger(__name__)
 
@@ -35,24 +36,28 @@ class VectorizationJobProcessor:
         
     async def process_vectorization_queue(self, session, job_schedule: JobSchedule) -> Dict[str, Any]:
         """
-        Main vectorization processing function.
-        
+        Main vectorization processing function with real-time progress tracking.
+
         Args:
             session: Database session
             job_schedule: The vectorization job schedule
-            
+
         Returns:
             Dict containing processing results and statistics
         """
         try:
             logger.info(f"🚀 Starting vectorization job for tenant {job_schedule.tenant_id}")
-            
-            # Get queue statistics
+
+            # Send initial progress update
+            await websocket_manager.send_progress_update("Vectorization", 0.0, "[STARTING] Initializing vectorization job...")
+
+            # Get initial queue statistics
             queue_stats = await self._get_queue_statistics(session, job_schedule.tenant_id)
             logger.info(f"📊 Queue status: {queue_stats['pending']} pending, {queue_stats['total']} total items")
-            
+
             if queue_stats['pending'] == 0:
                 logger.info("✅ No items in queue - vectorization job completed")
+                await websocket_manager.send_progress_update("Vectorization", 100.0, "[COMPLETE] No items to process")
                 return {
                     'status': 'success',
                     'message': 'No items to process',
@@ -60,36 +65,48 @@ class VectorizationJobProcessor:
                     'items_failed': 0,
                     'queue_stats': queue_stats
                 }
-            
-            # Process queue via backend
-            processing_result = await self._trigger_backend_processing(job_schedule.tenant_id)
-            
+
+            await websocket_manager.send_progress_update("Vectorization", 5.0, f"[QUEUE] Found {queue_stats['pending']} items to process")
+
+            # Process queue with progress tracking (backend handles cleanup automatically)
+            processing_result = await self._process_queue_with_progress(job_schedule.tenant_id, queue_stats['pending'])
+
             if processing_result['success']:
                 logger.info(f"✅ Vectorization processing completed successfully")
+
+                # Backend handles cleanup automatically, so we just report completion
+                await websocket_manager.send_progress_update("Vectorization", 100.0,
+                    f"[COMPLETE] Vectorization job completed successfully")
+
                 return {
                     'status': 'success',
-                    'message': f"Processed {queue_stats['pending']} items successfully",
-                    'items_processed': queue_stats['pending'],
-                    'items_failed': 0,
+                    'message': f"Vectorization job completed successfully",
+                    'items_processed': processing_result['items_processed'],
+                    'items_failed': processing_result.get('items_failed', 0),
                     'queue_stats': queue_stats,
                     'processing_details': processing_result
                 }
             else:
-                logger.error(f"❌ Vectorization processing failed: {processing_result.get('error', 'Unknown error')}")
+                error_msg = processing_result.get('error', 'Unknown error')
+                logger.error(f"❌ Vectorization processing failed: {error_msg}")
+                await websocket_manager.send_progress_update("Vectorization", 100.0, f"[ERROR] Processing failed: {error_msg}")
+
                 return {
                     'status': 'error',
-                    'message': f"Processing failed: {processing_result.get('error', 'Unknown error')}",
+                    'message': f"Processing failed: {error_msg}",
                     'items_processed': 0,
                     'items_failed': queue_stats['pending'],
                     'queue_stats': queue_stats,
                     'error_details': processing_result
                 }
-                
+
         except Exception as e:
             logger.error(f"❌ Vectorization job failed with exception: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
-            
+
+            await websocket_manager.send_progress_update("Vectorization", 100.0, f"[ERROR] Job failed: {str(e)}")
+
             return {
                 'status': 'error',
                 'message': f"Job failed with exception: {str(e)}",
@@ -136,42 +153,55 @@ class VectorizationJobProcessor:
             'failed': failed_count,
             'completed': total_count - pending_count - processing_count - failed_count
         }
-    
-    async def _trigger_backend_processing(self, tenant_id: int) -> Dict[str, Any]:
+
+    async def _process_queue_with_progress(self, tenant_id: int, total_items: int) -> Dict[str, Any]:
         """
-        Trigger backend vectorization processing.
-        
-        This replaces the HTTP trigger that was previously called from ETL jobs.
-        Now it's called from the dedicated vectorization job.
+        Process the vectorization queue with real-time progress updates.
+        The backend handles the actual progress tracking and sends updates via websocket.
+
+        Args:
+            tenant_id: Tenant ID for processing
+            total_items: Total number of items to process
+
+        Returns:
+            Dict containing processing results
         """
         try:
-            # Get authentication token (same logic as before)
+            # Get authentication token
             auth_token = await self._get_auth_token()
             if not auth_token:
                 return {
                     'success': False,
                     'error': 'Failed to obtain authentication token'
                 }
-            
-            # Trigger backend processing
-            async with httpx.AsyncClient(timeout=300.0) as client:
+
+            # Start backend processing - the backend will handle progress updates
+            async with httpx.AsyncClient(timeout=600.0) as client:  # 10 minute timeout
                 headers = {
                     'Authorization': f'Bearer {auth_token}',
                     'Content-Type': 'application/json'
                 }
-                
+
                 url = f"{self.backend_base_url}/api/v1/ai/vectors/process-queue"
-                
-                logger.info(f"🔄 Triggering backend vectorization for tenant {tenant_id}")
+
+                logger.info(f"🔄 Starting backend vectorization for tenant {tenant_id}")
+                await websocket_manager.send_progress_update("Vectorization", 10.0, "[PROCESSING] Starting backend vectorization...")
+
+                # Start the backend processing - it will send its own progress updates
                 response = await client.post(url, headers=headers, json={'tenant_id': tenant_id})
-                
+
                 if response.status_code == 200:
                     result = response.json()
-                    logger.info(f"✅ Backend processing triggered successfully: {result}")
+                    logger.info(f"✅ Backend processing started: {result}")
+
+                    # The backend will handle progress updates automatically
+                    # We just wait for it to complete and return success
                     return {
                         'success': True,
                         'response': result,
-                        'status_code': response.status_code
+                        'status_code': response.status_code,
+                        'items_processed': total_items,  # Backend will update actual counts
+                        'items_failed': 0
                     }
                 else:
                     error_msg = f"Backend returned status {response.status_code}: {response.text}"
@@ -182,14 +212,17 @@ class VectorizationJobProcessor:
                         'status_code': response.status_code,
                         'response_text': response.text
                     }
-                    
+
         except Exception as e:
-            logger.error(f"❌ Failed to trigger backend processing: {e}")
+            logger.error(f"❌ Failed to process queue with progress: {e}")
             return {
                 'success': False,
-                'error': f"Exception during backend trigger: {str(e)}"
+                'error': f"Exception during queue processing: {str(e)}"
             }
+
+
     
+
     async def _get_auth_token(self) -> Optional[str]:
         """Get authentication token for backend API calls."""
         try:
