@@ -887,7 +887,7 @@ def apply(connection):
                 "job_name": "Vectorization",
                 "execution_order": 5,
                 "status": "NOT_STARTED",
-                "integration_id": ai_provider_integration_id  # Use AI provider integration
+                "integration_id": ai_gateway_integration_id  # Use AI Gateway integration
             }
         ]
 
