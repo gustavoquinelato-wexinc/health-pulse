@@ -456,11 +456,6 @@
         display: inline-block;
     }
 
-    .job-date-item {
-        margin-right: 12px;
-        display: inline-block;
-    }
-
     .job-duration-inline {
         color: var(--text-secondary);
         font-weight: 500;
@@ -741,6 +736,9 @@
         font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.5px;
+        min-width: 24px;
+        text-align: center;
+        display: inline-block;
     }
 
     /* Toggle Switch Styling */
@@ -1776,7 +1774,7 @@
                 hour: '2-digit',
                 minute: '2-digit'
             });
-            dates.push(`<span class="job-date-item">Started: ${formattedStart}</span>`);
+            dates.push(`Started: ${formattedStart}`);
         }
 
         if (lastSuccess) {
@@ -1787,10 +1785,10 @@
                 hour: '2-digit',
                 minute: '2-digit'
             });
-            dates.push(`<span class="job-date-item">Success: ${formattedSuccess}</span>`);
+            dates.push(`Success: ${formattedSuccess}`);
         }
 
-        return dates.length > 0 ? dates.join('') : '';
+        return dates.length > 0 ? dates.join(' • ') : '';
     }
 
     function getErrorMessage(jobData, status) {
