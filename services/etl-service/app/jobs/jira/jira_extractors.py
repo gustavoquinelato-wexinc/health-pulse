@@ -969,13 +969,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                             ),
                             main_loop
                         )
-                        # Log success for debugging
-                        job_logger.debug(f"WebSocket update scheduled: [FETCHED] {message}")
                     except Exception as e:
-                        # Log the error for debugging but don't break extraction
-                        job_logger.error(f"WebSocket update failed: {e}")
-                        import traceback
-                        job_logger.error(f"WebSocket traceback: {traceback.format_exc()}")
+                        # Silently handle WebSocket errors to avoid log noise
+                        pass
 
             # Run the blocking API call in a thread pool to avoid blocking the event loop
             def get_issues_sync():
