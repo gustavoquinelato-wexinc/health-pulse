@@ -160,32 +160,9 @@
     </div>
 </div>
 
-<!-- Pipeline Container -->
-<div class="mb-8">
-    <!-- Thin Orchestrator Row -->
-    <div id="orchestratorRow" class="orchestrator-row mb-4">
-        <div class="orchestrator-status">
-            <i data-lucide="settings" class="mr-2 w-5 h-5"></i>
-            <span class="font-semibold">ORCHESTRATOR</span>
-            <span id="orchestratorStatusText" class="ml-2 text-sm opacity-75">Loading...</span>
-        </div>
-        <div class="orchestrator-actions">
-            <button id="orchestratorStartBtn" class="orchestrator-action-btn" title="Start Orchestrator">
-                <i data-lucide="play" class="w-4 h-4"></i>
-            </button>
-            <button id="orchestratorPauseBtn" class="orchestrator-action-btn" title="Pause Orchestrator">
-                <i data-lucide="pause" class="w-4 h-4"></i>
-            </button>
-            <button id="orchestratorSettingsBtn" class="orchestrator-action-btn" title="Orchestrator Settings">
-                <i data-lucide="settings" class="w-4 h-4"></i>
-            </button>
-        </div>
-    </div>
-
-    <!-- Vertical Job Pipeline -->
-    <div id="jobPipeline" class="job-pipeline-vertical">
-        <!-- Job rows will be dynamically inserted here -->
-    </div>
+<!-- Vertical Job Pipeline -->
+<div id="jobPipeline" class="job-pipeline-vertical mb-8">
+    <!-- Job rows will be dynamically inserted here -->
 </div>
 
 <!-- Job Details Modal -->
@@ -358,52 +335,6 @@
     }
 
     /* Vertical Pipeline Layout Styles */
-    .orchestrator-row {
-        height: 60px;
-        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 24px;
-        border-radius: 8px;
-        color: white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .orchestrator-status {
-        display: flex;
-        align-items: center;
-        font-weight: 500;
-    }
-
-    .orchestrator-actions {
-        display: flex;
-        gap: 8px;
-    }
-
-    .orchestrator-action-btn {
-        background: rgba(255,255,255,0.2);
-        border: none;
-        border-radius: 6px;
-        padding: 8px;
-        color: white;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .orchestrator-action-btn:hover {
-        background: rgba(255,255,255,0.3);
-        transform: translateY(-1px);
-    }
-
-    .orchestrator-action-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-    }
 
     .job-pipeline-vertical {
         display: flex;
@@ -559,9 +490,11 @@
         border-color: var(--primary-color);
     }
 
-    .job-action-btn:disabled {
+    .job-action-btn:disabled,
+    .job-action-btn.disabled {
         opacity: 0.5;
         cursor: not-allowed;
+        pointer-events: none;
     }
 
     .job-action-btn.error-btn {
@@ -1725,9 +1658,15 @@
     }
 
     function createPauseResumeButton(jobName, jobData, isInactive) {
-        if (isInactive) return '';
-
         const status = jobData.status || 'UNKNOWN';
+
+        if (isInactive) {
+            // Show disabled play button for inactive jobs
+            return `
+                <button class="job-action-btn disabled" title="Job is inactive - activate first">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                </button>`;
+        }
 
         if (status === 'RUNNING') {
             return `
@@ -1739,16 +1678,23 @@
                 <button class="job-action-btn" onclick="resumeJob('${jobName}', ${jobData.id})" title="Resume Job">
                     <i data-lucide="play" class="w-4 h-4"></i>
                 </button>`;
+        } else {
+            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), show disabled play button
+            return `
+                <button class="job-action-btn disabled" title="Job not running - use Force Pending to start">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                </button>`;
         }
-
-        return '';
     }
 
     function createForcePendingButton(jobName, jobData, isInactive) {
-        if (isInactive) return '';
+        // Force pending should be available for all jobs (active and inactive)
+        const buttonClass = isInactive ? 'job-action-btn disabled' : 'job-action-btn';
+        const clickHandler = isInactive ? '' : `onclick="forcePendingJob('${jobName}', ${jobData.id})"`;
+        const title = isInactive ? 'Job is inactive - activate first' : 'Force Pending';
 
         return `
-            <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+            <button class="${buttonClass}" ${clickHandler} title="${title}">
                 <i data-lucide="clock" class="w-4 h-4"></i>
             </button>`;
     }
@@ -1984,19 +1930,7 @@
         }
     }
 
-    function updateOrchestratorStatus(status, nextJob, countdown) {
-        const statusElement = document.getElementById('orchestratorStatusText');
-        if (statusElement) {
-            let statusText = status;
-            if (nextJob) {
-                statusText += ` • Next: ${nextJob}`;
-            }
-            if (countdown) {
-                statusText += ` (${countdown})`;
-            }
-            statusElement.textContent = statusText;
-        }
-    }
+
 
     function showJobErrors(jobName) {
         // Show modal with job error details
