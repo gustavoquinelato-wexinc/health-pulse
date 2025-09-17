@@ -1618,11 +1618,7 @@
                         ${duration ? ` • Duration: ${duration}` : ''}
                     </span>
                     ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
-                </div>
-
-                <!-- Centered Progress Message (full width) -->
-                <div class="job-progress-message-container" style="display: none; width: 100%; text-align: center; margin-top: 4px;">
-                    <span class="job-progress-message" style="color: var(--color-3); font-weight: 500; font-size: 11px;"></span>
+                    <span class="job-progress-message" style="display: none; color: var(--color-3); font-weight: 500; margin-left: auto;"></span>
                 </div>
             </div>
 
@@ -2830,14 +2826,15 @@
         if (progressBar) {
             progressBar.style.width = `${percentage}%`;
 
-            // Always show progress bar during job execution (even at 0%)
-            // Only hide if percentage is explicitly null/undefined or negative
-            if (percentage !== null && percentage !== undefined && percentage >= 0) {
+            // Show progress bar during job execution
+            // Show if we have a valid percentage OR if we have a step message (even without percentage)
+            if ((percentage !== null && percentage !== undefined && percentage >= 0) ||
+                (step && step.trim() !== '')) {
                 progressBar.classList.add('visible');
             } else if (percentage < 0) {
                 progressBar.classList.remove('visible');
             }
-            // Keep visible if percentage is 0 or positive
+            // Keep visible if percentage is 0 or positive, or if we have step info
 
             // Update job status to show RUNNING without percentage
             const statusElement = jobRow.querySelector('.job-status');
@@ -2847,14 +2844,18 @@
                 statusElement.className = 'job-status status-badge status-badge-running';
             }
 
-            // Update centered progress message
-            const progressMessageContainer = jobRow.querySelector('.job-progress-message-container');
+            // Update inline progress message
             const progressMessageElement = jobRow.querySelector('.job-progress-message');
-            if (progressMessageContainer && progressMessageElement && step && percentage >= 0 && percentage < 100) {
-                progressMessageElement.textContent = `${step} (${Math.round(percentage)}%)`;
-                progressMessageContainer.style.display = 'block';
-            } else if (progressMessageContainer) {
-                progressMessageContainer.style.display = 'none';
+            if (progressMessageElement && step && step.trim() !== '') {
+                // Show step with percentage if available, otherwise just step
+                if (percentage !== null && percentage !== undefined && percentage >= 0) {
+                    progressMessageElement.textContent = `• ${step} (${Math.round(percentage)}%)`;
+                } else {
+                    progressMessageElement.textContent = `• ${step}`;
+                }
+                progressMessageElement.style.display = 'inline';
+            } else if (progressMessageElement) {
+                progressMessageElement.style.display = 'none';
             }
 
             // Add tooltip with step information and percentage
