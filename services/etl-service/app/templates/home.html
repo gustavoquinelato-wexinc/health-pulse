@@ -1618,7 +1618,11 @@
                         ${duration ? ` • Duration: ${duration}` : ''}
                     </span>
                     ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
-                    <span class="job-progress-message" style="display: none; color: var(--color-3); font-weight: 500;"></span>
+                </div>
+
+                <!-- Centered Progress Message (full width) -->
+                <div class="job-progress-message-container" style="display: none; width: 100%; text-align: center; margin-top: 4px;">
+                    <span class="job-progress-message" style="color: var(--color-3); font-weight: 500; font-size: 11px;"></span>
                 </div>
             </div>
 
@@ -2843,13 +2847,14 @@
                 statusElement.className = 'job-status status-badge status-badge-running';
             }
 
-            // Update progress message in metadata area
+            // Update centered progress message
+            const progressMessageContainer = jobRow.querySelector('.job-progress-message-container');
             const progressMessageElement = jobRow.querySelector('.job-progress-message');
-            if (progressMessageElement && step && percentage >= 0 && percentage < 100) {
-                progressMessageElement.textContent = `• ${step} (${Math.round(percentage)}%)`;
-                progressMessageElement.style.display = 'inline';
-            } else if (progressMessageElement) {
-                progressMessageElement.style.display = 'none';
+            if (progressMessageContainer && progressMessageElement && step && percentage >= 0 && percentage < 100) {
+                progressMessageElement.textContent = `${step} (${Math.round(percentage)}%)`;
+                progressMessageContainer.style.display = 'block';
+            } else if (progressMessageContainer) {
+                progressMessageContainer.style.display = 'none';
             }
 
             // Add tooltip with step information and percentage
