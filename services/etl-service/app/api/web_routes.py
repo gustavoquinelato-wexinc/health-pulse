@@ -3093,6 +3093,67 @@ async def update_orchestrator_retry_config(
         )
 
 
+@router.post("/api/v1/jobs/execution-order")
+async def update_job_execution_order(
+    request: Request,
+    user: UserData = Depends(require_admin_authentication)
+):
+    """Update execution order for multiple jobs (for drag & drop reordering)"""
+    try:
+        data = await request.json()
+        updates = data.get('updates', [])
+
+        if not updates:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No updates provided"
+            )
+
+        database = get_database()
+        with database.get_write_session_context() as session:
+            updated_count = 0
+
+            for update in updates:
+                job_id = update.get('job_id')
+                execution_order = update.get('execution_order')
+
+                if not job_id or execution_order is None:
+                    continue
+
+                # Update the job's execution order
+                job = session.query(JobSchedule).filter(
+                    JobSchedule.id == job_id,
+                    JobSchedule.tenant_id == user.tenant_id
+                ).first()
+
+                if job:
+                    job.execution_order = execution_order
+                    updated_count += 1
+                    logger.info(f"Updated job {job.job_name} execution_order to {execution_order}")
+
+            if updated_count > 0:
+                session.commit()
+                logger.info(f"Successfully updated execution order for {updated_count} jobs")
+                return {
+                    "message": f"Successfully updated execution order for {updated_count} jobs",
+                    "updated_count": updated_count
+                }
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No valid jobs found to update"
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating job execution order: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update job execution order"
+        )
+
+
 @router.get("/api/v1/settings")
 async def get_system_settings(user: UserData = Depends(require_admin_authentication)):
     """Get all system settings"""

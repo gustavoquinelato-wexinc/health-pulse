@@ -160,9 +160,32 @@
     </div>
 </div>
 
-<!-- Job Cards Container -->
-<div id="jobsContainer" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <!-- Job cards will be dynamically inserted here -->
+<!-- Pipeline Container -->
+<div class="mb-8">
+    <!-- Thin Orchestrator Row -->
+    <div id="orchestratorRow" class="orchestrator-row mb-4">
+        <div class="orchestrator-status">
+            <i data-lucide="settings" class="mr-2 w-5 h-5"></i>
+            <span class="font-semibold">ORCHESTRATOR</span>
+            <span id="orchestratorStatusText" class="ml-2 text-sm opacity-75">Loading...</span>
+        </div>
+        <div class="orchestrator-actions">
+            <button id="orchestratorStartBtn" class="orchestrator-action-btn" title="Start Orchestrator">
+                <i data-lucide="play" class="w-4 h-4"></i>
+            </button>
+            <button id="orchestratorPauseBtn" class="orchestrator-action-btn" title="Pause Orchestrator">
+                <i data-lucide="pause" class="w-4 h-4"></i>
+            </button>
+            <button id="orchestratorSettingsBtn" class="orchestrator-action-btn" title="Orchestrator Settings">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Vertical Job Pipeline -->
+    <div id="jobPipeline" class="job-pipeline-vertical">
+        <!-- Job rows will be dynamically inserted here -->
+    </div>
 </div>
 
 <!-- Job Details Modal -->
@@ -332,6 +355,205 @@
     .job-card-inactive {
         opacity: 0.8;
         border-left: 4px solid var(--status-neutral) !important;
+    }
+
+    /* Vertical Pipeline Layout Styles */
+    .orchestrator-row {
+        height: 60px;
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 24px;
+        border-radius: 8px;
+        color: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .orchestrator-status {
+        display: flex;
+        align-items: center;
+        font-weight: 500;
+    }
+
+    .orchestrator-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .orchestrator-action-btn {
+        background: rgba(255,255,255,0.2);
+        border: none;
+        border-radius: 6px;
+        padding: 8px;
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .orchestrator-action-btn:hover {
+        background: rgba(255,255,255,0.3);
+        transform: translateY(-1px);
+    }
+
+    .orchestrator-action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .job-pipeline-vertical {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .job-row {
+        height: 80px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        cursor: grab;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .job-row:hover {
+        background: var(--bg-tertiary);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transform: translateY(-1px);
+    }
+
+    .job-row.dragging {
+        opacity: 0.6;
+        transform: rotate(2deg) scale(1.02);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        z-index: 1000;
+    }
+
+    .job-row.drag-over {
+        border-color: var(--primary-color);
+        background: var(--primary-light);
+    }
+
+    .drag-handle {
+        color: var(--text-muted);
+        font-size: 18px;
+        margin-right: 12px;
+        cursor: grab;
+        user-select: none;
+    }
+
+    .drag-handle:hover {
+        color: var(--text-primary);
+    }
+
+    .execution-number {
+        background: var(--primary-color);
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+        margin-right: 16px;
+        flex-shrink: 0;
+    }
+
+    .job-icon {
+        font-size: 20px;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
+
+    .job-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-right: auto;
+        flex-grow: 1;
+    }
+
+    .job-status {
+        display: flex;
+        align-items: center;
+        margin-right: 16px;
+        font-size: 14px;
+        font-weight: 500;
+        min-width: 100px;
+    }
+
+    .job-duration {
+        color: var(--text-secondary);
+        font-size: 12px;
+        margin-right: 16px;
+        min-width: 60px;
+        text-align: right;
+    }
+
+    .job-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .job-action-btn {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 6px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+    }
+
+    .job-action-btn:hover {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .job-action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Progress bar for job rows */
+    .job-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: var(--primary-color);
+        border-radius: 0 0 8px 8px;
+        transition: width 0.3s ease;
+    }
+
+    /* Drop zone indicator */
+    .drop-zone {
+        height: 4px;
+        background: var(--primary-color);
+        border-radius: 2px;
+        margin: 4px 0;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .drop-zone.active {
+        opacity: 1;
     }
 
     /* Toggle Switch Styling */
@@ -1004,14 +1226,17 @@
     }
 
     function updateJobCards(jobsData) {
-        const container = document.getElementById('jobsContainer');
+        const container = document.getElementById('jobPipeline');
         container.innerHTML = '';
 
         // Handle new array format from /api/v1/home/jobs endpoint
         if (Array.isArray(jobsData)) {
-            jobsData.forEach(jobCard => {
-                // Initialize jobProgress only for jobs that support WebSocket progress
-                const supportsWebSocket = ['jira', 'github', 'wex fabric', 'wex ad'].includes(jobCard.job_name.toLowerCase());
+            // Sort jobs by execution_order for vertical pipeline
+            const sortedJobs = [...jobsData].sort((a, b) => (a.execution_order || 0) - (b.execution_order || 0));
+
+            sortedJobs.forEach(jobCard => {
+                // Initialize jobProgress for all jobs that support WebSocket progress
+                const supportsWebSocket = ['jira', 'github', 'wex fabric', 'wex ad', 'vectorization'].includes(jobCard.job_name.toLowerCase());
                 if (supportsWebSocket && !jobProgress[jobCard.job_name]) {
                     jobProgress[jobCard.job_name] = {
                         exceptions: [],
@@ -1020,9 +1245,9 @@
                     };
                 }
 
-                // Convert new format to old format for compatibility with existing createJobCard function
+                // Convert to job row format
                 const jobData = {
-                    id: jobCard.id,  // Add job ID for toggle functionality
+                    id: jobCard.id,
                     status: jobCard.status,
                     last_sync: jobCard.last_sync,
                     integration_type: jobCard.integration_type,
@@ -1033,18 +1258,22 @@
                     last_success_at: jobCard.last_success_at,
                     retry_count: jobCard.retry_count
                 };
-                const card = createJobCard(jobCard.job_name, jobData, jobsData);
-                container.appendChild(card);
+                const row = createJobRow(jobCard.job_name, jobData, sortedJobs);
+                container.appendChild(row);
             });
         } else {
             // Fallback for old object format (if needed)
-            Object.entries(jobsData).forEach(([jobName, jobData]) => {
-                const card = createJobCard(jobName, jobData, jobsData);
-                container.appendChild(card);
+            const sortedEntries = Object.entries(jobsData).sort(([,a], [,b]) => (a.execution_order || 0) - (b.execution_order || 0));
+            sortedEntries.forEach(([jobName, jobData]) => {
+                const row = createJobRow(jobName, jobData, jobsData);
+                container.appendChild(row);
             });
         }
 
-        // Re-initialize Lucide icons after job cards are rendered
+        // Initialize drag and drop
+        initializeDragAndDrop();
+
+        // Re-initialize Lucide icons after job rows are rendered
         refreshLucideIcons();
 
         updateOrchestratorButtonState(jobsData);
@@ -1092,19 +1321,15 @@
 
 
 
-    function createJobCard(jobName, jobData, allJobsData) {
-        const card = document.createElement('div');
+    function createJobRow(jobName, jobData, allJobsData) {
+        const row = document.createElement('div');
         const isInactive = jobData.active === false;
 
-        card.className = `relative p-6 rounded-lg transition-all duration-200 ${isInactive ? 'opacity-50' : 'hover:shadow-lg'}`;
-        card.style.backgroundColor = 'var(--bg-secondary)';
-        card.style.border = '1px solid var(--border-color)';
-        card.setAttribute('data-job', jobName);
-
-        // Add simple inactive styling
-        if (isInactive) {
-            card.classList.add('job-card-inactive');
-        }
+        row.className = `job-row ${isInactive ? 'job-card-inactive' : ''}`;
+        row.setAttribute('data-job', jobName);
+        row.setAttribute('data-job-id', jobData.id);
+        row.setAttribute('data-execution-order', jobData.execution_order || 0);
+        row.draggable = true;
 
         // Use integration_type from API response to determine icon and styling
         const integrationType = jobData.integration_type || 'unknown';
@@ -1140,58 +1365,290 @@
             }
         }
 
-        card.innerHTML = `
-            <!-- Job Title with Icon on Left and Status -->
-            <div class="mb-6">
-                <div class="flex items-center justify-between mb-3">
-                    <div class="flex items-center space-x-3">
-                        <!-- Icon with background on left - bigger size -->
-                        <div class="w-10 h-10 rounded-md flex items-center justify-center relative" style="background-color: rgba(var(--color-1-rgb), 0.1);">
-                            ${hasCustomLogo ?
-                                `<img src="${logoPath}" alt="${jobTitle}" class="w-6 h-6 object-contain">` :
-                                `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-6 h-6" style="color: var(--color-1);"></i>`
-                            }
-                        </div>
-                        <h3 class="text-lg font-semibold" style="color: var(--text-primary);">${jobTitle}</h3>
-                    </div>
-                    <!-- Status Badge -->
-                    <div class="flex items-center space-x-2">
-                        <span class="text-sm ${getStatusClass(jobData.status, isInactive)}">
-                            <i class="fas fa-${getStatusIcon(jobData.status)} mr-1"></i>${jobData.status}
-                        </span>
-                    </div>
-                </div>
+        // Get status info
+        const status = jobData.status || 'UNKNOWN';
+        const statusIcon = getStatusIcon(status);
+        const statusClass = getStatusClass(status, isInactive);
+        const duration = formatDuration(jobData.last_run_started_at, jobData.last_success_at, status);
+
+        row.innerHTML = `
+            <!-- Drag Handle -->
+            <div class="drag-handle">≡</div>
+
+            <!-- Execution Order Number -->
+            <div class="execution-number">${jobData.execution_order || 0}</div>
+
+            <!-- Job Icon -->
+            <div class="job-icon">
+                ${hasCustomLogo ?
+                    `<img src="${logoPath}" alt="${jobTitle}" class="w-5 h-5 object-contain">` :
+                    `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-5 h-5" style="color: var(--color-1);"></i>`
+                }
             </div>
 
-            <!-- Job Details -->
-            ${createJobDetails(jobName, jobData)}
+            <!-- Job Name -->
+            <div class="job-name">${jobTitle}</div>
 
-            <!-- Toggle Switch - Right aligned like action buttons -->
-            <div class="mt-4 flex justify-end">
-                <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
-                    <span class="toggle-label">${isInactive ? 'Inactive' : 'Active'}</span>
-                    <div class="toggle-switch ${isInactive ? '' : 'active'}">
-                        <div class="toggle-slider"></div>
-                    </div>
-                </div>
+            <!-- Job Status -->
+            <div class="job-status ${statusClass}">
+                <i class="fas fa-${statusIcon} mr-1"></i>
+                ${status}
             </div>
 
-            <!-- Action Buttons - Icon-only with compact spacing -->
-            <div class="mt-6 flex justify-end">
-                <div class="flex space-x-1 action-buttons">
-                    ${createActionButtons(jobName, jobData, allJobsData)}
-                </div>
+            <!-- Duration -->
+            <div class="job-duration">${duration}</div>
+
+            <!-- Action Buttons -->
+            <div class="job-actions">
+                ${createJobActionButtons(jobName, jobData, isInactive)}
             </div>
 
-            <!-- Progress Bar - Below Buttons, Above Messages -->
-            ${createWebSocketProgress(jobName)}
+            <!-- Progress Bar (hidden by default) -->
+            <div class="job-progress" style="width: 0%"></div>`;
 
-            <!-- Messages Section - Below Progress Bar for Consistent Layout -->
-            ${createMessagesSection(jobName, jobData)}
-            ${createExceptionLog(jobName)}
-        `;
+        return row;
+    }
 
-        return card;
+    function createJobActionButtons(jobName, jobData, isInactive) {
+        const status = jobData.status || 'UNKNOWN';
+        let buttons = '';
+
+        if (isInactive) {
+            // Inactive jobs only get settings button
+            buttons = `
+                <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                </button>`;
+        } else {
+            // Active jobs get appropriate action buttons based on status
+            if (status === 'RUNNING') {
+                buttons = `
+                    <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
+                        <i data-lucide="pause" class="w-4 h-4"></i>
+                    </button>
+                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                    </button>`;
+            } else if (status === 'PAUSED') {
+                buttons = `
+                    <button class="job-action-btn" onclick="resumeJob('${jobName}', ${jobData.id})" title="Resume Job">
+                        <i data-lucide="play" class="w-4 h-4"></i>
+                    </button>
+                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                    </button>`;
+            } else {
+                // NOT_STARTED, PENDING, FINISHED, ERROR
+                buttons = `
+                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+                        <i data-lucide="clock" class="w-4 h-4"></i>
+                    </button>
+                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                    </button>`;
+            }
+        }
+
+        return buttons;
+    }
+
+    function formatDuration(startTime, endTime, status) {
+        if (status === 'RUNNING' && startTime) {
+            const start = new Date(startTime);
+            const now = new Date();
+            const diffMs = now - start;
+            const minutes = Math.floor(diffMs / 60000);
+            const seconds = Math.floor((diffMs % 60000) / 1000);
+            return `${minutes}m ${seconds}s`;
+        } else if (endTime && startTime) {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            const diffMs = end - start;
+            const minutes = Math.floor(diffMs / 60000);
+            return `${minutes}m`;
+        } else if (endTime) {
+            const end = new Date(endTime);
+            const now = new Date();
+            const diffMs = now - end;
+            const hours = Math.floor(diffMs / 3600000);
+            const minutes = Math.floor((diffMs % 3600000) / 60000);
+            if (hours > 0) {
+                return `${hours}h ago`;
+            } else {
+                return `${minutes}m ago`;
+            }
+        }
+        return '--';
+    }
+
+    function initializeDragAndDrop() {
+        const jobPipeline = document.getElementById('jobPipeline');
+        let draggedElement = null;
+        let dropZones = [];
+
+        // Add drag event listeners to all job rows
+        const jobRows = jobPipeline.querySelectorAll('.job-row');
+        jobRows.forEach(row => {
+            row.addEventListener('dragstart', handleDragStart);
+            row.addEventListener('dragend', handleDragEnd);
+            row.addEventListener('dragover', handleDragOver);
+            row.addEventListener('drop', handleDrop);
+        });
+
+        function handleDragStart(e) {
+            draggedElement = this;
+            this.classList.add('dragging');
+
+            // Create drop zones between job rows
+            createDropZones();
+
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.outerHTML);
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+            draggedElement = null;
+
+            // Remove drop zones
+            removeDropZones();
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+
+            if (this !== draggedElement) {
+                // Determine if we're dropping above or below the target
+                const rect = this.getBoundingClientRect();
+                const midpoint = rect.top + rect.height / 2;
+                const dropAbove = e.clientY < midpoint;
+
+                // Insert the dragged element
+                if (dropAbove) {
+                    this.parentNode.insertBefore(draggedElement, this);
+                } else {
+                    this.parentNode.insertBefore(draggedElement, this.nextSibling);
+                }
+
+                // Update execution order
+                updateExecutionOrder();
+            }
+        }
+
+        function createDropZones() {
+            const rows = Array.from(jobPipeline.querySelectorAll('.job-row'));
+
+            rows.forEach((row, index) => {
+                // Add drop zone before first row
+                if (index === 0) {
+                    const dropZone = document.createElement('div');
+                    dropZone.className = 'drop-zone';
+                    dropZone.addEventListener('dragover', handleDropZoneOver);
+                    dropZone.addEventListener('drop', handleDropZoneDrop);
+                    jobPipeline.insertBefore(dropZone, row);
+                    dropZones.push(dropZone);
+                }
+
+                // Add drop zone after each row
+                const dropZone = document.createElement('div');
+                dropZone.className = 'drop-zone';
+                dropZone.addEventListener('dragover', handleDropZoneOver);
+                dropZone.addEventListener('drop', handleDropZoneDrop);
+                jobPipeline.insertBefore(dropZone, row.nextSibling);
+                dropZones.push(dropZone);
+            });
+        }
+
+        function removeDropZones() {
+            dropZones.forEach(zone => zone.remove());
+            dropZones = [];
+        }
+
+        function handleDropZoneOver(e) {
+            e.preventDefault();
+            this.classList.add('active');
+            e.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleDropZoneDrop(e) {
+            e.preventDefault();
+            this.parentNode.insertBefore(draggedElement, this);
+            updateExecutionOrder();
+        }
+
+        function updateExecutionOrder() {
+            const rows = Array.from(jobPipeline.querySelectorAll('.job-row'));
+            const updates = [];
+
+            rows.forEach((row, index) => {
+                const newOrder = index + 1;
+                const currentOrder = parseInt(row.getAttribute('data-execution-order'));
+                const jobId = row.getAttribute('data-job-id');
+
+                if (newOrder !== currentOrder) {
+                    // Update the DOM
+                    row.setAttribute('data-execution-order', newOrder);
+                    row.querySelector('.execution-number').textContent = newOrder;
+
+                    // Prepare for backend update
+                    updates.push({
+                        job_id: jobId,
+                        execution_order: newOrder
+                    });
+                }
+            });
+
+            // Send updates to backend
+            if (updates.length > 0) {
+                updateJobExecutionOrderBackend(updates);
+            }
+        }
+
+        async function updateJobExecutionOrderBackend(updates) {
+            try {
+                const response = await fetch('/api/v1/jobs/execution-order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    body: JSON.stringify({ updates })
+                });
+
+                if (response.ok) {
+                    showNotification('Job execution order updated successfully', 'success');
+                } else {
+                    const result = await response.json();
+                    showNotification(`Failed to update execution order: ${result.detail}`, 'error');
+                    // Refresh to restore original order
+                    setTimeout(refreshData, 1000);
+                }
+            } catch (error) {
+                console.error('Error updating execution order:', error);
+                showNotification('Error updating execution order', 'error');
+                // Refresh to restore original order
+                setTimeout(refreshData, 1000);
+            }
+        }
+    }
+
+    function updateOrchestratorStatus(status, nextJob, countdown) {
+        const statusElement = document.getElementById('orchestratorStatusText');
+        if (statusElement) {
+            let statusText = status;
+            if (nextJob) {
+                statusText += ` • Next: ${nextJob}`;
+            }
+            if (countdown) {
+                statusText += ` (${countdown})`;
+            }
+            statusElement.textContent = statusText;
+        }
     }
 
     function createJobDetails(jobName, jobData) {
@@ -1880,26 +2337,21 @@
         `;
     }
 
-    function updateJobCardProgress(jobCard, percentage, step) {
-        let progressSection = jobCard.querySelector('.ws-progress-container');
-        if (!progressSection) {
-            // Insert progress bar after the action buttons section
-            const buttonsSection = jobCard.querySelector('.mt-6.flex.justify-end');
-            if (buttonsSection) {
-                const progressHtml = createWebSocketProgress(jobCard.getAttribute('data-job'));
-                buttonsSection.insertAdjacentHTML('afterend', progressHtml);
-                progressSection = jobCard.querySelector('.ws-progress-container');
+    function updateJobCardProgress(jobRow, percentage, step) {
+        // For job rows, update the progress bar at the bottom
+        const progressBar = jobRow.querySelector('.job-progress');
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+
+            // Update job status to show progress
+            const statusElement = jobRow.querySelector('.job-status');
+            if (statusElement && percentage > 0 && percentage < 100) {
+                statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING (${Math.round(percentage)}%)`;
+                statusElement.className = 'job-status text-blue-600';
             }
-        }
 
-        if (progressSection) {
-            const progressBar = progressSection.querySelector('.ws-progress-bar');
-            const progressText = jobCard.querySelector('.ws-progress-text');
-            const progressPercentage = progressSection.parentElement.querySelector('.text-xs:last-child');
-
-            if (progressBar) progressBar.style.width = `${percentage}%`;
-            if (progressText) progressText.textContent = step;
-            if (progressPercentage) progressPercentage.textContent = `${Math.round(percentage)}%`;
+            // Add tooltip with step information
+            jobRow.title = `${step} (${Math.round(percentage)}%)`;
         }
     }
 
