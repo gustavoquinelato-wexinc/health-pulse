@@ -3113,35 +3113,60 @@ async def update_job_execution_order(
         with database.get_write_session_context() as session:
             updated_count = 0
 
-            for update in updates:
-                job_id = update.get('job_id')
-                execution_order = update.get('execution_order')
+            # Step 1: First, set all jobs to temporary high values to avoid constraint conflicts
+            temp_offset = 1000
+            job_ids_to_update = [update.get('job_id') for update in updates if update.get('job_id')]
 
-                if not job_id or execution_order is None:
-                    continue
+            if job_ids_to_update:
+                # Set temporary execution orders to avoid unique constraint violations
+                for i, job_id in enumerate(job_ids_to_update):
+                    job = session.query(JobSchedule).filter(
+                        JobSchedule.id == job_id,
+                        JobSchedule.tenant_id == user.tenant_id
+                    ).first()
 
-                # Update the job's execution order
-                job = session.query(JobSchedule).filter(
-                    JobSchedule.id == job_id,
-                    JobSchedule.tenant_id == user.tenant_id
-                ).first()
+                    if job:
+                        job.execution_order = temp_offset + i
+                        logger.info(f"Set temporary execution_order {temp_offset + i} for job {job.job_name}")
 
-                if job:
-                    job.execution_order = execution_order
-                    updated_count += 1
-                    logger.info(f"Updated job {job.job_name} execution_order to {execution_order}")
-
-            if updated_count > 0:
+                # Commit temporary changes
                 session.commit()
-                logger.info(f"Successfully updated execution order for {updated_count} jobs")
-                return {
-                    "message": f"Successfully updated execution order for {updated_count} jobs",
-                    "updated_count": updated_count
-                }
+
+                # Step 2: Now set the final execution orders
+                for update in updates:
+                    job_id = update.get('job_id')
+                    execution_order = update.get('execution_order')
+
+                    if not job_id or execution_order is None:
+                        continue
+
+                    # Update the job's execution order to final value
+                    job = session.query(JobSchedule).filter(
+                        JobSchedule.id == job_id,
+                        JobSchedule.tenant_id == user.tenant_id
+                    ).first()
+
+                    if job:
+                        job.execution_order = execution_order
+                        updated_count += 1
+                        logger.info(f"Updated job {job.job_name} execution_order to {execution_order}")
+
+                if updated_count > 0:
+                    session.commit()
+                    logger.info(f"Successfully updated execution order for {updated_count} jobs")
+                    return {
+                        "message": f"Successfully updated execution order for {updated_count} jobs",
+                        "updated_count": updated_count
+                    }
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No valid jobs found to update"
+                    )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No valid jobs found to update"
+                    detail="No valid job IDs provided"
                 )
 
     except HTTPException:

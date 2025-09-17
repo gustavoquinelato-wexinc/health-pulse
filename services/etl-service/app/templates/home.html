@@ -385,10 +385,12 @@
     }
 
     .job-row.dragging {
-        opacity: 0.6;
-        transform: rotate(2deg) scale(1.02);
+        opacity: 0.7;
+        transform: scale(1.02);
         box-shadow: 0 8px 16px rgba(0,0,0,0.2);
         z-index: 1000;
+        cursor: grabbing;
+        background: var(--bg-secondary);
     }
 
     .job-row.drag-over {
@@ -1580,8 +1582,10 @@
             <div class="job-name-section">
                 <div class="job-name">${jobTitle}</div>
                 <div class="job-metadata">
-                    ${jobDates ? `<span class="job-dates">• ${jobDates}</span>` : ''}
-                    ${duration ? `<span class="job-duration-inline">Duration: ${duration}</span>` : ''}
+                    <span class="job-info">
+                        ${jobDates ? `• ${jobDates}` : ''}
+                        ${duration ? ` • Duration: ${duration}` : ''}
+                    </span>
                     ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
                 </div>
             </div>
