@@ -581,12 +581,21 @@ class AIEnhancedRecovery:
 - **Cross-Platform Search**: Unified semantic search across Jira and GitHub data
 - **Clean Service Boundaries**: ETL processes data, Backend handles all AI operations
 - **Error Resilience**: AI operation failures don't impact ETL jobs
+- **External ID Architecture**: Queue-based vectorization using external system IDs (GitHub PR numbers, Jira issue keys) for better performance
+- **GitHub Entity Support**: All GitHub entity types (repositories, PRs, commits, reviews, comments) properly vectorized
 
 #### Vectorized Data Tables (13 total):
 - **Jira Core**: changelogs, wits, statuses, projects
 - **GitHub Core**: prs_comments, prs_reviews, prs_commits, repositories
 - **Cross-Platform**: wits_prs_links
 - **Configuration**: wits_hierarchies, wits_mappings, statuses_mappings, workflows
+
+#### Vectorization Queue Architecture:
+- **External ID-Based**: Uses external system identifiers (GitHub PR numbers, Jira issue keys) instead of internal database primary keys
+- **Table-Specific Field Mapping**: work_items use "key" field, GitHub entities use "external_id" field
+- **Backend Join Processing**: Backend service joins vectorization queue with actual tables during processing
+- **Progress Routing**: Vectorization progress sent to dedicated "Vectorization" websocket channel
+- **Entity Data Preparation**: Table-specific data transformation for all GitHub and Jira entity types
 
 #### Phase 3-5+ (Ready for Implementation)
 - **Vector Collection Management**: Qdrant collection optimization and performance testing

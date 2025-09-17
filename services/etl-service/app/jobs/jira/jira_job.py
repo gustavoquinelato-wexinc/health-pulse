@@ -413,10 +413,15 @@ async def run_jira_sync(
             base_url=integration_url
         )
 
-        # Set job as running before closing session
+        # Set job as running and pause orchestrator countdown before closing session
         if update_job_schedule:
             job_schedule.set_running()
             session.commit()
+
+            # Pause orchestrator countdown while job is running
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.pause_orchestrator('Jira')
 
         # Close the session before long-running API operations
         session.close()
@@ -450,9 +455,10 @@ async def run_jira_sync(
                 from app.jobs.orchestrator import find_next_ready_job
                 next_job = find_next_ready_job(fresh_session, tenant_id, current_order)
 
-                # Reset retry attempts first
+                # Resume orchestrator countdown and reset retry attempts
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.resume_orchestrator('Jira')
                 orchestrator_scheduler.reset_retry_attempts('Jira')
 
                 if next_job:
@@ -473,9 +479,9 @@ async def run_jira_sync(
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('Jira')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('Jira')
                 else:
                     # No next job - restore normal schedule
                     orchestrator_scheduler.restore_normal_schedule()
@@ -585,9 +591,10 @@ async def run_jira_sync(
         except Exception as session_error:
             logger.error(f"Job session error: {session_error}")
 
-        # Schedule fast retry if enabled
+        # Resume orchestrator countdown and schedule fast retry if enabled
         from app.core.orchestrator_scheduler import get_orchestrator_scheduler
         orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.resume_orchestrator('Jira')
         fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('Jira')
 
         if fast_retry_scheduled:
@@ -852,10 +859,7 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             try:
                 # Initialize vectorization queue helper
                 from app.jobs.vectorization_helper import VectorizationQueueHelper
-                from app.core.config import get_settings
-                settings = get_settings()
-                backend_url = settings.BACKEND_SERVICE_URL
-                vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+                vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
 
                 # Get all newly created WIT-PR links for this integration
                 wit_pr_links = session.query(WitPrLinks).filter(

@@ -2725,24 +2725,24 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
                     detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
                 )
 
-            # Set other active, non-paused jobs to NOT_STARTED
+            # Only change jobs that are currently PENDING to NOT_STARTED
+            # Leave PAUSED and FINISHED jobs unchanged
             other_jobs = session.query(JobSchedule).filter(
                 JobSchedule.tenant_id == user.tenant_id,
                 JobSchedule.active == True,
                 JobSchedule.id != job_id,  # Exclude the target job
-                JobSchedule.status.notin_(['PAUSED'])  # Don't affect paused jobs
+                JobSchedule.status == 'PENDING'  # Only affect jobs that are currently PENDING
             ).all()
 
-            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other active, non-paused jobs to potentially reset")
+            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other PENDING jobs to reset to NOT_STARTED")
 
             jobs_reset = []
             for other_job in other_jobs:
-                if other_job.status != 'NOT_STARTED':
-                    old_other_status = other_job.status
-                    other_job.status = 'NOT_STARTED'
-                    other_job.error_message = None  # Clear any previous errors
-                    jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> NOT_STARTED)")
-                    logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> NOT_STARTED")
+                old_other_status = other_job.status
+                other_job.status = 'NOT_STARTED'
+                other_job.error_message = None  # Clear any previous errors
+                jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> NOT_STARTED)")
+                logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> NOT_STARTED")
 
             # Set target job to PENDING
             old_status = target_job.status
@@ -3553,7 +3553,7 @@ async def vectorization_progress_update(request: Request):
 
         data = await request.json()
         tenant_id = data.get('tenant_id')
-        job_name = data.get('job_name', 'Jira')
+        job_name = data.get('job_name', 'Vectorization')  # Default to 'Vectorization' not 'Jira'
         percentage = data.get('percentage', 0.0)
         message = data.get('message', 'Vectorization in progress...')
 

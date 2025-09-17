@@ -83,13 +83,13 @@ def _create_system_token_sync(tenant_id: int) -> str:
         settings = get_settings()
         backend_url = settings.BACKEND_SERVICE_URL
 
-        # Use the system admin user that exists in each tenant
-        system_email = "admin@pulse.com"
-        system_password = "pulse"
+        # Use the system admin user from environment variables
+        system_email = settings.SYSTEM_USER_EMAIL
+        system_password = settings.SYSTEM_USER_PASSWORD
 
-        # Login to get token
+        # Login to get token using system endpoint
         response = requests.post(
-            f"{backend_url}/auth/login",
+            f"{backend_url}/auth/system/login",
             json={
                 "email": system_email,
                 "password": system_password
@@ -179,11 +179,18 @@ def check_integration_active(job_schedule_id: int) -> dict:
                 }
 
             # Get the associated integration
+            # Special case: Vectorization job doesn't need an integration
             if not job_schedule.integration_id:
-                return {
-                    'active': False,
-                    'message': f'Job {job_schedule.job_name} has no associated integration'
-                }
+                if job_schedule.job_name.lower() == 'vectorization':
+                    return {
+                        'active': True,
+                        'message': f'Vectorization job does not require an integration'
+                    }
+                else:
+                    return {
+                        'active': False,
+                        'message': f'Job {job_schedule.job_name} has no associated integration'
+                    }
 
             integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id
@@ -814,6 +821,11 @@ async def run_fabric_sync_async(job_schedule_id: int):
     try:
         logger.info(f"STARTING: WEX Fabric sync job (ID: {job_schedule_id})")
 
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('WEX Fabric')
+
         from app.core.database import get_database
         from app.core.utils import DateTimeHelper
         database = get_database()
@@ -875,9 +887,10 @@ async def run_fabric_sync_async(job_schedule_id: int):
 
             session.commit()
 
-            # Handle orchestrator scheduling outside transaction
+            # Resume orchestrator countdown and handle scheduling outside transaction
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('WEX Fabric')
 
             if next_job:
                 # Check if this is cycling back to the first job (restart)
@@ -895,9 +908,9 @@ async def run_fabric_sync_async(job_schedule_id: int):
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('WEX Fabric')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('WEX Fabric')
             else:
                 # No next job - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
@@ -931,6 +944,11 @@ async def run_ad_sync_async(job_schedule_id: int):
     """
     try:
         logger.info(f"STARTING: Active Directory sync job (ID: {job_schedule_id})")
+
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('Active Directory')
 
         from app.core.database import get_database
         from app.core.utils import DateTimeHelper
@@ -993,9 +1011,10 @@ async def run_ad_sync_async(job_schedule_id: int):
 
             session.commit()
 
-            # Handle orchestrator scheduling outside transaction
+            # Resume orchestrator countdown and handle scheduling outside transaction
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('Active Directory')
 
             if next_job:
                 # Check if this is cycling back to the first job (restart)
@@ -1013,9 +1032,9 @@ async def run_ad_sync_async(job_schedule_id: int):
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('Active Directory')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('Active Directory')
             else:
                 # No next job - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
@@ -1075,7 +1094,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                 }
 
             if force_manual:
-                # Set fabric job to PENDING, all others to NOT_STARTED
+                # Set fabric job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1085,7 +1104,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                     if job.job_name.lower() == 'wex fabric':
                         job.status = 'PENDING'
                         job.error_message = None
-                    else:
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
                         job.status = 'NOT_STARTED'
                         job.error_message = None
 
@@ -1140,7 +1159,7 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
                 }
 
             if force_manual:
-                # Set AD job to PENDING, all others to NOT_STARTED
+                # Set AD job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1150,7 +1169,7 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
                     if job.job_name.lower() == 'wex ad':
                         job.status = 'PENDING'
                         job.error_message = None
-                    else:
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
                         job.status = 'NOT_STARTED'
                         job.error_message = None
 
@@ -1315,6 +1334,11 @@ async def run_vectorization_sync_async(job_schedule_id: int):
     try:
         logger.info(f"STARTING: Vectorization job (ID: {job_schedule_id})")
 
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('Vectorization')
+
         # Import here to avoid circular imports
         from app.jobs.vectorization.vectorization_job import run_vectorization_sync
 
@@ -1345,9 +1369,9 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                 job_schedule.set_finished()
                 logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
             else:
-                # Mark job as failed
+                # Mark job as failed using set_pending_with_checkpoint
                 error_msg = result.get('message', 'Unknown error')
-                job_schedule.set_failed(error_msg)
+                job_schedule.set_pending_with_checkpoint(error_msg)
                 logger.error(f"Vectorization job failed: {error_msg}")
 
             # Find next ready job (skips paused jobs)
@@ -1361,9 +1385,10 @@ async def run_vectorization_sync_async(job_schedule_id: int):
 
             session.commit()
 
-            # Handle orchestrator scheduling outside transaction
+            # Resume orchestrator countdown and handle scheduling outside transaction
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('Vectorization')
 
             if next_job:
                 # Check if this is cycling back to the first job (restart)
@@ -1381,9 +1406,9 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('Vectorization')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('Vectorization')
             else:
                 # No next job - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
@@ -1441,7 +1466,7 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
                 }
 
             if force_manual:
-                # Set vectorization job to PENDING, all others to NOT_STARTED
+                # Set vectorization job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1451,7 +1476,7 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
                     if job.job_name.lower() == 'vectorization':
                         job.status = 'PENDING'
                         job.error_message = None
-                    else:
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
                         job.status = 'NOT_STARTED'
                         job.error_message = None
 

@@ -394,6 +394,12 @@ async def run_github_sync(
         websocket_manager = get_websocket_manager()
         websocket_manager.clear_job_progress("GitHub")
 
+        # Pause orchestrator countdown while job is running
+        if update_job_schedule:
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.pause_orchestrator('GitHub')
+
         # Send status update that job is running
         if update_job_schedule:
             await websocket_manager.send_status_update(
@@ -560,12 +566,12 @@ async def run_github_sync(
                         logger.info(f"   • Next ready job {next_job.job_name} set to PENDING, GitHub job set to FINISHED")
 
                         # Store reference for scheduling logic
-                        jira_job = next_job if next_job.job_name.lower() == 'jira' else None
+                        next_job_ref = next_job
                     else:
                         # No next job found - keep GitHub as PENDING
                         job_schedule.status = 'PENDING'
                         logger.info(f"   • No next ready job found - keeping GitHub job as PENDING")
-                        jira_job = None
+                        next_job_ref = None
 
                         # Send status update that job is finished
                         await websocket_manager.send_status_update(
@@ -601,13 +607,14 @@ async def run_github_sync(
                     }
                 )
 
-                # Reset retry attempts and determine scheduling based on next job
+                # Resume orchestrator countdown, reset retry attempts and determine scheduling based on next job
                 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
                 orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.resume_orchestrator('GitHub')
                 orchestrator_scheduler.reset_retry_attempts('GitHub')
 
                 # Check if we set a next job and if it's a cycle restart
-                if update_job_schedule and jira_job:
+                if update_job_schedule and next_job_ref:
                     # Re-query to check if next job is the first job (cycle restart)
                     from app.core.database import get_database
                     database = get_database()
@@ -618,18 +625,19 @@ async def run_github_sync(
                             JobSchedule.status != 'PAUSED'
                         ).order_by(JobSchedule.execution_order.asc()).first()
 
-                        is_cycle_restart = (first_job and jira_job.id == first_job.id)
+                        is_cycle_restart = (first_job and next_job_ref.id == first_job.id)
 
                         if is_cycle_restart:
                             # Cycle restart - use regular countdown
-                            logger.info(f"Next job is cycle restart ({jira_job.job_name}) - using regular countdown")
+                            logger.info(f"Next job is cycle restart ({next_job_ref.job_name}) - using regular countdown")
                             orchestrator_scheduler.restore_normal_schedule()
                         else:
-                            # Normal sequence - use fast retry for quick transition
-                            logger.info(f"Next job is in sequence ({jira_job.job_name}) - using fast retry for quick transition")
-                            orchestrator_scheduler.schedule_fast_retry('GitHub')
+                            # Normal sequence - use fast transition for quick transition
+                            logger.info(f"Next job is in sequence ({next_job_ref.job_name}) - using fast transition for quick transition")
+                            orchestrator_scheduler.schedule_fast_transition('GitHub')
                 else:
                     # No next job set - restore normal schedule
+                    logger.info("No next job found - using regular countdown")
                     orchestrator_scheduler.restore_normal_schedule()
 
                 logger.info("GitHub sync completed successfully")
@@ -642,6 +650,11 @@ async def run_github_sync(
             else:
                 # Partial Success or Rate Limit: Keep staging data, keep job PENDING
                 logger.info("Partial success or rate limit reached - preserving state")
+
+                # Resume orchestrator countdown for partial completion
+                from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+                orchestrator_scheduler = get_orchestrator_scheduler()
+                orchestrator_scheduler.resume_orchestrator('GitHub')
 
                 # Determine if this is a rate limit or other partial success
                 is_rate_limit = result.get('rate_limit_reached', False)
@@ -710,9 +723,10 @@ async def run_github_sync(
             error_msg = result.get('error', 'Unknown error')
             checkpoint_data = result.get('checkpoint_data', {})
 
-            # Schedule fast retry if enabled
+            # Resume orchestrator countdown and schedule fast retry if enabled
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('GitHub')
 
             logger.info("GitHub job failed - attempting to schedule fast retry...")
             fast_retry_scheduled = orchestrator_scheduler.schedule_fast_retry('GitHub')
@@ -1047,57 +1061,12 @@ async def discover_all_repositories(session: Session, integration: Integration, 
             session.commit()
             logger.info(f"Committed {total_changes} repository changes")
 
-            # Phase 3-4: Bulk AI vector processing for new repositories
-            if repos_to_insert:
-                logger.info(f"Processing {len(repos_to_insert)} new repositories for AI vectorization...")
-                try:
-                    from app.clients.ai_client import bulk_store_entity_vectors_for_etl
-
-                    # Prepare entities for bulk vector creation
-                    entities_to_create = []
-                    for repo_data in repos_to_insert:
-                        try:
-                            # Create entity data for AI processing
-                            entity_data = {
-                                "external_id": repo_data.get("external_id"),
-                                "name": repo_data.get("name"),
-                                "full_name": repo_data.get("full_name"),
-                                "description": repo_data.get("description"),
-                                "language": repo_data.get("language"),
-                                "default_branch": repo_data.get("default_branch"),
-                                "is_private": repo_data.get("is_private"),
-                                "archived": repo_data.get("archived")
-                            }
-
-                            # Remove None values to create cleaner text content
-                            entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                            # Skip repositories without meaningful content (name is minimum)
-                            if not entity_data.get("name"):
-                                continue
-
-                            entities_to_create.append({
-                                "entity_data": entity_data,
-                                "record_id": str(repo_data.get("external_id")),  # Use repo external ID as record ID
-                                "table_name": "repositories"
-                            })
-
-                        except Exception as e:
-                            logger.warning(f"Error preparing repository {repo_data.get('name', 'unknown')} for vector creation: {e}")
-
-                    # Bulk create vectors for repositories
-                    if entities_to_create:
-                        from app.jobs.orchestrator import _get_job_auth_token
-                        auth_token = _get_job_auth_token(integration.tenant_id)
-                        result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
-                        if result.success:
-                            logger.info(f"SUCCESS: Bulk created {result.vectors_stored} vectors for new repositories")
-                        else:
-                            logger.error(f"FAILED: Failed to bulk create repository vectors: {result.error}")
-
-                except Exception as e:
-                    logger.error(f"Error in repository AI vector processing: {e}")
-                    # Don't fail the entire job if AI processing fails
+        # Queue repositories for vectorization
+        if repos_to_insert:
+            logger.info(f"Queueing {len(repos_to_insert)} new repositories for vectorization...")
+            from app.jobs.vectorization_helper import VectorizationQueueHelper
+            vectorization_helper = VectorizationQueueHelper(tenant_id=integration.tenant_id)
+            vectorization_helper.queue_entities_for_vectorization(repos_to_insert, "repositories", "insert")
 
         total_processed = len(repos_to_insert) + repos_updated + repos_skipped
         logger.info(f"Repository discovery completed!")

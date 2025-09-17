@@ -6,6 +6,7 @@ import asyncio
 import httpx
 from typing import List, Dict, Any, Optional
 from app.core.logging_config import get_logger
+from app.core.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -13,9 +14,11 @@ logger = get_logger(__name__)
 class VectorizationQueueHelper:
     """Helper class for managing vectorization queue operations."""
     
-    def __init__(self, tenant_id: int, backend_url: str):
+    def __init__(self, tenant_id: int):
         self.tenant_id = tenant_id
-        self.backend_url = backend_url
+        # Get backend URL from settings instead of requiring it as parameter
+        settings = get_settings()
+        self.backend_url = settings.BACKEND_SERVICE_URL
         # Note: In-memory queue removed - entities are saved immediately to database
     
     def queue_entities_for_vectorization(
@@ -37,7 +40,7 @@ class VectorizationQueueHelper:
         """
         # Validate table name
         valid_tables = ["work_items", "changelogs", "projects", "statuses", "wits",
-                       "prs", "prs_commits", "prs_reviews", "prs_comments", "wits_prs_links"]
+                       "prs", "prs_commits", "prs_reviews", "prs_comments", "wits_prs_links", "repositories"]
         if table_name not in valid_tables:
             logger.warning(f"Unknown table name for vectorization: {table_name}")
             return 0
@@ -58,15 +61,29 @@ class VectorizationQueueHelper:
                 "table_name": table_name
             }
 
-            # Get the database ID - try multiple possible field names
-            record_db_id = entity.get("id") or entity.get("external_id") or entity.get("record_id")
-            if record_db_id is None:
-                logger.warning(f"No database ID found for entity in table {table_name}, skipping vectorization")
+            # Get the external ID - this will be used to join with actual tables during processing
+            # Different entity types use different field names for external IDs
+            external_id = None
+            if table_name == "work_items":
+                external_id = entity.get("key")  # Jira work items use "key" (e.g., "BDP-552")
+            elif table_name == "changelogs":
+                external_id = entity.get("external_id")  # Changelogs use "external_id"
+            elif table_name in ["prs", "prs_commits", "prs_reviews", "prs_comments", "repositories"]:
+                external_id = entity.get("external_id")  # GitHub entities use "external_id"
+            elif table_name == "wits_prs_links":
+                # Exception: WIT-PR links use internal database ID instead of external ID
+                external_id = entity.get("id")  # Use database ID directly
+            else:
+                # Default fallback - try both field names
+                external_id = entity.get("external_id") or entity.get("key")
+
+            if external_id is None:
+                logger.warning(f"No external identifier found for entity in table {table_name}. Tried 'external_id' and 'key'. Entity keys: {list(entity.keys())}")
                 continue
 
             queue_entry = {
                 "table_name": table_name,
-                "record_db_id": int(record_db_id),  # Ensure it's an integer
+                "external_id": str(external_id),  # Store as string for consistency
                 "operation": operation,
                 "entity_data": entity_data,
                 "qdrant_metadata": qdrant_metadata,
@@ -180,6 +197,35 @@ class VectorizationQueueHelper:
                 "author": entity.get("author"),
                 "created_at": self._serialize_datetime(entity.get("pr_created_at")),
                 "updated_at": self._serialize_datetime(entity.get("pr_updated_at"))
+            }
+
+        elif table_name == "prs_reviews":
+            return {
+                "state": entity.get("state"),
+                "body": entity.get("body"),
+                "author_login": entity.get("author_login"),
+                "submitted_at": self._serialize_datetime(entity.get("submitted_at"))
+            }
+
+        elif table_name == "prs_comments":
+            return {
+                "body": entity.get("body"),
+                "author_login": entity.get("author_login"),
+                "comment_type": entity.get("comment_type"),
+                "path": entity.get("path"),
+                "line": entity.get("line"),
+                "created_at": self._serialize_datetime(entity.get("created_at_github"))
+            }
+
+        elif table_name == "repositories":
+            return {
+                "name": entity.get("name"),
+                "full_name": entity.get("full_name"),
+                "description": entity.get("description"),
+                "language": entity.get("language"),
+                "topics": entity.get("topics"),
+                "created_at": self._serialize_datetime(entity.get("created_at")),
+                "updated_at": self._serialize_datetime(entity.get("updated_at"))
             }
 
         elif table_name == "wits_prs_links":

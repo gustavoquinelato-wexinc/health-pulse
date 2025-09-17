@@ -436,6 +436,32 @@ def apply(connection):
 
         print(f"   ✅ Active Directory integration created (ID: {ad_integration_id}, inactive)")
 
+        # Create Internal integration for jobs that don't require external integrations
+        print("   📋 Creating Internal integration...")
+        cursor.execute("""
+            INSERT INTO integrations (
+                provider, type, username, password, base_url, base_search, ai_model,
+                logo_filename, tenant_id, active, created_at, last_updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (provider, tenant_id) DO NOTHING
+            RETURNING id;
+        """, (
+            "Internal", "System", None, None, None,
+            None, None,
+            "internal.svg",
+            tenant_id, True  # Active for internal jobs
+        ))
+
+        internal_result = cursor.fetchone()
+        if internal_result:
+            internal_integration_id = internal_result['id']
+        else:
+            cursor.execute("SELECT id FROM integrations WHERE provider = 'Internal' AND tenant_id = %s;", (tenant_id,))
+            internal_integration_id = cursor.fetchone()['id']
+
+        print(f"   ✅ Internal integration created (ID: {internal_integration_id}, active)")
+
         print("✅ Integrations created")
 
         # 4. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
@@ -781,6 +807,15 @@ def apply(connection):
                 "auth_provider": "local"
             },
             {
+                "email": "system@etl.pulse.local",
+                "password_hash": hash_password("etl_system_secure_2024"),
+                "first_name": "ETL",
+                "last_name": "System Service",
+                "role": "system",
+                "is_admin": True,
+                "auth_provider": "system"
+            },
+            {
                 "email": "user@pulse.com",
                 "password_hash": hash_password("pulse"),
                 "first_name": "Test",
@@ -887,7 +922,7 @@ def apply(connection):
                 "job_name": "Vectorization",
                 "execution_order": 5,
                 "status": "NOT_STARTED",
-                "integration_id": None  # Vectorization job doesn't need external integration
+                "integration_id": internal_integration_id  # Use internal integration for system jobs
             }
         ]
 

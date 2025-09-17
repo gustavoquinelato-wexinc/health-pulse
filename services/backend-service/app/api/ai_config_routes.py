@@ -8,7 +8,7 @@ Provides web interface routes for AI configuration including:
 - Model selection and setup
 """
 
-from fastapi import APIRouter, Request, HTTPException, Depends, status
+from fastapi import APIRouter, Request, HTTPException, Depends, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -986,6 +986,7 @@ class QdrantCleanupRequest(BaseModel):
 @router.post("/ai/vectors/process-queue")
 async def process_vectorization_queue(
     request: VectorizationQueueRequest,
+    background_tasks: BackgroundTasks,
     user: UserData = Depends(require_authentication)
 ):
     """Process vectorization queue for a tenant (async)"""
@@ -1249,8 +1250,8 @@ async def cleanup_qdrant_collections(
         )
 
 
-async def process_tenant_vectorization_queue(tenant_id: int, batch_size: int = 20):
-    """Process pending vectorization items for a tenant"""
+async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size: int = 20):
+    """Process ALL pending vectorization items for a tenant with progress updates every N items"""
     try:
         from app.models.unified_models import VectorizationQueue
         from datetime import datetime
@@ -1270,67 +1271,60 @@ async def process_tenant_vectorization_queue(tenant_id: int, batch_size: int = 2
 
             logger.info(f"[QUEUE_PROCESSOR] Queue status for tenant {tenant_id}: {pending_queue_items} pending, {total_queue_items} total")
 
-            # Get pending items
-            pending_items = session.query(VectorizationQueue).filter(
-                VectorizationQueue.status == 'pending',
-                VectorizationQueue.tenant_id == tenant_id
-            ).order_by(
-                VectorizationQueue.created_at.asc()
-            ).limit(batch_size).all()
-
-            if not pending_items:
+            if pending_queue_items == 0:
                 logger.info(f"[QUEUE_PROCESSOR] No pending vectorization items for tenant {tenant_id}")
+                await send_vectorization_progress(tenant_id, 100, "No items to process - queue is empty")
                 return
 
-            total_items = len(pending_items)
-            logger.info(f"[QUEUE_PROCESSOR] Processing {total_items} vectorization items for tenant {tenant_id}")
+            # Send initial progress
+            await send_vectorization_progress(tenant_id, 0, f"Starting vectorization of {pending_queue_items} entities...")
 
-            # Send start notification
-            await send_vectorization_progress(tenant_id, 0, f"Starting vectorization of {total_items} entities...")
+            # Process ALL items in batches, sending progress updates every progress_batch_size items
+            total_processed = 0
+            total_successful = 0
+            total_failed = 0
+            processing_batch_size = 5  # Process 5 items at a time for efficiency
 
-            # Process in smaller batches with more frequent progress updates
-            processed_count = 0
-            successful_count = 0
-            failed_count = 0
-            batch_size = 5  # Smaller batches for more frequent updates
-            total_batches = (total_items + batch_size - 1) // batch_size  # Ceiling division
+            while True:
+                # Get next batch of pending items
+                pending_items = session.query(VectorizationQueue).filter(
+                    VectorizationQueue.status == 'pending',
+                    VectorizationQueue.tenant_id == tenant_id
+                ).order_by(
+                    VectorizationQueue.created_at.asc()
+                ).limit(processing_batch_size).all()
 
-            for i in range(0, len(pending_items), batch_size):
-                batch = pending_items[i:i+batch_size]
-                batch_num = (i // batch_size) + 1
+                # Break if no more items to process
+                if not pending_items:
+                    logger.info(f"[QUEUE_PROCESSOR] No more pending items - processing complete")
+                    break
 
-                # Send progress update before processing batch
-                progress_percentage = (processed_count / total_items) * 100
-                await send_vectorization_progress(
-                    tenant_id,
-                    progress_percentage,
-                    f"Processing batch {batch_num}/{total_batches} ({len(batch)} entities)..."
-                )
-
-                # Process batch and get detailed results
-                batch_result = await process_vectorization_batch(session, batch)
+                # Process this batch
+                batch_result = await process_vectorization_batch(session, pending_items)
                 batch_successful = batch_result.get('vectors_stored', 0)
                 batch_failed = batch_result.get('vectors_failed', 0)
 
-                processed_count += len(batch)
-                successful_count += batch_successful
-                failed_count += batch_failed
+                total_processed += len(pending_items)
+                total_successful += batch_successful
+                total_failed += batch_failed
 
-                # Send progress update after processing batch with detailed info
-                progress_percentage = (processed_count / total_items) * 100
-                status_msg = f"Batch {batch_num}/{total_batches} complete: {batch_successful} success, {batch_failed} failed"
-                await send_vectorization_progress(
-                    tenant_id,
-                    progress_percentage,
-                    status_msg
-                )
+                logger.info(f"[QUEUE_PROCESSOR] Processed batch: {batch_successful} successful, {batch_failed} failed")
 
-                # Small delay to prevent overwhelming the websocket
+                # Send progress update every progress_batch_size items (webhook-style)
+                if total_processed % progress_batch_size == 0 or len(pending_items) < processing_batch_size:
+                    progress_percentage = min(95, (total_processed / pending_queue_items) * 100)
+                    status_msg = f"Processed {total_processed}/{pending_queue_items}: {total_successful} successful, {total_failed} failed"
+                    await send_vectorization_progress(tenant_id, progress_percentage, status_msg)
+
+                # Small delay to prevent overwhelming the system
                 import asyncio
                 await asyncio.sleep(0.1)
 
+                # Refresh session to get updated counts
+                session.commit()
+
             # Send completion notification with summary
-            completion_msg = f"Vectorization complete: {successful_count} successful, {failed_count} failed ({total_items} total)"
+            completion_msg = f"Vectorization complete: {total_successful} successful, {total_failed} failed ({total_processed} total)"
             await send_vectorization_progress(tenant_id, 95, completion_msg)
 
             # Clean up completed records immediately after processing
@@ -1349,6 +1343,77 @@ async def process_tenant_vectorization_queue(tenant_id: int, batch_size: int = 2
         await send_vectorization_progress(tenant_id, 0, f"Vectorization failed: {str(e)}")
 
 
+async def get_internal_ids_for_table(session, table_name: str, external_ids: list) -> dict:
+    """
+    Get internal database IDs for external IDs by joining with the appropriate table.
+
+    Args:
+        session: Database session
+        table_name: Name of the table (prs, work_items, etc.)
+        external_ids: List of external IDs to look up
+
+    Returns:
+        Dict mapping external_id -> internal_id
+    """
+    from app.models.unified_models import Pr, PrCommit, PrReview, PrComment, WorkItem, Changelog, Project, Status, Wit
+
+    mappings = {}
+
+    try:
+        if table_name == 'prs':
+            results = session.query(Pr.id, Pr.external_id).filter(
+                Pr.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'prs_commits':
+            results = session.query(PrCommit.id, PrCommit.external_id).filter(
+                PrCommit.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'prs_reviews':
+            results = session.query(PrReview.id, PrReview.external_id).filter(
+                PrReview.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'prs_comments':
+            results = session.query(PrComment.id, PrComment.external_id).filter(
+                PrComment.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'work_items':
+            # For work_items, we use the 'key' field (Jira issue key like "BDP-552")
+            # not the 'external_id' field (which contains Jira internal ID)
+            results = session.query(WorkItem.id, WorkItem.key).filter(
+                WorkItem.key.in_(external_ids)
+            ).all()
+        elif table_name == 'changelogs':
+            results = session.query(Changelog.id, Changelog.external_id).filter(
+                Changelog.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'projects':
+            results = session.query(Project.id, Project.external_id).filter(
+                Project.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'statuses':
+            results = session.query(Status.id, Status.external_id).filter(
+                Status.external_id.in_(external_ids)
+            ).all()
+        elif table_name == 'wits':
+            results = session.query(Wit.id, Wit.external_id).filter(
+                Wit.external_id.in_(external_ids)
+            ).all()
+        else:
+            logger.warning(f"Unknown table name for ID mapping: {table_name}")
+            return mappings
+
+        # Build mapping dictionary
+        for internal_id, external_id in results:
+            mappings[str(external_id)] = internal_id
+
+        logger.debug(f"Mapped {len(mappings)}/{len(external_ids)} external IDs for table {table_name}")
+
+    except Exception as e:
+        logger.error(f"Error getting internal IDs for table {table_name}: {e}")
+
+    return mappings
+
+
 async def process_vectorization_batch(session, batch_items):
     """Process a batch of vectorization items and return detailed results"""
     try:
@@ -1360,35 +1425,62 @@ async def process_vectorization_batch(session, batch_items):
             item.started_at = datetime.utcnow()
         session.commit()
 
-        # Prepare for bulk vectorization
-        entities_to_vectorize = []
+        # Group items by table for efficient joining
+        items_by_table = {}
         for item in batch_items:
-            entities_to_vectorize.append({
-                "entity_data": item.entity_data,  # Direct from queue
-                "record_id": item.qdrant_metadata["record_id"],
-                "table_name": item.qdrant_metadata["table_name"]
-            })
+            table_name = item.table_name
+            if table_name not in items_by_table:
+                items_by_table[table_name] = []
+            items_by_table[table_name].append(item)
 
-        # Bulk vectorize using existing function
-        result = await bulk_vectorize_entities_from_queue(entities_to_vectorize, batch_items[0].tenant_id, session)
-        vectors_stored = result.get("vectors_stored", 0)
-        vectors_failed = result.get("vectors_failed", 0)
+        # Prepare for bulk vectorization with internal IDs
+        entities_to_vectorize = []
 
-        # Update status with more granular tracking
-        successful_items = 0
-        failed_items = 0
+        # Process each table group
+        for table_name, table_items in items_by_table.items():
+            external_ids = [item.external_id for item in table_items]
 
-        for i, item in enumerate(batch_items):
-            if i < vectors_stored:
-                item.status = 'completed'
-                item.completed_at = datetime.utcnow()
-                item.error_message = None  # Clear any previous errors
-                successful_items += 1
-            else:
-                item.status = 'failed'
-                item.error_message = result.get("error_details", "Vectorization processing failed")
-                item.last_error_at = datetime.utcnow()
-                failed_items += 1
+            # Get internal IDs by joining with actual tables
+            internal_id_mappings = await get_internal_ids_for_table(session, table_name, external_ids)
+
+            # Create vectorization entities with internal IDs
+            for item in table_items:
+                internal_id = internal_id_mappings.get(item.external_id)
+                if internal_id:
+                    entities_to_vectorize.append({
+                        "entity_data": item.entity_data,  # Direct from queue
+                        "record_id": internal_id,  # Internal database ID
+                        "table_name": table_name,
+                        "queue_item": item  # Reference for status updates
+                    })
+                else:
+                    # Mark as failed if no internal ID found
+                    item.status = 'failed'
+                    item.error_message = f"No internal ID found for external_id {item.external_id} in table {table_name}"
+                    item.last_error_at = datetime.utcnow()
+
+        # Only process entities that have valid internal IDs
+        if entities_to_vectorize:
+            # Bulk vectorize using existing function
+            result = await bulk_vectorize_entities_from_queue(entities_to_vectorize, batch_items[0].tenant_id, session)
+            vectors_stored = result.get("vectors_stored", 0)
+            vectors_failed = result.get("vectors_failed", 0)
+
+            # Update status for successfully vectorized items
+            for i, entity in enumerate(entities_to_vectorize):
+                queue_item = entity["queue_item"]
+                if i < vectors_stored:
+                    queue_item.status = 'completed'
+                    queue_item.completed_at = datetime.utcnow()
+                    queue_item.error_message = None  # Clear any previous errors
+                else:
+                    queue_item.status = 'failed'
+                    queue_item.error_message = result.get("error_details", "Vectorization processing failed")
+                    queue_item.last_error_at = datetime.utcnow()
+
+        # Count final results
+        successful_items = sum(1 for item in batch_items if item.status == 'completed')
+        failed_items = sum(1 for item in batch_items if item.status == 'failed')
 
         session.commit()
 
@@ -1430,7 +1522,8 @@ async def get_vectorization_queue_stats(
 
         tenant_id = user.tenant_id
 
-        with get_db_session() as session:
+        session = next(get_db_session())
+        try:
             # Count items by status
             pending_count = session.query(VectorizationQueue).filter(
                 VectorizationQueue.tenant_id == tenant_id,
@@ -1454,8 +1547,8 @@ async def get_vectorization_queue_stats(
 
             total_count = pending_count + processing_count + completed_count + failed_count
 
-            # Get last updated timestamp
-            last_updated = session.query(func.max(VectorizationQueue.updated_at)).filter(
+            # Get last updated timestamp (use completed_at as the most recent activity)
+            last_updated = session.query(func.max(VectorizationQueue.completed_at)).filter(
                 VectorizationQueue.tenant_id == tenant_id
             ).scalar()
 
@@ -1469,18 +1562,18 @@ async def get_vectorization_queue_stats(
                 recent_completed = session.query(VectorizationQueue).filter(
                     VectorizationQueue.tenant_id == tenant_id,
                     VectorizationQueue.status == 'completed'
-                ).order_by(VectorizationQueue.updated_at.desc()).limit(10).all()
+                ).order_by(VectorizationQueue.completed_at.desc()).limit(10).all()
 
                 if recent_completed:
-                    # Calculate average processing time (if we have created_at and updated_at)
+                    # Calculate average processing time (if we have created_at and completed_at)
                     processing_times = []
                     for item in recent_completed:
-                        if item.created_at and item.updated_at:
-                            processing_time = (item.updated_at - item.created_at).total_seconds()
+                        if item.created_at and item.completed_at:
+                            processing_time = (item.completed_at - item.created_at).total_seconds()
                             processing_times.append(processing_time)
 
                     avg_processing_time = f"{sum(processing_times) / len(processing_times):.1f}s" if processing_times else "N/A"
-                    last_run = recent_completed[0].updated_at.isoformat() if recent_completed[0].updated_at else None
+                    last_run = recent_completed[0].completed_at.isoformat() if recent_completed[0].completed_at else None
                 else:
                     avg_processing_time = "N/A"
                     last_run = None
@@ -1501,6 +1594,8 @@ async def get_vectorization_queue_stats(
                 "last_updated": last_updated.isoformat() if last_updated else None,
                 "processing_stats": processing_stats
             }
+        finally:
+            session.close()
 
     except Exception as e:
         logger.error(f"Error fetching vectorization queue stats: {e}")
@@ -1597,9 +1692,10 @@ async def send_vectorization_progress(tenant_id: int, percentage: float, message
         settings = get_settings()
         etl_service_url = settings.ETL_SERVICE_URL  # e.g., http://localhost:8000
 
-        # Determine job name - try to detect from recent vectorization queue entries
+        # Always use "Vectorization" as job name for vectorization progress
+        # Don't try to detect the originating job - vectorization is its own job
         if not job_name:
-            job_name = await _detect_current_job_name(tenant_id) or "Vectorization"
+            job_name = "Vectorization"
 
         # Send progress update to ETL service websocket
         async with httpx.AsyncClient() as client:
@@ -1619,37 +1715,12 @@ async def send_vectorization_progress(tenant_id: int, percentage: float, message
         # Non-critical - don't fail vectorization if websocket fails
 
 
-async def _detect_current_job_name(tenant_id: int) -> str:
-    """Detect the current job name based on recent vectorization queue entries"""
-    try:
-        from app.models.unified_models import VectorizationQueue
-
-        with get_db_session() as session:
-            # Get the most recent queue entry to determine job context
-            recent_entry = session.query(VectorizationQueue).filter(
-                VectorizationQueue.tenant_id == tenant_id,
-                VectorizationQueue.status.in_(['pending', 'processing'])
-            ).order_by(VectorizationQueue.created_at.desc()).first()
-
-            if recent_entry:
-                table_name = recent_entry.table_name
-                # Map table names to likely job names
-                if table_name in ['work_items', 'changelogs', 'projects', 'statuses', 'wits']:
-                    return "Jira"
-                elif table_name in ['prs', 'prs_commits', 'prs_reviews', 'prs_comments']:
-                    return "GitHub"
-                else:
-                    return "Jira"  # Default fallback
-
-            return "Jira"  # Default fallback
-
-    except Exception as e:
-        logger.debug(f"Failed to detect job name: {e}")
-        return "Jira"  # Default fallback
+# Removed _detect_current_job_name function - vectorization progress should always
+# be sent to "Vectorization" channel regardless of originating job
 
 
 async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], tenant_id: int, db_session) -> Dict[str, Any]:
-    """Vectorize entities from the queue using existing infrastructure"""
+    """Vectorize entities from the queue using existing infrastructure with AI Gateway batching"""
     try:
         # Use the existing bulk vectorization logic
         provider_manager = HybridProviderManager(db_session)
@@ -1659,6 +1730,11 @@ async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], ten
 
         vectors_stored = 0
         vectors_failed = 0
+
+        # OPTIMIZATION: Batch AI Gateway calls instead of individual calls
+        # Prepare all text content first
+        entity_texts = []
+        entity_metadata = []
 
         for entity in entities:
             try:
@@ -1670,63 +1746,94 @@ async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], ten
                 # Create text content for vectorization
                 text_content = create_text_content_from_entity(entity_data, table_name)
 
-                if not text_content:
-                    vectors_failed += 1
-                    continue
-
-                # Generate embedding
-                embedding_result = await provider_manager.generate_embeddings([text_content], tenant_id)
-
-                if not embedding_result.success:
-                    logger.warning(f"[QUEUE_PROCESSOR] Failed to generate embedding for {table_name} {record_id}: {embedding_result.error}")
-                    vectors_failed += 1
-                    continue
-
-                # Extract the first (and only) embedding from the result
-                embedding_vector = embedding_result.data[0] if embedding_result.data else None
-                if not embedding_vector:
-                    logger.warning(f"[QUEUE_PROCESSOR] No embedding data returned for {table_name} {record_id}")
-                    vectors_failed += 1
-                    continue
-
-                # Store in Qdrant
-                collection_name = f"client_{tenant_id}_{table_name}"
-                # Use integer point ID for Qdrant (not string)
-                point_id = int(record_id)
-
-                # Ensure collection exists before upserting
-                await qdrant_client.ensure_collection_exists(
-                    collection_name=collection_name,
-                    vector_size=len(embedding_vector)
-                )
-
-                # Prepare vector data for upsert
-                vector_data = [{
-                    'id': point_id,
-                    'vector': embedding_vector,
-                    'payload': {
-                        **entity_data,
-                        'tenant_id': tenant_id,
-                        'table_name': table_name,
-                        'record_id': record_id
-                    }
-                }]
-
-                store_result = await qdrant_client.upsert_vectors(
-                    collection_name=collection_name,
-                    vectors=vector_data
-                )
-
-                if store_result.success:
-                    vectors_stored += 1
-                    logger.debug(f"[QUEUE_PROCESSOR] Stored vector for {table_name} {record_id}")
+                if text_content:
+                    entity_texts.append(text_content)
+                    entity_metadata.append({
+                        "entity_data": entity_data,
+                        "record_id": record_id,
+                        "table_name": table_name,
+                        "entity": entity
+                    })
                 else:
                     vectors_failed += 1
-                    logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")
 
             except Exception as e:
-                logger.error(f"[QUEUE_PROCESSOR] Error processing entity {entity.get('record_id', 'unknown')}: {e}")
+                logger.error(f"[QUEUE_PROCESSOR] Error preparing entity {entity.get('record_id', 'unknown')}: {e}")
                 vectors_failed += 1
+
+        # Generate embeddings for ALL texts in one batch call
+        if entity_texts:
+            logger.info(f"[QUEUE_PROCESSOR] Generating embeddings for {len(entity_texts)} entities in batch")
+            embedding_result = await provider_manager.generate_embeddings(entity_texts, tenant_id)
+
+            if not embedding_result.success:
+                logger.error(f"[QUEUE_PROCESSOR] Batch embedding generation failed: {embedding_result.error}")
+                vectors_failed += len(entity_texts)
+                return {
+                    "vectors_stored": vectors_stored,
+                    "vectors_failed": vectors_failed
+                }
+
+            # Process each embedding result
+            embeddings = embedding_result.data
+            if len(embeddings) != len(entity_metadata):
+                logger.error(f"[QUEUE_PROCESSOR] Embedding count mismatch: got {len(embeddings)}, expected {len(entity_metadata)}")
+                vectors_failed += len(entity_texts)
+                return {
+                    "vectors_stored": vectors_stored,
+                    "vectors_failed": vectors_failed
+                }
+
+            # Store each embedding in Qdrant
+            for i, (embedding_vector, metadata) in enumerate(zip(embeddings, entity_metadata)):
+                try:
+                    if not embedding_vector:
+                        logger.warning(f"[QUEUE_PROCESSOR] No embedding data returned for {metadata['table_name']} {metadata['record_id']}")
+                        vectors_failed += 1
+                        continue
+
+                    # Store in Qdrant
+                    entity_data = metadata["entity_data"]
+                    record_id = metadata["record_id"]
+                    table_name = metadata["table_name"]
+
+                    collection_name = f"client_{tenant_id}_{table_name}"
+                    # Use integer point ID for Qdrant (not string)
+                    point_id = int(record_id)
+
+                    # Ensure collection exists before upserting
+                    await qdrant_client.ensure_collection_exists(
+                        collection_name=collection_name,
+                        vector_size=len(embedding_vector)
+                    )
+
+                    # Prepare vector data for upsert
+                    vector_data = [{
+                        'id': point_id,
+                        'vector': embedding_vector,
+                        'payload': {
+                            **entity_data,
+                            'tenant_id': tenant_id,
+                            'table_name': table_name,
+                            'record_id': record_id
+                        }
+                    }]
+
+                    store_result = await qdrant_client.upsert_vectors(
+                        collection_name=collection_name,
+                        vectors=vector_data
+                    )
+
+                    if store_result.success:
+                        vectors_stored += 1
+                        logger.debug(f"[QUEUE_PROCESSOR] Stored vector for {table_name} {record_id}")
+                    else:
+                        vectors_failed += 1
+                        logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")
+
+                except Exception as e:
+                    logger.error(f"[QUEUE_PROCESSOR] Error storing vector for entity {metadata.get('record_id', 'unknown')}: {e}")
+                    vectors_failed += 1
 
         return {
             "vectors_stored": vectors_stored,

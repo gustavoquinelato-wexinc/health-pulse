@@ -15,7 +15,6 @@ from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_pagination import (
     paginate_commits, paginate_reviews, paginate_comments, paginate_review_threads, resume_pr_nested_pagination
 )
-from app.clients.ai_client import bulk_store_entity_vectors_for_etl, bulk_update_entity_vectors_for_etl
 from app.jobs.vectorization_helper import VectorizationQueueHelper
 
 logger = get_logger(__name__)
@@ -54,9 +53,8 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         prs_processed = 0
 
         # Initialize vectorization queue helper
-        from app.core.config import get_backend_url
-        backend_url = get_backend_url()
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        logger.info(f"[VECTORIZATION_DEBUG] Initialized vectorization helper for tenant {integration.tenant_id}")
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
         # Use job_schedule.last_success_at instead of integration.last_sync_at
@@ -185,8 +183,46 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
                                     # Perform any pending bulk inserts before stopping
                                     if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-                                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
+                                        logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Performing bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+                                        bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
                                         session.commit()
+
+                                        # Queue entities for async vectorization (EARLY TERMINATION PATH)
+                                        if bulk_result:
+                                            # Queue PRs
+                                            if bulk_result.get("prs_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("prs_inserted", []), "prs", "insert"
+                                                )
+                                            if bulk_result.get("prs_updated"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("prs_updated", []), "prs", "update"
+                                                )
+
+                                            # Queue commits
+                                            if bulk_result.get("commits_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                                                )
+
+                                            # Queue reviews
+                                            if bulk_result.get("reviews_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                                                )
+
+                                            # Queue comments
+                                            if bulk_result.get("comments_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                                                )
+                                        else:
+                                            logger.warning(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Bulk result is None or empty - no entities queued for vectorization")
 
                                     # Clear checkpoint since we completed successfully
                                     job_schedule.update_checkpoint({})
@@ -210,7 +246,45 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
                     if not pr_result['success']:
                         # Before failing, save any collected data
                         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-                            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+                            logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Performing bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+                            bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+
+                            # Queue entities for async vectorization (FAILURE PATH)
+                            if bulk_result:
+                                # Queue PRs
+                                if bulk_result.get("prs_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("prs_inserted", []), "prs", "insert"
+                                    )
+                                if bulk_result.get("prs_updated"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("prs_updated", []), "prs", "update"
+                                    )
+
+                                # Queue commits
+                                if bulk_result.get("commits_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                                    )
+
+                                # Queue reviews
+                                if bulk_result.get("reviews_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                                    )
+
+                                # Queue comments
+                                if bulk_result.get("comments_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                                    )
+                            else:
+                                logger.warning(f"[VECTORIZATION_DEBUG] FAILURE PATH: Bulk result is None or empty - no entities queued for vectorization")
 
                         return {
                             'success': False,
@@ -227,37 +301,46 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
                     # Perform bulk insert when batch is full
                     if len(bulk_prs) >= BATCH_SIZE:
+                        logger.info(f"[VECTORIZATION_DEBUG] Performing bulk insert for batch of {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
                         bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+                        logger.info(f"[VECTORIZATION_DEBUG] Bulk insert result keys: {list(bulk_result.keys()) if bulk_result else 'None'}")
 
                         # Queue entities for async vectorization
                         if bulk_result:
                             # Queue PRs
                             if bulk_result.get("prs_inserted"):
+                                logger.info(f"[VECTORIZATION_DEBUG] Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
                                 vectorization_helper.queue_entities_for_vectorization(
                                     bulk_result.get("prs_inserted", []), "prs", "insert"
                                 )
                             if bulk_result.get("prs_updated"):
+                                logger.info(f"[VECTORIZATION_DEBUG] Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
                                 vectorization_helper.queue_entities_for_vectorization(
                                     bulk_result.get("prs_updated", []), "prs", "update"
                                 )
 
                             # Queue commits
                             if bulk_result.get("commits_inserted"):
+                                logger.info(f"[VECTORIZATION_DEBUG] Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
                                 vectorization_helper.queue_entities_for_vectorization(
                                     bulk_result.get("commits_inserted", []), "prs_commits", "insert"
                                 )
 
                             # Queue reviews
                             if bulk_result.get("reviews_inserted"):
+                                logger.info(f"[VECTORIZATION_DEBUG] Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
                                 vectorization_helper.queue_entities_for_vectorization(
                                     bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
                                 )
 
                             # Queue comments
                             if bulk_result.get("comments_inserted"):
+                                logger.info(f"[VECTORIZATION_DEBUG] Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
                                 vectorization_helper.queue_entities_for_vectorization(
                                     bulk_result.get("comments_inserted", []), "prs_comments", "insert"
                                 )
+                        else:
+                            logger.warning(f"[VECTORIZATION_DEBUG] Bulk result is None or empty - no entities queued for vectorization")
 
                         bulk_prs.clear()
                         bulk_commits.clear()
@@ -298,38 +381,49 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
         # Final bulk insert for remaining data
         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
+            logger.info(f"[VECTORIZATION_DEBUG] Performing FINAL bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
             bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
             logger.info(f"[{owner}/{repo_name}] Final bulk insert completed")
+            logger.info(f"[VECTORIZATION_DEBUG] Final bulk insert result keys: {list(bulk_result.keys()) if bulk_result else 'None'}")
 
             # Queue final entities for async vectorization
             if bulk_result:
                 # Queue PRs
                 if bulk_result.get("prs_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
                     vectorization_helper.queue_entities_for_vectorization(
                         bulk_result.get("prs_inserted", []), "prs", "insert"
                     )
                 if bulk_result.get("prs_updated"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
                     vectorization_helper.queue_entities_for_vectorization(
                         bulk_result.get("prs_updated", []), "prs", "update"
                     )
 
                 # Queue commits
                 if bulk_result.get("commits_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
                     vectorization_helper.queue_entities_for_vectorization(
                         bulk_result.get("commits_inserted", []), "prs_commits", "insert"
                     )
 
                 # Queue reviews
                 if bulk_result.get("reviews_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
                     vectorization_helper.queue_entities_for_vectorization(
                         bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
                     )
 
                 # Queue comments
                 if bulk_result.get("comments_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
                     vectorization_helper.queue_entities_for_vectorization(
                         bulk_result.get("comments_inserted", []), "prs_comments", "insert"
                     )
+            else:
+                logger.warning(f"[VECTORIZATION_DEBUG] FINAL: Bulk result is None or empty - no entities queued for vectorization")
+        else:
+            logger.info(f"[VECTORIZATION_DEBUG] FINAL: No remaining data to bulk insert - skipping final vectorization queueing")
 
         logger.info(f"Repository {owner}/{repo_name} completed: {prs_processed} PRs processed")
 
@@ -348,10 +442,6 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
         # Note: Entities are now saved immediately during extraction steps
         # Vectorization will be triggered at the job level after all repositories are processed
         logger.info(f"[{owner}/{repo_name}] All entities saved to vectorization queue during extraction")
-
-        except Exception as e:
-            logger.error(f"[{owner}/{repo_name}] Failed to trigger async vectorization: {e}")
-            # Don't fail the entire job if vectorization queueing fails
 
         return {
             'success': True,
@@ -1158,367 +1248,41 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
 
         logger.info(f"{context_prefix}Bulk insert completed: {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
 
-        # Return PR, comment, review, and commit data for AI vector processing
-        return {
-            "prs_inserted": prs_to_insert if 'prs_to_insert' in locals() else [],
-            "prs_updated": [pr_data for pr_data in bulk_prs if (pr_data['external_id'], pr_data['repository_id']) in existing_pr_map] if 'existing_pr_map' in locals() else [],
+        # Return the original input data with external_ids for vectorization queueing
+        # The vectorization processor will join with actual tables to get internal IDs
+
+        # Initialize variables if they don't exist (when no PRs were processed)
+        if 'prs_to_insert' not in locals():
+            prs_to_insert = []
+        if 'existing_pr_map' not in locals():
+            existing_pr_map = {}
+
+        # Build list of updated PRs
+        prs_updated = []
+        if existing_pr_map and bulk_prs:
+            prs_updated = [pr_data for pr_data in bulk_prs if (pr_data['external_id'], pr_data['repository_id']) in existing_pr_map]
+
+        # Return the data for vectorization queueing
+        # The bulk_* arrays contain the data that was actually inserted and should have external_ids
+        result = {
+            "prs_inserted": prs_to_insert,
+            "prs_updated": prs_updated,
             "comments_inserted": bulk_comments if bulk_comments else [],
             "reviews_inserted": bulk_reviews if bulk_reviews else [],
             "commits_inserted": bulk_commits if bulk_commits else []
         }
+
+        logger.info(f"[VECTORIZATION_DEBUG] perform_bulk_inserts returning:")
+        logger.info(f"[VECTORIZATION_DEBUG]   prs_inserted: {len(result['prs_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   prs_updated: {len(result['prs_updated'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   comments_inserted: {len(result['comments_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   reviews_inserted: {len(result['reviews_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   commits_inserted: {len(result['commits_inserted'])} items")
+
+        return result
 
     except Exception as e:
         logger.error(f"Error performing bulk inserts: {e}")
         raise
 
 
-async def process_bulk_ai_vectors_for_github(
-    session: Session,
-    integration: Integration,
-    prs_inserted: List[Dict[str, Any]],
-    prs_updated: List[Dict[str, Any]],
-    repo_context: str,
-    comments_inserted: List[Dict[str, Any]] = None,
-    reviews_inserted: List[Dict[str, Any]] = None,
-    commits_inserted: List[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """
-    Bulk process AI vectors for inserted and updated GitHub pull requests, comments, reviews, and commits.
-
-    This function handles:
-    1. Bulk vector generation for new PRs (INSERT)
-    2. Vector updates for modified PRs (UPDATE)
-    3. Bulk vector generation for new PR comments (INSERT)
-    4. Bulk vector generation for new PR reviews (INSERT)
-    5. Bulk vector generation for new PR commits (INSERT)
-    6. Proper handling of qdrant_vectors table and Qdrant database sync
-
-    Args:
-        session: Database session
-        integration: Integration instance
-        prs_inserted: List of newly inserted PR data
-        prs_updated: List of updated PR data
-        repo_context: Repository context for logging
-        comments_inserted: List of newly inserted comment data
-        reviews_inserted: List of newly inserted review data
-        commits_inserted: List of newly inserted commit data
-
-    Returns:
-        Dict with processing results
-    """
-    try:
-        comments_inserted = comments_inserted or []
-        reviews_inserted = reviews_inserted or []
-        commits_inserted = commits_inserted or []
-        logger.info(f"[{repo_context}] Starting bulk AI vector processing: {len(prs_inserted)} new PRs, {len(prs_updated)} updated PRs, {len(comments_inserted)} new comments, {len(reviews_inserted)} new reviews, {len(commits_inserted)} new commits")
-
-        total_created = 0
-        total_updated = 0
-        total_failed = 0
-        comments_created = 0
-        comments_failed = 0
-        reviews_created = 0
-        reviews_failed = 0
-        commits_created = 0
-        commits_failed = 0
-
-        # Process new PRs for vector creation
-        if prs_inserted:
-            logger.info(f"[{repo_context}] Processing {len(prs_inserted)} new PRs for vector creation...")
-
-            # Prepare entities for bulk vector creation
-            entities_to_create = []
-            for pr_data in prs_inserted:
-                try:
-                    # Create entity data for AI processing
-                    entity_data = {
-                        "number": pr_data.get("number"),
-                        "title": pr_data.get("title"),
-                        "body": pr_data.get("body"),
-                        "state": pr_data.get("state"),
-                        "author": pr_data.get("author"),
-                        "labels": pr_data.get("labels"),
-                        "base_branch": pr_data.get("base_branch"),
-                        "head_branch": pr_data.get("head_branch")
-                    }
-
-                    # Remove None values to create cleaner text content
-                    entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                    entities_to_create.append({
-                        "entity_data": entity_data,
-                        "record_id": str(pr_data.get("number")),  # Use PR number as record ID
-                        "table_name": "pull_requests"
-                    })
-
-                except Exception as e:
-                    logger.warning(f"[{repo_context}] Error preparing PR #{pr_data.get('number', 'unknown')} for vector creation: {e}")
-                    total_failed += 1
-
-            # Bulk create vectors
-            if entities_to_create:
-                # Get auth token for this tenant
-                from app.jobs.orchestrator import _get_job_auth_token
-                auth_token = _get_job_auth_token(integration.tenant_id)
-
-                result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
-                if result.success:
-                    total_created = result.vectors_stored
-                    total_failed += result.vectors_failed
-                    logger.info(f"[{repo_context}] ✅ Bulk created {total_created} vectors for new PRs")
-                else:
-                    logger.error(f"[{repo_context}] ❌ Failed to bulk create vectors: {result.error}")
-                    total_failed += len(entities_to_create)
-
-        # Process updated PRs for vector updates
-        if prs_updated:
-            logger.info(f"[{repo_context}] Processing {len(prs_updated)} updated PRs for vector updates...")
-
-            # Prepare entities for bulk vector updates
-            entities_to_update = []
-            for pr_data in prs_updated:
-                try:
-                    # Create entity data for AI processing
-                    entity_data = {
-                        "number": pr_data.get("number"),
-                        "title": pr_data.get("title"),
-                        "body": pr_data.get("body"),
-                        "state": pr_data.get("state"),
-                        "author": pr_data.get("author"),
-                        "labels": pr_data.get("labels"),
-                        "base_branch": pr_data.get("base_branch"),
-                        "head_branch": pr_data.get("head_branch")
-                    }
-
-                    # Remove None values to create cleaner text content
-                    entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                    entities_to_update.append({
-                        "entity_data": entity_data,
-                        "record_id": str(pr_data.get("number")),  # Use PR number as record ID
-                        "table_name": "pull_requests"
-                    })
-
-                except Exception as e:
-                    logger.warning(f"[{repo_context}] Error preparing PR #{pr_data.get('number', 'unknown')} for vector update: {e}")
-                    total_failed += 1
-
-            # Bulk update vectors
-            if entities_to_update:
-                # Get auth token for this tenant
-                from app.jobs.orchestrator import _get_job_auth_token
-                auth_token = _get_job_auth_token(integration.tenant_id)
-
-                result = await bulk_update_entity_vectors_for_etl(entities_to_update, auth_token=auth_token)
-                if result.success:
-                    total_updated = result.vectors_updated
-                    total_failed += result.vectors_failed
-                    logger.info(f"[{repo_context}] ✅ Bulk updated {total_updated} vectors for updated PRs")
-                else:
-                    logger.error(f"[{repo_context}] ❌ Failed to bulk update vectors: {result.error}")
-                    total_failed += len(entities_to_update)
-
-        # Process new comments for vector creation
-        if comments_inserted:
-            logger.info(f"[{repo_context}] Processing {len(comments_inserted)} new comments for vector creation...")
-
-            # Prepare entities for bulk vector creation
-            entities_to_create = []
-            for comment_data in comments_inserted:
-                try:
-                    # Create entity data for AI processing
-                    entity_data = {
-                        "external_id": comment_data.get("external_id"),
-                        "author_login": comment_data.get("author_login"),
-                        "body": comment_data.get("body"),
-                        "comment_type": comment_data.get("comment_type"),
-                        "path": comment_data.get("path"),
-                        "line": comment_data.get("line"),
-                        "position": comment_data.get("position")
-                    }
-
-                    # Remove None values to create cleaner text content
-                    entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                    # Skip comments without body text
-                    if not entity_data.get("body"):
-                        comments_failed += 1
-                        continue
-
-                    entities_to_create.append({
-                        "entity_data": entity_data,
-                        "record_id": str(comment_data.get("external_id")),  # Use comment external ID as record ID
-                        "table_name": "prs_comments"
-                    })
-
-                except Exception as e:
-                    logger.warning(f"[{repo_context}] Error preparing comment {comment_data.get('external_id', 'unknown')} for vector creation: {e}")
-                    comments_failed += 1
-
-            # Bulk create vectors for comments
-            if entities_to_create:
-                # Get auth token for this tenant
-                from app.jobs.orchestrator import _get_job_auth_token
-                auth_token = _get_job_auth_token(integration.tenant_id)
-
-                result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
-                if result.success:
-                    comments_created = result.vectors_stored
-                    comments_failed += result.vectors_failed
-                    logger.info(f"[{repo_context}] ✅ Bulk created {comments_created} vectors for new comments")
-                else:
-                    logger.error(f"[{repo_context}] ❌ Failed to bulk create comment vectors: {result.error}")
-                    comments_failed += len(entities_to_create)
-
-        # Process new reviews for vector creation
-        if reviews_inserted:
-            logger.info(f"[{repo_context}] Processing {len(reviews_inserted)} new reviews for vector creation...")
-
-            # Prepare entities for bulk vector creation
-            entities_to_create = []
-            for review_data in reviews_inserted:
-                try:
-                    # Create entity data for AI processing
-                    entity_data = {
-                        "external_id": review_data.get("external_id"),
-                        "author_login": review_data.get("author_login"),
-                        "state": review_data.get("state"),
-                        "body": review_data.get("body"),
-                        "submitted_at": review_data.get("submitted_at")
-                    }
-
-                    # Remove None values to create cleaner text content
-                    entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                    # Skip reviews without meaningful content (state and author are minimum)
-                    if not entity_data.get("state") or not entity_data.get("author_login"):
-                        reviews_failed += 1
-                        continue
-
-                    entities_to_create.append({
-                        "entity_data": entity_data,
-                        "record_id": str(review_data.get("external_id")),  # Use review external ID as record ID
-                        "table_name": "prs_reviews"
-                    })
-
-                except Exception as e:
-                    logger.warning(f"[{repo_context}] Error preparing review {review_data.get('external_id', 'unknown')} for vector creation: {e}")
-                    reviews_failed += 1
-
-            # Bulk create vectors for reviews
-            if entities_to_create:
-                # Get auth token for this tenant
-                from app.jobs.orchestrator import _get_job_auth_token
-                auth_token = _get_job_auth_token(integration.tenant_id)
-
-                result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
-                if result.success:
-                    reviews_created = result.vectors_stored
-                    reviews_failed += result.vectors_failed
-                    logger.info(f"[{repo_context}] ✅ Bulk created {reviews_created} vectors for new reviews")
-                else:
-                    logger.error(f"[{repo_context}] ❌ Failed to bulk create review vectors: {result.error}")
-                    reviews_failed += len(entities_to_create)
-
-        # Process new commits for vector creation
-        if commits_inserted:
-            logger.info(f"[{repo_context}] Processing {len(commits_inserted)} new commits for vector creation...")
-
-            # Prepare entities for bulk vector creation
-            entities_to_create = []
-            for commit_data in commits_inserted:
-                try:
-                    # Create entity data for AI processing
-                    authored_date = commit_data.get("authored_date")
-                    committed_date = commit_data.get("committed_date")
-
-                    # Handle datetime serialization for authored_date
-                    authored_date_str = None
-                    if authored_date:
-                        if hasattr(authored_date, 'isoformat'):
-                            authored_date_str = authored_date.isoformat()
-                        else:
-                            authored_date_str = str(authored_date)
-
-                    # Handle datetime serialization for committed_date
-                    committed_date_str = None
-                    if committed_date:
-                        if hasattr(committed_date, 'isoformat'):
-                            committed_date_str = committed_date.isoformat()
-                        else:
-                            committed_date_str = str(committed_date)
-
-                    entity_data = {
-                        "external_id": commit_data.get("external_id"),  # SHA
-                        "author_name": commit_data.get("author_name"),
-                        "author_email": commit_data.get("author_email"),
-                        "committer_name": commit_data.get("committer_name"),
-                        "committer_email": commit_data.get("committer_email"),
-                        "message": commit_data.get("message"),
-                        "authored_date": authored_date_str,
-                        "committed_date": committed_date_str
-                    }
-
-                    # Remove None values to create cleaner text content
-                    entity_data = {k: v for k, v in entity_data.items() if v is not None}
-
-                    # Skip commits without message (main content)
-                    if not entity_data.get("message"):
-                        commits_failed += 1
-                        continue
-
-                    entities_to_create.append({
-                        "entity_data": entity_data,
-                        "record_id": str(commit_data.get("external_id")),  # Use commit SHA as record ID
-                        "table_name": "prs_commits"
-                    })
-
-                except Exception as e:
-                    logger.warning(f"[{repo_context}] Error preparing commit {commit_data.get('external_id', 'unknown')} for vector creation: {e}")
-                    commits_failed += 1
-
-            # Bulk create vectors for commits
-            if entities_to_create:
-                # Get auth token for this tenant
-                from app.jobs.orchestrator import _get_job_auth_token
-                auth_token = _get_job_auth_token(integration.tenant_id)
-
-                result = await bulk_store_entity_vectors_for_etl(entities_to_create, auth_token=auth_token)
-                if result.success:
-                    commits_created = result.vectors_stored
-                    commits_failed += result.vectors_failed
-                    logger.info(f"[{repo_context}] ✅ Bulk created {commits_created} vectors for new commits")
-                else:
-                    logger.error(f"[{repo_context}] ❌ Failed to bulk create commit vectors: {result.error}")
-                    commits_failed += len(entities_to_create)
-
-        logger.info(f"[{repo_context}] Bulk AI vector processing completed: {total_created} PRs created, {total_updated} PRs updated, {comments_created} comments created, {reviews_created} reviews created, {commits_created} commits created, {total_failed + comments_failed + reviews_failed + commits_failed} failed")
-
-        return {
-            "success": True,
-            "vectors_created": total_created,
-            "vectors_updated": total_updated,
-            "vectors_failed": total_failed,
-            "comments_created": comments_created,
-            "comments_failed": comments_failed,
-            "reviews_created": reviews_created,
-            "reviews_failed": reviews_failed,
-            "commits_created": commits_created,
-            "commits_failed": commits_failed
-        }
-
-    except Exception as e:
-        logger.error(f"[{repo_context}] Error in bulk AI vector processing: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "vectors_created": 0,
-            "vectors_updated": 0,
-            "vectors_failed": 0,
-            "comments_created": 0,
-            "comments_failed": 0,
-            "reviews_created": 0,
-            "reviews_failed": 0,
-            "commits_created": 0,
-            "commits_failed": 0
-        }

@@ -678,7 +678,7 @@ def apply(connection):
 
                 -- Core queue fields
                 table_name VARCHAR(50) NOT NULL,
-                record_db_id INTEGER NOT NULL,
+                external_id VARCHAR(255) NOT NULL, -- External system ID (GitHub PR number, Jira issue ID, etc.)
                 operation VARCHAR(10) NOT NULL, -- 'insert', 'update', 'delete'
 
                 -- Status tracking
@@ -700,7 +700,7 @@ def apply(connection):
                 -- Tenant isolation
                 tenant_id INTEGER NOT NULL,
 
-                CONSTRAINT unique_record_operation UNIQUE(table_name, record_db_id, operation, tenant_id)
+                CONSTRAINT unique_external_record_operation UNIQUE(table_name, external_id, operation, tenant_id)
             );
         """)
 
@@ -1191,7 +1191,7 @@ def apply(connection):
         # Vectorization queue table indexes (optimized for queue processing)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_processing ON vectorization_queue(status, tenant_id, created_at);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_tenant_status ON vectorization_queue(tenant_id, status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_table_record ON vectorization_queue(table_name, record_db_id, tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_table_external ON vectorization_queue(table_name, external_id, tenant_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_error_tracking ON vectorization_queue(status, last_error_at) WHERE status = 'failed';")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_completed_cleanup ON vectorization_queue(completed_at) WHERE status = 'completed';")
 

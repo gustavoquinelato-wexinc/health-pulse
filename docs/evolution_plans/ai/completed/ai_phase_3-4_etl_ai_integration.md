@@ -5,6 +5,7 @@
 **Priority**: HIGH
 **Dependencies**: Phase 3-3 completion
 **Completion Date**: September 11, 2025
+**Latest Update**: September 16, 2025 - GitHub Entity Vectorization Fixes
 
 > **🏗️ Architecture Update (September 2025)**: This phase focuses on completing the ETL-Backend AI integration. Backend Service already has all AI infrastructure (HybridProviderManager, Qdrant, providers). ETL Service will call Backend Service for AI operations.
 
@@ -555,6 +556,18 @@ INSERT INTO integrations (
 - **Unified Semantic Search**: Cross-platform search across Jira and GitHub data
 - **Real-time Vectorization**: All ETL jobs automatically generate vectors during data extraction
 - **Production Ready**: Robust error handling and performance optimization
+
+### **🔧 Recent Fixes (September 16, 2025):**
+- **✅ GitHub Entity Vectorization**: Fixed missing entity data preparation for repositories, reviews, and comments
+- **✅ External ID Architecture**: Implemented external ID-based vectorization queue (using GitHub PR numbers, Jira issue keys instead of internal database IDs)
+- **✅ Progress Bar Routing**: Fixed vectorization progress to display in correct "Vectorization" channel instead of "Jira" channel
+- **✅ Field Name Mapping**: Added table-specific external ID field detection (work_items use "key", GitHub entities use "external_id")
+- **✅ Backend Join Logic**: Updated backend to properly join work_items using "key" field instead of "external_id"
+- **✅ Bulk Insert Return Data**: Fixed GitHub job bulk insert function to properly return data for vectorization queueing
+- **✅ Repository Queueing**: Added repository vectorization to GitHub discovery job
+- **✅ Entity Data Preparation**: Added support for repositories, prs_reviews, and prs_comments in vectorization helper
+
+**Impact**: All GitHub entity types (repositories, PRs, commits, reviews, comments) now properly queue for vectorization with external ID-based architecture providing better performance and cleaner data flow.
 
 ## 🔄 Completion Enables
 

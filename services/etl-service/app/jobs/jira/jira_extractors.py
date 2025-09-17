@@ -256,10 +256,7 @@ async def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPI
     try:
         # Initialize vectorization queue helper
         from app.jobs.vectorization_helper import VectorizationQueueHelper
-        from app.core.config import get_settings
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
         # Extract project keys from integration base_search column
         project_keys = None
 
@@ -619,10 +616,7 @@ async def extract_projects_and_statuses(session: Session, jira_client: JiraAPICl
     try:
         # Initialize vectorization queue helper
         from app.jobs.vectorization_helper import VectorizationQueueHelper
-        from app.core.config import get_settings
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
         # Get all projects from database (should already exist from step 1)
         all_projects = session.query(Project).filter(
             Project.integration_id == integration.id
@@ -854,10 +848,7 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         processor = JiraDataProcessor(session, integration)
 
         # Initialize vectorization queue helper
-        from app.core.config import get_settings
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
 
         # Capture extraction start time (to be saved at the end) - using configured timezone
         from datetime import datetime
@@ -1350,10 +1341,7 @@ async def process_changelogs_for_work_items(session: Session, jira_client: JiraA
     try:
         # Initialize vectorization queue helper
         from app.jobs.vectorization_helper import VectorizationQueueHelper
-        from app.core.config import get_settings
-        settings = get_settings()
-        backend_url = settings.BACKEND_SERVICE_URL
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id, backend_url)
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
 
         processor = JiraDataProcessor(session, integration)
 

@@ -1150,7 +1150,7 @@ class VectorizationQueue(Base):
     """Async vectorization queue for ETL processing."""
     __tablename__ = 'vectorization_queue'
     __table_args__ = (
-        UniqueConstraint('table_name', 'record_db_id', 'operation', 'tenant_id'),
+        UniqueConstraint('table_name', 'external_id', 'operation', 'tenant_id'),
         {'quote': False}
     )
 
@@ -1158,7 +1158,7 @@ class VectorizationQueue(Base):
 
     # Core queue fields
     table_name = Column(String(50), nullable=False, quote=False, name="table_name")
-    record_db_id = Column(Integer, nullable=False, quote=False, name="record_db_id")
+    external_id = Column(String(255), nullable=False, quote=False, name="external_id")  # External system ID
     operation = Column(String(10), nullable=False, quote=False, name="operation")  # 'insert', 'update', 'delete'
 
     # Status tracking

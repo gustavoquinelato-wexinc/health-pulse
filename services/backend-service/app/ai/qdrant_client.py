@@ -55,6 +55,11 @@ class PulseQdrantClient:
                 port=self.port,
                 timeout=self.timeout
             )
+
+            # Reduce HTTP request logging verbosity
+            import logging
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("qdrant_client").setLevel(logging.WARNING)
             
             # Test connection
             collections = await asyncio.get_event_loop().run_in_executor(

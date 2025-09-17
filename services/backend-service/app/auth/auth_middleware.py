@@ -88,7 +88,7 @@ async def require_authentication(
 ) -> UserData:
     """
     Dependency that requires authentication.
-    Raises HTTPException if not authenticated.
+    Supports both local system tokens and centralized auth tokens.
     """
     if not credentials:
         raise HTTPException(
@@ -96,8 +96,31 @@ async def require_authentication(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Delegate to centralized authentication service
+
+    # First try local authentication (for system users)
+    try:
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+        user = await auth_service.verify_token(credentials.credentials)
+
+        if user:
+            logger.debug(f"User authenticated successfully (local): {user.email}")
+            # Create UserData object from local user
+            user_data = UserData({
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
+                "is_admin": user.is_admin,
+                "tenant_id": user.tenant_id,
+                "auth_provider": user.auth_provider
+            })
+            return user_data
+    except Exception as e:
+        logger.debug(f"Local authentication failed: {e}")
+
+    # Fallback to centralized authentication service
     try:
         import httpx
         from app.core.config import get_settings
