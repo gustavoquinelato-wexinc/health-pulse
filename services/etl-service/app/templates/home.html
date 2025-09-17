@@ -450,6 +450,7 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
+        gap: 16px;
     }
 
     .job-dates {
@@ -1579,10 +1580,9 @@
             <div class="job-name-section">
                 <div class="job-name">${jobTitle}</div>
                 <div class="job-metadata">
-                    ${jobDates ? `<span class="job-dates">${jobDates}</span>` : ''}
-                    ${duration && jobDates ? `<span class="job-duration-inline"> • ${duration}</span>` :
-                      duration ? `<span class="job-duration-inline">${duration}</span>` : ''}
-                    ${errorMessage ? `<span class="job-error-message"> • ${errorMessage}</span>` : ''}
+                    ${jobDates ? `<span class="job-dates">• ${jobDates}</span>` : ''}
+                    ${duration ? `<span class="job-duration-inline">Duration: ${duration}</span>` : ''}
+                    ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
                 </div>
             </div>
 
