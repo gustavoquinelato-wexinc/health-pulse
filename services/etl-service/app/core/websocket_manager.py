@@ -81,6 +81,35 @@ class WebSocketManager:
             "step": step,
             "timestamp": datetime.utcnow().isoformat()
         }
+
+
+    async def send_step_progress_update(self, job_name: str, step_index: int, total_steps: int,
+                                      step_progress: Optional[float], step_message: str):
+        """
+        Send progress update using flexible equal-step system.
+
+        Args:
+            job_name: Name of the job
+            step_index: Current step index (0-based)
+            total_steps: Total number of steps in the job
+            step_progress: Progress within current step (0.0-1.0), None for fixed step completion
+            step_message: Message describing current step
+        """
+        # Calculate equal percentage per step
+        step_percentage = 100.0 / total_steps
+
+        # Calculate overall progress
+        step_start = step_index * step_percentage
+
+        if step_progress is not None:
+            # Smooth progression within step
+            overall_percentage = step_start + (step_progress * step_percentage)
+        else:
+            # Fixed completion of current step (for unknown totals like Jira fetching)
+            overall_percentage = (step_index + 1) * step_percentage
+
+        # Send standard progress update
+        await self.send_progress_update(job_name, overall_percentage, step_message)
         
         # Store latest progress for new connections
         self.latest_progress[job_name] = message

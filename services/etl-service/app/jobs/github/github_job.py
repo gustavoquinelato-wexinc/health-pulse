@@ -80,7 +80,7 @@ async def get_github_rate_limits_internal(github_token: str) -> Dict[str, Any]:
 async def execute_github_extraction_by_mode(
     session, github_integration, github_token, job_schedule, websocket_manager,
     execution_mode: GitHubExecutionMode, target_repository: Optional[str], target_repositories: Optional[List[str]],
-    update_sync_timestamp: bool = True, update_job_schedule: bool = True
+    update_sync_timestamp: bool = True, update_job_schedule: bool = True, total_steps: int = 3
 ) -> Dict[str, Any]:
     """
     Execute GitHub extraction based on the specified mode.
@@ -493,19 +493,25 @@ async def run_github_sync(
 
         logger.info(f"GitHub rate limits OK: {graphql_remaining} GraphQL requests remaining")
 
-        # Process GitHub data with unified queue-based recovery
+        # GitHub Job: 3 Equal Steps (33.33% each)
+        TOTAL_STEPS = 3
+
+        # Step 1: Setup and Discovery (0% → 33%)
         if job_schedule.is_recovery_run():
             logger.info("Recovery run detected - resuming from checkpoint")
-            await websocket_manager.send_progress_update("GitHub", 15.0, "Resuming from checkpoint...")
+            await websocket_manager.send_step_progress_update("GitHub", 0, TOTAL_STEPS, 0.5, "Resuming from checkpoint...")
         else:
             logger.info("Normal run - starting fresh")
-            await websocket_manager.send_progress_update("GitHub", 15.0, "Starting repository discovery...")
+            await websocket_manager.send_step_progress_update("GitHub", 0, TOTAL_STEPS, 0.0, "Starting repository discovery...")
+
+        # Step 2: Repository Processing (33% → 67%)
+        await websocket_manager.send_step_progress_update("GitHub", 1, TOTAL_STEPS, 0.0, "Starting repository processing...")
 
         # Execute based on mode
         result = await execute_github_extraction_by_mode(
             session, github_integration, github_token, job_schedule, websocket_manager,
             execution_mode, target_repository, target_repositories,
-            update_sync_timestamp, update_job_schedule
+            update_sync_timestamp, update_job_schedule, total_steps=TOTAL_STEPS
         )
         
         if result['success']:
@@ -587,8 +593,8 @@ async def run_github_sync(
                 # Get final rate limit status
                 final_rate_limits = await get_github_rate_limits_internal(github_token)
 
-                # Send final progress update
-                await websocket_manager.send_progress_update("GitHub", 100.0, "GitHub sync completed successfully. Vectorization will be processed by dedicated job.")
+                # Step 3: Finalization (67% → 100%)
+                await websocket_manager.send_step_progress_update("GitHub", 2, TOTAL_STEPS, None, "GitHub sync completed successfully. Vectorization will be processed by dedicated job.")
 
                 # Small delay to ensure progress update is processed before completion notification
                 import asyncio
@@ -1217,11 +1223,10 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                     owner, repo_name = repository.full_name.split('/', 1)
                     logger.info(f"[REPO {repo_index}/{total_repos}] Starting PR processing for {owner}/{repo_name}")
 
-                    # Send repository-level progress update
-                    repo_progress = 10.0 + (repo_index - 1) / total_repos * 80.0  # 10% to 90%
-                    await websocket_manager.send_progress_update(
-                        "GitHub",
-                        repo_progress,
+                    # Send repository-level progress update (within step 2: 33% → 67%)
+                    step_progress = (repo_index - 1) / total_repos  # 0.0 to 1.0
+                    await websocket_manager.send_step_progress_update(
+                        "GitHub", 1, 3, step_progress,
                         f"Repository {repo_index}/{total_repos}: {owner}/{repo_name}"
                     )
 
@@ -1296,11 +1301,10 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
                     logger.info(f"[{owner}/{repo_name}] Repository completed successfully - {prs_in_repo} PRs processed")
                     logger.debug(f"Marked repository {repository.external_id} as finished in queue")
 
-                    # Send detailed progress update
-                    repo_progress = 10.0 + repo_index / total_repos * 80.0  # 10% to 90%
-                    await websocket_manager.send_progress_update(
-                        "GitHub",
-                        repo_progress,
+                    # Send detailed progress update (within step 2: 33% → 67%)
+                    step_progress = repo_index / total_repos  # 0.0 to 1.0
+                    await websocket_manager.send_step_progress_update(
+                        "GitHub", 1, 3, step_progress,
                         f"Completed {repo_index}/{total_repos} repositories ({total_prs_processed} PRs total)"
                     )
 

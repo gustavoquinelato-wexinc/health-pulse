@@ -625,25 +625,28 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         # Clear any previous progress and notify start
         websocket_manager.clear_job_progress("Jira")
 
-        # Step 1: Extract projects and issue types
+        # JIRA Job: 5 Equal Steps (20% each)
+        TOTAL_STEPS = 5
+
+        # Step 1: Extract projects and issue types (0% → 20%)
         logger.info("Step 1: Extracting projects and issue types...")
-        await websocket_manager.send_progress_update("Jira", 10.0, "Extracting projects and issue types...")
+        await websocket_manager.send_step_progress_update("Jira", 0, TOTAL_STEPS, None, "Extracting projects and issue types...")
         projects_result = await extract_projects_and_issuetypes(session, jira_client, integration, job_logger)
         if not projects_result.get('projects_processed', 0):
             logger.warning("No projects found or processed")
             await websocket_manager.send_exception("Jira", "WARNING", "No projects found or processed")
 
-        # Step 2: Extract projects and statuses
+        # Step 2: Extract projects and statuses (20% → 40%)
         logger.info("Step 2: Extracting projects and statuses...")
-        await websocket_manager.send_progress_update("Jira", 20.0, "Extracting projects and statuses...")
+        await websocket_manager.send_step_progress_update("Jira", 1, TOTAL_STEPS, None, "Extracting projects and statuses...")
         statuses_result = await extract_projects_and_statuses(session, jira_client, integration, job_logger)
         if not statuses_result.get('statuses_processed', 0):
             logger.warning("No statuses found or processed")
             await websocket_manager.send_exception("Jira", "WARNING", "No statuses found or processed")
 
-        # Step 3: Extract issues and changelogs
+        # Step 3: Extract issues and changelogs (40% → 60%)
         logger.info("Step 3: Extracting issues and changelogs...")
-        await websocket_manager.send_progress_update("Jira", 30.0, "Extracting issues and changelogs...")
+        await websocket_manager.send_step_progress_update("Jira", 2, TOTAL_STEPS, 0.0, "Starting issue and changelog extraction...")
 
         # Determine start date based on recovery vs incremental sync
         if job_schedule.has_recovery_checkpoints():
@@ -662,11 +665,9 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                 start_date = DateTimeHelper.now_default() - timedelta(days=7300)  # 20 years * 365 days
                 logger.info(f"First run: Using 20-year fallback = {start_date.strftime('%Y-%m-%d %H%M')}")
 
-        # Start the extraction with periodic progress updates
-        await websocket_manager.send_progress_update("Jira", 35.0, "Starting issue and changelog processing...")
-
         # Run the extraction (progress updates are handled within the extractors)
-        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager, job_schedule=job_schedule)
+        # Note: Jira fetching will show fixed 60% completion (step 3 end) since total count is unknown
+        issues_result = await extract_work_items_and_changelogs(session, jira_client, integration, job_logger, start_date=start_date, websocket_manager=websocket_manager, job_schedule=job_schedule, total_steps=TOTAL_STEPS)
 
         if not issues_result['success']:
             return {
@@ -676,21 +677,17 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
                 'pr_links_created': 0
             }
 
-        # Send progress update after issues and changelogs are processed
+        # Step 4: Process issues and changelogs (60% → 80%)
         issues_processed = issues_result.get('issues_processed', 0)
         changelogs_processed = issues_result.get('changelogs_processed', 0)
-        await websocket_manager.send_progress_update(
-            "Jira",
-            50.0,
+        await websocket_manager.send_step_progress_update(
+            "Jira", 3, TOTAL_STEPS, None,
             f"Completed processing {issues_processed:,} issues and {changelogs_processed:,} changelogs"
         )
 
-        # Step 3.5: WorkItems and changelogs completed
-        await websocket_manager.send_progress_update("Jira", 45.0, f"Processed {issues_result['issues_processed']} issues and {issues_result['changelogs_processed']} changelogs")
-
-        # Step 4: Extract dev_status and create PR links
-        logger.info("Step 4: Extracting dev_status data and creating PR links...")
-        await websocket_manager.send_progress_update("Jira", 50.0, "Extracting dev_status data and creating PR links...")
+        # Step 5: Extract dev_status and create PR links (80% → 100%)
+        logger.info("Step 5: Extracting dev_status data and creating PR links...")
+        await websocket_manager.send_step_progress_update("Jira", 4, TOTAL_STEPS, 0.0, "Extracting dev_status data and creating PR links...")
 
         # Get issues with code_changed = True from the current extraction ONLY
         # This is more efficient and logical - only process dev_status for newly extracted issues with code changes
@@ -700,8 +697,8 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             logger.info("No issues with code changes found in current extraction - skipping dev_status processing")
             await websocket_manager.send_progress_update("Jira", 90.0, "No dev_status processing needed - no code changes detected")
 
-            # Final completion
-            await websocket_manager.send_progress_update("Jira", 100.0, f"Extraction completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs")
+            # Final completion (100%)
+            await websocket_manager.send_step_progress_update("Jira", 4, TOTAL_STEPS, None, f"Extraction completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs")
             await websocket_manager.send_completion(
                 "Jira",
                 True,
@@ -821,13 +818,12 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
 
                 issues_processed += 1
 
-                # Update progress every 10 issues
+                # Update progress every 10 issues (within step 5: 80% → 100%)
                 if issues_processed % 10 == 0:
-                    progress = 50.0 + (issues_processed / total_issues) * 40.0  # 50% to 90%
+                    step_progress = (issues_processed / total_issues) if total_issues > 0 else 0
                     percentage = (issues_processed / total_issues) * 100 if total_issues > 0 else 0
-                    await websocket_manager.send_progress_update(
-                        "Jira",
-                        progress,
+                    await websocket_manager.send_step_progress_update(
+                        "Jira", 4, TOTAL_STEPS, step_progress,
                         f"Processing dev_status: {issues_processed:,} of {total_issues:,} issues ({percentage:.1f}%)"
                     )
                     logger.info(f"Processed dev_status for {issues_processed}/{total_issues} issues")
@@ -920,8 +916,8 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
         ).count()
         logger.info(f"Final verification: {total_pr_links_in_db} total PR links in database for client {integration.tenant_id}")
 
-        # Step 5: All processing completed - send final progress update
-        await websocket_manager.send_progress_update("Jira", 100.0, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created. Vectorization will be processed by dedicated job.")
+        # Step 5: All processing completed - send final progress update (100%)
+        await websocket_manager.send_step_progress_update("Jira", 4, TOTAL_STEPS, None, f"[COMPLETE] Completed: {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links created. Vectorization will be processed by dedicated job.")
 
         # Small delay to ensure progress update is processed before completion notification
         import asyncio

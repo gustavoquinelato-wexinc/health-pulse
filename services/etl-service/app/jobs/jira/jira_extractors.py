@@ -835,7 +835,7 @@ async def extract_projects_and_statuses(session: Session, jira_client: JiraAPICl
         return {'statuses_processed': 0, 'relationships_processed': 0}
 
 
-async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None, job_schedule=None) -> Dict[str, Any]:
+async def extract_work_items_and_changelogs(session: Session, jira_client: JiraAPIClient, integration: Integration, job_logger, start_date=None, websocket_manager=None, update_sync_timestamp: bool = True, issues_data=None, job_schedule=None, total_steps=5) -> Dict[str, Any]:
     """Extract and process Jira work items and their changelogs together using bulk operations with batching for performance.
 
     Returns:
@@ -957,15 +957,14 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             def progress_callback(message):
                 job_logger.progress(f"[FETCHED] {message}")
 
-                # Send WebSocket update for fetching progress (no percentage needed)
+                # Send WebSocket update for fetching progress (step 3: fixed at 60% completion)
                 if websocket_manager and main_loop:
                     try:
                         # Schedule the coroutine to run in the main event loop from this thread
+                        # Step 3 (index 2) with fixed completion since total count unknown
                         future = asyncio.run_coroutine_threadsafe(
-                            websocket_manager.send_progress_update(
-                                "Jira",
-                                None,  # No percentage during fetching
-                                f"[FETCHED] {message}"
+                            websocket_manager.send_step_progress_update(
+                                "Jira", 2, total_steps, None, f"[FETCHED] {message}"
                             ),
                             main_loop
                         )
