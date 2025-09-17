@@ -500,19 +500,30 @@
         display: inline-block;
     }
 
-    .job-duration {
-        color: var(--text-secondary);
-        font-size: 12px;
-        margin-right: 16px;
-        min-width: 60px;
-        text-align: right;
-        flex-shrink: 0;
-    }
+
 
     .job-actions {
         display: flex;
         gap: 8px;
         flex-shrink: 0;
+        margin-right: 16px;
+    }
+
+    /* Individual button containers for precise ordering */
+    .job-duration,
+    .job-error-alert,
+    .job-force-pending,
+    .job-pause-resume,
+    .job-details {
+        flex-shrink: 0;
+        margin-right: 8px;
+    }
+
+    .job-duration {
+        color: var(--text-secondary);
+        font-size: 12px;
+        min-width: 60px;
+        text-align: right;
         margin-right: 16px;
     }
 
@@ -731,7 +742,7 @@
         background: #ccc;
         border-radius: 20px;
         transition: background 0.3s ease;
-        margin-left: 6px;
+        margin-right: 6px;
     }
 
     .toggle-switch.active {
@@ -1601,27 +1612,42 @@
                 ${jobDates ? `<div class="job-dates">${jobDates}</div>` : ''}
             </div>
 
-            <!-- Duration (only show if not empty) -->
+            <!-- 7) Duration (leftmost of right-side elements) -->
             ${duration ? `<div class="job-duration">${duration}</div>` : '<div class="job-duration"></div>'}
 
-            <!-- Action Buttons (right to left order) -->
-            <div class="job-actions">
-                ${createJobActionButtons(jobName, jobData, isInactive)}
+            <!-- 6) Error/Alert Button -->
+            <div class="job-error-alert">
+                ${createErrorAlertButton(jobName, jobData)}
             </div>
 
-            <!-- Job Status (center aligned) -->
+            <!-- 5) Force Pending Button -->
+            <div class="job-force-pending">
+                ${createForcePendingButton(jobName, jobData, isInactive)}
+            </div>
+
+            <!-- 4) Pause/Resume Button -->
+            <div class="job-pause-resume">
+                ${createPauseResumeButton(jobName, jobData, isInactive)}
+            </div>
+
+            <!-- 3) Details Button -->
+            <div class="job-details">
+                ${createDetailsButton(jobName)}
+            </div>
+
+            <!-- 2) Job Status (center aligned) -->
             <div class="job-status ${statusClass}">
                 <i class="fas fa-${statusIcon} mr-1"></i>
                 ${status}
             </div>
 
-            <!-- Toggle Switch -->
+            <!-- 1) Toggle Switch (rightmost) -->
             <div class="job-toggle-container">
                 <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
-                    <span class="toggle-label">${isInactive ? 'Off' : 'On'}</span>
                     <div class="toggle-switch ${isInactive ? '' : 'active'}">
                         <div class="toggle-slider"></div>
                     </div>
+                    <span class="toggle-label">${isInactive ? 'Off' : 'On'}</span>
                 </div>
             </div>
 
@@ -1689,6 +1715,60 @@
         }
 
         return buttons;
+    }
+
+    function createDetailsButton(jobName) {
+        return `
+            <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                <i data-lucide="info" class="w-4 h-4"></i>
+            </button>`;
+    }
+
+    function createPauseResumeButton(jobName, jobData, isInactive) {
+        if (isInactive) return '';
+
+        const status = jobData.status || 'UNKNOWN';
+
+        if (status === 'RUNNING') {
+            return `
+                <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
+                    <i data-lucide="pause" class="w-4 h-4"></i>
+                </button>`;
+        } else if (status === 'PAUSED') {
+            return `
+                <button class="job-action-btn" onclick="resumeJob('${jobName}', ${jobData.id})" title="Resume Job">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                </button>`;
+        }
+
+        return '';
+    }
+
+    function createForcePendingButton(jobName, jobData, isInactive) {
+        if (isInactive) return '';
+
+        return `
+            <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+                <i data-lucide="clock" class="w-4 h-4"></i>
+            </button>`;
+    }
+
+    function createErrorAlertButton(jobName, jobData) {
+        const hasErrors = jobData.retry_count > 0 || jobData.status === 'ERROR';
+        const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+        const hasIssues = hasErrors || hasAlerts;
+
+        if (!hasIssues) return '';
+
+        const iconType = hasErrors ? 'alert-circle' : 'alert-triangle';
+        const buttonClass = hasErrors ? 'error-btn' : 'alert-btn';
+        const title = hasErrors ? 'View Errors' : 'View Alerts';
+        const clickHandler = hasErrors ? 'showJobErrors' : 'showJobAlerts';
+
+        return `
+            <button class="job-action-btn ${buttonClass}" onclick="${clickHandler}('${jobName}')" title="${title}">
+                <i data-lucide="${iconType}" class="w-4 h-4"></i>
+            </button>`;
     }
 
     function formatDuration(startTime, endTime, status) {
