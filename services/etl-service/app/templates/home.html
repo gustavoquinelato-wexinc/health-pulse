@@ -1321,6 +1321,15 @@
     }
 
     function updateJobProgress(jobName, percentage, step) {
+        // Ensure jobProgress is initialized for this job
+        if (!jobProgress[jobName]) {
+            jobProgress[jobName] = {
+                exceptions: [],
+                percentage: 0,
+                step: 'Ready'
+            };
+        }
+
         jobProgress[jobName].percentage = percentage;
         jobProgress[jobName].step = step;
 
@@ -1331,6 +1340,15 @@
     }
 
     function addJobException(jobName, level, message, timestamp) {
+        // Ensure jobProgress is initialized for this job
+        if (!jobProgress[jobName]) {
+            jobProgress[jobName] = {
+                exceptions: [],
+                percentage: 0,
+                step: 'Ready'
+            };
+        }
+
         const exception = {
             level: level,
             message: message,
@@ -1359,6 +1377,13 @@
         const jobCard = document.querySelector(`[data-job="${jobName}"]`);
         if (jobCard) {
             updateJobCardExceptions(jobCard, []);
+
+            // Also clear error messages from the UI immediately
+            const errorMessageElement = jobCard.querySelector('.error-message');
+            if (errorMessageElement) {
+                errorMessageElement.innerHTML = '';
+                errorMessageElement.style.display = 'none';
+            }
         }
 
         // Also clear recovery information and error messages from the UI immediately
@@ -1396,6 +1421,16 @@
         const jobCard = document.querySelector(`[data-job="${jobName}"]`);
         if (jobCard) {
             updateJobCardStatus(jobCard, status);
+
+            // If job is starting to run, ensure progress bar is visible
+            if (status === 'RUNNING') {
+                const progressBar = jobCard.querySelector('.job-progress');
+                if (progressBar) {
+                    progressBar.classList.add('visible');
+                    // Initialize with 0% progress
+                    progressBar.style.width = '0%';
+                }
+            }
         }
     }
 
