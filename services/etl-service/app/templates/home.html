@@ -1732,6 +1732,7 @@
                 </button>`;
         }
 
+        // For active jobs, always show pause/resume button based on current state
         if (status === 'RUNNING') {
             return `
                 <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
@@ -1743,9 +1744,12 @@
                     <i data-lucide="play" class="w-4 h-4"></i>
                 </button>`;
         } else {
-            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), don't show pause/resume button
-            // Users can use Force Pending button to start jobs
-            return '';
+            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), show pause button
+            // User can pause to prevent job from running when it becomes pending
+            return `
+                <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
+                    <i data-lucide="pause" class="w-4 h-4"></i>
+                </button>`;
         }
     }
 
