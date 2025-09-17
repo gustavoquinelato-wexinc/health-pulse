@@ -478,19 +478,8 @@
     .job-name {
         font-weight: 600;
         color: var(--text-primary);
-        margin-right: auto;
         flex-grow: 1;
-    }
-
-    .job-status {
-        display: flex;
-        align-items: center;
         margin-right: 16px;
-        font-size: 14px;
-        font-weight: 500;
-        min-width: 120px;
-        width: 120px;
-        justify-content: flex-start;
     }
 
     .job-duration {
@@ -499,11 +488,24 @@
         margin-right: 16px;
         min-width: 60px;
         text-align: right;
+        flex-shrink: 0;
     }
 
     .job-actions {
         display: flex;
         gap: 8px;
+        flex-shrink: 0;
+        margin-right: 16px;
+    }
+
+    .job-status {
+        display: flex;
+        align-items: center;
+        font-size: 14px;
+        font-weight: 500;
+        min-width: 120px;
+        width: 120px;
+        justify-content: flex-start;
         flex-shrink: 0;
     }
 
@@ -1524,18 +1526,18 @@
             <!-- Job Name -->
             <div class="job-name">${jobTitle}</div>
 
-            <!-- Job Status -->
+            <!-- Duration (only show if not empty) -->
+            ${duration ? `<div class="job-duration">${duration}</div>` : '<div class="job-duration"></div>'}
+
+            <!-- Action Buttons (right to left order) -->
+            <div class="job-actions">
+                ${createJobActionButtons(jobName, jobData, isInactive)}
+            </div>
+
+            <!-- Job Status (rightmost) -->
             <div class="job-status ${statusClass}">
                 <i class="fas fa-${statusIcon} mr-1"></i>
                 ${status}
-            </div>
-
-            <!-- Duration -->
-            <div class="job-duration">${duration}</div>
-
-            <!-- Action Buttons -->
-            <div class="job-actions">
-                ${createJobActionButtons(jobName, jobData, isInactive)}
             </div>
 
             <!-- Progress Bar (hidden by default) -->
@@ -1548,62 +1550,55 @@
         const status = jobData.status || 'UNKNOWN';
         let buttons = '';
 
+        // Determine if there are issues (single icon for errors OR alerts)
+        const hasErrors = jobData.retry_count > 0 || status === 'ERROR';
+        const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+        const hasIssues = hasErrors || hasAlerts;
+
         if (isInactive) {
-            // Inactive jobs get info button only
+            // Inactive jobs: only details button
             buttons = `
                 <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
                     <i data-lucide="info" class="w-4 h-4"></i>
                 </button>`;
         } else {
-            // Active jobs get all appropriate action buttons
+            // Order: details, pause/resume, force pending, alert/error (single icon)
+
+            // 1. Details button (always present)
+            buttons = `
+                <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
+                    <i data-lucide="info" class="w-4 h-4"></i>
+                </button>`;
+
+            // 2. Pause/Resume button (state-dependent)
             if (status === 'RUNNING') {
-                buttons = `
+                buttons += `
                     <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
                         <i data-lucide="pause" class="w-4 h-4"></i>
-                    </button>
-                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
-                        <i data-lucide="clock" class="w-4 h-4"></i>
-                    </button>
-                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="info" class="w-4 h-4"></i>
                     </button>`;
             } else if (status === 'PAUSED') {
-                buttons = `
+                buttons += `
                     <button class="job-action-btn" onclick="resumeJob('${jobName}', ${jobData.id})" title="Resume Job">
                         <i data-lucide="play" class="w-4 h-4"></i>
-                    </button>
-                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
-                        <i data-lucide="clock" class="w-4 h-4"></i>
-                    </button>
-                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="info" class="w-4 h-4"></i>
-                    </button>`;
-            } else {
-                // NOT_STARTED, PENDING, FINISHED, ERROR
-                buttons = `
-                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
-                        <i data-lucide="clock" class="w-4 h-4"></i>
-                    </button>
-                    <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="info" class="w-4 h-4"></i>
                     </button>`;
             }
 
-            // Add error/alert modal buttons if there are issues
-            const hasErrors = jobData.retry_count > 0 || status === 'ERROR';
-            const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+            // 3. Force Pending button (always present for active jobs)
+            buttons += `
+                <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+                    <i data-lucide="clock" class="w-4 h-4"></i>
+                </button>`;
 
-            if (hasErrors) {
-                buttons += `
-                    <button class="job-action-btn error-btn" onclick="showJobErrors('${jobName}')" title="View Errors">
-                        <i data-lucide="alert-circle" class="w-4 h-4"></i>
-                    </button>`;
-            }
+            // 4. Single Alert/Error button (if there are any issues)
+            if (hasIssues) {
+                const iconType = hasErrors ? 'alert-circle' : 'alert-triangle';
+                const buttonClass = hasErrors ? 'error-btn' : 'alert-btn';
+                const title = hasErrors ? 'View Errors' : 'View Alerts';
+                const clickHandler = hasErrors ? 'showJobErrors' : 'showJobAlerts';
 
-            if (hasAlerts) {
                 buttons += `
-                    <button class="job-action-btn alert-btn" onclick="showJobAlerts('${jobName}')" title="View Alerts">
-                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                    <button class="job-action-btn ${buttonClass}" onclick="${clickHandler}('${jobName}')" title="${title}">
+                        <i data-lucide="${iconType}" class="w-4 h-4"></i>
                     </button>`;
             }
         }
@@ -1637,7 +1632,7 @@
                 return `${minutes}m ago`;
             }
         }
-        return '--';
+        return ''; // Return empty string instead of '--'
     }
 
     function initializeDragAndDrop() {
