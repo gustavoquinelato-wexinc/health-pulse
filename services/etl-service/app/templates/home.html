@@ -511,6 +511,11 @@
     .job-details {
         flex-shrink: 0;
         margin-right: 8px;
+        width: 32px; /* Ensure consistent width */
+        height: 32px; /* Ensure consistent height */
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .job-status {
@@ -582,17 +587,18 @@
         bottom: 0;
         left: 0;
         right: 0;
-        height: 3px;
-        background: var(--primary-color);
+        height: 4px;
+        background: linear-gradient(90deg, var(--color-3), var(--color-4));
         border-radius: 0 0 8px 8px;
-        transition: width 0.3s ease;
+        transition: width 0.3s ease, opacity 0.3s ease;
         width: 0%;
         max-width: 100%;
-        display: none; /* Hidden by default */
+        display: block; /* Always visible */
+        opacity: 0; /* Hidden by opacity instead */
     }
 
     .job-progress.visible {
-        display: block;
+        opacity: 1; /* Show with opacity */
     }
 
     /* Drop zone indicator */
@@ -2819,8 +2825,8 @@
         if (progressBar) {
             progressBar.style.width = `${percentage}%`;
 
-            // Show progress bar when there's actual progress
-            if (percentage > 0) {
+            // Always show progress bar during job execution (even at 0%)
+            if (percentage >= 0) {
                 progressBar.classList.add('visible');
             } else {
                 progressBar.classList.remove('visible');
@@ -2828,7 +2834,7 @@
 
             // Update job status to show RUNNING without percentage
             const statusElement = jobRow.querySelector('.job-status');
-            if (statusElement && percentage > 0 && percentage < 100) {
+            if (statusElement && percentage >= 0 && percentage < 100) {
                 statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING`;
                 // Keep the proper status badge classes with background color
                 statusElement.className = 'job-status status-badge status-badge-running';
