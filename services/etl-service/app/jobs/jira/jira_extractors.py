@@ -949,15 +949,17 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             job_logger.progress(f"[USING_PREFETCHED] Using {len(all_issues)} pre-fetched issues")
         else:
             # Fetch issues from Jira API
+            # Capture the event loop before creating the thread pool
+            import asyncio
+            import concurrent.futures
+            main_loop = asyncio.get_event_loop()
+
             def progress_callback(message):
                 job_logger.progress(f"[FETCHED] {message}")
 
                 # Send WebSocket update for fetching progress (no percentage needed)
-                if websocket_manager:
+                if websocket_manager and main_loop:
                     try:
-                        import asyncio
-                        # Get the main event loop (the one running the async function)
-                        main_loop = asyncio.get_event_loop()
                         # Schedule the coroutine to run in the main event loop from this thread
                         future = asyncio.run_coroutine_threadsafe(
                             websocket_manager.send_progress_update(
@@ -976,9 +978,6 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                         job_logger.error(f"WebSocket traceback: {traceback.format_exc()}")
 
             # Run the blocking API call in a thread pool to avoid blocking the event loop
-            import asyncio
-            import concurrent.futures
-
             def get_issues_sync():
                 return jira_client.get_issues(jql=jql, max_results=100, progress_callback=progress_callback, db_session=session)
 
