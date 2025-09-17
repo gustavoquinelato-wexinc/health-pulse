@@ -1278,8 +1278,12 @@
     }
 
     function handleWebSocketMessage(jobName, data) {
+        // Debug logging for WebSocket messages
+        console.log(`[WS] ${jobName} message:`, data.type, data);
+
         switch (data.type) {
             case 'progress':
+                console.log(`[WS] ${jobName} progress: ${data.percentage}% - ${data.step}`);
                 updateJobProgress(jobName, data.percentage, data.step);
                 break;
             case 'exception':
