@@ -1618,8 +1618,12 @@
                         ${duration ? ` • Duration: ${duration}` : ''}
                     </span>
                     ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
-                    <span class="job-progress-message" style="display: none; color: var(--color-3); font-weight: 500; margin-left: auto;"></span>
                 </div>
+            </div>
+
+            <!-- Progress Message (left of Force Pending button) -->
+            <div class="job-progress-message-container" style="display: none; flex: 1; align-items: center; justify-content: flex-end; margin-right: 12px;">
+                <span class="job-progress-message" style="color: var(--color-3); font-weight: 500; font-size: 11px; white-space: nowrap;"></span>
             </div>
 
             <!-- 4) Force Pending Button -->
@@ -2844,18 +2848,19 @@
                 statusElement.className = 'job-status status-badge status-badge-running';
             }
 
-            // Update inline progress message
+            // Update progress message (positioned left of Force Pending button)
+            const progressMessageContainer = jobRow.querySelector('.job-progress-message-container');
             const progressMessageElement = jobRow.querySelector('.job-progress-message');
-            if (progressMessageElement && step && step.trim() !== '') {
+            if (progressMessageContainer && progressMessageElement && step && step.trim() !== '') {
                 // Show step with percentage if available, otherwise just step
                 if (percentage !== null && percentage !== undefined && percentage >= 0) {
-                    progressMessageElement.textContent = `• ${step} (${Math.round(percentage)}%)`;
+                    progressMessageElement.textContent = `${step} (${Math.round(percentage)}%)`;
                 } else {
-                    progressMessageElement.textContent = `• ${step}`;
+                    progressMessageElement.textContent = `${step}`;
                 }
-                progressMessageElement.style.display = 'inline';
-            } else if (progressMessageElement) {
-                progressMessageElement.style.display = 'none';
+                progressMessageContainer.style.display = 'flex';
+            } else if (progressMessageContainer) {
+                progressMessageContainer.style.display = 'none';
             }
 
             // Add tooltip with step information and percentage
