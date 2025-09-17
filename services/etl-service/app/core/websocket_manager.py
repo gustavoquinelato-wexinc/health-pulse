@@ -72,12 +72,12 @@ class WebSocketManager:
             except ValueError:
                 logger.warning("[WS] WebSocket not found in connections", job_name=job_name)
     
-    async def send_progress_update(self, job_name: str, percentage: float, step: str):
+    async def send_progress_update(self, job_name: str, percentage: Optional[float], step: str):
         """Send progress update to all connected clients for a job."""
         message = {
             "type": MessageType.PROGRESS.value,
             "job": job_name,
-            "percentage": round(percentage, 1),
+            "percentage": round(percentage, 1) if percentage is not None else None,
             "step": step,
             "timestamp": datetime.utcnow().isoformat()
         }

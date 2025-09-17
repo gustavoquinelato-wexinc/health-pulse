@@ -952,6 +952,21 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             def progress_callback(message):
                 job_logger.progress(f"[FETCHED] {message}")
 
+                # Send WebSocket update for fetching progress (no percentage needed)
+                if websocket_manager:
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # Send progress update without percentage for fetching phase
+                            asyncio.create_task(websocket_manager.send_progress_update(
+                                "Jira",
+                                None,  # No percentage during fetching
+                                f"[FETCHED] {message}"
+                            ))
+                    except Exception:
+                        pass  # Don't let WebSocket errors break the extraction
+
             # Run the blocking API call in a thread pool to avoid blocking the event loop
             import asyncio
             import concurrent.futures
