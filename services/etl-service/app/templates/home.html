@@ -1618,6 +1618,7 @@
                         ${duration ? ` • Duration: ${duration}` : ''}
                     </span>
                     ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
+                    <span class="job-progress-message" style="display: none; color: var(--color-3); font-weight: 500;"></span>
                 </div>
             </div>
 
@@ -2826,11 +2827,13 @@
             progressBar.style.width = `${percentage}%`;
 
             // Always show progress bar during job execution (even at 0%)
-            if (percentage >= 0) {
+            // Only hide if percentage is explicitly null/undefined or negative
+            if (percentage !== null && percentage !== undefined && percentage >= 0) {
                 progressBar.classList.add('visible');
-            } else {
+            } else if (percentage < 0) {
                 progressBar.classList.remove('visible');
             }
+            // Keep visible if percentage is 0 or positive
 
             // Update job status to show RUNNING without percentage
             const statusElement = jobRow.querySelector('.job-status');
@@ -2838,6 +2841,15 @@
                 statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING`;
                 // Keep the proper status badge classes with background color
                 statusElement.className = 'job-status status-badge status-badge-running';
+            }
+
+            // Update progress message in metadata area
+            const progressMessageElement = jobRow.querySelector('.job-progress-message');
+            if (progressMessageElement && step && percentage >= 0 && percentage < 100) {
+                progressMessageElement.textContent = `• ${step} (${Math.round(percentage)}%)`;
+                progressMessageElement.style.display = 'inline';
+            } else if (progressMessageElement) {
+                progressMessageElement.style.display = 'none';
             }
 
             // Add tooltip with step information and percentage
