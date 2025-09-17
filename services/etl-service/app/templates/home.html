@@ -2828,7 +2828,13 @@
         // For job rows, update the progress bar at the bottom
         const progressBar = jobRow.querySelector('.job-progress');
         if (progressBar) {
-            progressBar.style.width = `${percentage}%`;
+            // If we have a valid percentage, use it; otherwise use 100% for active fetching
+            let displayPercentage = percentage;
+            if ((percentage === null || percentage === undefined) && step && step.trim() !== '') {
+                displayPercentage = 100; // Show full progress bar during fetching when no percentage available
+            }
+
+            progressBar.style.width = `${displayPercentage}%`;
 
             // Show progress bar during job execution
             // Show if we have a valid percentage OR if we have a step message (even without percentage)
