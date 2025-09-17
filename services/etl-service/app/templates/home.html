@@ -260,7 +260,6 @@
     .status-finished { background-color: var(--status-success); color: white; }
     .status-paused { background-color: var(--color-4); color: white; }
     .status-not-started { background-color: var(--neutral-secondary); color: white; }
-    .status-error { background-color: var(--status-error); color: white; }
 
     /* Status Badge Classes for Job Pipeline */
     .status-badge {
@@ -282,7 +281,6 @@
     .status-badge-finished { background-color: var(--status-success); color: white; }
     .status-badge-paused { background-color: var(--color-4); color: white; }
     .status-badge-not-started { background-color: var(--neutral-secondary); color: white; }
-    .status-badge-error { background-color: var(--status-error); color: white; }
 
     /* Status Dot Classes */
     .status-dot-color-1 { background-color: var(--color-1); }
@@ -1744,7 +1742,7 @@
                     <i data-lucide="play" class="w-4 h-4"></i>
                 </button>`;
         } else {
-            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), show pause button
+            // For other states (NOT_STARTED, PENDING, FINISHED), show pause button
             // User can pause to prevent job from running when it becomes pending
             return `
                 <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
