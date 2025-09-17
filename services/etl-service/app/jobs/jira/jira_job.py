@@ -542,7 +542,8 @@ async def run_jira_sync(
                     'error': error_msg,
                     'checkpoint_saved': checkpoint is not None,
                     'issues_processed': result.get('issues_processed', 0),
-                    'changelogs_processed': result.get('changelogs_processed', 0)
+                    'changelogs_processed': result.get('changelogs_processed', 0),
+                    'message': f"Jira sync failed: {error_msg}"
                 }
             )
 
@@ -574,7 +575,8 @@ async def run_jira_sync(
                 'error': str(e),
                 'checkpoint_saved': False,
                 'issues_processed': 0,
-                'changelogs_processed': 0
+                'changelogs_processed': 0,
+                'message': f"Jira sync failed: {str(e)}"
             }
         )
 
@@ -930,7 +932,8 @@ async def extract_jira_issues_and_dev_status(session: Session, integration: Inte
             {
                 'issues_processed': issues_result['issues_processed'],
                 'changelogs_processed': issues_result['changelogs_processed'],
-                'pr_links_created': pr_links_created
+                'pr_links_created': pr_links_created,
+                'message': f"Successfully extracted {issues_result['issues_processed']} issues, {issues_result['changelogs_processed']} changelogs, {pr_links_created} PR links"
             }
         )
 

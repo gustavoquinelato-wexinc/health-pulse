@@ -609,7 +609,8 @@ async def run_github_sync(
                         'prs_processed': result['prs_processed'],
                         'pr_links_created': result.get('pr_links_created', 0),
                         'staging_cleared': True,
-                        'cycle_complete': True
+                        'cycle_complete': True,
+                        'message': f"Successfully processed {result['repos_processed']} repositories and {result['prs_processed']} PRs"
                     }
                 )
 
@@ -792,7 +793,8 @@ async def run_github_sync(
                     'error': error_msg,
                     'checkpoint_saved': True,
                     'repos_processed': result.get('repos_processed', 0),
-                    'prs_processed': result.get('prs_processed', 0)
+                    'prs_processed': result.get('prs_processed', 0),
+                    'message': f"GitHub sync failed: {error_msg}"
                 }
             )
 
