@@ -1743,11 +1743,9 @@
                     <i data-lucide="play" class="w-4 h-4"></i>
                 </button>`;
         } else {
-            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), show disabled play button
-            return `
-                <button class="job-action-btn disabled" title="Job not running - use Force Pending to start">
-                    <i data-lucide="play" class="w-4 h-4"></i>
-                </button>`;
+            // For other states (NOT_STARTED, PENDING, FINISHED, ERROR), don't show pause/resume button
+            // Users can use Force Pending button to start jobs
+            return '';
         }
     }
 
