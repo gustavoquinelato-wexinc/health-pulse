@@ -110,11 +110,6 @@ class WebSocketManager:
 
         # Send standard progress update
         await self.send_progress_update(job_name, overall_percentage, step_message)
-        
-        # Store latest progress for new connections
-        self.latest_progress[job_name] = message
-        
-        await self._broadcast_to_job(job_name, message)
     
     async def send_exception(self, job_name: str, level: str, message: str, error_details: Optional[str] = None):
         """Send exception/error message to all connected clients for a job."""
