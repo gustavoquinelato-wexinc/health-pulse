@@ -160,6 +160,9 @@
     </div>
 </div>
 
+<!-- Divider between Orchestrator and Jobs -->
+<div class="orchestrator-divider mb-6"></div>
+
 <!-- Vertical Job Pipeline -->
 <div id="jobPipeline" class="job-pipeline-vertical mb-8">
     <!-- Job rows will be dynamically inserted here -->
@@ -335,6 +338,26 @@
     }
 
     /* Vertical Pipeline Layout Styles */
+    .orchestrator-divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--border-color) 20%, var(--border-color) 80%, transparent);
+        margin: 24px 0;
+        position: relative;
+    }
+
+    .orchestrator-divider::before {
+        content: "JOBS PIPELINE";
+        position: absolute;
+        top: -8px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-primary);
+        padding: 0 16px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        letter-spacing: 1px;
+    }
 
     .job-pipeline-vertical {
         display: flex;
@@ -420,15 +443,39 @@
         margin-bottom: 2px;
     }
 
-    .job-dates {
+    .job-metadata {
         font-size: 11px;
         color: var(--text-secondary);
         line-height: 1.2;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .job-dates {
+        display: inline-block;
     }
 
     .job-date-item {
         margin-right: 12px;
         display: inline-block;
+    }
+
+    .job-duration-inline {
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .job-error-message {
+        font-weight: 600;
+    }
+
+    .error-text {
+        color: #ef4444;
+    }
+
+    .alert-text {
+        color: #f59e0b;
     }
 
 
@@ -441,21 +488,11 @@
     }
 
     /* Individual button containers for precise ordering */
-    .job-duration,
-    .job-error-alert,
     .job-force-pending,
     .job-pause-resume,
     .job-details {
         flex-shrink: 0;
         margin-right: 8px;
-    }
-
-    .job-duration {
-        color: var(--text-secondary);
-        font-size: 12px;
-        min-width: 60px;
-        text-align: right;
-        margin-right: 16px;
     }
 
     .job-status {
@@ -1521,8 +1558,9 @@
         const statusClass = getStatusClass(status, isInactive);
         const duration = formatDuration(jobData.last_run_started_at, jobData.last_success_at, status);
 
-        // Format job dates
+        // Format job dates and duration
         const jobDates = formatJobDates(jobData.last_run_started_at, jobData.last_success_at);
+        const errorMessage = getErrorMessage(jobData, status);
 
         row.innerHTML = `
             <!-- Drag Handle -->
@@ -1539,42 +1577,39 @@
                 }
             </div>
 
-            <!-- Job Name and Dates -->
+            <!-- Job Name, Dates, and Duration -->
             <div class="job-name-section">
                 <div class="job-name">${jobTitle}</div>
-                ${jobDates ? `<div class="job-dates">${jobDates}</div>` : ''}
+                <div class="job-metadata">
+                    ${jobDates ? `<span class="job-dates">${jobDates}</span>` : ''}
+                    ${duration && jobDates ? `<span class="job-duration-inline"> • ${duration}</span>` :
+                      duration ? `<span class="job-duration-inline">${duration}</span>` : ''}
+                    ${errorMessage ? `<span class="job-error-message"> • ${errorMessage}</span>` : ''}
+                </div>
             </div>
 
-            <!-- 7) Duration (leftmost of right-side elements) -->
-            ${duration ? `<div class="job-duration">${duration}</div>` : '<div class="job-duration"></div>'}
-
-            <!-- 6) Error/Alert Button -->
-            <div class="job-error-alert">
-                ${createErrorAlertButton(jobName, jobData)}
-            </div>
-
-            <!-- 5) Force Pending Button -->
+            <!-- 4) Force Pending Button -->
             <div class="job-force-pending">
                 ${createForcePendingButton(jobName, jobData, isInactive)}
             </div>
 
-            <!-- 4) Pause/Resume Button -->
+            <!-- 3) Pause/Resume Button -->
             <div class="job-pause-resume">
                 ${createPauseResumeButton(jobName, jobData, isInactive)}
             </div>
 
-            <!-- 3) Details Button -->
+            <!-- 2) Details Button -->
             <div class="job-details">
                 ${createDetailsButton(jobName)}
             </div>
 
-            <!-- 2) Job Status (center aligned) -->
+            <!-- 1) Job Status (center aligned) -->
             <div class="job-status ${statusClass}">
                 <i class="fas fa-${statusIcon} mr-1"></i>
                 ${status}
             </div>
 
-            <!-- 1) Toggle Switch (rightmost) -->
+            <!-- 0) Toggle Switch (rightmost) -->
             <div class="job-toggle-container">
                 <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
                     <div class="toggle-switch ${isInactive ? '' : 'active'}">
@@ -1699,23 +1734,7 @@
             </button>`;
     }
 
-    function createErrorAlertButton(jobName, jobData) {
-        const hasErrors = jobData.retry_count > 0 || jobData.status === 'ERROR';
-        const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
-        const hasIssues = hasErrors || hasAlerts;
 
-        if (!hasIssues) return '';
-
-        const iconType = hasErrors ? 'alert-circle' : 'alert-triangle';
-        const buttonClass = hasErrors ? 'error-btn' : 'alert-btn';
-        const title = hasErrors ? 'View Errors' : 'View Alerts';
-        const clickHandler = hasErrors ? 'showJobErrors' : 'showJobAlerts';
-
-        return `
-            <button class="job-action-btn ${buttonClass}" onclick="${clickHandler}('${jobName}')" title="${title}">
-                <i data-lucide="${iconType}" class="w-4 h-4"></i>
-            </button>`;
-    }
 
     function formatDuration(startTime, endTime, status) {
         if (status === 'RUNNING' && startTime) {
@@ -1772,6 +1791,19 @@
         }
 
         return dates.length > 0 ? dates.join('') : '';
+    }
+
+    function getErrorMessage(jobData, status) {
+        const hasErrors = jobData.retry_count > 0 || status === 'ERROR';
+        const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+
+        if (hasErrors) {
+            return '<span class="error-text">ERROR: check details</span>';
+        } else if (hasAlerts) {
+            return '<span class="alert-text">ALERT: check details</span>';
+        }
+
+        return '';
     }
 
     function initializeDragAndDrop() {
@@ -2758,14 +2790,14 @@
         if (progressBar) {
             progressBar.style.width = `${percentage}%`;
 
-            // Update job status to show progress
+            // Update job status to show RUNNING without percentage
             const statusElement = jobRow.querySelector('.job-status');
             if (statusElement && percentage > 0 && percentage < 100) {
-                statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING (${Math.round(percentage)}%)`;
+                statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING`;
                 statusElement.className = 'job-status text-blue-600';
             }
 
-            // Add tooltip with step information
+            // Add tooltip with step information and percentage
             jobRow.title = `${step} (${Math.round(percentage)}%)`;
         }
     }
