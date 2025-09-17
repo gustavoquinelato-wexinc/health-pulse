@@ -1007,21 +1007,4 @@ async def debug_jwt_info():
 
 
 if __name__ == "__main__":
-    # Configuration for direct execution - let uvicorn handle signals
-    try:
-        uvicorn.run(
-            "app.main:app",
-            host=settings.HOST,
-            port=settings.PORT,
-            reload=settings.DEBUG,
-            log_level=settings.LOG_LEVEL.lower()
-        )
-    except KeyboardInterrupt:
-        # This is expected during Ctrl+C - don't log it as an error
-        pass
-    except Exception as e:
-        print(f"[ERROR] Unexpected error during server execution: {e}")
-
-
-if __name__ == "__main__":
     run_server()

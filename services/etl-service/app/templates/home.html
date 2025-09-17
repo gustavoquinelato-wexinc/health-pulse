@@ -488,7 +488,9 @@
         margin-right: 16px;
         font-size: 14px;
         font-weight: 500;
-        min-width: 100px;
+        min-width: 120px;
+        width: 120px;
+        justify-content: flex-start;
     }
 
     .job-duration {
@@ -531,15 +533,42 @@
         cursor: not-allowed;
     }
 
+    .job-action-btn.error-btn {
+        background: rgba(239, 68, 68, 0.1);
+        border-color: rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+    }
+
+    .job-action-btn.error-btn:hover {
+        background: #ef4444;
+        color: white;
+        border-color: #ef4444;
+    }
+
+    .job-action-btn.alert-btn {
+        background: rgba(245, 158, 11, 0.1);
+        border-color: rgba(245, 158, 11, 0.3);
+        color: #f59e0b;
+    }
+
+    .job-action-btn.alert-btn:hover {
+        background: #f59e0b;
+        color: white;
+        border-color: #f59e0b;
+    }
+
     /* Progress bar for job rows */
     .job-progress {
         position: absolute;
         bottom: 0;
         left: 0;
+        right: 0;
         height: 3px;
         background: var(--primary-color);
         border-radius: 0 0 8px 8px;
         transition: width 0.3s ease;
+        width: 0%;
+        max-width: 100%;
     }
 
     /* Drop zone indicator */
@@ -554,6 +583,112 @@
 
     .drop-zone.active {
         opacity: 1;
+    }
+
+    /* Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: var(--bg-primary);
+        border-radius: 12px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-secondary);
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+
+    .modal-close:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .modal-body {
+        padding: 24px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        background: var(--bg-secondary);
+    }
+
+    .btn {
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid transparent;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-color: var(--border-color);
+    }
+
+    .btn-secondary:hover {
+        background: var(--bg-quaternary);
+        color: var(--text-primary);
     }
 
     /* Toggle Switch Styling */
@@ -1414,28 +1549,34 @@
         let buttons = '';
 
         if (isInactive) {
-            // Inactive jobs only get settings button
+            // Inactive jobs get info button only
             buttons = `
                 <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                    <i data-lucide="settings" class="w-4 h-4"></i>
+                    <i data-lucide="info" class="w-4 h-4"></i>
                 </button>`;
         } else {
-            // Active jobs get appropriate action buttons based on status
+            // Active jobs get all appropriate action buttons
             if (status === 'RUNNING') {
                 buttons = `
                     <button class="job-action-btn" onclick="pauseJob('${jobName}', ${jobData.id})" title="Pause Job">
                         <i data-lucide="pause" class="w-4 h-4"></i>
                     </button>
+                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+                        <i data-lucide="clock" class="w-4 h-4"></i>
+                    </button>
                     <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="settings" class="w-4 h-4"></i>
+                        <i data-lucide="info" class="w-4 h-4"></i>
                     </button>`;
             } else if (status === 'PAUSED') {
                 buttons = `
                     <button class="job-action-btn" onclick="resumeJob('${jobName}', ${jobData.id})" title="Resume Job">
                         <i data-lucide="play" class="w-4 h-4"></i>
                     </button>
+                    <button class="job-action-btn" onclick="forcePendingJob('${jobName}', ${jobData.id})" title="Force Pending">
+                        <i data-lucide="clock" class="w-4 h-4"></i>
+                    </button>
                     <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="settings" class="w-4 h-4"></i>
+                        <i data-lucide="info" class="w-4 h-4"></i>
                     </button>`;
             } else {
                 // NOT_STARTED, PENDING, FINISHED, ERROR
@@ -1444,7 +1585,25 @@
                         <i data-lucide="clock" class="w-4 h-4"></i>
                     </button>
                     <button class="job-action-btn" onclick="showJobDetails('${jobName}')" title="View Details">
-                        <i data-lucide="settings" class="w-4 h-4"></i>
+                        <i data-lucide="info" class="w-4 h-4"></i>
+                    </button>`;
+            }
+
+            // Add error/alert modal buttons if there are issues
+            const hasErrors = jobData.retry_count > 0 || status === 'ERROR';
+            const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+
+            if (hasErrors) {
+                buttons += `
+                    <button class="job-action-btn error-btn" onclick="showJobErrors('${jobName}')" title="View Errors">
+                        <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                    </button>`;
+            }
+
+            if (hasAlerts) {
+                buttons += `
+                    <button class="job-action-btn alert-btn" onclick="showJobAlerts('${jobName}')" title="View Alerts">
+                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
                     </button>`;
             }
         }
@@ -1649,6 +1808,140 @@
             }
             statusElement.textContent = statusText;
         }
+    }
+
+    function showJobErrors(jobName) {
+        // Show modal with job error details
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i data-lucide="alert-circle" class="w-5 h-5 mr-2 text-red-500"></i>Job Errors - ${jobName}</h3>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="jobErrorContent">Loading error details...</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                    <button class="btn btn-primary" onclick="retryJob('${jobName}')">Retry Job</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Load error details
+        loadJobErrorDetails(jobName);
+
+        // Initialize Lucide icons in modal
+        refreshLucideIcons();
+    }
+
+    function showJobAlerts(jobName) {
+        // Show modal with job alert details
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i data-lucide="alert-triangle" class="w-5 h-5 mr-2 text-yellow-500"></i>Job Alerts - ${jobName}</h3>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="jobAlertContent">Loading alert details...</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                    <button class="btn btn-primary" onclick="acknowledgeAlerts('${jobName}')">Acknowledge</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Load alert details
+        loadJobAlertDetails(jobName);
+
+        // Initialize Lucide icons in modal
+        refreshLucideIcons();
+    }
+
+    async function loadJobErrorDetails(jobName) {
+        try {
+            const response = await fetch(`/api/v1/jobs/${jobName}/errors`, {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const content = document.getElementById('jobErrorContent');
+                if (content) {
+                    content.innerHTML = formatErrorDetails(data.errors);
+                }
+            } else {
+                document.getElementById('jobErrorContent').innerHTML = 'Failed to load error details.';
+            }
+        } catch (error) {
+            console.error('Error loading job error details:', error);
+            document.getElementById('jobErrorContent').innerHTML = 'Error loading error details.';
+        }
+    }
+
+    async function loadJobAlertDetails(jobName) {
+        try {
+            const response = await fetch(`/api/v1/jobs/${jobName}/alerts`, {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const content = document.getElementById('jobAlertContent');
+                if (content) {
+                    content.innerHTML = formatAlertDetails(data.alerts);
+                }
+            } else {
+                document.getElementById('jobAlertContent').innerHTML = 'Failed to load alert details.';
+            }
+        } catch (error) {
+            console.error('Error loading job alert details:', error);
+            document.getElementById('jobAlertContent').innerHTML = 'Error loading alert details.';
+        }
+    }
+
+    function formatErrorDetails(errors) {
+        if (!errors || errors.length === 0) {
+            return '<p class="text-gray-500">No error details available.</p>';
+        }
+
+        return errors.map(error => `
+            <div class="error-item mb-4 p-3 bg-red-50 border border-red-200 rounded">
+                <div class="font-semibold text-red-800">${error.timestamp}</div>
+                <div class="text-red-700 mt-1">${error.message}</div>
+                ${error.details ? `<div class="text-sm text-red-600 mt-2">${error.details}</div>` : ''}
+            </div>
+        `).join('');
+    }
+
+    function formatAlertDetails(alerts) {
+        if (!alerts || alerts.length === 0) {
+            return '<p class="text-gray-500">No alert details available.</p>';
+        }
+
+        return alerts.map(alert => `
+            <div class="alert-item mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <div class="font-semibold text-yellow-800">${alert.timestamp}</div>
+                <div class="text-yellow-700 mt-1">${alert.message}</div>
+                ${alert.details ? `<div class="text-sm text-yellow-600 mt-2">${alert.details}</div>` : ''}
+            </div>
+        `).join('');
     }
 
     function createJobDetails(jobName, jobData) {
