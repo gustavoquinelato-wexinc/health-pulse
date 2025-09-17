@@ -262,6 +262,28 @@
     .status-not-started { background-color: var(--neutral-secondary); color: white; }
     .status-error { background-color: var(--status-error); color: white; }
 
+    /* Status Badge Classes for Job Pipeline */
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        text-align: center;
+        min-width: 120px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .status-badge-running { background-color: var(--crud-edit); color: white; }
+    .status-badge-pending { background-color: var(--color-1); color: white; }
+    .status-badge-finished { background-color: var(--neutral-tertiary); color: white; }
+    .status-badge-paused { background-color: var(--color-4); color: white; }
+    .status-badge-not-started { background-color: var(--neutral-secondary); color: white; }
+    .status-badge-error { background-color: var(--status-error); color: white; }
+
     /* Status Dot Classes */
     .status-dot-color-1 { background-color: var(--color-1); }
 
@@ -568,6 +590,11 @@
         transition: width 0.3s ease;
         width: 0%;
         max-width: 100%;
+        display: none; /* Hidden by default */
+    }
+
+    .job-progress.visible {
+        display: block;
     }
 
     /* Drop zone indicator */
@@ -1622,7 +1649,7 @@
             </div>
 
             <!-- Progress Bar (hidden by default) -->
-            <div class="job-progress" style="width: 0%"></div>`;
+            <div class="job-progress"></div>`;
 
         return row;
     }
@@ -2792,11 +2819,19 @@
         if (progressBar) {
             progressBar.style.width = `${percentage}%`;
 
+            // Show progress bar when there's actual progress
+            if (percentage > 0) {
+                progressBar.classList.add('visible');
+            } else {
+                progressBar.classList.remove('visible');
+            }
+
             // Update job status to show RUNNING without percentage
             const statusElement = jobRow.querySelector('.job-status');
             if (statusElement && percentage > 0 && percentage < 100) {
                 statusElement.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>RUNNING`;
-                statusElement.className = 'job-status text-blue-600';
+                // Keep the proper status badge classes with background color
+                statusElement.className = 'job-status status-badge status-badge-running';
             }
 
             // Add tooltip with step information and percentage
