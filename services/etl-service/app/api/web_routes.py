@@ -1526,7 +1526,7 @@ async def qdrant_database_page(request: Request):
         logger.info(f"Template context keys: {list(context.keys())}")
         logger.info(f"User role check: user.role='{user.get('role')}', is_admin={user.get('is_admin')}")
 
-        return templates.TemplateResponse("qdrant_analysis.html", context)
+        return templates.TemplateResponse("qdrant_database.html", context)
 
     except Exception as e:
         import traceback
