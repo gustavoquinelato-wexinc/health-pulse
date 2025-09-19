@@ -263,8 +263,8 @@ def rollback_to_migration(connection, target_migration):
     # Find migrations to rollback (in reverse order)
     migrations_to_rollback = []
 
-    # Special case: rollback to "000" means rollback everything
-    if target_migration == "000":
+    # Special case: rollback to any number of zeros (0, 00, 000, 0000) means rollback everything
+    if target_migration.strip('0') == '':
         for migration in reversed(available_migrations):
             if migration['number'] in [m['migration_number'] for m in applied_migrations]:
                 migrations_to_rollback.append(migration)
@@ -284,6 +284,19 @@ def rollback_to_migration(connection, target_migration):
         rollback_migration(connection, migration)
 
     print(f"✅ Rolled back {len(migrations_to_rollback)} migration(s) successfully!")
+
+    # Special case: if rolling back to zeros (complete reset), also clean up Qdrant
+    if target_migration.strip('0') == '' and migrations_to_rollback:
+        print(f"\n🧹 Complete reset (rollback to {target_migration}) detected - cleaning up Qdrant collections...")
+        try:
+            success = cleanup_qdrant_collections(confirm_flag=True)  # Auto-confirm for rollback
+            if success:
+                print("✅ Qdrant cleanup completed successfully!")
+            else:
+                print("⚠️  Qdrant cleanup had some issues, but database rollback was successful")
+        except Exception as e:
+            print(f"⚠️  Failed to cleanup Qdrant (database rollback was successful): {e}")
+            print("💡 You can manually run: python migration_runner.py --qdrant-cleanup --confirm")
 
 def get_next_migration_number():
     """Get the next migration number by finding the highest existing number."""
@@ -473,16 +486,113 @@ if __name__ == "__main__":
     print(f"Location: {filepath}")
     print(f"Edit the file to add your migration logic")
 
+def cleanup_qdrant_collections(confirm_flag=False):
+    """Clean up all Qdrant collections."""
+    try:
+        import asyncio
+        import aiohttp
+
+        async def perform_cleanup():
+            qdrant_url = os.getenv('QDRANT_URL', 'http://localhost:6333')
+
+            print(f"🔍 Connecting to Qdrant at {qdrant_url}...")
+
+            async with aiohttp.ClientSession() as session:
+                # Test connection
+                try:
+                    async with session.get(f"{qdrant_url}/", timeout=5) as response:
+                        if response.status != 200:
+                            print(f"❌ Qdrant connection failed: {response.status}")
+                            return False
+                        data = await response.json()
+                        if 'title' in data and 'qdrant' in data['title'].lower():
+                            print(f"✅ Connected to Qdrant v{data.get('version', 'unknown')}")
+                        else:
+                            print("✅ Connected to Qdrant")
+                except Exception as e:
+                    print(f"❌ Cannot connect to Qdrant: {e}")
+                    return False
+
+                # Get all collections
+                try:
+                    async with session.get(f"{qdrant_url}/collections") as response:
+                        if response.status != 200:
+                            print(f"❌ Failed to get collections: {response.status}")
+                            return False
+
+                        data = await response.json()
+                        collections = data.get('result', {}).get('collections', [])
+
+                        if not collections:
+                            print("📭 No collections found in Qdrant")
+                            return True
+
+                        print(f"📋 Found {len(collections)} collections:")
+                        for collection in collections:
+                            print(f"  • {collection['name']}")
+
+                        # Confirmation
+                        if not confirm_flag:
+                            print(f"\n⚠️  This will permanently delete ALL {len(collections)} Qdrant collections!")
+                            response = input("Type 'DELETE ALL' to confirm: ")
+                            if response != "DELETE ALL":
+                                print("❌ Cancelled")
+                                return False
+
+                        # Delete collections
+                        deleted_count = 0
+                        failed_count = 0
+
+                        for collection in collections:
+                            collection_name = collection['name']
+                            try:
+                                async with session.delete(f"{qdrant_url}/collections/{collection_name}") as delete_response:
+                                    if delete_response.status in [200, 404]:  # 404 means already deleted
+                                        print(f"✅ Deleted: {collection_name}")
+                                        deleted_count += 1
+                                    else:
+                                        print(f"❌ Failed to delete {collection_name}: {delete_response.status}")
+                                        failed_count += 1
+                            except Exception as e:
+                                print(f"❌ Error deleting {collection_name}: {e}")
+                                failed_count += 1
+
+                        print(f"\n🎉 Cleanup completed!")
+                        print(f"✅ Deleted: {deleted_count} collections")
+                        if failed_count > 0:
+                            print(f"❌ Failed: {failed_count} collections")
+
+                        return failed_count == 0
+
+                except Exception as e:
+                    print(f"❌ Error during cleanup: {e}")
+                    return False
+
+        # Run the async cleanup
+        return asyncio.run(perform_cleanup())
+
+    except ImportError as e:
+        if 'aiohttp' in str(e):
+            print("❌ aiohttp is required for Qdrant cleanup. Install with: pip install aiohttp")
+        else:
+            print(f"❌ Missing dependency for Qdrant cleanup: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error in Qdrant cleanup: {e}")
+        return False
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pulse Platform Migration Runner")
     parser.add_argument("--status", action="store_true", help="Show migration status")
     parser.add_argument("--apply-all", action="store_true", help="Apply all pending migrations")
-    parser.add_argument("--rollback-to", metavar="MIGRATION", help="Rollback to specific migration (e.g., 001)")
+    parser.add_argument("--rollback-to", metavar="MIGRATION", help="Rollback to specific migration (e.g., 001). Use any zeros (0, 00, 000, 0000) for complete reset (includes Qdrant cleanup)")
     parser.add_argument("--new", type=str, metavar="NAME", help="Create new migration with given name")
+    parser.add_argument("--qdrant-cleanup", action="store_true", help="Clean up all Qdrant collections (DANGEROUS)")
+    parser.add_argument("--confirm", action="store_true", help="Skip confirmation prompts for dangerous operations")
 
     args = parser.parse_args()
 
-    if not any([args.status, args.apply_all, args.rollback_to, args.new]):
+    if not any([args.status, args.apply_all, args.rollback_to, args.new, args.qdrant_cleanup]):
         parser.print_help()
         sys.exit(1)
 
@@ -493,6 +603,15 @@ if __name__ == "__main__":
             sys.exit(0)
         except Exception as e:
             print(f"❌ Failed to create migration: {e}")
+            sys.exit(1)
+
+    # Handle --qdrant-cleanup command (doesn't need database connection)
+    if args.qdrant_cleanup:
+        try:
+            success = cleanup_qdrant_collections(args.confirm)
+            sys.exit(0 if success else 1)
+        except Exception as e:
+            print(f"❌ Failed to cleanup Qdrant: {e}")
             sys.exit(1)
 
     # Other commands need database connection

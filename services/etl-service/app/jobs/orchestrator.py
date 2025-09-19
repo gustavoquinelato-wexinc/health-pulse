@@ -12,7 +12,7 @@ The orchestrator runs on a schedule and:
 4. Exits (passive job manages its own completion)
 
 Job Status Flow:
-- NOT_STARTED: Job has never run (ignored by orchestrator)
+- READY: Job has never run (ignored by orchestrator)
 - PENDING: Job is ready to run (picked up by orchestrator)
 - RUNNING: Job is currently executing (locked)
 - FINISHED: Job completed successfully
@@ -30,6 +30,94 @@ from fastapi import BackgroundTasks
 import asyncio
 
 logger = get_logger(__name__)
+
+# Simple token storage for job execution context
+_job_auth_tokens = {}
+
+def _set_job_auth_token(tenant_id: int, token: str):
+    """Store auth token for job execution"""
+    _job_auth_tokens[tenant_id] = token
+
+def _get_job_auth_token(tenant_id: int) -> str:
+    """Get auth token for job execution"""
+    # First try to get user token (for manual jobs)
+    user_token = _job_auth_tokens.get(tenant_id)
+    if user_token:
+        return user_token
+
+    # For automated jobs, get system token
+    return _get_system_token(tenant_id)
+
+def _clear_job_auth_token(tenant_id: int):
+    """Clear auth token after job execution"""
+    _job_auth_tokens.pop(tenant_id, None)
+
+
+# System token cache for automated jobs
+_system_tokens = {}
+
+def _get_system_token(tenant_id: int) -> str:
+    """Get system token for automated ETL jobs"""
+    # Check if we have a cached system token
+    if tenant_id in _system_tokens:
+        return _system_tokens[tenant_id]
+
+    # Create system token for this tenant
+    try:
+        token = _create_system_token_sync(tenant_id)
+        if token:
+            _system_tokens[tenant_id] = token
+            logger.info(f"System token created for tenant {tenant_id}")
+        return token
+    except Exception as e:
+        logger.error(f"Failed to get system token for tenant {tenant_id}: {e}")
+        return None
+
+
+def _create_system_token_sync(tenant_id: int) -> str:
+    """Create system token synchronously using the system admin user"""
+    try:
+        import requests
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        backend_url = settings.BACKEND_SERVICE_URL
+
+        # Use the system admin user from environment variables
+        system_email = settings.SYSTEM_USER_EMAIL
+        system_password = settings.SYSTEM_USER_PASSWORD
+
+        # Login to get token using system endpoint
+        response = requests.post(
+            f"{backend_url}/auth/system/login",
+            json={
+                "email": system_email,
+                "password": system_password
+            },
+            timeout=10.0
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            token = data.get("token")  # Backend service returns "token" not "access_token"
+            if token:
+                logger.info(f"System token created successfully for tenant {tenant_id}")
+                return token
+            else:
+                logger.error(f"No token in login response for tenant {tenant_id}: {data}")
+        else:
+            logger.error(f"System user login failed for tenant {tenant_id}: {response.status_code} - {response.text}")
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to create system token for tenant {tenant_id}: {e}")
+        return None
+
+
+def _clear_system_token(tenant_id: int):
+    """Clear cached system token (e.g., when it expires)"""
+    _system_tokens.pop(tenant_id, None)
 
 
 def find_next_ready_job(session: Session, tenant_id: int, current_order: int) -> JobSchedule:
@@ -91,11 +179,18 @@ def check_integration_active(job_schedule_id: int) -> dict:
                 }
 
             # Get the associated integration
+            # Special case: Vectorization job doesn't need an integration
             if not job_schedule.integration_id:
-                return {
-                    'active': False,
-                    'message': f'Job {job_schedule.job_name} has no associated integration'
-                }
+                if job_schedule.job_name.lower() == 'vectorization':
+                    return {
+                        'active': True,
+                        'message': f'Vectorization job does not require an integration'
+                    }
+                else:
+                    return {
+                        'active': False,
+                        'message': f'Job {job_schedule.job_name} has no associated integration'
+                    }
 
             integration = session.query(Integration).filter(
                 Integration.id == job_schedule.integration_id
@@ -178,16 +273,17 @@ def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: st
 
 
 
-async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id=None):
+async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id=None, user_token=None):
     """
     Trigger a Jira sync job via the orchestration system for a specific client.
 
     Args:
         force_manual: If True, forces correct job states for manual execution
-                     (jira_sync=PENDING, github_sync=NOT_STARTED).
+                     (jira_sync=PENDING, github_sync=READY).
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
         tenant_id: Tenant ID to trigger job for (required for client isolation)
+        user_token: User authentication token for AI operations
 
     Returns:
         Dict containing job execution results
@@ -236,10 +332,10 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
             if force_manual:
                 # Force correct job states for manual Jira execution:
                 # - jira_sync = PENDING (ready to run)
-                # - github_sync = NOT_STARTED (will be set to PENDING when Jira finishes)
+                # - github_sync = READY (will be set to PENDING when Jira finishes)
                 jira_job.status = 'PENDING'
                 jira_job.error_message = None
-                github_job.status = 'NOT_STARTED'
+                github_job.status = 'READY'
                 github_job.error_message = None
                 session.commit()
 
@@ -250,7 +346,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
 
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - MANUAL MODE - forced job states")
                 logger.info(f"   - jira_sync: PENDING")
-                logger.info(f"   - github_sync: NOT_STARTED")
+                logger.info(f"   - github_sync: READY")
             else:
                 # Normal mode: just set jira_sync to PENDING (for API/regular triggers)
                 jira_job.status = 'PENDING'
@@ -258,6 +354,11 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
                 session.commit()
 
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - NORMAL MODE")
+
+            # Store user token for job execution (if provided)
+            if user_token:
+                # Store token in a simple global context for this job execution
+                _set_job_auth_token(tenant_id, user_token)
 
             # Trigger the orchestrator to process the job for this client only (non-blocking)
             asyncio.create_task(run_orchestrator_for_client(tenant_id))
@@ -280,7 +381,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
         }
 
 
-async def trigger_github_sync(force_manual=False, execution_params=None, tenant_id=None):
+async def trigger_github_sync(force_manual=False, execution_params=None, tenant_id=None, user_token=None):
     """
     Trigger a GitHub sync job via the orchestration system for a specific client.
 
@@ -290,6 +391,7 @@ async def trigger_github_sync(force_manual=False, execution_params=None, tenant_
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
         tenant_id: Tenant ID to trigger job for (required for client isolation)
+        user_token: User authentication token for AI operations
 
     Returns:
         Dict containing job execution results
@@ -361,6 +463,11 @@ async def trigger_github_sync(force_manual=False, execution_params=None, tenant_
 
                 logger.info(f"TRIGGERED: github_sync job (ID: {github_job.id}) - NORMAL MODE")
 
+            # Store user token for job execution (if provided)
+            if user_token:
+                # Store token in a simple global context for this job execution
+                _set_job_auth_token(tenant_id, user_token)
+
             # Trigger the orchestrator to process the job for this client only (non-blocking)
             asyncio.create_task(run_orchestrator_for_client(tenant_id))
 
@@ -406,17 +513,17 @@ async def run_orchestrator():
             logger.info(f"Processing jobs for {len(tenants)} active tenants")
 
         # Process each client's jobs independently based on their individual settings
-        for client in clients:
+        for tenant in tenants:
             try:
                 # SECURITY: Check if this client's orchestrator should run based on their settings
-                should_run = await should_run_orchestrator_for_client(client.id)
+                should_run = await should_run_orchestrator_for_client(tenant.id)
                 if should_run:
-                    logger.info(f"Processing jobs for client: {client.name} (ID: {client.id}) - interval elapsed")
-                    await run_orchestrator_for_client(client.id)
+                    logger.info(f"Processing jobs for client: {tenant.name} (ID: {tenant.id}) - interval elapsed")
+                    await run_orchestrator_for_client(tenant.id)
                 else:
-                    logger.debug(f"Skipping client {client.name} (ID: {client.id}) - interval not elapsed or disabled")
+                    logger.debug(f"Skipping client {tenant.name} (ID: {tenant.id}) - interval not elapsed or disabled")
             except Exception as e:
-                logger.error(f"Error processing jobs for client {client.name}: {e}")
+                logger.error(f"Error processing jobs for client {tenant.name}: {e}")
                 continue
 
     except Exception as e:
@@ -496,7 +603,7 @@ async def run_orchestrator_for_client(tenant_id: int):
         pending_job_name = None
 
         with database.get_session() as session:
-            # SECURITY: Find first pending job by execution_order filtered by tenant_id
+            # SECURITY: First look for PENDING jobs by execution_order filtered by tenant_id
             result = session.query(
                 JobSchedule.id,
                 JobSchedule.job_name
@@ -506,20 +613,35 @@ async def run_orchestrator_for_client(tenant_id: int):
                 JobSchedule.status == 'PENDING'
             ).order_by(JobSchedule.execution_order.asc()).first()
 
-            if not result:
-                logger.info(f"INFO: No PENDING jobs found for client {tenant_id}")
-                return
+            if result:
+                pending_job_id, pending_job_name = result.id, result.job_name
+                logger.info(f"FOUND: PENDING job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id})")
+            else:
+                # No PENDING jobs found - look for READY jobs
+                logger.info(f"INFO: No PENDING jobs found for client {tenant_id} - checking for READY jobs")
+                result = session.query(
+                    JobSchedule.id,
+                    JobSchedule.job_name
+                ).filter(
+                    JobSchedule.tenant_id == tenant_id,
+                    JobSchedule.active == True,
+                    JobSchedule.status == 'READY'
+                ).order_by(JobSchedule.execution_order.asc()).first()
 
-            pending_job_id, pending_job_name = result.id, result.job_name
-            logger.info(f"FOUND: PENDING job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id})")
+                if not result:
+                    logger.info(f"INFO: No READY jobs found for client {tenant_id} - no jobs to run")
+                    return
+
+                pending_job_id, pending_job_name = result.id, result.job_name
+                logger.info(f"FOUND: READY job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id}) - will start from beginning")
 
         # Step 2: Quick atomic update to lock the job (separate short session)
         with database.get_session() as session:
-            # SECURITY: Atomic update with tenant_id verification
+            # SECURITY: Atomic update with tenant_id verification (handles both PENDING and READY)
             updated_rows = session.query(JobSchedule).filter(
                 JobSchedule.id == pending_job_id,
                 JobSchedule.tenant_id == tenant_id,  # Verify tenant_id
-                JobSchedule.status == 'PENDING'  # Double-check it's still pending
+                JobSchedule.status.in_(['PENDING', 'READY'])  # Accept both statuses
             ).update({
                 'status': 'RUNNING',
                 'last_run_started_at': DateTimeHelper.now_default(),
@@ -565,6 +687,9 @@ async def run_orchestrator_for_client(tenant_id: int):
         elif job_name_lower == 'wex ad':
             logger.info("TRIGGERING: Active Directory sync job...")
             asyncio.create_task(run_ad_sync_async(pending_job_id))
+        elif job_name_lower == 'vectorization':
+            logger.info("TRIGGERING: Vectorization job...")
+            asyncio.create_task(run_vectorization_sync_async(pending_job_id))
         else:
             logger.error(f"ERROR: Unknown job name: {pending_job_name}")
             # Reset job to PENDING if unknown (separate session)
@@ -711,6 +836,11 @@ async def run_fabric_sync_async(job_schedule_id: int):
     try:
         logger.info(f"STARTING: WEX Fabric sync job (ID: {job_schedule_id})")
 
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('WEX Fabric')
+
         from app.core.database import get_database
         from app.core.utils import DateTimeHelper
         database = get_database()
@@ -772,9 +902,10 @@ async def run_fabric_sync_async(job_schedule_id: int):
 
             session.commit()
 
-            # Handle orchestrator scheduling outside transaction
+            # Resume orchestrator countdown and handle scheduling outside transaction
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('WEX Fabric')
 
             if next_job:
                 # Check if this is cycling back to the first job (restart)
@@ -792,9 +923,9 @@ async def run_fabric_sync_async(job_schedule_id: int):
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('WEX Fabric')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('WEX Fabric')
             else:
                 # No next job - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
@@ -828,6 +959,11 @@ async def run_ad_sync_async(job_schedule_id: int):
     """
     try:
         logger.info(f"STARTING: Active Directory sync job (ID: {job_schedule_id})")
+
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('Active Directory')
 
         from app.core.database import get_database
         from app.core.utils import DateTimeHelper
@@ -890,9 +1026,10 @@ async def run_ad_sync_async(job_schedule_id: int):
 
             session.commit()
 
-            # Handle orchestrator scheduling outside transaction
+            # Resume orchestrator countdown and handle scheduling outside transaction
             from app.core.orchestrator_scheduler import get_orchestrator_scheduler
             orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('Active Directory')
 
             if next_job:
                 # Check if this is cycling back to the first job (restart)
@@ -910,9 +1047,9 @@ async def run_ad_sync_async(job_schedule_id: int):
                         logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
                         orchestrator_scheduler.restore_normal_schedule()
                     else:
-                        # Normal sequence - use fast retry for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast retry for quick transition")
-                        orchestrator_scheduler.schedule_fast_retry('Active Directory')
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('Active Directory')
             else:
                 # No next job - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
@@ -972,7 +1109,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                 }
 
             if force_manual:
-                # Set fabric job to PENDING, all others to NOT_STARTED
+                # Set fabric job to PENDING, preserve PAUSED jobs, reset others to READY
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -982,8 +1119,8 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                     if job.job_name.lower() == 'wex fabric':
                         job.status = 'PENDING'
                         job.error_message = None
-                    else:
-                        job.status = 'NOT_STARTED'
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
+                        job.status = 'READY'
                         job.error_message = None
 
                 session.commit()
@@ -1037,7 +1174,7 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
                 }
 
             if force_manual:
-                # Set AD job to PENDING, all others to NOT_STARTED
+                # Set AD job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1047,7 +1184,7 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
                     if job.job_name.lower() == 'wex ad':
                         job.status = 'PENDING'
                         job.error_message = None
-                    else:
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
                         job.status = 'NOT_STARTED'
                         job.error_message = None
 
@@ -1146,7 +1283,7 @@ def initialize_job_schedules_for_client(tenant_id: int):
 
             github_job = JobSchedule(
                 job_name='GitHub',
-                status='NOT_STARTED',  # Start with GitHub not started (prevents wrong execution)
+                status='READY',  # Start with GitHub ready (prevents wrong execution)
                 integration_id=github_integration.id if github_integration else None,
                 tenant_id=tenant_id  # SECURITY: Use provided tenant_id
             )
@@ -1157,7 +1294,7 @@ def initialize_job_schedules_for_client(tenant_id: int):
 
             logger.info(f"SUCCESS: Job schedules initialized successfully for client {tenant_id}")
             logger.info("   - Jira: PENDING (ready to run first)")
-            logger.info("   - GitHub: NOT_STARTED (will be set to PENDING when Jira finishes)")
+            logger.info("   - GitHub: READY (will be set to PENDING when Jira finishes)")
 
             return True
             
@@ -1198,7 +1335,195 @@ def get_job_status(tenant_id: int = None):
                 }
 
             return status
-            
+
     except Exception as e:
         logger.error(f"ERROR: Failed to get job status: {e}")
         return {}
+
+
+async def run_vectorization_sync_async(job_schedule_id: int):
+    """
+    Async wrapper for Vectorization job.
+    Handles job lifecycle and error management.
+    """
+    try:
+        logger.info(f"STARTING: Vectorization job (ID: {job_schedule_id})")
+
+        # Pause orchestrator countdown while job is running
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.pause_orchestrator('Vectorization')
+
+        # Import here to avoid circular imports
+        from app.jobs.vectorization.vectorization_job import run_vectorization_sync
+
+        # Use shorter session for job execution
+        database = get_database()
+        with database.get_job_session_context() as session:
+            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            # Execute the job
+            result = await run_vectorization_sync(session, job_schedule)
+
+        # Mark job as completed and set next job to PENDING
+        with database.get_write_session_context() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if not job_schedule:
+                logger.error(f"Job schedule {job_schedule_id} not found")
+                return
+
+            tenant_id = job_schedule.tenant_id
+            current_order = job_schedule.execution_order
+
+            # Check if job was successful
+            if result.get('status') == 'success':
+                # Mark current job as finished
+                job_schedule.set_finished()
+                logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
+
+                # Send WebSocket completion update
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "Vectorization",
+                    "FINISHED",
+                    {"message": "Vectorization job completed successfully"}
+                )
+            else:
+                # Mark job as failed using set_pending_with_checkpoint
+                error_msg = result.get('message', 'Unknown error')
+                job_schedule.set_pending_with_checkpoint(error_msg)
+                logger.error(f"Vectorization job failed: {error_msg}")
+
+                # Send WebSocket failure update
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "Vectorization",
+                    "FAILED",
+                    {"message": f"Vectorization job failed: {error_msg}"}
+                )
+
+            # Find next ready job (skips paused jobs)
+            next_job = find_next_ready_job(session, tenant_id, current_order)
+
+            if next_job:
+                next_job.status = 'PENDING'
+                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+            else:
+                logger.info("No more jobs in sequence - cycle complete")
+
+            session.commit()
+
+            # Resume orchestrator countdown and handle scheduling outside transaction
+            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+            orchestrator_scheduler = get_orchestrator_scheduler()
+            orchestrator_scheduler.resume_orchestrator('Vectorization')
+
+            if next_job:
+                # Check if this is cycling back to the first job (restart)
+                with database.get_read_session_context() as check_session:
+                    first_job = check_session.query(JobSchedule).filter(
+                        JobSchedule.tenant_id == tenant_id,
+                        JobSchedule.active == True,
+                        JobSchedule.status != 'PAUSED'
+                    ).order_by(JobSchedule.execution_order.asc()).first()
+
+                    is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                    if is_cycle_restart:
+                        # Cycle restart - use regular countdown
+                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                        orchestrator_scheduler.restore_normal_schedule()
+                    else:
+                        # Normal sequence - use fast transition for quick transition
+                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
+                        orchestrator_scheduler.schedule_fast_transition('Vectorization')
+            else:
+                # No next job - restore normal schedule
+                orchestrator_scheduler.restore_normal_schedule()
+
+    except Exception as e:
+        logger.error(f"Vectorization job error: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Set job back to PENDING on unexpected error
+        database = get_database()
+        try:
+            with database.get_write_session_context() as fresh_session:
+                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                if job_schedule:
+                    job_schedule.status = 'PENDING'
+                    job_schedule.error_message = str(e)
+                    logger.info("Successfully updated Vectorization job schedule with error status")
+        except Exception as session_error:
+            logger.error(f"Vectorization job session error: {session_error}")
+
+
+async def trigger_vectorization_sync(force_manual=False, execution_params=None, tenant_id=None):
+    """
+    Trigger a Vectorization job.
+
+    Args:
+        force_manual: If True, forces correct job states for manual execution
+        execution_params: Optional execution parameters for the job
+        tenant_id: Tenant ID to trigger job for (required for client isolation)
+
+    Returns:
+        Dict containing job execution results
+    """
+    if tenant_id is None:
+        return {
+            'status': 'error',
+            'message': 'tenant_id is required for job execution'
+        }
+
+    try:
+        database = get_database()
+
+        with database.get_session() as session:
+            # Get the vectorization job for this client (case-insensitive)
+            vectorization_job = session.query(JobSchedule).filter(
+                func.lower(JobSchedule.job_name) == 'vectorization',
+                JobSchedule.tenant_id == tenant_id
+            ).first()
+
+            if not vectorization_job:
+                return {
+                    'status': 'error',
+                    'message': f'Vectorization job not found for tenant {tenant_id}'
+                }
+
+            if force_manual:
+                # Set vectorization job to PENDING, preserve PAUSED jobs, reset others to READY
+                all_jobs = session.query(JobSchedule).filter(
+                    JobSchedule.tenant_id == tenant_id,
+                    JobSchedule.active == True
+                ).all()
+
+                for job in all_jobs:
+                    if job.job_name.lower() == 'vectorization':
+                        job.status = 'PENDING'
+                        job.error_message = None
+                    elif job.status != 'PAUSED':  # Preserve PAUSED jobs
+                        job.status = 'READY'
+                        job.error_message = None
+
+                session.commit()
+
+        return {
+            'status': 'triggered',
+            'message': f'Vectorization job triggered successfully for client {tenant_id}',
+            'job_name': 'Vectorization'
+        }
+
+    except Exception as e:
+        logger.error(f"Error triggering vectorization sync: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to trigger vectorization sync: {str(e)}'
+        }

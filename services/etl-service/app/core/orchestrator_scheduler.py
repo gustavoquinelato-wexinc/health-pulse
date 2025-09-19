@@ -117,7 +117,82 @@ class OrchestratorScheduler:
             import traceback
             traceback.print_exc()
             return False
-    
+
+    def schedule_fast_transition(self, job_name: str) -> bool:
+        """
+        Schedule the orchestrator to run sooner for a successful job transition.
+        Unlike schedule_fast_retry, this doesn't increment retry attempts since it's for successful transitions.
+
+        Args:
+            job_name: Name of the job that completed successfully
+
+        Returns:
+            bool: True if fast transition was scheduled, False otherwise
+        """
+        if not self.scheduler:
+            logger.warning("Scheduler not available for fast transition")
+            return False
+
+        # Get current settings
+        retry_enabled = is_orchestrator_retry_enabled()
+        retry_interval = get_orchestrator_retry_interval()
+
+        logger.info(f"Fast transition settings: enabled={retry_enabled}, interval={retry_interval}min")
+
+        if not retry_enabled:
+            logger.info("Fast transition is disabled in settings")
+            return False
+
+        try:
+            # Get current job info for debugging
+            current_job = self.scheduler.get_job('etl_orchestrator')
+            if current_job:
+                logger.info(f"BEFORE: Current orchestrator next run: {current_job.next_run_time}")
+            else:
+                logger.warning("BEFORE: No orchestrator job found!")
+
+            # Calculate next run time using UTC to match scheduler timezone
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            next_run = now + timedelta(minutes=retry_interval)
+            logger.info(f"SCHEDULING: Fast transition for {job_name}")
+            logger.info(f"SCHEDULING: Current time (UTC): {now}")
+            logger.info(f"SCHEDULING: Transition interval: {retry_interval} minutes")
+            logger.info(f"SCHEDULING: Target next run (UTC): {next_run}")
+
+            # Modify the orchestrator job to run sooner
+            self.scheduler.modify_job(
+                'etl_orchestrator',
+                next_run_time=next_run
+            )
+
+            # Verify the change
+            updated_job = self.scheduler.get_job('etl_orchestrator')
+            if updated_job:
+                logger.info(f"AFTER: Updated orchestrator next run: {updated_job.next_run_time}")
+
+                # Calculate actual minutes until next run
+                if updated_job.next_run_time:
+                    from datetime import timezone
+                    current_time = datetime.now(timezone.utc)
+                    # Handle timezone-aware vs naive datetime comparison
+                    if updated_job.next_run_time.tzinfo is None:
+                        current_time = datetime.now()
+                    time_diff = updated_job.next_run_time - current_time
+                    minutes_until = time_diff.total_seconds() / 60
+                    logger.info(f"AFTER: Minutes until next run: {minutes_until:.1f}")
+            else:
+                logger.error("AFTER: Failed to get updated job!")
+
+            logger.info(f"Fast transition scheduled for {job_name} - next run in {retry_interval} minutes")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to schedule fast transition for {job_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def reset_retry_attempts(self, job_name: str):
         """Reset retry attempts for a job (called on successful completion)."""
         if job_name in self.retry_attempts:
@@ -133,6 +208,50 @@ class OrchestratorScheduler:
         else:
             logger.info(f"No retry attempts to reset for {job_name}")
     
+    def pause_orchestrator(self, job_name: str):
+        """
+        Pause the orchestrator countdown while a job is running.
+        This prevents the orchestrator from triggering while a job is actively executing.
+
+        Args:
+            job_name: Name of the job that is starting to run
+        """
+        if not self.scheduler:
+            logger.warning("Scheduler not available for pausing orchestrator")
+            return
+
+        try:
+            # Pause the orchestrator job
+            self.scheduler.pause_job('etl_orchestrator')
+            logger.info(f"PAUSED: Orchestrator countdown paused while {job_name} is running")
+
+        except Exception as e:
+            logger.error(f"Failed to pause orchestrator for {job_name}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def resume_orchestrator(self, job_name: str):
+        """
+        Resume the orchestrator countdown after a job completes.
+        This allows the orchestrator to continue its normal scheduling.
+
+        Args:
+            job_name: Name of the job that finished running
+        """
+        if not self.scheduler:
+            logger.warning("Scheduler not available for resuming orchestrator")
+            return
+
+        try:
+            # Resume the orchestrator job
+            self.scheduler.resume_job('etl_orchestrator')
+            logger.info(f"RESUMED: Orchestrator countdown resumed after {job_name} completed")
+
+        except Exception as e:
+            logger.error(f"Failed to resume orchestrator after {job_name}: {e}")
+            import traceback
+            traceback.print_exc()
+
     def restore_normal_schedule(self):
         """
         Restore the orchestrator to its normal interval.

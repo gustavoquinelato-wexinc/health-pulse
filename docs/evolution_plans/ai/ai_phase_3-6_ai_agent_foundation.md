@@ -1,545 +1,547 @@
-# Phase 3-6: AI Agent Foundation & Testing (Hybrid Provider Integration)
+# Phase 3-6: AI Query Interface & Natural Language Processing
 
 **Implemented**: NO ❌
 **Duration**: 1 day (Day 10 of 10)
 **Priority**: HIGH
 **Dependencies**: Phase 3-5 completion
 
-> **🏗️ Architecture Update (September 2025)**: This phase has been updated to reflect the new architecture where AI operations are centralized in Backend Service. AI agents will be implemented in Backend Service rather than a separate AI service.
+> **🏗️ Architecture Update (September 2025)**: This phase focuses on creating a simple AI query interface using existing Backend Service infrastructure. No separate AI service needed since Backend Service already has all AI capabilities.
 
 ## 💼 Business Outcome
 
-**AI-Powered Analytics Foundation**: Complete the transformation from traditional dashboard to AI-powered analytics platform, enabling natural language queries, intelligent insights, and automated pattern recognition that reduces time-to-insight from days to minutes and increases user productivity by 300%.
-
+**Natural Language Analytics**: Enable users to query their data using natural language, combining semantic vector search with traditional database queries to provide instant insights and reduce time-to-information from hours to seconds.
 
 ## 🎯 Objectives
 
-1. **Hybrid AI Agent Foundation**: Complete AI agent system with WEX Gateway + local models
-2. **End-to-End Testing**: Comprehensive testing of the hybrid AI pipeline
-3. **Performance Validation**: Confirm 10x performance improvements with cost optimization
-4. **Tenant Isolation Testing**: Validate perfect separation using existing integration table
-5. **Production Readiness**: Ensure system is ready for Phase 4 ML integration
-6. **Documentation**: Complete technical documentation for hybrid AI system
+1. **AI Query Interface**: Natural language query endpoint in Backend Service
+2. **Semantic Search**: Combine vector similarity with PostgreSQL data retrieval
+3. **Query Processing**: Intelligent query understanding and routing
+4. **Response Generation**: Clear, actionable responses with data sources
+5. **Performance Testing**: Validate end-to-end AI query performance
+6. **Frontend Integration**: Simple AI query interface for users
 
-## 🤖 Complete Hybrid AI Agent Foundation
+## 🔍 AI Query Interface Architecture
 
-### **Unified AI Agent Interface with Hybrid Providers**
+### **Natural Language Query Processor**
 ```python
-# services/ai-service/app/core/pulse_ai_agent.py
+# services/backend-service/app/ai/query_processor.py
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from .optimized_strategic_agent import OptimizedStrategicAgent
-from .vector_generation_pipeline import HighPerformanceVectorGenerator
-from .backfill_manager import IntelligentBackfillManager
-from ..ai.hybrid_provider_manager import HybridProviderManager
+from .hybrid_provider_manager import HybridProviderManager
+from .qdrant_client import PulseQdrantClient
+from ..models.unified_models import QdrantVector
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class AIAgentResponse:
-    """Standardized AI agent response"""
+class QueryResult:
+    """AI query result with sources"""
     success: bool
-    response: Dict[str, Any]
+    answer: str
+    sources: List[Dict[str, Any]]
     processing_time: float
-    source: str  # 'cache', 'wex_gateway', 'local_model', 'hybrid'
+    query_type: str  # 'semantic', 'structured', 'hybrid'
     confidence: float
     tenant_id: int
-    cost: float  # Track cost for hybrid provider selection
     metadata: Dict[str, Any]
 
-class PulseAIAgent:
-    """Complete hybrid AI agent foundation for Pulse Platform"""
+class AIQueryProcessor:
+    """Process natural language queries using hybrid AI providers"""
 
-    def __init__(self, db_session, qdrant_client):
-        # Use HybridProviderManager for all AI operations
-        self.hybrid_provider_manager = HybridProviderManager(db_session)
-        self.qdrant_client = qdrant_client
+    def __init__(self, db_session):
         self.db_session = db_session
-        
-        # Core components
-        self.strategic_agent = OptimizedStrategicAgent(ai_provider_manager, qdrant_client)
-        self.vector_generator = HighPerformanceVectorGenerator(ai_provider_manager, qdrant_client)
-        self.backfill_manager = IntelligentBackfillManager(self.vector_generator, db_session)
-        
-        # Agent capabilities
-        self.capabilities = {
-            "natural_language_query": True,
-            "sql_generation": True,
-            "semantic_search": True,
-            "vector_operations": True,
-            "multi_provider_ai": True,
-            "client_isolation": True,
-            "performance_optimization": True,
-            "intelligent_caching": True
-        }
-        
-        # Performance tracking
-        self.session_metrics = {
-            "total_queries": 0,
-            "successful_queries": 0,
-            "failed_queries": 0,
-            "avg_response_time": 0,
-            "cache_hit_rate": 0
-        }
-    
-    async def process_natural_language_query(self, query: str, client_id: int, 
-                                           context: Optional[Dict] = None) -> AIAgentResponse:
-        """Process natural language query with full AI pipeline"""
+        self.hybrid_provider_manager = HybridProviderManager(db_session)
+        self.qdrant_client = PulseQdrantClient()
+
+    async def initialize(self):
+        """Initialize query processor"""
+        await self.hybrid_provider_manager.initialize()
+        await self.qdrant_client.initialize()
+        logger.info("AI Query Processor initialized")
+
+    async def process_query(self, query: str, tenant_id: int,
+                          context: Optional[Dict[str, Any]] = None) -> QueryResult:
+        """Process natural language query"""
         start_time = time.time()
-        
+
         try:
-            # Validate client access
-            if not await self._validate_client_access(client_id):
-                return AIAgentResponse(
-                    success=False,
-                    response={"error": "Client access denied"},
-                    processing_time=time.time() - start_time,
-                    source="validation",
-                    confidence=0.0,
-                    client_id=client_id,
-                    metadata={"error_type": "access_denied"}
-                )
-            
-            # Process with strategic agent
-            result = await self.strategic_agent.process_user_query(query, client_id)
-            
-            # Calculate confidence based on response source and validation
-            confidence = self._calculate_confidence(result)
-            
-            # Update session metrics
-            self._update_session_metrics(result)
-            
-            return AIAgentResponse(
-                success=result["success"],
-                response=result["response"],
-                processing_time=result["processing_time"],
-                source=result["source"],
-                confidence=confidence,
-                client_id=client_id,
+            # Analyze query intent
+            query_intent = await self._analyze_query_intent(query, tenant_id)
+
+            # Route to appropriate processing method
+            if query_intent["type"] == "semantic":
+                result = await self._process_semantic_query(query, tenant_id, query_intent)
+            elif query_intent["type"] == "structured":
+                result = await self._process_structured_query(query, tenant_id, query_intent)
+            else:
+                result = await self._process_hybrid_query(query, tenant_id, query_intent)
+
+            processing_time = time.time() - start_time
+
+            return QueryResult(
+                success=True,
+                answer=result["answer"],
+                sources=result["sources"],
+                processing_time=processing_time,
+                query_type=query_intent["type"],
+                confidence=result.get("confidence", 0.8),
+                tenant_id=tenant_id,
                 metadata={
-                    "query_length": len(query),
-                    "context_provided": context is not None,
-                    "agent_version": "3.0"
+                    "query_intent": query_intent,
+                    "processing_steps": result.get("steps", [])
                 }
             )
-            
+
         except Exception as e:
-            logger.error(f"AI agent query processing failed: {e}")
-            self.session_metrics["failed_queries"] += 1
-            
-            return AIAgentResponse(
+            logger.error(f"Query processing failed: {e}")
+            return QueryResult(
                 success=False,
-                response={"error": str(e)},
+                answer=f"Sorry, I couldn't process your query: {str(e)}",
+                sources=[],
                 processing_time=time.time() - start_time,
-                source="error",
+                query_type="error",
                 confidence=0.0,
-                client_id=client_id,
-                metadata={"error_type": "processing_error"}
+                tenant_id=tenant_id,
+                metadata={"error": str(e)}
             )
-    
-    async def search_semantic_content(self, query: str, client_id: int, 
-                                    table_name: str, limit: int = 10) -> AIAgentResponse:
-        """Perform semantic search across client data"""
-        start_time = time.time()
-        
+
+    async def _analyze_query_intent(self, query: str, tenant_id: int) -> Dict[str, Any]:
+        """Analyze query to determine processing approach"""
+        try:
+            # Use AI provider to analyze query intent
+            provider = await self.hybrid_provider_manager.get_optimal_provider(
+                tenant_id, "chat", {"query_length": len(query)}
+            )
+
+            # Simple intent analysis prompt
+            intent_prompt = f"""
+            Analyze this query and determine the best processing approach:
+            Query: "{query}"
+
+            Respond with JSON:
+            {{
+                "type": "semantic|structured|hybrid",
+                "entities": ["list", "of", "key", "entities"],
+                "intent": "brief description of what user wants",
+                "complexity": "low|medium|high"
+            }}
+            """
+
+            response = await provider.generate_response(intent_prompt)
+
+            # Parse response (simplified - in production would use proper JSON parsing)
+            if "semantic" in response.lower():
+                query_type = "semantic"
+            elif "structured" in response.lower():
+                query_type = "structured"
+            else:
+                query_type = "hybrid"
+
+            return {
+                "type": query_type,
+                "entities": [],  # Would extract from AI response
+                "intent": "user query",
+                "complexity": "medium"
+            }
+
+        except Exception as e:
+            logger.error(f"Intent analysis failed: {e}")
+            # Default to semantic search
+            return {
+                "type": "semantic",
+                "entities": [],
+                "intent": "search query",
+                "complexity": "medium"
+            }
+
+    async def _process_semantic_query(self, query: str, tenant_id: int,
+                                    intent: Dict[str, Any]) -> Dict[str, Any]:
+        """Process query using semantic vector search"""
         try:
             # Generate query embedding
-            query_embedding = await self.strategic_agent._get_or_generate_embedding(query, client_id)
-            
+            provider = await self.hybrid_provider_manager.get_optimal_provider(
+                tenant_id, "embedding", {"text_length": len(query)}
+            )
+
+            query_embedding = await provider.generate_embeddings([query])
             if not query_embedding:
-                return AIAgentResponse(
-                    success=False,
-                    response={"error": "Failed to generate query embedding"},
-                    processing_time=time.time() - start_time,
-                    source="embedding_error",
-                    confidence=0.0,
-                    client_id=client_id,
-                    metadata={}
-                )
-            
-            # Search similar content
-            results = await self.qdrant_client.search_similar(
-                client_id, table_name, query_embedding, limit
-            )
-            
-            return AIAgentResponse(
-                success=True,
-                response={
-                    "query": query,
-                    "results": results,
-                    "total_found": len(results)
-                },
-                processing_time=time.time() - start_time,
-                source="semantic_search",
-                confidence=0.9,  # High confidence for direct search
-                client_id=client_id,
-                metadata={
-                    "table_name": table_name,
-                    "embedding_dimensions": len(query_embedding)
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Semantic search failed: {e}")
-            return AIAgentResponse(
-                success=False,
-                response={"error": str(e)},
-                processing_time=time.time() - start_time,
-                source="search_error",
-                confidence=0.0,
-                client_id=client_id,
-                metadata={}
-            )
-    
-    async def initialize_client_ai(self, client_id: int, 
-                                 priority_tables: Optional[List[str]] = None) -> AIAgentResponse:
-        """Initialize AI capabilities for a client (backfill vectors)"""
-        start_time = time.time()
-        
-        try:
-            # Start intelligent backfill
-            backfill_result = await self.backfill_manager.start_intelligent_backfill(
-                client_id, priority_tables
-            )
-            
-            return AIAgentResponse(
-                success=backfill_result["success"],
-                response=backfill_result,
-                processing_time=time.time() - start_time,
-                source="backfill",
-                confidence=1.0 if backfill_result["success"] else 0.0,
-                client_id=client_id,
-                metadata={
-                    "tables_processed": backfill_result.get("tables_processed", 0),
-                    "initialization_type": "full_backfill"
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Client AI initialization failed: {e}")
-            return AIAgentResponse(
-                success=False,
-                response={"error": str(e)},
-                processing_time=time.time() - start_time,
-                source="initialization_error",
-                confidence=0.0,
-                client_id=client_id,
-                metadata={}
-            )
-    
-    async def get_ai_capabilities(self, client_id: int) -> AIAgentResponse:
-        """Get AI capabilities and status for client"""
-        start_time = time.time()
-        
-        try:
-            # Check client AI configuration
-            ai_config = await self._get_client_ai_configuration(client_id)
-            
-            # Check vector data status
-            vector_status = await self._get_client_vector_status(client_id)
-            
-            # Get performance metrics
-            performance_metrics = self.strategic_agent.get_performance_metrics()
-            
-            capabilities_info = {
-                "capabilities": self.capabilities,
-                "ai_configuration": ai_config,
-                "vector_status": vector_status,
-                "performance_metrics": performance_metrics,
-                "session_metrics": self.session_metrics
+                raise Exception("Failed to generate query embedding")
+
+            # Search across relevant collections
+            search_results = []
+            collections = ["work_items", "pull_requests", "users"]  # Could be dynamic
+
+            for collection in collections:
+                try:
+                    collection_name = f"client_{tenant_id}_{collection}"
+                    results = await self.qdrant_client.search_similar(
+                        collection_name, query_embedding[0], limit=5
+                    )
+
+                    # Get related PostgreSQL data
+                    for result in results:
+                        pg_data = await self._get_postgresql_data(
+                            tenant_id, collection, result.payload.get("record_id")
+                        )
+                        if pg_data:
+                            search_results.append({
+                                "source": collection,
+                                "score": result.score,
+                                "data": pg_data,
+                                "snippet": result.payload.get("text_content", "")[:200]
+                            })
+
+                except Exception as e:
+                    logger.warning(f"Search failed for collection {collection}: {e}")
+
+            # Generate response using AI
+            response = await self._generate_semantic_response(query, search_results, tenant_id)
+
+            return {
+                "answer": response,
+                "sources": search_results[:10],  # Limit sources
+                "confidence": 0.8,
+                "steps": ["embedding_generation", "vector_search", "data_retrieval", "response_generation"]
             }
-            
-            return AIAgentResponse(
-                success=True,
-                response=capabilities_info,
-                processing_time=time.time() - start_time,
-                source="capabilities_check",
-                confidence=1.0,
-                client_id=client_id,
-                metadata={"check_type": "full_capabilities"}
-            )
-            
+
         except Exception as e:
-            logger.error(f"Capabilities check failed: {e}")
-            return AIAgentResponse(
-                success=False,
-                response={"error": str(e)},
-                processing_time=time.time() - start_time,
-                source="capabilities_error",
-                confidence=0.0,
-                client_id=client_id,
-                metadata={}
+            logger.error(f"Semantic query processing failed: {e}")
+            return {
+                "answer": "I couldn't find relevant information for your query.",
+                "sources": [],
+                "confidence": 0.0,
+                "steps": ["error"]
+            }
+    async def _process_structured_query(self, query: str, tenant_id: int,
+                                       intent: Dict[str, Any]) -> Dict[str, Any]:
+        """Process query using structured database queries"""
+        try:
+            # Use AI to generate SQL query
+            provider = await self.hybrid_provider_manager.get_optimal_provider(
+                tenant_id, "chat", {"query_complexity": "medium"}
             )
-    
-    def _calculate_confidence(self, result: Dict[str, Any]) -> float:
-        """Calculate confidence score based on result characteristics"""
-        if not result["success"]:
-            return 0.0
-        
-        source = result.get("source", "unknown")
-        
-        confidence_map = {
-            "cache": 0.95,              # High confidence for cached results
-            "simple_generation": 0.85,   # Good confidence for simple queries
-            "complex_generation": 0.90,  # High confidence for validated complex queries
-            "semantic_search": 0.90,     # High confidence for direct search
-            "unknown": 0.70              # Lower confidence for unknown sources
-        }
-        
-        base_confidence = confidence_map.get(source, 0.70)
-        
-        # Adjust based on processing time (faster = higher confidence)
-        processing_time = result.get("processing_time", 0)
-        if processing_time < 0.5:
-            base_confidence += 0.05
-        elif processing_time > 3.0:
-            base_confidence -= 0.10
-        
-        return min(1.0, max(0.0, base_confidence))
-    
-    def _update_session_metrics(self, result: Dict[str, Any]):
-        """Update session performance metrics"""
-        self.session_metrics["total_queries"] += 1
-        
-        if result["success"]:
-            self.session_metrics["successful_queries"] += 1
-        else:
-            self.session_metrics["failed_queries"] += 1
-        
-        # Update average response time
-        total_queries = self.session_metrics["total_queries"]
-        current_avg = self.session_metrics["avg_response_time"]
-        new_time = result.get("processing_time", 0)
-        
-        self.session_metrics["avg_response_time"] = (
-            (current_avg * (total_queries - 1) + new_time) / total_queries
-        )
-        
-        # Update cache hit rate from strategic agent
-        agent_metrics = self.strategic_agent.get_performance_metrics()
-        self.session_metrics["cache_hit_rate"] = agent_metrics.get("cache_hit_rate", 0)
+
+            sql_prompt = f"""
+            Convert this natural language query to SQL for a PostgreSQL database:
+            Query: "{query}"
+
+            Available tables: work_items, pull_requests, users, projects
+            All tables have tenant_id column for filtering.
+
+            Return only the SQL query, no explanation.
+            """
+
+            sql_query = await provider.generate_response(sql_prompt)
+
+            # Execute SQL query (simplified - would need proper SQL validation)
+            # This is a placeholder for actual SQL execution
+            results = []  # Would execute SQL and get results
+
+            # Generate response
+            response = f"Based on your query, I found {len(results)} results."
+
+            return {
+                "answer": response,
+                "sources": results,
+                "confidence": 0.7,
+                "steps": ["sql_generation", "query_execution", "response_generation"]
+            }
+
+        except Exception as e:
+            logger.error(f"Structured query processing failed: {e}")
+            return {
+                "answer": "I couldn't process your structured query.",
+                "sources": [],
+                "confidence": 0.0,
+                "steps": ["error"]
+            }
+
+    async def _process_hybrid_query(self, query: str, tenant_id: int,
+                                  intent: Dict[str, Any]) -> Dict[str, Any]:
+        """Process query using both semantic and structured approaches"""
+        try:
+            # Run both semantic and structured processing
+            semantic_result = await self._process_semantic_query(query, tenant_id, intent)
+            structured_result = await self._process_structured_query(query, tenant_id, intent)
+
+            # Combine results intelligently
+            combined_sources = semantic_result["sources"] + structured_result["sources"]
+
+            # Generate combined response
+            response = f"I found information using both semantic search and database queries. {semantic_result['answer']}"
+
+            return {
+                "answer": response,
+                "sources": combined_sources[:15],  # Limit combined sources
+                "confidence": max(semantic_result["confidence"], structured_result["confidence"]),
+                "steps": ["hybrid_processing", "semantic_search", "structured_query", "result_combination"]
+            }
+
+        except Exception as e:
+            logger.error(f"Hybrid query processing failed: {e}")
+            return {
+                "answer": "I couldn't process your query using hybrid approach.",
+                "sources": [],
+                "confidence": 0.0,
+                "steps": ["error"]
+            }
+
+    async def _get_postgresql_data(self, tenant_id: int, table_name: str,
+                                 record_id: int) -> Optional[Dict[str, Any]]:
+        """Get PostgreSQL data for a record"""
+        try:
+            # This would execute actual SQL query
+            # Placeholder implementation
+            return {
+                "id": record_id,
+                "table": table_name,
+                "tenant_id": tenant_id,
+                "title": "Sample Record",
+                "description": "Sample description"
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get PostgreSQL data: {e}")
+            return None
+
+    async def _generate_semantic_response(self, query: str, search_results: List[Dict],
+                                        tenant_id: int) -> str:
+        """Generate natural language response from search results"""
+        try:
+            if not search_results:
+                return "I couldn't find any relevant information for your query."
+
+            # Use AI to generate response
+            provider = await self.hybrid_provider_manager.get_optimal_provider(
+                tenant_id, "chat", {"response_generation": True}
+            )
+
+            context = "\n".join([
+                f"- {result['snippet']}" for result in search_results[:5]
+            ])
+
+            response_prompt = f"""
+            Based on this information, answer the user's query: "{query}"
+
+            Relevant information:
+            {context}
+
+            Provide a helpful, concise answer based on the information found.
+            """
+
+            response = await provider.generate_response(response_prompt)
+            return response
+
+        except Exception as e:
+            logger.error(f"Response generation failed: {e}")
+            return "I found some relevant information but couldn't generate a proper response."
 ```
 
-### **Comprehensive Testing Suite**
+### **Backend Service API Endpoints**
 ```python
-# services/ai-service/tests/test_ai_agent_foundation.py
-import pytest
-import asyncio
-import time
-from unittest.mock import Mock, AsyncMock
-from app.core.pulse_ai_agent import PulseAIAgent
+# services/backend-service/app/api/ai_query_routes.py
+from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, Any, Optional
+from ..ai.query_processor import AIQueryProcessor, QueryResult
+from ..auth.dependencies import require_auth
+from ..models.user_data import UserData
 
-class TestAIAgentFoundation:
-    """Comprehensive test suite for AI agent foundation"""
-    
-    @pytest.fixture
-    async def ai_agent(self):
-        """Create AI agent for testing"""
-        mock_provider_manager = Mock()
-        mock_qdrant_client = Mock()
-        mock_db_session = Mock()
-        
-        agent = PulseAIAgent(mock_provider_manager, mock_qdrant_client, mock_db_session)
-        return agent
-    
-    @pytest.mark.asyncio
-    async def test_natural_language_query_performance(self, ai_agent):
-        """Test query processing performance"""
-        # Mock successful query processing
-        ai_agent.strategic_agent.process_user_query = AsyncMock(return_value={
+router = APIRouter(prefix="/api/v1/ai", tags=["AI Query"])
+
+@router.post("/query")
+async def process_natural_language_query(
+    request: Dict[str, Any],
+    user: UserData = Depends(require_auth)
+) -> QueryResult:
+    """Process natural language query"""
+    try:
+        query = request.get("query", "")
+        context = request.get("context", {})
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Query is required")
+
+        # Initialize query processor
+        query_processor = AIQueryProcessor(db_session)
+        await query_processor.initialize()
+
+        # Process query
+        result = await query_processor.process_query(
+            query=query,
+            tenant_id=user.tenant_id,
+            context=context
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Query processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/search")
+async def semantic_search(
+    request: Dict[str, Any],
+    user: UserData = Depends(require_auth)
+) -> Dict[str, Any]:
+    """Perform semantic search across user data"""
+    try:
+        query = request.get("query", "")
+        collections = request.get("collections", ["work_items", "pull_requests"])
+        limit = request.get("limit", 10)
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Query is required")
+
+        # Initialize query processor
+        query_processor = AIQueryProcessor(db_session)
+        await query_processor.initialize()
+
+        # Process as semantic query
+        intent = {"type": "semantic", "entities": [], "intent": "search", "complexity": "medium"}
+        result = await query_processor._process_semantic_query(query, user.tenant_id, intent)
+
+        return {
             "success": True,
-            "response": {"sql": "SELECT * FROM issues", "explanation": "Query explanation"},
-            "processing_time": 0.5,
-            "source": "simple_generation"
-        })
-        
-        ai_agent._validate_client_access = AsyncMock(return_value=True)
-        
-        # Test query processing
-        start_time = time.time()
-        result = await ai_agent.process_natural_language_query(
-            "Show me all issues", 
-            client_id=1
-        )
-        processing_time = time.time() - start_time
-        
-        # Assertions
-        assert result.success == True
-        assert processing_time < 1.0  # Should be fast
-        assert result.confidence > 0.8
-        assert result.client_id == 1
-    
-    @pytest.mark.asyncio
-    async def test_semantic_search_functionality(self, ai_agent):
-        """Test semantic search capabilities"""
-        # Mock embedding generation
-        ai_agent.strategic_agent._get_or_generate_embedding = AsyncMock(
-            return_value=[0.1] * 1536
-        )
-        
-        # Mock Qdrant search
-        ai_agent.qdrant_client.search_similar = AsyncMock(return_value=[
-            {
-                "id": "test-1",
-                "score": 0.95,
-                "metadata": {"record_id": 1, "text_content": "Test issue"},
-                "record_id": 1,
-                "table_name": "issues"
-            }
-        ])
-        
-        # Test semantic search
-        result = await ai_agent.search_semantic_content(
-            "bug in authentication", 
-            client_id=1, 
-            table_name="issues"
-        )
-        
-        # Assertions
-        assert result.success == True
-        assert len(result.response["results"]) == 1
-        assert result.response["results"][0]["score"] == 0.95
-        assert result.confidence == 0.9
-    
-    @pytest.mark.asyncio
-    async def test_client_isolation(self, ai_agent):
-        """Test client isolation in AI operations"""
-        # Test that client 1 cannot access client 2 data
-        ai_agent._validate_client_access = AsyncMock(side_effect=lambda cid: cid == 1)
-        
-        # Valid client access
-        ai_agent.strategic_agent.process_user_query = AsyncMock(return_value={
+            "query": query,
+            "results": result["sources"][:limit],
+            "total_found": len(result["sources"])
+        }
+
+    except Exception as e:
+        logger.error(f"Semantic search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/capabilities")
+async def get_ai_capabilities(
+    user: UserData = Depends(require_auth)
+) -> Dict[str, Any]:
+    """Get AI capabilities for tenant"""
+    try:
+        return {
             "success": True,
-            "response": {"data": "client 1 data"},
-            "processing_time": 0.3,
-            "source": "cache"
-        })
-        
-        result1 = await ai_agent.process_natural_language_query("test query", client_id=1)
-        assert result1.success == True
-        
-        # Invalid client access
-        result2 = await ai_agent.process_natural_language_query("test query", client_id=2)
-        assert result2.success == False
-        assert "access denied" in result2.response["error"].lower()
-    
-    @pytest.mark.asyncio
-    async def test_performance_benchmarks(self, ai_agent):
-        """Test performance benchmarks meet requirements"""
-        # Mock fast responses
-        ai_agent.strategic_agent.process_user_query = AsyncMock(return_value={
-            "success": True,
-            "response": {"sql": "SELECT * FROM issues"},
-            "processing_time": 0.1,
-            "source": "cache"
-        })
-        
-        ai_agent._validate_client_access = AsyncMock(return_value=True)
-        
-        # Test multiple queries for performance
-        query_times = []
-        for i in range(10):
-            start_time = time.time()
-            result = await ai_agent.process_natural_language_query(f"test query {i}", client_id=1)
-            query_time = time.time() - start_time
-            query_times.append(query_time)
-            
-            assert result.success == True
-        
-        # Performance assertions
-        avg_time = sum(query_times) / len(query_times)
-        assert avg_time < 0.5  # Average should be under 500ms
-        assert max(query_times) < 1.0  # No query should take over 1 second
-    
-    @pytest.mark.asyncio
-    async def test_error_handling_and_recovery(self, ai_agent):
-        """Test error handling and recovery mechanisms"""
-        # Test provider failure recovery
-        ai_agent.strategic_agent.process_user_query = AsyncMock(
-            side_effect=Exception("Provider temporarily unavailable")
-        )
-        
-        ai_agent._validate_client_access = AsyncMock(return_value=True)
-        
-        result = await ai_agent.process_natural_language_query("test query", client_id=1)
-        
-        # Should handle error gracefully
-        assert result.success == False
-        assert "Provider temporarily unavailable" in result.response["error"]
-        assert result.confidence == 0.0
-        assert result.metadata["error_type"] == "processing_error"
+            "capabilities": {
+                "natural_language_query": True,
+                "semantic_search": True,
+                "hybrid_providers": True,
+                "tenant_isolation": True
+            },
+            "tenant_id": user.tenant_id,
+            "available_collections": ["work_items", "pull_requests", "users", "projects"]
+        }
+
+    except Exception as e:
+        logger.error(f"Capabilities check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
+## 🔧 Configuration Requirements
+
+### **Environment Variables**
+```env
+# AI Query Configuration
+AI_QUERY_TIMEOUT=30
+AI_QUERY_MAX_SOURCES=15
+AI_RESPONSE_MAX_LENGTH=2000
+
+# Backend Service AI
+HYBRID_PROVIDER_ENABLED=true
+SEMANTIC_SEARCH_ENABLED=true
+STRUCTURED_QUERY_ENABLED=true
+
+# Frontend Integration
+AI_QUERY_ENDPOINT=/api/v1/ai/query
+AI_SEARCH_ENDPOINT=/api/v1/ai/search
+```
+
+### **Frontend Integration Example**
+```typescript
+// services/frontend-app/src/services/aiService.ts
+export interface AIQueryRequest {
+  query: string;
+  context?: Record<string, any>;
+}
+
+export interface AIQueryResult {
+  success: boolean;
+  answer: string;
+  sources: Array<{
+    source: string;
+    score: number;
+    data: Record<string, any>;
+    snippet: string;
+  }>;
+  processing_time: number;
+  query_type: string;
+  confidence: number;
+}
+
+export class AIService {
+  async processQuery(request: AIQueryRequest): Promise<AIQueryResult> {
+    const response = await fetch('/api/v1/ai/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+
+    return response.json();
+  }
+
+  async semanticSearch(query: string, collections?: string[]): Promise<any> {
+    const response = await fetch('/api/v1/ai/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, collections })
+    });
+
+    return response.json();
+  }
+}
+```
 ## 📋 Implementation Tasks
 
-### **Task 3-6.1: Complete Hybrid AI Agent Foundation**
-- [ ] Create PulseAIAgent unified interface with HybridProviderManager
-- [ ] Integrate all AI components using existing integration table structure
-- [ ] Implement standardized response format with cost tracking
-- [ ] Add comprehensive error handling for hybrid providers
+### **Task 3-6.1: AI Query Processor Implementation**
+- [ ] Implement AIQueryProcessor in Backend Service
+- [ ] Add query intent analysis using HybridProviderManager
+- [ ] Create semantic, structured, and hybrid query processing methods
+- [ ] Add PostgreSQL data retrieval integration
 
-### **Task 3-6.2: End-to-End Hybrid Testing**
-- [ ] Create comprehensive test suite for WEX Gateway + local models
-- [ ] Test natural language query processing with provider switching
-- [ ] Test semantic search functionality using both providers
-- [ ] Test tenant isolation using existing integration table
+### **Task 3-6.2: Backend Service API Endpoints**
+- [ ] Create `/api/v1/ai/query` endpoint for natural language queries
+- [ ] Create `/api/v1/ai/search` endpoint for semantic search
+- [ ] Add `/api/v1/ai/capabilities` endpoint for feature discovery
+- [ ] Implement proper error handling and validation
 
-### **Task 3-6.3: Performance and Cost Validation**
-- [ ] Benchmark query processing times with hybrid providers
-- [ ] Validate 10x performance improvements and cost optimization
-- [ ] Test concurrent user scenarios with intelligent provider selection
-- [ ] Measure cache hit rates and cost savings from local models
+### **Task 3-6.3: Frontend Integration**
+- [ ] Create AIService TypeScript client for Frontend Service
+- [ ] Add AI query interface components to Frontend
+- [ ] Implement query result display with sources
+- [ ] Add semantic search functionality to existing pages
 
-### **Task 3-6.4: Production Readiness with Existing Architecture**
-- [ ] Add monitoring and alerting
-- [ ] Create health check endpoints
-- [ ] Implement graceful degradation
-- [ ] Add comprehensive logging
+### **Task 3-6.4: Testing and Validation**
+- [ ] Test end-to-end AI query flow (Frontend → Backend → Qdrant)
+- [ ] Validate semantic search accuracy and performance
+- [ ] Test hybrid provider routing and cost optimization
+- [ ] Verify tenant isolation in AI operations
 
-### **Task 3-6.5: Documentation**
-- [ ] Create API documentation
-- [ ] Write deployment guides
-- [ ] Document configuration options
-- [ ] Create troubleshooting guides
-
+### **Task 3-6.5: Performance and Monitoring**
+- [ ] Add AI query performance metrics to monitoring
+- [ ] Test query response times and accuracy
+- [ ] Validate cost optimization with hybrid providers
+- [ ] Create AI usage dashboards and alerting
 ## ✅ Success Criteria
 
-1. **Complete Integration**: All AI components working together seamlessly
-2. **Performance**: 10x improvement confirmed through benchmarks
-3. **Client Isolation**: Perfect separation validated through testing
-4. **Reliability**: Robust error handling and recovery mechanisms
-5. **Production Ready**: Monitoring, logging, and health checks in place
-6. **Documentation**: Complete technical documentation available
+1. **AI Query Interface**: Natural language query endpoint working in Backend Service
+2. **Semantic Search**: Vector search combined with PostgreSQL data retrieval
+3. **Frontend Integration**: AI query interface accessible from Frontend Service
+4. **Performance Validated**: Query response times under 2 seconds for typical queries
+5. **Error Handling**: Graceful fallback when AI operations fail
+6. **Tenant Isolation**: Perfect separation of AI queries between tenants
 
-## ✅ Phase 3 Success Criteria
+## 🔄 Completion Enables
 
-1. **Clean Architecture**: 3-database setup with perfect client isolation
-2. **Performance**: 10x improvement in vector operations confirmed
-3. **Multi-Provider Support**: All AI providers working with consistent interface
-4. **User Experience**: Intuitive AI configuration interface
-5. **Enterprise Ready**: Monitoring, logging, and health checks in place
-6. **Scalability**: Ready for 10M+ records from day one
-
-## 🔄 Phase 3 Completion
-
-Upon completion of Phase 3-6, the entire Phase 3 will be complete with:
-
-- ✅ **Enterprise-grade AI infrastructure** with 3-database architecture
-- ✅ **High-performance vector operations** ready for 10M+ scale
-- ✅ **Multi-provider AI support** with WrenAI-inspired optimizations
-- ✅ **Optimized LangGraph** with 10x performance improvements
-- ✅ **Complete AI agent foundation** ready for Phase 4 ML integration
-
-**Phase 3 Total Duration**: 10 days (6 sub-phases completed)
-**Next Phase**: Phase 4 - ML Integration & Training with PostgresML
-
-## 📋 Phase 3 Sub-Phases Summary
-
-- **Phase 3-1** (1 day): Clean Database Schema + Qdrant Integration ✅
-- **Phase 3-2** (2 days): Multi-Provider AI Framework ✅
-- **Phase 3-3** (2 days): Frontend AI Configuration Interface ✅
-- **Phase 3-4** (2 days): ETL AI Integration & Optimized LangGraph ✅
-- **Phase 3-5** (2 days): High-Performance Vector Generation & Backfill ✅
-- **Phase 3-6** (1 day): AI Agent Foundation & Testing ✅
+- **Production AI Queries**: Users can query their data using natural language
+- **Semantic Discovery**: Find relevant information using meaning, not just keywords
+- **Complete AI Platform**: Full ETL → Backend → Frontend AI integration working
+- **Phase 4 Readiness**: Foundation ready for advanced ML features

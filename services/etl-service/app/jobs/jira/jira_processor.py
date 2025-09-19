@@ -11,6 +11,7 @@ from sqlalchemy import func
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import Project, Wit, Status, StatusMapping, WitMapping
+from app.clients.ai_client import store_entity_vector_for_etl
 
 logger = get_logger(__name__)
 
@@ -88,6 +89,51 @@ class JiraDataProcessor:
         except Exception as e:
             logger.error(f"❌ Schema compatibility error processing issue {issue_data.get('key', 'unknown')}: {e}")
             return {}
+
+    async def store_issue_vector(self, processed_issue: Dict[str, Any], issue_key: str) -> bool:
+        """
+        Store issue vector in Qdrant via Backend Service.
+
+        Args:
+            processed_issue: Processed issue data
+            issue_key: Jira issue key (e.g., 'BST-1234')
+
+        Returns:
+            True if vector was stored successfully, False otherwise
+        """
+        try:
+            # Create entity data for vector storage
+            entity_data = {
+                "key": processed_issue.get("key"),
+                "summary": processed_issue.get("summary"),
+                "description": processed_issue.get("description"),
+                "acceptance_criteria": processed_issue.get("acceptance_criteria"),
+                "priority": processed_issue.get("priority"),
+                "labels": processed_issue.get("labels"),
+                "team": processed_issue.get("team"),
+                "assignee": processed_issue.get("assignee")
+            }
+
+            # Remove None values to create cleaner text content
+            entity_data = {k: v for k, v in entity_data.items() if v is not None}
+
+            # Store vector via Backend Service
+            result = await store_entity_vector_for_etl(
+                entity_data=entity_data,
+                table_name="work_items",
+                record_id=issue_key
+            )
+
+            if result.success:
+                logger.debug(f"SUCCESS: Stored vector for issue {issue_key} in {result.collection_name}")
+                return True
+            else:
+                logger.warning(f"WARNING: Failed to store vector for issue {issue_key}: {result.error}")
+                return False
+
+        except Exception as e:
+            logger.error(f"ERROR: Error storing vector for issue {issue_key}: {e}")
+            return False
     
     def _parse_datetime(self, date_str: str) -> datetime:
         """Parse Jira datetime string preserving local time for user-friendly analysis."""

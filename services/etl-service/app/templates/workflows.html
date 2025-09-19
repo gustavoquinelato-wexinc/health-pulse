@@ -2,6 +2,113 @@
 
 {% block title %}Pulse ETL Management - Workflows{% endblock %}
 
+{% block extra_head %}
+<style>
+    /* Action button styles matching home page job buttons exactly */
+    .job-action-btn {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 6px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+    }
+
+    .job-action-btn:hover {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    /* Light mode specific hover - use dark text for visibility */
+    [data-theme="light"] .job-action-btn:hover {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border-color: var(--border-color);
+    }
+
+    [data-theme="light"] .job-action-btn:hover i {
+        color: var(--text-primary);
+    }
+
+    .job-action-btn:disabled,
+    .job-action-btn.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+    /* Toggle Switch Styles */
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+    }
+
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--neutral-tertiary);
+        transition: 0.3s;
+        border-radius: 24px;
+        border: 1px solid var(--border-color);
+    }
+
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        transition: 0.3s;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+        background-color: var(--crud-create);
+        border-color: var(--crud-create);
+    }
+
+    .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(20px);
+    }
+
+    .toggle-switch input:disabled + .toggle-slider {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Hover effects */
+    .toggle-slider:hover {
+        box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb), 0.2);
+    }
+
+    .toggle-switch input:checked + .toggle-slider:hover {
+        box-shadow: 0 0 0 2px rgba(var(--crud-create-rgb), 0.2);
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 {% if not embedded %}
 <!-- Page Header -->
@@ -99,7 +206,7 @@
                         Integration
                     </th>
                     <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
-                        Status
+                        Active
                     </th>
                     <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">
                         Actions
@@ -372,29 +479,29 @@
                 row.style.opacity = '0.7';
             }
 
-            const statusBadge = workflow.active ?
-                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--status-success); color: white;">Active</span>' :
-                '<span class="px-2 py-1 text-xs rounded-full" style="background-color: var(--neutral-tertiary); color: var(--text-primary);">Inactive</span>';
+            // Toggle switch for active/inactive
+            const toggleSwitch = `
+                <label class="toggle-switch">
+                    <input type="checkbox" ${workflow.active ? 'checked' : ''} onchange="toggleWorkflowActive(${workflow.id}, this.checked, '${workflow.step_name || 'Unnamed Step'}')">
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
 
             const integration = integrations.find(i => i.id === workflow.integration_id);
             const integrationName = integration ? integration.name : 'Unknown';
 
-            // Create integration icon based on integration name
-            let integrationIcon = '<i data-lucide="help-circle" class="w-5 h-5" style="color: #6B7280;" title="Unknown"></i>'; // Default icon
+            // Construct integration logo display
+            const tenantName = '{{ tenant_name|lower }}' || 'wex';
+            const hasLogo = integration && integration.logo_filename && integration.logo_filename.trim() !== '';
+            const logoPath = hasLogo ? `/static/assets/${tenantName}/integrations/${integration.logo_filename}` : null;
 
-            if (integration && integration.name) {
-                const integrationNameLower = integration.name.toLowerCase();
-
-                if (integrationNameLower.includes('jira')) {
-                    integrationIcon = '<i data-lucide="ticket" class="w-5 h-5" style="color: #0052CC;" title="Jira"></i>';
-                } else if (integrationNameLower.includes('github')) {
-                    integrationIcon = '<i data-lucide="github" class="w-5 h-5" style="color: #000000;" title="GitHub"></i>';
-                } else if (integrationNameLower.includes('aha')) {
-                    integrationIcon = '<i data-lucide="lightbulb" class="w-5 h-5" style="color: #FF6B35;" title="Aha!"></i>';
-                } else if (integrationNameLower.includes('azure') || integrationNameLower.includes('devops')) {
-                    integrationIcon = '<i data-lucide="cloud" class="w-5 h-5" style="color: #0078D4;" title="Azure DevOps"></i>';
-                }
-            }
+            const integrationDisplay = logoPath ?
+                `<div class="flex items-center justify-center">
+                    <img src="${logoPath}" alt="${integrationName}" class="h-6 w-auto max-w-16 object-contain"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+                    <span class="text-sm" style="color: var(--text-primary); display: none;">${integrationName}</span>
+                </div>` :
+                `<span class="text-sm" style="color: var(--text-primary);">${integrationName}</span>`;
 
             const textColorPrimary = workflow.active ? 'var(--text-primary)' : 'var(--text-muted)';
             const textColorSecondary = workflow.active ? 'var(--text-secondary)' : 'var(--text-muted)';
@@ -439,23 +546,15 @@
                     ${categoryBadge}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">
-                    ${integrationIcon}
+                    ${integrationDisplay}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-center">${statusBadge}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">${toggleSwitch}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">
                     <div class="flex justify-center space-x-1">
-                        <button onclick="editWorkflow(${workflow.id})" class="btn-crud-edit-sm" title="Edit">
+                        <button onclick="editWorkflow(${workflow.id})" class="job-action-btn" title="Edit">
                             <i data-lucide="edit" class="w-4 h-4"></i>
                         </button>
-                        ${workflow.active ?
-                            `<button onclick="showPauseModal(${workflow.id}, '${workflow.step_name || 'Unnamed Step'}')" class="btn-status-warning-xs" title="Pause">
-                                <i data-lucide="pause" class="w-4 h-4"></i>
-                            </button>` :
-                            `<button onclick="resumeWorkflow(${workflow.id})" class="btn-status-success-xs" title="Resume">
-                                <i data-lucide="play" class="w-4 h-4"></i>
-                            </button>`
-                        }
-                        <button onclick="deleteWorkflow(${workflow.id})" class="btn-crud-delete-sm" title="Delete">
+                        <button onclick="deleteWorkflow(${workflow.id})" class="job-action-btn" title="Delete">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -820,6 +919,51 @@
         } catch (error) {
             console.error('Error resuming workflow:', error);
             showNotification(`Error resuming workflow: ${error.message}`, 'error');
+        }
+    }
+
+    // Toggle function for active/inactive switch
+    async function toggleWorkflowActive(id, isActive, workflowName) {
+        try {
+            if (!isActive) {
+                // When deactivating, we could show a modal for dependencies if needed
+                // For now, we'll directly deactivate
+                await deactivateWorkflow(id);
+            } else {
+                // Activating - direct API call
+                await resumeWorkflow(id);
+            }
+        } catch (error) {
+            console.error('Error toggling workflow:', error);
+            showNotification('Error updating workflow status', 'error');
+
+            // Reset toggle on error
+            const toggle = document.querySelector(`input[onchange*="${id}"]`);
+            if (toggle) toggle.checked = !isActive;
+        }
+    }
+
+    async function deactivateWorkflow(id) {
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/v1/admin/workflows/${id}/deactivate`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            showNotification('Workflow deactivated successfully', 'success');
+            loadWorkflows();
+        } catch (error) {
+            console.error('Error deactivating workflow:', error);
+            showNotification(`Error deactivating workflow: ${error.message}`, 'error');
         }
     }
 

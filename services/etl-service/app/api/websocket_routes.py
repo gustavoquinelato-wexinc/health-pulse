@@ -42,7 +42,7 @@ async def job_progress_websocket(websocket: WebSocket, job_name: str):
     logger.info("[WS] Job name decoded", original=job_name, decoded=decoded_job_name)
 
     # Validate job name - accept both display names and internal names for compatibility
-    valid_jobs = ['jira', 'jira_sync', 'github', 'github_sync', 'wex fabric', 'fabric_sync', 'wex ad', 'ad_sync', 'orchestrator']
+    valid_jobs = ['jira', 'jira_sync', 'github', 'github_sync', 'wex fabric', 'fabric_sync', 'wex ad', 'ad_sync', 'orchestrator', 'vectorization']
     if decoded_job_name.lower() not in valid_jobs:
         logger.warning("[WS] Invalid job name", job_name=decoded_job_name, valid_jobs=valid_jobs)
         await websocket.close(code=4000, reason=f"Invalid job name. Valid jobs: {valid_jobs}")
@@ -120,7 +120,7 @@ async def test_websocket_message(job_name: str, token: str = Depends(verify_toke
     import urllib.parse
     job_name = urllib.parse.unquote(job_name)
 
-    valid_jobs = ['Jira', 'jira_sync', 'GitHub', 'github_sync', 'WEX Fabric', 'fabric_sync', 'WEX AD', 'ad_sync', 'orchestrator']
+    valid_jobs = ['Jira', 'jira_sync', 'GitHub', 'github_sync', 'WEX Fabric', 'fabric_sync', 'WEX AD', 'ad_sync', 'orchestrator', 'Vectorization']
     if job_name not in valid_jobs:
         raise HTTPException(status_code=400, detail=f"Invalid job name. Valid jobs: {valid_jobs}")
     

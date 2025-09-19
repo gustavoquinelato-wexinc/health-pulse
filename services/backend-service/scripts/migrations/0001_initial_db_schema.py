@@ -671,6 +671,39 @@ def apply(connection):
             );
         """)
 
+        # 30. Vectorization queue table (async AI processing)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vectorization_queue (
+                id SERIAL PRIMARY KEY,
+
+                -- Core queue fields
+                table_name VARCHAR(50) NOT NULL,
+                external_id VARCHAR(255) NOT NULL, -- External system ID (GitHub PR number, Jira issue ID, etc.)
+                operation VARCHAR(10) NOT NULL, -- 'insert', 'update', 'delete'
+
+                -- Status tracking
+                status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
+
+                -- Timestamps
+                created_at TIMESTAMP DEFAULT NOW(),
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+
+                -- Error handling
+                error_message TEXT,
+                last_error_at TIMESTAMP,
+
+                -- Embedded data for processing
+                entity_data JSONB, -- Store extracted data directly
+                qdrant_metadata JSONB, -- Pre-computed Qdrant fields
+
+                -- Tenant isolation
+                tenant_id INTEGER NOT NULL,
+
+                CONSTRAINT unique_external_record_operation UNIQUE(table_name, external_id, operation, tenant_id)
+            );
+        """)
+
         # 26. DORA market benchmarks table (global)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS dora_market_benchmarks (
@@ -987,6 +1020,8 @@ def apply(connection):
         add_constraint_if_not_exists('fk_qdrant_vectors_tenant_id', 'qdrant_vectors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         # AI/ML monitoring table foreign key constraints
         add_constraint_if_not_exists('fk_ai_usage_trackings_tenant_id', 'ai_usage_trackings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        # Vectorization queue foreign key constraint
+        add_constraint_if_not_exists('fk_vectorization_queue_tenant_id', 'vectorization_queue', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         add_constraint_if_not_exists('fk_ai_learning_memories_tenant_id', 'ai_learning_memories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         add_constraint_if_not_exists('fk_ai_predictions_tenant_id', 'ai_predictions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         add_constraint_if_not_exists('fk_ai_performance_metrics_tenant_id', 'ai_performance_metrics', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
@@ -1153,6 +1188,13 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
 
+        # Vectorization queue table indexes (optimized for queue processing)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_processing ON vectorization_queue(status, tenant_id, created_at);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_tenant_status ON vectorization_queue(tenant_id, status);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_table_external ON vectorization_queue(table_name, external_id, tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_error_tracking ON vectorization_queue(status, last_error_at) WHERE status = 'failed';")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_completed_cleanup ON vectorization_queue(completed_at) WHERE status = 'completed';")
+
         print("✅ All indexes and constraints created successfully!")
 
         # Record this migration as applied
@@ -1203,7 +1245,8 @@ def rollback(connection):
             'ai_usage_trackings',  # Added missing AI table
             'ml_anomaly_alerts',
 
-            # Vector and reference tables (no dependencies)
+            # Vector and queue tables (no dependencies)
+            'vectorization_queue',  # Async vectorization queue
             'qdrant_vectors',  # Added missing vector table
 
             # Configuration and color tables

@@ -20,6 +20,51 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+@router.post("/system/login", response_model=LoginResponse)
+async def system_login(login_request: LoginRequest, request: Request):
+    """
+    System user login endpoint for automated services (ETL, etc.).
+    Only allows authentication for users with auth_provider='system'.
+    """
+    logger.info(f"🔐 System login attempt for email: {login_request.email}")
+
+    try:
+        # Get client info from request
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", "ETL-Service")
+
+        # Authenticate system user directly (bypass centralized auth)
+        auth_service = get_auth_service()
+        auth_result = await auth_service.authenticate_system(
+            login_request.email,
+            login_request.password,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        if auth_result:
+            logger.info(f"✅ System authentication successful for: {login_request.email}")
+            return LoginResponse(
+                token=auth_result["token"],
+                user=auth_result["user"]
+            )
+        else:
+            logger.warning(f"❌ System authentication failed for: {login_request.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid system credentials"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"System login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="System authentication failed"
+        )
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(login_request: LoginRequest, request: Request):
     """

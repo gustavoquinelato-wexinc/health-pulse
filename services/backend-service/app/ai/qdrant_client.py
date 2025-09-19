@@ -55,6 +55,11 @@ class PulseQdrantClient:
                 port=self.port,
                 timeout=self.timeout
             )
+
+            # Reduce HTTP request logging verbosity
+            import logging
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("qdrant_client").setLevel(logging.WARNING)
             
             # Test connection
             collections = await asyncio.get_event_loop().run_in_executor(
@@ -71,6 +76,51 @@ class PulseQdrantClient:
         except Exception as e:
             logger.error(f"Failed to connect to Qdrant: {e}")
             return False
+
+    async def ensure_collection_exists(self, collection_name: str, vector_size: int = 1536,
+                                     distance_metric: str = "Cosine") -> VectorOperationResult:
+        """Ensure collection exists, create if it doesn't"""
+        if not self.connected:
+            return VectorOperationResult(
+                success=False,
+                operation="ensure_collection",
+                count=0,
+                processing_time=0.0,
+                error="Not connected to Qdrant"
+            )
+
+        try:
+            start_time = time.time()
+
+            # Check if collection exists
+            try:
+                collection_info = await asyncio.to_thread(
+                    self.client.get_collection, collection_name
+                )
+                # Collection exists, return success
+                return VectorOperationResult(
+                    success=True,
+                    operation="ensure_collection",
+                    count=0,
+                    processing_time=time.time() - start_time,
+                    error=None
+                )
+            except Exception:
+                # Collection doesn't exist, create it
+                pass
+
+            # Create the collection
+            return await self.create_collection(collection_name, vector_size, distance_metric)
+
+        except Exception as e:
+            logger.error(f"Error ensuring collection {collection_name}: {e}")
+            return VectorOperationResult(
+                success=False,
+                operation="ensure_collection",
+                count=0,
+                processing_time=time.time() - start_time if 'start_time' in locals() else 0.0,
+                error=str(e)
+            )
 
     async def create_collection(self, collection_name: str, vector_size: int = 1536,
                               distance_metric: str = "Cosine") -> VectorOperationResult:
@@ -137,9 +187,16 @@ class PulseQdrantClient:
                 error=str(e)
             )
 
-    async def upsert_vectors(self, collection_name: str, vectors: List[List[float]],
-                           payloads: List[Dict[str, Any]], ids: Optional[List[str]] = None) -> VectorOperationResult:
-        """Upsert vectors with batch processing"""
+    async def upsert_vectors(self, collection_name: str, vectors: Union[List[List[float]], List[Dict[str, Any]]],
+                           payloads: Optional[List[Dict[str, Any]]] = None, ids: Optional[List[str]] = None) -> VectorOperationResult:
+        """Upsert vectors with batch processing
+
+        Args:
+            collection_name: Name of the collection
+            vectors: Either list of vector arrays OR list of dicts with 'id', 'vector', 'payload' keys
+            payloads: List of payload dicts (only used if vectors is list of arrays)
+            ids: List of point IDs (only used if vectors is list of arrays)
+        """
         if not self.connected:
             return VectorOperationResult(
                 success=False,
@@ -149,33 +206,54 @@ class PulseQdrantClient:
                 error="Not connected to Qdrant"
             )
 
-        if not vectors or len(vectors) != len(payloads):
+        if not vectors:
             return VectorOperationResult(
                 success=False,
                 operation="upsert_vectors",
                 count=0,
                 processing_time=0.0,
-                error="Vectors and payloads must have same length"
+                error="No vectors provided"
             )
 
         start_time = time.time()
-        
+
         try:
             from qdrant_client.http import models
-            
-            # Generate IDs if not provided
-            if ids is None:
-                ids = [str(uuid.uuid4()) for _ in vectors]
-            
-            # Create points
-            points = [
-                models.PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload=payload
-                )
-                for point_id, vector, payload in zip(ids, vectors, payloads)
-            ]
+
+            # Handle two different input formats
+            if isinstance(vectors[0], dict):
+                # New format: list of dicts with 'id', 'vector', 'payload' keys
+                points = []
+                for vector_dict in vectors:
+                    points.append(models.PointStruct(
+                        id=vector_dict['id'],
+                        vector=vector_dict['vector'],
+                        payload=vector_dict['payload']
+                    ))
+            else:
+                # Old format: separate vectors, payloads, ids lists
+                if payloads is None or len(vectors) != len(payloads):
+                    return VectorOperationResult(
+                        success=False,
+                        operation="upsert_vectors",
+                        count=0,
+                        processing_time=0.0,
+                        error="Vectors and payloads must have same length"
+                    )
+
+                # Generate IDs if not provided
+                if ids is None:
+                    ids = [str(uuid.uuid4()) for _ in vectors]
+
+                # Create points
+                points = [
+                    models.PointStruct(
+                        id=point_id,
+                        vector=vector,
+                        payload=payload
+                    )
+                    for point_id, vector, payload in zip(ids, vectors, payloads)
+                ]
             
             # Upsert in batches for performance
             batch_size = 100
@@ -309,3 +387,79 @@ class PulseQdrantClient:
                 "error": str(e),
                 "last_check": time.time()
             }
+
+    async def list_collections(self) -> Dict[str, Any]:
+        """List all collections in Qdrant"""
+        try:
+            if not await self.initialize():
+                return {"collections": [], "error": "Failed to connect to Qdrant"}
+
+            collections = self.client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+
+            return {
+                "collections": collection_names,
+                "count": len(collection_names)
+            }
+
+        except Exception as e:
+            logger.error(f"Error listing Qdrant collections: {e}")
+            return {"collections": [], "error": str(e)}
+
+    async def delete_collection(self, collection_name: str) -> bool:
+        """Delete a specific collection from Qdrant"""
+        try:
+            if not await self.initialize():
+                logger.error("Failed to connect to Qdrant for collection deletion")
+                return False
+
+            # Check if collection exists first
+            collections = self.client.get_collections()
+            existing_collections = [col.name for col in collections.collections]
+
+            if collection_name not in existing_collections:
+                logger.warning(f"Collection {collection_name} does not exist in Qdrant")
+                return True  # Consider it successful if it doesn't exist
+
+            # Delete the collection
+            result = self.client.delete_collection(collection_name)
+            logger.info(f"Successfully deleted Qdrant collection: {collection_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error deleting Qdrant collection {collection_name}: {e}")
+            return False
+
+    async def delete_all_collections(self) -> Dict[str, Any]:
+        """Delete ALL collections from Qdrant (DANGEROUS)"""
+        try:
+            if not await self.initialize():
+                return {"success": False, "error": "Failed to connect to Qdrant"}
+
+            # Get all collections
+            collections = self.client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+
+            deleted_collections = []
+            failed_deletions = []
+
+            # Delete each collection
+            for collection_name in collection_names:
+                try:
+                    self.client.delete_collection(collection_name)
+                    deleted_collections.append(collection_name)
+                    logger.info(f"Deleted collection: {collection_name}")
+                except Exception as e:
+                    failed_deletions.append({"collection": collection_name, "error": str(e)})
+                    logger.error(f"Failed to delete collection {collection_name}: {e}")
+
+            return {
+                "success": True,
+                "deleted_collections": deleted_collections,
+                "failed_deletions": failed_deletions,
+                "total_processed": len(collection_names)
+            }
+
+        except Exception as e:
+            logger.error(f"Error in delete_all_collections: {e}")
+            return {"success": False, "error": str(e)}

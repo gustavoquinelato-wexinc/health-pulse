@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     # Service URLs (no hardcoded URLs)
     BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
+
+    # System Authentication (for automated jobs)
+    SYSTEM_USER_EMAIL: str = Field(default="system@etl.pulse.local", env="SYSTEM_USER_EMAIL")
+    SYSTEM_USER_PASSWORD: str = Field(default="etl_system_secure_2024", env="SYSTEM_USER_PASSWORD")
     
     # PostgreSQL Configuration
     POSTGRES_HOST: str
