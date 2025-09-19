@@ -54,7 +54,7 @@
             </a>
         </div>
 
-        <!-- Qdrant Analysis -->
+        <!-- Qdrant Database -->
         <div class="relative" id="qdrant-menu">
             <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/qdrant') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
                     href="/qdrant-analysis"
@@ -132,10 +132,10 @@
      onmouseenter="keepSubmenuOpen()"
      onmouseleave="hideSubmenu()">
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
-        Qdrant Analysis
+        Qdrant Database
     </div>
-    <a href="/qdrant-analysis" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/qdrant-analysis' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/qdrant-analysis' %}style="background: var(--gradient-1-2);"{% endif %}>
+    <a href="/qdrant-analysis" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'nav-item-active text-white shadow-sm' if current_path == '/qdrant-analysis' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/qdrant-analysis' %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
         <i data-lucide="bar-chart-3" class="w-4 h-4 mr-2"></i>
         Dashboard
     </a>
