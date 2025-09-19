@@ -1480,9 +1480,14 @@ async def workflows_page(request: Request):
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/qdrant-analysis", response_class=HTMLResponse)
-async def qdrant_analysis_page(request: Request):
-    """Serve Qdrant analysis page for vector database management and validation"""
+@router.get("/qdrant-analysis")
+async def qdrant_analysis_redirect(request: Request):
+    """Redirect old Qdrant analysis route to new Qdrant database route"""
+    return RedirectResponse(url="/qdrant-database", status_code=301)
+
+@router.get("/qdrant-database", response_class=HTMLResponse)
+async def qdrant_database_page(request: Request):
+    """Serve Qdrant database page for vector database management and validation"""
     try:
         # Get user from token (middleware ensures we're authenticated)
         token = request.cookies.get("pulse_token")
@@ -1514,7 +1519,7 @@ async def qdrant_analysis_page(request: Request):
             "color_schema": color_schema,
             "tenant_logo": tenant_info.get("tenant_logo", ""),
             "tenant_name": tenant_info.get("tenant_name", ""),
-            "current_path": "/qdrant-analysis",
+            "current_path": "/qdrant-database",
             "embedded": False  # Add missing embedded variable
         }
 
