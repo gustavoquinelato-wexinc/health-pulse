@@ -24,7 +24,7 @@ type: "manual"
 
 ### **Step 3: Task List Population**
 - Use `add_tasks` to create the task hierarchy
-- Set appropriate task states (NOT_STARTED for new tasks)
+- Set appropriate task states (NOT_STARTED, IN_PROGRESS, COMPLETE)ARTED for new tasks)
 - Establish proper parent-child relationships for subtasks
 - Organize tasks in logical execution order
 

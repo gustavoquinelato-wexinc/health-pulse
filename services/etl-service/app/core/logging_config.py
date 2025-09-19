@@ -233,7 +233,7 @@ def setup_logging(force_reconfigure=False):
         client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
         log_filename = f"logs/etl_service_{client_name}.log"
 
-        file_handler = AnsiCleaningFileHandler(log_filename)
+        file_handler = AnsiCleaningFileHandler(log_filename, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
         file_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',

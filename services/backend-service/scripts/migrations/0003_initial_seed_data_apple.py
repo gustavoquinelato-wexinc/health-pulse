@@ -903,25 +903,25 @@ def apply(connection):
             {
                 "job_name": "GitHub",
                 "execution_order": 2,
-                "status": "NOT_STARTED",
+                "status": "READY",
                 "integration_id": github_integration_id
             },
             {
                 "job_name": "WEX Fabric",
                 "execution_order": 3,
-                "status": "NOT_STARTED",
+                "status": "READY",
                 "integration_id": fabric_integration_id
             },
             {
                 "job_name": "WEX AD",
                 "execution_order": 4,
-                "status": "NOT_STARTED",
+                "status": "READY",
                 "integration_id": ad_integration_id
             },
             {
                 "job_name": "Vectorization",
                 "execution_order": 5,
-                "status": "NOT_STARTED",
+                "status": "READY",
                 "integration_id": internal_integration_id  # Use internal integration for system jobs
             }
         ]

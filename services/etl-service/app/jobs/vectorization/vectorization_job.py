@@ -75,17 +75,17 @@ class VectorizationJobProcessor:
             processing_result = await self._process_queue_with_progress(job_schedule.tenant_id, queue_stats['pending'], TOTAL_STEPS)
 
             if processing_result['success']:
-                logger.info(f"Vectorization processing completed successfully")
+                logger.info(f"Vectorization processing triggered successfully - backend will send progress via webhooks")
 
-                # Step 4: Final completion (100%)
+                # Step 4: Trigger completion (75% → 100% will be handled by webhooks)
                 await websocket_manager.send_step_progress_update("Vectorization", 3, TOTAL_STEPS, None,
-                    f"[COMPLETE] Vectorization job completed successfully")
+                    f"[TRIGGERED] Backend processing started - progress updates via webhooks")
 
                 return {
                     'status': 'success',
-                    'message': f"Vectorization job completed successfully",
-                    'items_processed': processing_result['items_processed'],
-                    'items_failed': processing_result.get('items_failed', 0),
+                    'message': f"Vectorization processing triggered - backend will send real-time updates via webhooks",
+                    'webhook_enabled': True,
+                    'backend_triggered': True,
                     'queue_stats': queue_stats,
                     'processing_details': processing_result
                 }
@@ -159,8 +159,8 @@ class VectorizationJobProcessor:
 
     async def _process_queue_with_progress(self, tenant_id: int, total_items: int, total_steps: int = 4) -> Dict[str, Any]:
         """
-        Process the vectorization queue with real-time progress updates.
-        Starts backend processing and polls for completion.
+        Process the vectorization queue with event-driven progress updates.
+        Triggers backend processing and waits for webhook completion notifications.
 
         Args:
             tenant_id: Tenant ID for processing
@@ -204,58 +204,17 @@ class VectorizationJobProcessor:
                 result = response.json()
                 logger.info(f"Backend processing started: {result}")
 
-                # Step 3: Processing Start (50% → 75%)
-                await websocket_manager.send_step_progress_update("Vectorization", 2, total_steps, 0.0, "[WAITING] Backend processing started - waiting for completion...")
+                # Step 3: Processing Started (50% → 75%)
+                await websocket_manager.send_step_progress_update("Vectorization", 2, total_steps, 0.0, "[TRIGGERED] Backend processing started - waiting for completion...")
 
-                # Wait for backend processing to complete (with timeout)
-                max_wait_time = 1800  # 30 minutes
-                wait_interval = 10    # Check every 10 seconds (much less frequent than before)
-                elapsed_time = 0
+                # Backend will now send real-time progress updates via webhooks
+                # Wait for completion by monitoring the database job status
+                logger.info(f"✅ Backend vectorization triggered successfully - waiting for completion")
 
-                stats_url = f"{self.backend_base_url}/api/v1/vectorization/queue-stats"
+                # Step 4: Wait for completion (75% → 100%)
+                completion_result = await self._wait_for_backend_completion(session, job_schedule.tenant_id, total_steps)
 
-                while elapsed_time < max_wait_time:
-                    await asyncio.sleep(wait_interval)
-                    elapsed_time += wait_interval
-
-                    try:
-                        # Check if processing is complete (minimal polling, just for completion detection)
-                        stats_response = await client.get(stats_url, headers=headers)
-                        if stats_response.status_code == 200:
-                            stats = stats_response.json()
-                            pending = stats.get('pending', 0)
-                            processing = stats.get('processing', 0)
-                            completed = stats.get('completed', 0)
-                            failed = stats.get('failed', 0)
-
-                            # Check if processing is complete
-                            if pending == 0 and processing == 0:
-                                logger.info(f"Vectorization processing completed: {completed} completed, {failed} failed")
-                                await websocket_manager.send_progress_update("Vectorization", 100.0,
-                                    f"[COMPLETE] Processing finished: {completed} completed, {failed} failed")
-                                return {
-                                    'success': True,
-                                    'response': result,
-                                    'status_code': response.status_code,
-                                    'items_processed': completed,
-                                    'items_failed': failed,
-                                    'final_stats': stats
-                                }
-
-                        else:
-                            logger.warning(f"Failed to get queue stats: {stats_response.status_code}")
-
-                    except Exception as e:
-                        logger.warning(f"Error polling queue stats: {e}")
-
-                # Timeout reached
-                logger.error(f"Vectorization processing timed out after {max_wait_time} seconds")
-                return {
-                    'success': False,
-                    'error': f"Processing timed out after {max_wait_time} seconds",
-                    'items_processed': 0,
-                    'items_failed': total_items
-                }
+                return completion_result
 
         except Exception as e:
             logger.error(f"Failed to process queue with progress: {e}")
@@ -284,6 +243,68 @@ class VectorizationJobProcessor:
         except Exception as e:
             logger.error(f"Failed to get system auth token: {e}")
             return None
+
+    async def _wait_for_backend_completion(self, session, tenant_id: int, total_steps: int) -> Dict[str, Any]:
+        """
+        Wait for backend vectorization to complete using webhook completion signals.
+        The backend will send a completion webhook when 100% done, which is more reliable
+        than polling the queue status due to cleanup race conditions.
+        """
+        from app.core.websocket_manager import get_websocket_manager
+        from app.core.completion_signals import wait_for_vectorization_completion, clear_vectorization_completion_signal
+        websocket_manager = get_websocket_manager()
+
+        max_wait_time = 1800  # 30 minutes maximum
+
+        logger.info(f"Waiting for backend vectorization completion signal (max {max_wait_time}s)")
+
+        try:
+            # Wait for completion signal from webhook
+            completion_data = await wait_for_vectorization_completion(tenant_id, max_wait_time)
+
+            if completion_data:
+                # Backend completed successfully
+                await websocket_manager.send_step_progress_update("Vectorization", 3, total_steps, None, "[COMPLETE] Backend vectorization completed successfully")
+                logger.info(f"✅ Backend vectorization completed - received completion signal")
+
+                # Clean up the completion signal
+                clear_vectorization_completion_signal(tenant_id)
+
+                return {
+                    'success': True,
+                    'message': f'Vectorization completed successfully - {completion_data.get("items_processed", 0)} items processed',
+                    'items_processed': completion_data.get('items_processed', 0),
+                    'items_failed': completion_data.get('items_failed', 0),
+                    'completion_data': completion_data
+                }
+            else:
+                # Timeout or error
+                logger.error(f"Vectorization timeout after {max_wait_time}s - no completion signal received")
+                await websocket_manager.send_step_progress_update("Vectorization", 3, total_steps, None, "[TIMEOUT] Vectorization timed out - check backend logs")
+
+                # Clean up the completion signal
+                clear_vectorization_completion_signal(tenant_id)
+
+                return {
+                    'success': False,
+                    'error': f'Vectorization timed out after {max_wait_time} seconds - no completion signal received',
+                    'items_processed': 0,
+                    'items_failed': 0
+                }
+
+        except Exception as e:
+            logger.error(f"Error waiting for vectorization completion: {e}")
+            await websocket_manager.send_step_progress_update("Vectorization", 3, total_steps, None, f"[ERROR] Vectorization failed: {str(e)}")
+
+            # Clean up the completion signal
+            clear_vectorization_completion_signal(tenant_id)
+
+            return {
+                'success': False,
+                'error': f'Vectorization failed: {str(e)}',
+                'items_processed': 0,
+                'items_failed': 0
+            }
 
 
 # Main job execution function

@@ -12,7 +12,7 @@ The orchestrator runs on a schedule and:
 4. Exits (passive job manages its own completion)
 
 Job Status Flow:
-- NOT_STARTED: Job has never run (ignored by orchestrator)
+- READY: Job has never run (ignored by orchestrator)
 - PENDING: Job is ready to run (picked up by orchestrator)
 - RUNNING: Job is currently executing (locked)
 - FINISHED: Job completed successfully
@@ -279,7 +279,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
 
     Args:
         force_manual: If True, forces correct job states for manual execution
-                     (jira_sync=PENDING, github_sync=NOT_STARTED).
+                     (jira_sync=PENDING, github_sync=READY).
                      If False, uses normal orchestrator logic.
         execution_params: Optional execution parameters for the job
         tenant_id: Tenant ID to trigger job for (required for client isolation)
@@ -332,10 +332,10 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
             if force_manual:
                 # Force correct job states for manual Jira execution:
                 # - jira_sync = PENDING (ready to run)
-                # - github_sync = NOT_STARTED (will be set to PENDING when Jira finishes)
+                # - github_sync = READY (will be set to PENDING when Jira finishes)
                 jira_job.status = 'PENDING'
                 jira_job.error_message = None
-                github_job.status = 'NOT_STARTED'
+                github_job.status = 'READY'
                 github_job.error_message = None
                 session.commit()
 
@@ -346,7 +346,7 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
 
                 logger.info(f"TRIGGERED: jira_sync job (ID: {jira_job.id}) - MANUAL MODE - forced job states")
                 logger.info(f"   - jira_sync: PENDING")
-                logger.info(f"   - github_sync: NOT_STARTED")
+                logger.info(f"   - github_sync: READY")
             else:
                 # Normal mode: just set jira_sync to PENDING (for API/regular triggers)
                 jira_job.status = 'PENDING'
@@ -603,7 +603,7 @@ async def run_orchestrator_for_client(tenant_id: int):
         pending_job_name = None
 
         with database.get_session() as session:
-            # SECURITY: Find first pending job by execution_order filtered by tenant_id
+            # SECURITY: First look for PENDING jobs by execution_order filtered by tenant_id
             result = session.query(
                 JobSchedule.id,
                 JobSchedule.job_name
@@ -613,20 +613,35 @@ async def run_orchestrator_for_client(tenant_id: int):
                 JobSchedule.status == 'PENDING'
             ).order_by(JobSchedule.execution_order.asc()).first()
 
-            if not result:
-                logger.info(f"INFO: No PENDING jobs found for client {tenant_id}")
-                return
+            if result:
+                pending_job_id, pending_job_name = result.id, result.job_name
+                logger.info(f"FOUND: PENDING job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id})")
+            else:
+                # No PENDING jobs found - look for READY jobs
+                logger.info(f"INFO: No PENDING jobs found for client {tenant_id} - checking for READY jobs")
+                result = session.query(
+                    JobSchedule.id,
+                    JobSchedule.job_name
+                ).filter(
+                    JobSchedule.tenant_id == tenant_id,
+                    JobSchedule.active == True,
+                    JobSchedule.status == 'READY'
+                ).order_by(JobSchedule.execution_order.asc()).first()
 
-            pending_job_id, pending_job_name = result.id, result.job_name
-            logger.info(f"FOUND: PENDING job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id})")
+                if not result:
+                    logger.info(f"INFO: No READY jobs found for client {tenant_id} - no jobs to run")
+                    return
+
+                pending_job_id, pending_job_name = result.id, result.job_name
+                logger.info(f"FOUND: READY job for client {tenant_id}: {pending_job_name} (ID: {pending_job_id}) - will start from beginning")
 
         # Step 2: Quick atomic update to lock the job (separate short session)
         with database.get_session() as session:
-            # SECURITY: Atomic update with tenant_id verification
+            # SECURITY: Atomic update with tenant_id verification (handles both PENDING and READY)
             updated_rows = session.query(JobSchedule).filter(
                 JobSchedule.id == pending_job_id,
                 JobSchedule.tenant_id == tenant_id,  # Verify tenant_id
-                JobSchedule.status == 'PENDING'  # Double-check it's still pending
+                JobSchedule.status.in_(['PENDING', 'READY'])  # Accept both statuses
             ).update({
                 'status': 'RUNNING',
                 'last_run_started_at': DateTimeHelper.now_default(),
@@ -1094,7 +1109,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                 }
 
             if force_manual:
-                # Set fabric job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
+                # Set fabric job to PENDING, preserve PAUSED jobs, reset others to READY
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1105,7 +1120,7 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
                         job.status = 'PENDING'
                         job.error_message = None
                     elif job.status != 'PAUSED':  # Preserve PAUSED jobs
-                        job.status = 'NOT_STARTED'
+                        job.status = 'READY'
                         job.error_message = None
 
                 session.commit()
@@ -1268,7 +1283,7 @@ def initialize_job_schedules_for_client(tenant_id: int):
 
             github_job = JobSchedule(
                 job_name='GitHub',
-                status='NOT_STARTED',  # Start with GitHub not started (prevents wrong execution)
+                status='READY',  # Start with GitHub ready (prevents wrong execution)
                 integration_id=github_integration.id if github_integration else None,
                 tenant_id=tenant_id  # SECURITY: Use provided tenant_id
             )
@@ -1279,7 +1294,7 @@ def initialize_job_schedules_for_client(tenant_id: int):
 
             logger.info(f"SUCCESS: Job schedules initialized successfully for client {tenant_id}")
             logger.info("   - Jira: PENDING (ready to run first)")
-            logger.info("   - GitHub: NOT_STARTED (will be set to PENDING when Jira finishes)")
+            logger.info("   - GitHub: READY (will be set to PENDING when Jira finishes)")
 
             return True
             
@@ -1368,11 +1383,29 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                 # Mark current job as finished
                 job_schedule.set_finished()
                 logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
+
+                # Send WebSocket completion update
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "Vectorization",
+                    "FINISHED",
+                    {"message": "Vectorization job completed successfully"}
+                )
             else:
                 # Mark job as failed using set_pending_with_checkpoint
                 error_msg = result.get('message', 'Unknown error')
                 job_schedule.set_pending_with_checkpoint(error_msg)
                 logger.error(f"Vectorization job failed: {error_msg}")
+
+                # Send WebSocket failure update
+                from app.core.websocket_manager import get_websocket_manager
+                websocket_manager = get_websocket_manager()
+                await websocket_manager.send_status_update(
+                    "Vectorization",
+                    "FAILED",
+                    {"message": f"Vectorization job failed: {error_msg}"}
+                )
 
             # Find next ready job (skips paused jobs)
             next_job = find_next_ready_job(session, tenant_id, current_order)
@@ -1466,7 +1499,7 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
                 }
 
             if force_manual:
-                # Set vectorization job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
+                # Set vectorization job to PENDING, preserve PAUSED jobs, reset others to READY
                 all_jobs = session.query(JobSchedule).filter(
                     JobSchedule.tenant_id == tenant_id,
                     JobSchedule.active == True
@@ -1477,7 +1510,7 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
                         job.status = 'PENDING'
                         job.error_message = None
                     elif job.status != 'PAUSED':  # Preserve PAUSED jobs
-                        job.status = 'NOT_STARTED'
+                        job.status = 'READY'
                         job.error_message = None
 
                 session.commit()

@@ -839,7 +839,8 @@ async def get_status_mappings(
                 StatusMapping,
                 Workflow.step_name.label('workflow_step_name'),
                 Workflow.step_number.label('step_number'),
-                Integration.provider.label('integration_name')
+                Integration.provider.label('integration_name'),
+                Integration.logo_filename.label('integration_logo')
             ).outerjoin(
                 Workflow, StatusMapping.workflow_id == Workflow.id
             ).outerjoin(
@@ -859,6 +860,7 @@ async def get_status_mappings(
                     "step_number": mapping.step_number,
                     "integration_name": mapping.integration_name,
                     "integration_id": mapping.StatusMapping.integration_id,
+                    "integration_logo": mapping.integration_logo,
                     "active": mapping.StatusMapping.active
                 }
                 for mapping in status_mappings
@@ -1308,7 +1310,8 @@ async def get_workflows(
 
             workflows = session.query(
                 Workflow,
-                Integration.provider.label('integration_name')
+                Integration.provider.label('integration_name'),
+                Integration.logo_filename.label('integration_logo')
             ).outerjoin(
                 Integration, Workflow.integration_id == Integration.id
             ).filter(
@@ -1324,6 +1327,7 @@ async def get_workflows(
                     "is_commitment_point": workflow.Workflow.is_commitment_point,
                     "integration_name": workflow.integration_name,
                     "integration_id": workflow.Workflow.integration_id,
+                    "integration_logo": workflow.integration_logo,
                     "active": workflow.Workflow.active,
                     "created_at": workflow.Workflow.created_at,
                     "last_updated_at": workflow.Workflow.last_updated_at
@@ -2172,7 +2176,8 @@ async def get_wit_mappings(
                 WitHierarchy.level_name.label('hierarchy_name'),
                 WitHierarchy.level_number.label('hierarchy_level'),
                 WitHierarchy.description.label('hierarchy_description'),
-                Integration.provider.label('integration_name')
+                Integration.provider.label('integration_name'),
+                Integration.logo_filename.label('integration_logo')
             ).join(
                 WitHierarchy, WitMapping.wits_hierarchy_id == WitHierarchy.id
             ).outerjoin(
@@ -2189,12 +2194,13 @@ async def get_wit_mappings(
                     "id": mapping.WitMapping.id,
                     "wit_from": mapping.WitMapping.wit_from,
                     "wit_to": mapping.WitMapping.wit_to,
-                    "hierarchy_level": mapping.hierarchy_level,
+                    "hierarchy_level": mapping.hierarchy_level if mapping.hierarchy_level is not None else 0,
                     "hierarchy_name": mapping.hierarchy_name,
                     "hierarchy_description": mapping.hierarchy_description,
                     "wits_hierarchy_id": mapping.WitMapping.wits_hierarchy_id,
                     "integration_name": mapping.integration_name,
                     "integration_id": mapping.WitMapping.integration_id,
+                    "integration_logo": mapping.integration_logo,
                     "active": mapping.WitMapping.active
                 }
                 for mapping in issuetype_mappings
@@ -2712,7 +2718,8 @@ async def get_wits_hierarchies(user: UserData = Depends(require_web_admin_authen
 
             hierarchies = session.query(
                 WitHierarchy,
-                Integration.provider.label('integration_name')
+                Integration.provider.label('integration_name'),
+                Integration.logo_filename.label('integration_logo')
             ).outerjoin(
                 Integration, WitHierarchy.integration_id == Integration.id
             ).filter(
@@ -2727,6 +2734,7 @@ async def get_wits_hierarchies(user: UserData = Depends(require_web_admin_authen
                     "description": hierarchy.WitHierarchy.description,
                     "integration_name": hierarchy.integration_name,
                     "integration_id": hierarchy.WitHierarchy.integration_id,
+                    "integration_logo": hierarchy.integration_logo,
                     "active": hierarchy.WitHierarchy.active
                 }
                 for hierarchy in hierarchies

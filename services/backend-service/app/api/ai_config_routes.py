@@ -1269,6 +1269,32 @@ async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size
                 VectorizationQueue.tenant_id == tenant_id
             ).count()
 
+            # Check for stuck "processing" items and reset them to "pending" for retry
+            stuck_processing_items = session.query(VectorizationQueue).filter(
+                VectorizationQueue.status == 'processing',
+                VectorizationQueue.tenant_id == tenant_id
+            ).count()
+
+            if stuck_processing_items > 0:
+                logger.warning(f"[QUEUE_PROCESSOR] Found {stuck_processing_items} stuck 'processing' items - resetting to 'pending' for retry")
+                session.query(VectorizationQueue).filter(
+                    VectorizationQueue.status == 'processing',
+                    VectorizationQueue.tenant_id == tenant_id
+                ).update({
+                    'status': 'pending',
+                    'started_at': None,
+                    'error_message': 'Reset from stuck processing status'
+                })
+                session.commit()
+
+                # Recalculate pending count after reset
+                pending_queue_items = session.query(VectorizationQueue).filter(
+                    VectorizationQueue.status == 'pending',
+                    VectorizationQueue.tenant_id == tenant_id
+                ).count()
+
+                logger.info(f"[QUEUE_PROCESSOR] After reset: {pending_queue_items} pending items")
+
             logger.info(f"[QUEUE_PROCESSOR] Queue status for tenant {tenant_id}: {pending_queue_items} pending, {total_queue_items} total")
 
             if pending_queue_items == 0:
@@ -1314,7 +1340,10 @@ async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size
                 if total_processed % progress_batch_size == 0 or len(pending_items) < processing_batch_size:
                     progress_percentage = min(95, (total_processed / pending_queue_items) * 100)
                     status_msg = f"Processed {total_processed}/{pending_queue_items}: {total_successful} successful, {total_failed} failed"
-                    await send_vectorization_progress(tenant_id, progress_percentage, status_msg)
+                    await send_vectorization_progress(
+                        tenant_id, progress_percentage, status_msg,
+                        items_processed=total_successful, items_failed=total_failed, total_items=pending_queue_items
+                    )
 
                 # Small delay to prevent overwhelming the system
                 import asyncio
@@ -1325,7 +1354,10 @@ async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size
 
             # Send completion notification with summary
             completion_msg = f"Vectorization complete: {total_successful} successful, {total_failed} failed ({total_processed} total)"
-            await send_vectorization_progress(tenant_id, 95, completion_msg)
+            await send_vectorization_progress(
+                tenant_id, 95, completion_msg,
+                items_processed=total_successful, items_failed=total_failed, total_items=pending_queue_items
+            )
 
             # Clean up completed records immediately after processing
             logger.info(f"[QUEUE_PROCESSOR] Starting cleanup of completed records for tenant {tenant_id}")
@@ -1335,7 +1367,10 @@ async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size
             cleanup_msg = f"Cleanup complete: {cleanup_result['deleted_count']} completed records removed"
             logger.info(f"[QUEUE_PROCESSOR] {cleanup_msg}")
 
-            await send_vectorization_progress(tenant_id, 100, f"{completion_msg}. {cleanup_msg}")
+            await send_vectorization_progress(
+                tenant_id, 100, f"{completion_msg}. {cleanup_msg}",
+                items_processed=total_successful, items_failed=total_failed, total_items=pending_queue_items
+            )
 
     except Exception as e:
         logger.error(f"[QUEUE_PROCESSOR] Error processing vectorization queue for tenant {tenant_id}: {e}")
@@ -1398,6 +1433,20 @@ async def get_internal_ids_for_table(session, table_name: str, external_ids: lis
             results = session.query(Wit.id, Wit.external_id).filter(
                 Wit.external_id.in_(external_ids)
             ).all()
+        elif table_name == 'wits_prs_links':
+            # For wits_prs_links, the external_id is actually the internal database ID
+            # This is the only exception to the external ID rule
+            from app.models.unified_models import WitPrLinks
+            results = session.query(WitPrLinks.id, WitPrLinks.id).filter(
+                WitPrLinks.id.in_([int(eid) for eid in external_ids if eid.isdigit()])
+            ).all()
+        elif table_name == 'repositories':
+            from app.models.unified_models import Repository
+            # Convert external_ids to strings since repositories.external_id is VARCHAR
+            string_external_ids = [str(eid) for eid in external_ids]
+            results = session.query(Repository.id, Repository.external_id).filter(
+                Repository.external_id.in_(string_external_ids)
+            ).all()
         else:
             logger.warning(f"Unknown table name for ID mapping: {table_name}")
             return mappings
@@ -1419,13 +1468,23 @@ async def process_vectorization_batch(session, batch_items):
     try:
         from datetime import datetime
 
+        logger.info(f"[QUEUE_PROCESSOR] ===== STARTING BATCH PROCESSING =====")
+        logger.info(f"[QUEUE_PROCESSOR] Batch size: {len(batch_items)} items")
+
+        # Log each item in the batch
+        for i, item in enumerate(batch_items):
+            logger.info(f"[QUEUE_PROCESSOR] Item {i+1}: ID={item.id}, Table={item.table_name}, External_ID={item.external_id}, Status={item.status}")
+
         # Mark as processing
+        logger.info(f"[QUEUE_PROCESSOR] STEP 1: Marking {len(batch_items)} items as processing...")
         for item in batch_items:
             item.status = 'processing'
             item.started_at = datetime.utcnow()
         session.commit()
+        logger.info(f"[QUEUE_PROCESSOR] STEP 1: ✅ Successfully marked items as processing")
 
         # Group items by table for efficient joining
+        logger.info(f"[QUEUE_PROCESSOR] STEP 2: Grouping items by table...")
         items_by_table = {}
         for item in batch_items:
             table_name = item.table_name
@@ -1433,17 +1492,28 @@ async def process_vectorization_batch(session, batch_items):
                 items_by_table[table_name] = []
             items_by_table[table_name].append(item)
 
+        logger.info(f"[QUEUE_PROCESSOR] STEP 2: ✅ Grouped into {len(items_by_table)} table groups: {list(items_by_table.keys())}")
+
         # Prepare for bulk vectorization with internal IDs
+        logger.info(f"[QUEUE_PROCESSOR] STEP 3: Preparing entities for vectorization...")
         entities_to_vectorize = []
 
         # Process each table group
         for table_name, table_items in items_by_table.items():
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: Processing {len(table_items)} items from table '{table_name}'")
             external_ids = [item.external_id for item in table_items]
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: External IDs: {external_ids}")
 
             # Get internal IDs by joining with actual tables
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: Looking up internal IDs...")
             internal_id_mappings = await get_internal_ids_for_table(session, table_name, external_ids)
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: Found {len(internal_id_mappings)} internal ID mappings: {internal_id_mappings}")
 
             # Create vectorization entities with internal IDs
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: Creating vectorization entities...")
+            entities_created = 0
+            entities_failed = 0
+
             for item in table_items:
                 internal_id = internal_id_mappings.get(item.external_id)
                 if internal_id:
@@ -1453,36 +1523,65 @@ async def process_vectorization_batch(session, batch_items):
                         "table_name": table_name,
                         "queue_item": item  # Reference for status updates
                     })
+                    entities_created += 1
+                    logger.debug(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: ✅ Created entity for external_id {item.external_id} -> internal_id {internal_id}")
                 else:
                     # Mark as failed if no internal ID found
+                    error_msg = f"No internal ID found for external_id {item.external_id} in table {table_name}"
                     item.status = 'failed'
-                    item.error_message = f"No internal ID found for external_id {item.external_id} in table {table_name}"
+                    item.error_message = error_msg
                     item.last_error_at = datetime.utcnow()
+                    entities_failed += 1
+                    logger.error(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: ❌ {error_msg}")
+
+            logger.info(f"[QUEUE_PROCESSOR] STEP 3.{table_name}: ✅ Created {entities_created} entities, {entities_failed} failed")
 
         # Only process entities that have valid internal IDs
+        logger.info(f"[QUEUE_PROCESSOR] STEP 4: Bulk vectorization...")
         if entities_to_vectorize:
+            logger.info(f"[QUEUE_PROCESSOR] STEP 4: Processing {len(entities_to_vectorize)} entities for vectorization")
+
+            # Log each entity being vectorized
+            for i, entity in enumerate(entities_to_vectorize):
+                logger.debug(f"[QUEUE_PROCESSOR] STEP 4: Entity {i+1}: table={entity['table_name']}, record_id={entity['record_id']}")
+
             # Bulk vectorize using existing function
+            logger.info(f"[QUEUE_PROCESSOR] STEP 4: Calling bulk_vectorize_entities_from_queue...")
             result = await bulk_vectorize_entities_from_queue(entities_to_vectorize, batch_items[0].tenant_id, session)
             vectors_stored = result.get("vectors_stored", 0)
             vectors_failed = result.get("vectors_failed", 0)
 
+            logger.info(f"[QUEUE_PROCESSOR] STEP 4: ✅ Vectorization result: {vectors_stored} stored, {vectors_failed} failed")
+            logger.info(f"[QUEUE_PROCESSOR] STEP 4: Full result: {result}")
+
             # Update status for successfully vectorized items
+            logger.info(f"[QUEUE_PROCESSOR] STEP 5: Updating queue item statuses...")
             for i, entity in enumerate(entities_to_vectorize):
                 queue_item = entity["queue_item"]
                 if i < vectors_stored:
                     queue_item.status = 'completed'
                     queue_item.completed_at = datetime.utcnow()
                     queue_item.error_message = None  # Clear any previous errors
+                    logger.info(f"[QUEUE_PROCESSOR] STEP 5: ✅ Marked item {queue_item.id} as completed")
                 else:
+                    error_details = result.get("error_details", result.get("error", "Unknown vectorization error"))
                     queue_item.status = 'failed'
-                    queue_item.error_message = result.get("error_details", "Vectorization processing failed")
+                    queue_item.error_message = f"Vectorization failed: {error_details}"
                     queue_item.last_error_at = datetime.utcnow()
+                    logger.error(f"[QUEUE_PROCESSOR] STEP 5: ❌ Marked item {queue_item.id} as failed: {error_details}")
+        else:
+            logger.warning(f"[QUEUE_PROCESSOR] STEP 4: ⚠️ No entities to vectorize (all failed internal ID lookup)")
 
         # Count final results
+        logger.info(f"[QUEUE_PROCESSOR] STEP 6: Counting final results...")
         successful_items = sum(1 for item in batch_items if item.status == 'completed')
         failed_items = sum(1 for item in batch_items if item.status == 'failed')
+        processing_items = sum(1 for item in batch_items if item.status == 'processing')
+
+        logger.info(f"[QUEUE_PROCESSOR] STEP 6: Final status counts - Completed: {successful_items}, Failed: {failed_items}, Still Processing: {processing_items}")
 
         session.commit()
+        logger.info(f"[QUEUE_PROCESSOR] STEP 6: ✅ Database changes committed")
 
         batch_result = {
             "vectors_stored": successful_items,
@@ -1490,18 +1589,25 @@ async def process_vectorization_batch(session, batch_items):
             "total_processed": len(batch_items)
         }
 
-        logger.info(f"[QUEUE_PROCESSOR] Processed batch: {successful_items} successful, {failed_items} failed")
+        logger.info(f"[QUEUE_PROCESSOR] ===== BATCH PROCESSING COMPLETE =====")
+        logger.info(f"[QUEUE_PROCESSOR] FINAL RESULT: {successful_items} successful, {failed_items} failed out of {len(batch_items)} total")
         return batch_result
 
     except Exception as e:
         # Mark batch as failed
+        logger.error(f"[QUEUE_PROCESSOR] ===== BATCH PROCESSING EXCEPTION =====")
+        logger.error(f"[QUEUE_PROCESSOR] Exception: {str(e)}")
+        import traceback
+        logger.error(f"[QUEUE_PROCESSOR] Full traceback: {traceback.format_exc()}")
+
+        logger.info(f"[QUEUE_PROCESSOR] Marking all {len(batch_items)} items as failed due to exception...")
         for item in batch_items:
             item.status = 'failed'
-            item.error_message = str(e)
+            item.error_message = f"Batch processing exception: {str(e)}"
             item.last_error_at = datetime.utcnow()
         session.commit()
 
-        logger.error(f"[QUEUE_PROCESSOR] Batch processing failed: {e}")
+        logger.error(f"[QUEUE_PROCESSOR] ❌ Batch processing failed with exception: {e}")
         return {
             "vectors_stored": 0,
             "vectors_failed": len(batch_items),
@@ -1683,35 +1789,49 @@ async def get_vector_database_stats(
         raise HTTPException(status_code=500, detail="Failed to fetch vector database statistics")
 
 
-async def send_vectorization_progress(tenant_id: int, percentage: float, message: str, job_name: str = None):
-    """Send vectorization progress update via websocket to ETL service"""
+async def send_vectorization_progress(tenant_id: int, percentage: float, message: str, job_name: str = None, items_processed: int = 0, items_failed: int = 0, total_items: int = 0):
+    """
+    Send vectorization progress update to ETL service via HTTP webhook.
+    This pushes real-time updates instead of requiring polling.
+    """
     try:
         import httpx
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        etl_service_url = settings.ETL_SERVICE_URL  # e.g., http://localhost:8000
+        from datetime import datetime
 
         # Always use "Vectorization" as job name for vectorization progress
-        # Don't try to detect the originating job - vectorization is its own job
         if not job_name:
             job_name = "Vectorization"
 
-        # Send progress update to ETL service websocket
+        # Prepare detailed progress payload
+        progress_payload = {
+            "job_name": job_name,
+            "tenant_id": tenant_id,
+            "percentage": percentage,
+            "message": message,
+            "items_processed": items_processed,
+            "items_failed": items_failed,
+            "total_items": total_items,
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "completed" if percentage >= 100 else "in_progress"
+        }
+
+        logger.info(f"[WEBHOOK] Sending progress update to ETL: {job_name} - {percentage}% - {message}")
+
+        # Send progress update to ETL service webhook endpoint
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{etl_service_url}/api/vectorization_progress",
-                json={
-                    "tenant_id": tenant_id,
-                    "job_name": job_name,
-                    "percentage": percentage,
-                    "message": f"[VECTORIZATION] {message}"
-                },
-                timeout=2.0  # Short timeout - non-critical
+                "http://localhost:8000/api/v1/webhooks/vectorization-progress",
+                json=progress_payload,
+                timeout=5.0  # Reasonable timeout for webhook
             )
-            logger.debug(f"[WEBSOCKET] Sent vectorization progress to {job_name}: {percentage}% - {message}")
+
+            if response.status_code == 200:
+                logger.debug(f"[WEBHOOK] ✅ Successfully sent progress update to ETL")
+            else:
+                logger.warning(f"[WEBHOOK] ⚠️ ETL webhook returned status {response.status_code}: {response.text}")
+
     except Exception as e:
-        logger.debug(f"[WEBSOCKET] Failed to send vectorization progress: {e}")
+        logger.warning(f"[WEBHOOK] ❌ Failed to send progress update to ETL: {e}")
         # Non-critical - don't fail vectorization if websocket fails
 
 
@@ -1722,29 +1842,43 @@ async def send_vectorization_progress(tenant_id: int, percentage: float, message
 async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], tenant_id: int, db_session) -> Dict[str, Any]:
     """Vectorize entities from the queue using existing infrastructure with AI Gateway batching"""
     try:
+        logger.info(f"[BULK_VECTORIZE] ===== STARTING BULK VECTORIZATION =====")
+        logger.info(f"[BULK_VECTORIZE] Processing {len(entities)} entities for tenant {tenant_id}")
+
         # Use the existing bulk vectorization logic
+        logger.info(f"[BULK_VECTORIZE] STEP 1: Initializing provider manager...")
         provider_manager = HybridProviderManager(db_session)
         await provider_manager.initialize_providers(tenant_id)
+        logger.info(f"[BULK_VECTORIZE] STEP 1: ✅ Provider manager initialized")
+
+        logger.info(f"[BULK_VECTORIZE] STEP 2: Initializing Qdrant client...")
         qdrant_client = PulseQdrantClient()
         await qdrant_client.initialize()
+        logger.info(f"[BULK_VECTORIZE] STEP 2: ✅ Qdrant client initialized")
 
         vectors_stored = 0
         vectors_failed = 0
 
         # OPTIMIZATION: Batch AI Gateway calls instead of individual calls
         # Prepare all text content first
+        logger.info(f"[BULK_VECTORIZE] STEP 3: Preparing text content for {len(entities)} entities...")
         entity_texts = []
         entity_metadata = []
 
-        for entity in entities:
+        for i, entity in enumerate(entities):
+            logger.debug(f"[BULK_VECTORIZE] STEP 3: Processing entity {i+1}/{len(entities)}: table={entity.get('table_name')}, record_id={entity.get('record_id')}")
             try:
                 # Get entity data and metadata
                 entity_data = entity["entity_data"]
                 record_id = entity["record_id"]
                 table_name = entity["table_name"]
 
+                logger.debug(f"[BULK_VECTORIZE] STEP 3.{i+1}: Entity data keys: {list(entity_data.keys()) if isinstance(entity_data, dict) else 'Not a dict'}")
+
                 # Create text content for vectorization
+                logger.debug(f"[BULK_VECTORIZE] STEP 3.{i+1}: Creating text content for table '{table_name}'...")
                 text_content = create_text_content_from_entity(entity_data, table_name)
+                logger.debug(f"[BULK_VECTORIZE] STEP 3.{i+1}: Text content length: {len(text_content) if text_content else 0}")
 
                 if text_content:
                     entity_texts.append(text_content)
@@ -1754,103 +1888,204 @@ async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], ten
                         "table_name": table_name,
                         "entity": entity
                     })
+                    logger.debug(f"[BULK_VECTORIZE] STEP 3.{i+1}: ✅ Text content prepared successfully")
                 else:
+                    logger.warning(f"[BULK_VECTORIZE] STEP 3.{i+1}: ❌ No text content generated for {table_name} record {record_id}")
                     vectors_failed += 1
 
             except Exception as e:
-                logger.error(f"[QUEUE_PROCESSOR] Error preparing entity {entity.get('record_id', 'unknown')}: {e}")
+                logger.error(f"[BULK_VECTORIZE] STEP 3.{i+1}: ❌ Error preparing entity {entity.get('record_id', 'unknown')}: {e}")
+                import traceback
+                logger.error(f"[BULK_VECTORIZE] STEP 3.{i+1}: Full traceback: {traceback.format_exc()}")
+                # Update queue item with detailed error
+                queue_item = entity.get('queue_item')
+                if queue_item:
+                    queue_item.status = 'failed'
+                    queue_item.error_message = f"Entity preparation failed: {str(e)}"
+                    queue_item.last_error_at = datetime.utcnow()
                 vectors_failed += 1
 
         # Generate embeddings for ALL texts in one batch call
+        logger.info(f"[BULK_VECTORIZE] STEP 3: ✅ Prepared {len(entity_texts)} text contents, {vectors_failed} failed")
+
         if entity_texts:
-            logger.info(f"[QUEUE_PROCESSOR] Generating embeddings for {len(entity_texts)} entities in batch")
+            logger.info(f"[BULK_VECTORIZE] STEP 4: Generating embeddings for {len(entity_texts)} entities in batch...")
+            logger.debug(f"[BULK_VECTORIZE] STEP 4: Text lengths: {[len(text) for text in entity_texts[:5]]}...")  # Show first 5
+
             embedding_result = await provider_manager.generate_embeddings(entity_texts, tenant_id)
+            logger.info(f"[BULK_VECTORIZE] STEP 4: Embedding generation completed. Success: {embedding_result.success}")
 
             if not embedding_result.success:
-                logger.error(f"[QUEUE_PROCESSOR] Batch embedding generation failed: {embedding_result.error}")
+                error_msg = f"Batch embedding generation failed: {embedding_result.error}"
+                logger.error(f"[BULK_VECTORIZE] STEP 4: ❌ {error_msg}")
+                logger.error(f"[BULK_VECTORIZE] STEP 4: Full embedding result: {embedding_result}")
+
+                # Update all queue items with detailed error
+                logger.info(f"[BULK_VECTORIZE] STEP 4: Marking {len(entity_metadata)} items as failed due to embedding error...")
+                for i, metadata in enumerate(entity_metadata):
+                    queue_item = metadata.get('entity', {}).get('queue_item')
+                    if queue_item:
+                        queue_item.status = 'failed'
+                        queue_item.error_message = error_msg
+                        queue_item.last_error_at = datetime.utcnow()
+                        logger.debug(f"[BULK_VECTORIZE] STEP 4: Marked item {queue_item.id} as failed")
+
                 vectors_failed += len(entity_texts)
+                logger.error(f"[BULK_VECTORIZE] ❌ Returning early due to embedding failure: {vectors_stored} stored, {vectors_failed} failed")
                 return {
                     "vectors_stored": vectors_stored,
-                    "vectors_failed": vectors_failed
+                    "vectors_failed": vectors_failed,
+                    "error": error_msg
                 }
+        else:
+            logger.warning(f"[BULK_VECTORIZE] STEP 4: ⚠️ No entity texts to process - all entities failed text preparation")
+            return {
+                "vectors_stored": vectors_stored,
+                "vectors_failed": vectors_failed,
+                "error": "No entity texts to process"
+            }
 
-            # Process each embedding result
-            embeddings = embedding_result.data
-            if len(embeddings) != len(entity_metadata):
-                logger.error(f"[QUEUE_PROCESSOR] Embedding count mismatch: got {len(embeddings)}, expected {len(entity_metadata)}")
-                vectors_failed += len(entity_texts)
-                return {
-                    "vectors_stored": vectors_stored,
-                    "vectors_failed": vectors_failed
-                }
+        # Process each embedding result
+        logger.info(f"[BULK_VECTORIZE] STEP 5: Processing embedding results...")
+        embeddings = embedding_result.data
+        logger.info(f"[BULK_VECTORIZE] STEP 5: Got {len(embeddings)} embeddings, expected {len(entity_metadata)}")
 
-            # Store each embedding in Qdrant
-            for i, (embedding_vector, metadata) in enumerate(zip(embeddings, entity_metadata)):
-                try:
-                    if not embedding_vector:
-                        logger.warning(f"[QUEUE_PROCESSOR] No embedding data returned for {metadata['table_name']} {metadata['record_id']}")
-                        vectors_failed += 1
-                        continue
+        if len(embeddings) != len(entity_metadata):
+            error_msg = f"Embedding count mismatch: got {len(embeddings)}, expected {len(entity_metadata)}"
+            logger.error(f"[BULK_VECTORIZE] STEP 5: ❌ {error_msg}")
+            vectors_failed += len(entity_texts)
+            return {
+                "vectors_stored": vectors_stored,
+                "vectors_failed": vectors_failed,
+                "error": error_msg
+            }
 
-                    # Store in Qdrant
-                    entity_data = metadata["entity_data"]
-                    record_id = metadata["record_id"]
-                    table_name = metadata["table_name"]
-
-                    collection_name = f"client_{tenant_id}_{table_name}"
-                    # Use integer point ID for Qdrant (not string)
-                    point_id = int(record_id)
-
-                    # Ensure collection exists before upserting
-                    await qdrant_client.ensure_collection_exists(
-                        collection_name=collection_name,
-                        vector_size=len(embedding_vector)
-                    )
-
-                    # Prepare vector data for upsert
-                    vector_data = [{
-                        'id': point_id,
-                        'vector': embedding_vector,
-                        'payload': {
-                            **entity_data,
-                            'tenant_id': tenant_id,
-                            'table_name': table_name,
-                            'record_id': record_id
-                        }
-                    }]
-
-                    store_result = await qdrant_client.upsert_vectors(
-                        collection_name=collection_name,
-                        vectors=vector_data
-                    )
-
-                    if store_result.success:
-                        vectors_stored += 1
-                        logger.debug(f"[QUEUE_PROCESSOR] Stored vector for {table_name} {record_id}")
-                    else:
-                        vectors_failed += 1
-                        logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")
-
-                except Exception as e:
-                    logger.error(f"[QUEUE_PROCESSOR] Error storing vector for entity {metadata.get('record_id', 'unknown')}: {e}")
+        # Store each embedding in Qdrant
+        logger.info(f"[BULK_VECTORIZE] STEP 6: Storing {len(embeddings)} vectors in Qdrant...")
+        for i, (embedding_vector, metadata) in enumerate(zip(embeddings, entity_metadata)):
+            logger.debug(f"[BULK_VECTORIZE] STEP 6.{i+1}: Processing vector {i+1}/{len(embeddings)}")
+            try:
+                if not embedding_vector:
+                    error_msg = f"No embedding data returned for {metadata['table_name']} {metadata['record_id']}"
+                    logger.warning(f"[BULK_VECTORIZE] STEP 6.{i+1}: ⚠️ {error_msg}")
                     vectors_failed += 1
+                    continue
 
-        return {
+                # Store in Qdrant
+                entity_data = metadata["entity_data"]
+                record_id = metadata["record_id"]
+                table_name = metadata["table_name"]
+
+                logger.debug(f"[BULK_VECTORIZE] STEP 6.{i+1}: Storing vector for {table_name} record {record_id}")
+
+                collection_name = f"client_{tenant_id}_{table_name}"
+                # Create deterministic UUID for point ID (consistent with individual vectorization)
+                import uuid
+                unique_string = f"{tenant_id}_{table_name}_{record_id}"
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+                logger.debug(f"[BULK_VECTORIZE] STEP 6.{i+1}: Collection: {collection_name}, Point ID: {point_id}")
+
+                # Ensure collection exists before upserting
+                await qdrant_client.ensure_collection_exists(
+                    collection_name=collection_name,
+                    vector_size=len(embedding_vector)
+                )
+
+                # Prepare vector data for upsert
+                vector_data = [{
+                    'id': point_id,  # Now using UUID string instead of integer
+                    'vector': embedding_vector,
+                    'payload': {
+                        **entity_data,
+                        'tenant_id': tenant_id,
+                        'table_name': table_name,
+                        'record_id': record_id
+                    }
+                }]
+
+                store_result = await qdrant_client.upsert_vectors(
+                    collection_name=collection_name,
+                    vectors=vector_data
+                )
+
+                if store_result.success:
+                    # Create bridge record in PostgreSQL
+                    bridge_record = QdrantVector(
+                        tenant_id=tenant_id,
+                        table_name=table_name,
+                        record_id=record_id,
+                        qdrant_collection=collection_name,
+                        qdrant_point_id=point_id,
+                        vector_type="entity_embedding",
+                        embedding_model=embedding_result.provider_used,
+                        embedding_provider=embedding_result.provider_used
+                    )
+                    db_session.add(bridge_record)
+                    vectors_stored += 1
+                    logger.debug(f"[QUEUE_PROCESSOR] Stored vector and bridge record for {table_name} {record_id}")
+                else:
+                    vectors_failed += 1
+                    logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")
+
+            except Exception as e:
+                logger.error(f"[BULK_VECTORIZE] STEP 6.{i+1}: ❌ Error storing vector for entity {metadata.get('record_id', 'unknown')}: {e}")
+                # Update queue item with detailed error
+                queue_item = metadata.get('entity', {}).get('queue_item')
+                if queue_item:
+                    queue_item.status = 'failed'
+                    queue_item.error_message = f"Vector storage failed: {str(e)}"
+                    queue_item.last_error_at = datetime.utcnow()
+                vectors_failed += 1
+
+        # Commit all bridge records for this batch
+        logger.info(f"[BULK_VECTORIZE] STEP 7: Finalizing results...")
+        if vectors_stored > 0:
+            logger.info(f"[BULK_VECTORIZE] STEP 7: Committing {vectors_stored} bridge records to database...")
+            db_session.commit()
+            logger.info(f"[BULK_VECTORIZE] STEP 7: ✅ Committed {vectors_stored} bridge records to qdrant_vectors table")
+        else:
+            logger.warning(f"[BULK_VECTORIZE] STEP 7: ⚠️ No vectors stored - nothing to commit")
+
+        final_result = {
             "vectors_stored": vectors_stored,
             "vectors_failed": vectors_failed
         }
 
+        logger.info(f"[BULK_VECTORIZE] ===== BULK VECTORIZATION COMPLETE =====")
+        logger.info(f"[BULK_VECTORIZE] FINAL RESULT: {vectors_stored} stored, {vectors_failed} failed out of {len(entities)} total")
+        logger.info(f"[BULK_VECTORIZE] Returning result: {final_result}")
+
+        return final_result
+
     except Exception as e:
-        logger.error(f"[QUEUE_PROCESSOR] Error in bulk vectorization: {e}")
-        return {
+        logger.error(f"[BULK_VECTORIZE] ===== BULK VECTORIZATION EXCEPTION =====")
+        logger.error(f"[BULK_VECTORIZE] Exception: {str(e)}")
+        import traceback
+        logger.error(f"[BULK_VECTORIZE] Full traceback: {traceback.format_exc()}")
+
+        error_result = {
             "vectors_stored": 0,
-            "vectors_failed": len(entities)
+            "vectors_failed": len(entities),
+            "error": str(e)
         }
+
+        logger.error(f"[BULK_VECTORIZE] ❌ Returning error result: {error_result}")
+        return error_result
 
 
 def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str) -> str:
     """Create text content for vectorization based on entity type"""
     try:
+        # Handle None entity_data
+        if entity_data is None:
+            logger.warning(f"[TEXT_CONTENT] Entity data is None for table '{table_name}' - cannot create text content")
+            return ""
+
+        if not isinstance(entity_data, dict):
+            logger.warning(f"[TEXT_CONTENT] Entity data is not a dict for table '{table_name}': {type(entity_data)} - cannot create text content")
+            return ""
+
+        logger.debug(f"[TEXT_CONTENT] Creating text content for table '{table_name}' with data keys: {list(entity_data.keys())}")
         if table_name == "changelogs":
             parts = []
             if entity_data.get("from_status_name"):
@@ -1893,14 +2128,45 @@ def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str
                 parts.append(f"Description: {entity_data['description']}")
             if entity_data.get("author"):
                 parts.append(f"Author: {entity_data['author']}")
-            return " | ".join(parts)
+
+            # If no meaningful content, use status and dates as fallback
+            if not parts:
+                if entity_data.get("status"):
+                    parts.append(f"Status: {entity_data['status']}")
+                if entity_data.get("created_at"):
+                    parts.append(f"Created: {entity_data['created_at']}")
+                if entity_data.get("updated_at"):
+                    parts.append(f"Updated: {entity_data['updated_at']}")
+
+            content = " | ".join(parts)
+            logger.debug(f"[TEXT_CONTENT] PR content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
+
+        elif table_name == "repositories":
+            parts = []
+            if entity_data.get("name"):
+                parts.append(f"Name: {entity_data['name']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get("language"):
+                parts.append(f"Language: {entity_data['language']}")
+            if entity_data.get("topics"):
+                parts.append(f"Topics: {', '.join(entity_data['topics']) if isinstance(entity_data['topics'], list) else entity_data['topics']}")
+
+            content = " | ".join(parts)
+            logger.debug(f"[TEXT_CONTENT] Repository content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
 
         else:
             # Generic fallback
-            return " | ".join([f"{k}: {v}" for k, v in entity_data.items() if v and k != "external_id"])
+            content = " | ".join([f"{k}: {v}" for k, v in entity_data.items() if v and k != "external_id"])
+            logger.debug(f"[TEXT_CONTENT] Generic fallback for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
 
     except Exception as e:
-        logger.error(f"Error creating text content for {table_name}: {e}")
+        logger.error(f"[TEXT_CONTENT] ❌ Error creating text content for {table_name}: {e}")
+        import traceback
+        logger.error(f"[TEXT_CONTENT] Full traceback: {traceback.format_exc()}")
         return ""
 
 

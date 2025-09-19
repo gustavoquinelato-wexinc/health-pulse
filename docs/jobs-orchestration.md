@@ -37,7 +37,7 @@ The Pulse Platform uses an intelligent orchestrator that manages multiple ETL jo
 ### Job States & Lifecycle
 
 #### Job Status States
-- **NOT_STARTED**: Job has not been initiated
+- **READY**: Job has not been initiated
 - **PENDING**: Job is queued and waiting to start
 - **RUNNING**: Job is currently executing
 - **FINISHED**: Job completed successfully
@@ -46,11 +46,11 @@ The Pulse Platform uses an intelligent orchestrator that manages multiple ETL jo
 
 #### State Transitions
 ```
-NOT_STARTED → PENDING → RUNNING → FINISHED
-                ↓         ↓
-              PAUSED ← ERROR
-                ↓      ↓
-              RUNNING (retry)
+READY → PENDING → RUNNING → FINISHED
+          ↓         ↓
+        PAUSED ← ERROR
+          ↓      ↓
+        RUNNING (retry)
 ```
 
 ## 🔄 Individual Job Types

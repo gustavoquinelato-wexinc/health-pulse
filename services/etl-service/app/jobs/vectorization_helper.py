@@ -102,7 +102,8 @@ class VectorizationQueueHelper:
 
     def _save_queue_entries_immediately(self, queue_entries: List[Dict[str, Any]]) -> int:
         """
-        Immediately save queue entries to database instead of accumulating in memory.
+        Save queue entries immediately to database with duplicate handling.
+        Uses UPSERT logic to handle cases where same commit appears in multiple PRs.
 
         Args:
             queue_entries: List of queue entry dictionaries
@@ -113,18 +114,39 @@ class VectorizationQueueHelper:
         try:
             from app.core.database import get_database
             from app.models.unified_models import VectorizationQueue
+            from sqlalchemy.dialects.postgresql import insert
 
             database = get_database()
             with database.get_session_context() as session:
-                # Insert entries directly to database
-                session.bulk_insert_mappings(VectorizationQueue, queue_entries)
-                session.commit()
+                # Use PostgreSQL UPSERT (ON CONFLICT DO NOTHING) to handle duplicates
+                # This prevents unique constraint violations when same commit appears in multiple PRs
 
-                logger.debug(f"Immediately saved {len(queue_entries)} entries to vectorization_queue")
-                return len(queue_entries)
+                if queue_entries:
+                    # Build UPSERT statement
+                    stmt = insert(VectorizationQueue).values(queue_entries)
+                    # ON CONFLICT DO NOTHING - if duplicate exists, skip it
+                    stmt = stmt.on_conflict_do_nothing(
+                        index_elements=['table_name', 'external_id', 'operation', 'tenant_id']
+                    )
+
+                    result = session.execute(stmt)
+                    session.commit()
+
+                    # Get count of actually inserted rows (excludes duplicates)
+                    inserted_count = result.rowcount
+                    skipped_count = len(queue_entries) - inserted_count
+
+                    if skipped_count > 0:
+                        logger.debug(f"Vectorization queue: inserted {inserted_count}, skipped {skipped_count} duplicates")
+                    else:
+                        logger.debug(f"Successfully saved {inserted_count} entries to vectorization_queue")
+
+                    return inserted_count
+                else:
+                    return 0
 
         except Exception as e:
-            logger.error(f"Failed to immediately save queue entries: {e}")
+            logger.error(f"Failed to save queue entries: {e}")
             # No fallback - if database save fails, we should know about it
             raise
 

@@ -91,6 +91,9 @@ class LoginRequest(BaseModel):
 class JobToggleRequest(BaseModel):
     active: bool
 
+class JobEnabledRequest(BaseModel):
+    enabled: bool
+
 
 class JobExecutionParams(BaseModel):
     """Parameters for job execution modes."""
@@ -359,10 +362,20 @@ async def home_page(request: Request, token: Optional[str] = None):
     auth_token = request.cookies.get("pulse_token")
     tenant_info = await get_user_tenant_info(auth_token)
 
+    # Get user data for sidebar permissions (Qdrant menu visibility)
+    user_data = None
+    if auth_token:
+        try:
+            auth_service = get_centralized_auth_service()
+            user_data = await auth_service.verify_token(auth_token)
+        except Exception as e:
+            logger.debug(f"Could not verify token for sidebar permissions: {e}")
+
     # Always serve the home page - authentication is handled by frontend checkAuth()
     # The frontend will redirect to login if the token is invalid
     return templates.TemplateResponse("home.html", {
         "request": request,
+        "user": user_data,  # Add user data for sidebar permissions
         "color_schema": color_schema_data,
         "embedded": embedded,
         "tenant_logo": tenant_info["tenant_logo"],
@@ -1046,12 +1059,17 @@ async def statuses_mappings_page(request: Request, token: Optional[str] = None):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get tenant information for integration logos
+        tenant_info = await get_user_tenant_info(auth_token)
+
         # Create response and set cookie if token came from URL parameter
         response = templates.TemplateResponse("statuses_mappings.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
@@ -1145,11 +1163,16 @@ async def wits_mappings_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get tenant information for integration logos
+        tenant_info = await get_user_tenant_info(token)
+
         return templates.TemplateResponse("wits_mappings.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
 
     except Exception as e:
@@ -1341,11 +1364,16 @@ async def wits_hierarchies_page(request: Request):
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
 
+        # Get tenant information for integration logos
+        tenant_info = await get_user_tenant_info(token)
+
         return templates.TemplateResponse("wits_hierarchies.html", {
             "request": request,
             "user": user,
             "color_schema": color_schema_data,
-            "embedded": embedded
+            "embedded": embedded,
+            "tenant_logo": tenant_info["tenant_logo"],
+            "tenant_name": tenant_info["tenant_name"]
         })
 
     except Exception as e:
@@ -1449,6 +1477,56 @@ async def workflows_page(request: Request):
 
     except Exception as e:
         logger.error(f"Workflows page error: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
+
+
+@router.get("/qdrant-analysis", response_class=HTMLResponse)
+async def qdrant_analysis_page(request: Request):
+    """Serve Qdrant analysis page for vector database management and validation"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            logger.warning("No token found in cookies for Qdrant analysis page")
+            return RedirectResponse(url="/login?error=no_token", status_code=302)
+
+        # Get user info
+        auth_service = get_centralized_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission - simplified since we're using centralized auth
+        if not user or not user.get("is_admin", False):
+            logger.warning(f"Non-admin user attempted to access Qdrant analysis: {user.get('email') if user else 'Unknown'}")
+            return RedirectResponse(url="/login?error=insufficient_permissions", status_code=302)
+
+        # Get user and tenant information
+        tenant_info = await get_user_tenant_info(token)
+
+        # Get color schema from user preferences
+        color_schema = await get_user_color_schema(token)
+
+        logger.info(f"Rendering Qdrant analysis page for user: {user.get('email')} (role: {user.get('role')})")
+
+        # Create template context with all required variables
+        context = {
+            "request": request,
+            "user": user,
+            "color_schema": color_schema,
+            "tenant_logo": tenant_info.get("tenant_logo", ""),
+            "tenant_name": tenant_info.get("tenant_name", ""),
+            "current_path": "/qdrant-analysis",
+            "embedded": False  # Add missing embedded variable
+        }
+
+        logger.info(f"Template context keys: {list(context.keys())}")
+        logger.info(f"User role check: user.role='{user.get('role')}', is_admin={user.get('is_admin')}")
+
+        return templates.TemplateResponse("qdrant_analysis.html", context)
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Qdrant analysis page error: {e}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
@@ -2591,19 +2669,19 @@ async def unpause_job(job_id: int, user: UserData = Depends(require_admin_authen
                 logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) is not paused (status: {job_to_unpause.status})")
                 return {"message": f"Job {job_name} is not paused", "status": job_to_unpause.status.lower()}
 
-            # Simplified unpause: Set job to NOT_STARTED (ready to run)
+            # Simplified unpause: Set job to READY (ready to run)
             old_status = job_to_unpause.status
-            job_to_unpause.status = 'NOT_STARTED'
+            job_to_unpause.status = 'READY'
             session.commit()
 
-            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> NOT_STARTED")
+            logger.info(f"[UNPAUSE] Job {job_name} (ID: {job_id}) unpaused successfully: {old_status} -> READY")
 
             return {
                 "message": f"Job {job_name} unpaused successfully",
-                "status": "not_started",
+                "status": "ready",
                 "job_id": job_id,
                 "old_status": old_status,
-                "new_status": "NOT_STARTED"
+                "new_status": "READY"
             }
 
     except HTTPException:
@@ -2734,15 +2812,15 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
                 JobSchedule.status == 'PENDING'  # Only affect jobs that are currently PENDING
             ).all()
 
-            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other PENDING jobs to reset to NOT_STARTED")
+            logger.info(f"[FORCE_PENDING] Found {len(other_jobs)} other PENDING jobs to reset to READY")
 
             jobs_reset = []
             for other_job in other_jobs:
                 old_other_status = other_job.status
-                other_job.status = 'NOT_STARTED'
+                other_job.status = 'READY'
                 other_job.error_message = None  # Clear any previous errors
-                jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> NOT_STARTED)")
-                logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> NOT_STARTED")
+                jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> READY)")
+                logger.info(f"[FORCE_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> READY")
 
             # Set target job to PENDING
             old_status = target_job.status
@@ -2765,7 +2843,7 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
                 message = f"Job {job_name} is now active and ready to run"
 
             if jobs_reset:
-                message += f" (reset {len(jobs_reset)} other jobs to NOT_STARTED)"
+                message += f" (reset {len(jobs_reset)} other jobs to READY)"
 
             return {
                 "success": True,
@@ -2784,6 +2862,154 @@ async def set_job_active(job_id: int, user: UserData = Depends(require_admin_aut
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to set job ID {job_id} as active"
+        )
+
+
+# New State-Based Endpoints (Option 2)
+
+@router.post("/api/v1/jobs/{job_id}/set-status-pending")
+async def set_job_status_pending(job_id: int, user: UserData = Depends(require_admin_authentication)):
+    """Set a specific job status to PENDING (force pending) - state-based endpoint"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the specific job by ID and client
+            target_job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.tenant_id == user.tenant_id,
+                JobSchedule.active == True
+            ).first()
+
+            if not target_job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Job ID {job_id} not found for client {user.tenant_id}"
+                )
+
+            job_name = target_job.job_name
+
+            # Log if target job is already PENDING (but continue to reset other jobs)
+            if target_job.status == 'PENDING':
+                logger.info(f"[SET_STATUS_PENDING] Job {job_name} (ID: {job_id}) is already PENDING, but will still reset other active jobs")
+
+            # Check if target job is currently RUNNING
+            if target_job.status == 'RUNNING':
+                logger.warning(f"[SET_STATUS_PENDING] Cannot set {job_name} (ID: {job_id}) to PENDING while it's RUNNING")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot set {job_name} to PENDING while it's RUNNING"
+                )
+
+            # Only change jobs that are currently PENDING to READY
+            # Leave PAUSED and FINISHED jobs unchanged
+            other_jobs = session.query(JobSchedule).filter(
+                JobSchedule.tenant_id == user.tenant_id,
+                JobSchedule.active == True,
+                JobSchedule.id != job_id,  # Exclude the target job
+                JobSchedule.status == 'PENDING'  # Only affect jobs that are currently PENDING
+            ).all()
+
+            logger.info(f"[SET_STATUS_PENDING] Found {len(other_jobs)} other PENDING jobs to reset to READY")
+
+            jobs_reset = []
+            for other_job in other_jobs:
+                old_other_status = other_job.status
+                other_job.status = 'READY'
+                other_job.error_message = None  # Clear any previous errors
+                jobs_reset.append(f"{other_job.job_name} ({old_other_status} -> READY)")
+                logger.info(f"[SET_STATUS_PENDING] Reset job {other_job.job_name} (ID: {other_job.id}): {old_other_status} -> READY")
+
+            # Set target job to PENDING
+            old_status = target_job.status
+            target_job.status = 'PENDING'
+            target_job.error_message = None  # Clear any previous errors
+
+            # Commit all changes
+            session.commit()
+
+            logger.info(f"[SET_STATUS_PENDING] Job {job_name} (ID: {job_id}) set to PENDING: {old_status} -> PENDING")
+            if jobs_reset:
+                logger.info(f"[SET_STATUS_PENDING] Reset {len(jobs_reset)} other jobs: {', '.join(jobs_reset)}")
+            else:
+                logger.info(f"[SET_STATUS_PENDING] No other jobs were reset")
+
+            # Create success message
+            if old_status == 'PENDING':
+                message = f"Job {job_name} was already active and ready to run"
+            else:
+                message = f"Job {job_name} is now active and ready to run"
+
+            if jobs_reset:
+                message += f" (reset {len(jobs_reset)} other jobs to READY)"
+
+            return {
+                "success": True,
+                "message": message,
+                "job_id": job_id,
+                "job_name": job_name,
+                "old_status": old_status,
+                "new_status": "PENDING",
+                "jobs_reset": len(jobs_reset)
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting job {job_id} status to pending: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to set job status to pending"
+        )
+
+
+@router.post("/api/v1/jobs/{job_id}/set-enabled")
+async def set_job_enabled(job_id: int, request: JobEnabledRequest, user: UserData = Depends(require_admin_authentication)):
+    """Set job enabled/disabled status - state-based endpoint"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the job with client isolation
+            job = session.query(JobSchedule).filter(
+                JobSchedule.id == job_id,
+                JobSchedule.tenant_id == user.tenant_id  # Ensure client isolation
+            ).first()
+
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Job {job_id} not found for client {user.tenant_id}"
+                )
+
+            # Store old status for logging
+            old_enabled = job.active
+            job.active = request.enabled
+
+            # When disabling a job, set status to READY
+            if not job.active:
+                job.status = "READY"
+                logger.info(f"[SET_ENABLED] Set job {job.job_name} status to READY (disabled)")
+
+            session.commit()
+
+            action = "enabled" if request.enabled else "disabled"
+            logger.info(f"[SET_ENABLED] Job {job.job_name} (ID: {job_id}) {action}: {old_enabled} -> {job.active}")
+
+            return {
+                "success": True,
+                "job_id": job_id,
+                "job_name": job.job_name,
+                "old_enabled": old_enabled,
+                "new_enabled": job.active,
+                "message": f"Job {job.job_name} {action} successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SET_ENABLED] Error setting job {job_id} enabled status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to set job enabled status"
         )
 
 
@@ -3631,38 +3857,7 @@ async def websocket_test():
     return HTMLResponse(content=html_content)
 
 
-@router.post("/api/vectorization_progress")
-async def vectorization_progress_update(request: Request):
-    """Receive vectorization progress updates from backend service and forward to websockets."""
-    try:
-        from app.core.websocket_manager import get_websocket_manager
-
-        data = await request.json()
-        tenant_id = data.get('tenant_id')
-        job_name = data.get('job_name', 'Vectorization')  # Default to 'Vectorization' not 'Jira'
-        percentage = data.get('percentage', 0.0)
-        message = data.get('message', 'Vectorization in progress...')
-
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_progress_update(job_name, percentage, message)
-
-        connections = websocket_manager.get_connection_count(job_name)
-
-        return {
-            "success": True,
-            "message": "Vectorization progress forwarded to websockets",
-            "job_name": job_name,
-            "percentage": percentage,
-            "step": message,
-            "connections": connections
-        }
-
-    except Exception as e:
-        logger.error(f"Error forwarding vectorization progress: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+# REMOVED: Old vectorization progress endpoint - replaced by webhook endpoint below
 
 
 @router.post("/api/test_websocket")
@@ -3698,4 +3893,93 @@ async def test_websocket_message(request: Request):
         }
 
 
+# ============================================================================
+# WEBHOOK ENDPOINTS - Real-time Progress Updates from Backend
+# ============================================================================
+
+class VectorizationProgressPayload(BaseModel):
+    job_name: str
+    tenant_id: int
+    percentage: float
+    message: str
+    items_processed: int = 0
+    items_failed: int = 0
+    total_items: int = 0
+    timestamp: str
+    status: str  # "in_progress" or "completed"
+
+
+@router.post("/api/v1/webhooks/vectorization-progress")
+async def receive_vectorization_progress(payload: VectorizationProgressPayload):
+    """
+    Webhook endpoint to receive real-time vectorization progress updates from backend.
+    This replaces the polling mechanism with event-driven updates.
+    """
+    try:
+        logger.info(f"[WEBHOOK] Received vectorization progress: {payload.job_name} - {payload.percentage}% - {payload.message}")
+
+        # Import websocket manager here to avoid circular imports
+        from app.core.websocket_manager import websocket_manager
+
+        # Send progress update to Vectorization WebSocket clients in the correct format
+        await websocket_manager.send_progress_update(
+            job_name="Vectorization",
+            percentage=payload.percentage,
+            step=payload.message  # Use message as step description
+        )
+
+        logger.debug(f"[WEBHOOK] SUCCESS: Broadcasted progress update to WebSocket clients")
+
+        # If job is completed, update job status in database and signal completion
+        if payload.status == "completed":
+            try:
+                database = get_database()
+                with database.get_write_session_context() as session:
+                    job = session.query(JobSchedule).filter(
+                        JobSchedule.job_name.ilike(f"%{payload.job_name}%")
+                    ).first()
+
+                    if job:
+                        job.status = "FINISHED"  # Mark as completed
+                        job.last_success_at = datetime.utcnow()
+                        session.commit()
+                        logger.info(f"[WEBHOOK] SUCCESS: Updated job status to FINISHED for {payload.job_name}")
+
+                        # Signal completion to any waiting vectorization job
+                        if payload.job_name.lower() == "vectorization":
+                            await _signal_vectorization_completion(payload)
+                    else:
+                        logger.warning(f"[WEBHOOK] WARNING: Job not found for completion update: {payload.job_name}")
+
+            except Exception as db_error:
+                logger.error(f"[WEBHOOK] ERROR: Failed to update job status: {db_error}")
+
+        return {"success": True, "message": "Progress update received and broadcasted"}
+
+    except Exception as e:
+        logger.error(f"[WEBHOOK] ERROR: Error processing vectorization progress webhook: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def _signal_vectorization_completion(payload):
+    """Signal completion to waiting vectorization job"""
+    try:
+        # Set a completion flag that the waiting job can check
+        import asyncio
+        from app.core.completion_signals import set_vectorization_completion_signal
+
+        completion_data = {
+            'tenant_id': payload.tenant_id,
+            'items_processed': payload.items_processed,
+            'items_failed': payload.items_failed,
+            'total_items': payload.total_items,
+            'message': payload.message,
+            'timestamp': payload.timestamp
+        }
+
+        await set_vectorization_completion_signal(payload.tenant_id, completion_data)
+        logger.info(f"[WEBHOOK] Signaled vectorization completion for tenant {payload.tenant_id}")
+
+    except Exception as e:
+        logger.error(f"[WEBHOOK] Error signaling vectorization completion: {e}")
 

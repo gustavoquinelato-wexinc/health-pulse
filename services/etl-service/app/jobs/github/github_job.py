@@ -985,10 +985,11 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         # Step 4: Process repositories for database insertion
         logger.info("Step 4: Processing repositories for database insertion...")
 
-        # Get existing repositories to avoid duplicates
+        # Get existing repositories to avoid duplicates - FIXED: Filter by integration_id
         existing_repos = {
             repo.external_id: repo for repo in session.query(Repository).filter(
-                Repository.tenant_id == integration.tenant_id
+                Repository.tenant_id == integration.tenant_id,
+                Repository.integration_id == integration.id
             ).all()
         }
 
@@ -1082,9 +1083,10 @@ async def discover_all_repositories(session: Session, integration: Integration, 
         logger.info(f"   • Updated repositories: {repos_updated}")
         logger.info(f"   • Unchanged repositories: {repos_skipped}")
 
-        # Get all repositories for return
+        # Get all repositories for return - FIXED: Filter by integration_id
         repositories = session.query(Repository).filter(
             Repository.tenant_id == integration.tenant_id,
+            Repository.integration_id == integration.id,
             Repository.active == True
         ).all()
 
@@ -1182,10 +1184,11 @@ async def process_github_data_with_graphql(session: Session, integration: Integr
 
             repositories = []
             for repo_data in unfinished_repos:
-                # Get repository from database using external_id
+                # Get repository from database using external_id - FIXED: Filter by integration_id
                 repo = session.query(Repository).filter(
                     Repository.external_id == repo_data["repo_id"],
-                    Repository.tenant_id == integration.tenant_id
+                    Repository.tenant_id == integration.tenant_id,
+                    Repository.integration_id == integration.id
                 ).first()
                 if repo:
                     repositories.append(repo)
@@ -1416,8 +1419,9 @@ async def extract_github_single_repo_prs_session_free(
             job_schedule = session.query(JobSchedule).get(job_schedule_id)
 
             repository = session.query(Repository).filter(
-                Repository.name == target_repository,
-                Repository.tenant_id == tenant_id
+                Repository.full_name == target_repository,
+                Repository.tenant_id == tenant_id,
+                Repository.integration_id == integration_id
             ).first()
 
             if not repository:
@@ -1438,8 +1442,9 @@ async def extract_github_single_repo_prs_session_free(
             integration = session.query(Integration).get(integration_id)
             job_schedule = session.query(JobSchedule).get(job_schedule_id)
             repository = session.query(Repository).filter(
-                Repository.name == target_repository,
-                Repository.tenant_id == tenant_id
+                Repository.full_name == target_repository,
+                Repository.tenant_id == tenant_id,
+                Repository.integration_id == integration_id
             ).first()
 
             from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
@@ -1481,18 +1486,47 @@ async def process_github_data_with_graphql_session_free(
 
         logger.info("Starting session-free GraphQL-based GitHub data processing")
 
+        # FRESH START LOGIC: Clear stale checkpoints if this is not a recovery run
+        with database.get_write_session_context() as session:
+            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            if job_schedule and job_schedule.status == 'PENDING':
+                # Check if this is a legitimate recovery (has repo queue) or stale retry
+                checkpoint_state = job_schedule.get_checkpoint_state()
+                repo_queue = checkpoint_state.get('repo_processing_queue')
+
+                # If we have a repo queue but no PR-level cursors, this might be a fresh start
+                # Clear PR-level cursors to ensure fresh processing
+                if repo_queue and not any([
+                    checkpoint_state.get('last_pr_cursor'),
+                    checkpoint_state.get('current_pr_node_id'),
+                    checkpoint_state.get('last_commit_cursor'),
+                    checkpoint_state.get('last_review_cursor'),
+                    checkpoint_state.get('last_comment_cursor'),
+                    checkpoint_state.get('last_review_thread_cursor')
+                ]):
+                    logger.info("Fresh start detected - clearing any stale PR-level checkpoints")
+                    job_schedule.update_checkpoint({
+                        'last_pr_cursor': None,
+                        'current_pr_node_id': None,
+                        'last_commit_cursor': None,
+                        'last_review_cursor': None,
+                        'last_comment_cursor': None,
+                        'last_review_thread_cursor': None
+                    })
+
         # Process repositories in chunks with fresh sessions
         chunk_size = 5  # Process 5 repositories at a time
         total_processed = 0
         total_prs_processed = 0
 
-        # Get repository list with a quick session
+        # Get repository list with a quick session - FIXED: Filter by integration_id
         with database.get_read_session_context() as session:
             repositories = session.query(Repository).filter(
-                Repository.tenant_id == tenant_id
+                Repository.tenant_id == tenant_id,
+                Repository.integration_id == integration_id
             ).all()
 
-            repo_list = [(repo.id, repo.name, repo.external_id) for repo in repositories]
+            repo_list = [(repo.id, repo.full_name, repo.external_id) for repo in repositories]
 
         if not repo_list:
             logger.warning("No repositories found for processing")
@@ -1518,33 +1552,52 @@ async def process_github_data_with_graphql_session_free(
 
                     # Process each repository in this chunk
                     for repo_id, repo_name, repo_external_id in chunk:
+                        logger.info(f"[DEBUG] Processing repository: {repo_name} (ID: {repo_id})")
                         repository = session.query(Repository).get(repo_id)
+
+                        if not repository:
+                            logger.warning(f"[DEBUG] Repository not found in database: {repo_name} (ID: {repo_id})")
+                            continue
 
                         if '/' in repo_name:
                             owner, repo_name_only = repo_name.split('/', 1)
+                            logger.info(f"[DEBUG] Split repository name: {owner}/{repo_name_only}")
 
                             # Process this repository
                             from app.jobs.github.github_graphql_client import GitHubGraphQLClient
                             from app.jobs.github.github_graphql_extractor import process_repository_prs_with_graphql
 
-                            graphql_client = GitHubGraphQLClient(github_token)
+                            try:
+                                graphql_client = GitHubGraphQLClient(github_token)
+                                logger.info(f"[DEBUG] Created GraphQL client for {repo_name}")
 
-                            result = await process_repository_prs_with_graphql(
-                                session, graphql_client, repository, owner, repo_name_only,
-                                integration, job_schedule, websocket_manager
-                            )
-
-                            if result['success']:
-                                total_prs_processed += result.get('prs_processed', 0)
-                                total_processed += 1
-
-                                progress = 10.0 + (total_processed / len(repo_list)) * 80.0
-                                await websocket_manager.send_progress_update(
-                                    "GitHub", progress,
-                                    f"Processed {total_processed}/{len(repo_list)} repositories"
+                                result = await process_repository_prs_with_graphql(
+                                    session, graphql_client, repository, owner, repo_name_only,
+                                    integration, job_schedule, websocket_manager
                                 )
-                            else:
-                                logger.warning(f"Failed to process repository {repo_name}: {result.get('error', 'Unknown error')}")
+
+                                logger.info(f"[DEBUG] Repository {repo_name} result: success={result.get('success')}, prs={result.get('prs_processed', 0)}")
+
+                                if result['success']:
+                                    total_prs_processed += result.get('prs_processed', 0)
+                                    total_processed += 1
+
+                                    progress = 10.0 + (total_processed / len(repo_list)) * 80.0
+                                    await websocket_manager.send_progress_update(
+                                        "GitHub", progress,
+                                        f"Processed {total_processed}/{len(repo_list)} repositories"
+                                    )
+                                    logger.info(f"[DEBUG] Successfully processed {repo_name}: {result.get('prs_processed', 0)} PRs")
+                                else:
+                                    error_msg = result.get('error', 'Unknown error')
+                                    logger.warning(f"[DEBUG] Failed to process repository {repo_name}: {error_msg}")
+
+                            except Exception as repo_error:
+                                logger.error(f"[DEBUG] Exception processing repository {repo_name}: {repo_error}")
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            logger.warning(f"[DEBUG] Invalid repository name format: {repo_name}")
 
             except Exception as chunk_error:
                 logger.error(f"Error processing repository chunk {i//chunk_size + 1}: {chunk_error}")

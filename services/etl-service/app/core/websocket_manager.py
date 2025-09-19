@@ -82,6 +82,12 @@ class WebSocketManager:
             "timestamp": datetime.utcnow().isoformat()
         }
 
+        # Store latest progress for new connections
+        self.latest_progress[job_name] = message
+
+        # Broadcast to all connected clients for this job
+        await self._broadcast_to_job(job_name, message)
+
 
     async def send_step_progress_update(self, job_name: str, step_index: int, total_steps: int,
                                       step_progress: Optional[float], step_message: str):

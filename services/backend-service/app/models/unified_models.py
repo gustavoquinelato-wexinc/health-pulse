@@ -5,6 +5,7 @@ Updated for Phase 3-1: Vector columns removed, Qdrant integration, AI provider s
 """
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY, JSON, Numeric
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import TypeDecorator, Text as SQLText
 from typing import Dict, Any, Optional, List
@@ -1111,7 +1112,7 @@ class QdrantVector(Base):
     table_name = Column(String(50), nullable=False, quote=False, name="table_name")
     record_id = Column(Integer, nullable=False, quote=False, name="record_id")
     qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")
-    qdrant_point_id = Column(String(36), nullable=False, quote=False, name="qdrant_point_id")  # UUID as string
+    qdrant_point_id = Column(UUID(as_uuid=False), nullable=False, quote=False, name="qdrant_point_id")  # UUID type
     vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
     embedding_model = Column(String(100), nullable=False, quote=False, name="embedding_model")
     embedding_provider = Column(String(50), nullable=False, quote=False, name="embedding_provider")

@@ -445,6 +445,10 @@ app.include_router(logs_router, prefix="/api/v1", tags=["Logs"])
 
 app.include_router(scheduler_router, prefix="/api/v1", tags=["Scheduler"])
 
+# Include Qdrant analysis routes
+from app.api.qdrant_routes import router as qdrant_router
+app.include_router(qdrant_router, tags=["Qdrant Analysis"])
+
 
 
 # Include admin API routes (already has /api/v1/admin prefix)

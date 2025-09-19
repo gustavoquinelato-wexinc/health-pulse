@@ -992,7 +992,8 @@ class VectorizationQueue(Base):
     """Async vectorization queue for ETL processing."""
     __tablename__ = 'vectorization_queue'
     __table_args__ = (
-        UniqueConstraint('table_name', 'external_id', 'operation', 'tenant_id'),
+        # Removed unique constraint to allow multiple operations on same external_id
+        # This supports re-extraction scenarios and multiple updates
         {'quote': False}
     )
 

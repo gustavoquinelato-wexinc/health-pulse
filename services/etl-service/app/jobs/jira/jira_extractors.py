@@ -939,6 +939,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
         jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
         #AND key = BEN-7914
 
+        # Step 3: Fetch issues (40% → 60%)
+        logger.info("Step 3: Fetching issues...")
         job_logger.progress(f"[FETCHING] Fetching issues with JQL: {jql}")
 
 
@@ -954,23 +956,47 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
             import concurrent.futures
             main_loop = asyncio.get_event_loop()
 
-            def progress_callback(message):
-                job_logger.progress(f"[FETCHED] {message}")
+            # Track last websocket update to prevent progress bar flickering
+            last_websocket_update = {"count": 0}
 
-                # Send WebSocket update for fetching progress (step 3: fixed at 60% completion)
+            def progress_callback(message):
+                # Handle different message types with appropriate prefixes
+                if message.startswith("Making API request") or message.startswith("Fetching next batch"):
+                    # These are in-progress messages
+                    log_message = f"[FETCHING] {message}"
+                    websocket_message = f"[FETCHING] {message}"
+                else:
+                    # These are completion messages (like "Fetched X issues")
+                    log_message = f"[FETCHED] {message}"
+                    websocket_message = f"[FETCHED] {message}"
+
+                job_logger.progress(log_message)
+
+                # Send WebSocket update for fetching progress - but throttle to prevent flickering
+                # Only send updates every 5 API calls to avoid progress bar jumping back and forth
                 if websocket_manager and main_loop:
-                    try:
-                        # Schedule the coroutine to run in the main event loop from this thread
-                        # Step 3 (index 2) with fixed completion since total count unknown
-                        future = asyncio.run_coroutine_threadsafe(
-                            websocket_manager.send_step_progress_update(
-                                "Jira", 2, total_steps, None, f"[FETCHED] {message}"
-                            ),
-                            main_loop
-                        )
-                    except Exception as e:
-                        # Silently handle WebSocket errors to avoid log noise
-                        pass
+                    last_websocket_update["count"] += 1
+
+                    # Send update only on first call, every 5th call, or completion messages
+                    should_send_update = (
+                        last_websocket_update["count"] == 1 or  # First call
+                        last_websocket_update["count"] % 5 == 0 or  # Every 5th call
+                        message.startswith("Fetched")  # Completion messages
+                    )
+
+                    if should_send_update:
+                        try:
+                            # Schedule the coroutine to run in the main event loop from this thread
+                            # Step 3 (index 2) with fixed completion since total count unknown
+                            future = asyncio.run_coroutine_threadsafe(
+                                websocket_manager.send_step_progress_update(
+                                    "Jira", 2, total_steps, None, websocket_message
+                                ),
+                                main_loop
+                            )
+                        except Exception as e:
+                            # Silently handle WebSocket errors to avoid log noise
+                            pass
 
             # Run the blocking API call in a thread pool to avoid blocking the event loop
             def get_issues_sync():
@@ -1185,18 +1211,17 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
                 # Send progress update every 50 issues
                 if websocket_manager and processed_count % 50 == 0:
-                    # Calculate progress within the 35-45% range for issue processing
-                    process_progress = 35.0 + (processed_count / len(all_issues)) * 10.0
+                    # Use step-based progress system: Step 3 (index 2) of 5 total steps (40% → 60%)
+                    # Issue processing is the first half of step 3, so use 0.1 to 0.7 within the step
+                    step_progress = 0.1 + (processed_count / len(all_issues)) * 0.6
                     progress_message = f"Processing issues: {processed_count:,} of {len(all_issues):,} ({processed_count/len(all_issues)*100:.1f}%)"
 
                     try:
                         import asyncio
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            asyncio.create_task(websocket_manager.send_progress_update(
-                                "Jira",
-                                process_progress,
-                                progress_message
+                            asyncio.create_task(websocket_manager.send_step_progress_update(
+                                "Jira", 2, 5, step_progress, progress_message
                             ))
                     except Exception:
                         pass
@@ -1293,6 +1318,16 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
         job_logger.progress(f"[SUCCESS] Successfully processed {processed_count} issues total with chunked commits")
 
+        # Step 3 completed - Issues fetched (60%)
+        logger.info(f"Step 3: Completed fetching {processed_count:,} issues")
+        if websocket_manager:
+            await websocket_manager.send_step_progress_update("Jira", 2, total_steps, None, f"Completed fetching {processed_count:,} issues")
+
+        # Step 4: Process issues and changelogs (60% → 80%)
+        logger.info("Step 4: Starting processing of issues and changelogs...")
+        if websocket_manager:
+            await websocket_manager.send_step_progress_update("Jira", 3, total_steps, 0.0, f"Starting processing of {len(processed_issue_keys)} issues and changelogs...")
+
         # Note: AI vectorization is now handled asynchronously via queue
 
         # Now process changelogs for all processed issues
@@ -1305,7 +1340,10 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
                 statuses_dict, job_logger, issue_changelogs, websocket_manager
             )
 
-
+        # Step 4 completed - Issues and changelogs processed (80%)
+        logger.info(f"Step 4: Completed processing {processed_count:,} issues and {changelogs_processed:,} changelogs")
+        if websocket_manager:
+            await websocket_manager.send_step_progress_update("Jira", 3, total_steps, None, f"Completed processing {processed_count:,} issues and {changelogs_processed:,} changelogs")
 
         # Update job_schedule.last_success_at to extraction start time (truncated to %Y-%m-%d %H:%M format)
         # This ensures we capture the start time to prevent losing changes made during extraction
@@ -1519,18 +1557,17 @@ async def process_changelogs_for_work_items(session: Session, jira_client: JiraA
 
                 # Send progress update every 25 issues
                 if websocket_manager and issues_processed % 25 == 0:
-                    # Calculate progress within the 45-50% range for changelog processing
-                    changelog_progress = 45.0 + (issues_processed / len(issues_in_db)) * 5.0
+                    # Use step-based progress system: Step 4 (index 3) of 5 total steps (60% → 80%)
+                    # Progress within Step 4: 0.0 to 1.0 based on changelog processing completion
+                    step_progress = issues_processed / len(issues_in_db)
                     progress_message = f"Processing changelogs: {issues_processed:,} of {len(issues_in_db):,} issues ({issues_processed/len(issues_in_db)*100:.1f}%)"
 
                     try:
                         import asyncio
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
-                            asyncio.create_task(websocket_manager.send_progress_update(
-                                "Jira",
-                                changelog_progress,
-                                progress_message
+                            asyncio.create_task(websocket_manager.send_step_progress_update(
+                                "Jira", 3, 5, step_progress, progress_message
                             ))
                     except Exception:
                         pass
