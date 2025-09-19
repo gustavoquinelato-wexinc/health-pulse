@@ -137,17 +137,11 @@
                 <div id="embeddingProviderFields" style="display: none;">
                     <div class="mb-4">
                         <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Model Configuration</label>
-                        <textarea id="modelConfig" name="ai_model_config" rows="3" placeholder='{"model_path": "/models/sentence-transformers/all-MiniLM-L6-v2", "cost_tier": "free", "gateway_route": false}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
+                        <textarea id="modelConfig" name="ai_model_config" rows="3" placeholder='{"model_path": "models/sentence-transformers/all-mpnet-base-v2", "cost_tier": "free", "gateway_route": false, "source": "local"}' class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"></textarea>
                         <small class="text-muted">JSON configuration for embedding model parameters (model_path, cost_tier, gateway_route, etc.)</small>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Fallback Integration</label>
-                        <select id="fallbackIntegration" name="fallback_integration_id" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
-                            <option value="">No fallback</option>
-                        </select>
-                        <small class="text-muted">Select another embedding integration to use as fallback if this one fails</small>
-                    </div>
+                    <!-- Fallback removed for embedding integrations - different models create incompatible vector spaces -->
                 </div>
 
                 <div class="mb-4">
@@ -217,8 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Load fallback integrations for AI provider dropdown
-    loadFallbackIntegrations();
+    // Fallback integrations removed for embedding providers
 });
 
 function toggleProviderFields() {
@@ -260,34 +253,8 @@ function toggleProviderFields() {
     }
 }
 
-async function loadFallbackIntegrations(currentIntegrationId = null) {
-    try {
-        const response = await fetch('/api/v1/admin/integrations', {
-            credentials: 'include'
-        });
-        if (response.ok) {
-            const integrations = await response.json();
-            const fallbackSelect = document.getElementById('fallbackIntegration');
-
-            // Clear existing options except "No fallback"
-            fallbackSelect.innerHTML = '<option value="">No fallback</option>';
-
-            // Add Embedding provider integrations as options (for embedding fallback)
-            // Exclude the current integration being edited
-            integrations.filter(i =>
-                i.integration_type === 'Embedding' &&
-                i.id !== currentIntegrationId
-            ).forEach(integration => {
-                const option = document.createElement('option');
-                option.value = integration.id;
-                option.textContent = integration.name;
-                fallbackSelect.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error loading fallback integrations:', error);
-    }
-}
+// Fallback integrations removed for embedding providers
+// Different embedding models create incompatible vector spaces
 
 async function loadIntegrations() {
     try {
@@ -409,8 +376,7 @@ function showCreateModal() {
     document.getElementById('dataProviderFields').style.display = 'block';
     document.getElementById('credentialFields').style.display = 'block';
 
-    // Load fallback integrations for new integration (no exclusions)
-    loadFallbackIntegrations();
+    // Fallback integrations removed for embedding providers
 
     openModal('integrationModal');
 }
@@ -469,8 +435,7 @@ async function editIntegration(id) {
         // Show/hide provider-specific fields based on type
         toggleProviderFields();
 
-        // Load fallback integrations excluding the current one
-        await loadFallbackIntegrations(integration.id);
+        // Fallback integrations removed for embedding providers
 
         openModal('integrationModal');
 

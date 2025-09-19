@@ -72,20 +72,50 @@ class WebSocketManager:
             except ValueError:
                 logger.warning("[WS] WebSocket not found in connections", job_name=job_name)
     
-    async def send_progress_update(self, job_name: str, percentage: float, step: str):
+    async def send_progress_update(self, job_name: str, percentage: Optional[float], step: str):
         """Send progress update to all connected clients for a job."""
         message = {
             "type": MessageType.PROGRESS.value,
             "job": job_name,
-            "percentage": round(percentage, 1),
+            "percentage": round(percentage, 1) if percentage is not None else None,
             "step": step,
             "timestamp": datetime.utcnow().isoformat()
         }
-        
+
         # Store latest progress for new connections
         self.latest_progress[job_name] = message
-        
+
+        # Broadcast to all connected clients for this job
         await self._broadcast_to_job(job_name, message)
+
+
+    async def send_step_progress_update(self, job_name: str, step_index: int, total_steps: int,
+                                      step_progress: Optional[float], step_message: str):
+        """
+        Send progress update using flexible equal-step system.
+
+        Args:
+            job_name: Name of the job
+            step_index: Current step index (0-based)
+            total_steps: Total number of steps in the job
+            step_progress: Progress within current step (0.0-1.0), None for fixed step completion
+            step_message: Message describing current step
+        """
+        # Calculate equal percentage per step
+        step_percentage = 100.0 / total_steps
+
+        # Calculate overall progress
+        step_start = step_index * step_percentage
+
+        if step_progress is not None:
+            # Smooth progression within step
+            overall_percentage = step_start + (step_progress * step_percentage)
+        else:
+            # Fixed completion of current step (for unknown totals like Jira fetching)
+            overall_percentage = (step_index + 1) * step_percentage
+
+        # Send standard progress update
+        await self.send_progress_update(job_name, overall_percentage, step_message)
     
     async def send_exception(self, job_name: str, level: str, message: str, error_details: Optional[str] = None):
         """Send exception/error message to all connected clients for a job."""

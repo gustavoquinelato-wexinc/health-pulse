@@ -11,7 +11,7 @@ from enum import Enum
 
 class JobStatus(str, Enum):
     """Possible job statuses."""
-    NOT_STARTED = "not_started"
+    READY = "ready"
     RUNNING = "running"
     SUCCESS = "success"
     ERROR = "error"

@@ -87,21 +87,37 @@ class HybridProviderManager:
                 
                 self.provider_configs[integration.id] = provider_config
                 
-                # Initialize specific provider using normalized type
-                normalized_provider = self._normalize_provider_type(integration.provider)
+                # Initialize specific provider based on type and config
+                if integration.type == 'AI':
+                    # AI Provider - use WEX Gateway for text generation
+                    provider_instance = WEXGatewayProvider(integration)
+                    provider_key = f"ai_{integration.id}"
+                    self.providers[provider_key] = provider_instance
+                    logger.info(f"Initialized AI provider '{integration.provider}' (ID: {integration.id}) for tenant {tenant_id}")
 
-                if normalized_provider == 'wex_ai_gateway':
-                    self.providers[f"wex_gateway_{integration.id}"] = WEXGatewayProvider(integration)
-                    logger.info(f"Initialized WEX Gateway provider for tenant {tenant_id}")
+                elif integration.type == 'Embedding':
+                    # Embedding Provider - decide based on source (local vs external)
+                    config = integration.ai_model_config or {}
+                    source = config.get('source', 'external')  # Default to external if not specified
 
-                elif normalized_provider == 'sentence_transformers':
-                    provider = SentenceTransformersProvider(integration)
-                    await provider.initialize()  # Load the model
-                    self.providers[f"sentence_transformers_{integration.id}"] = provider
-                    logger.info(f"Initialized Sentence Transformers provider for tenant {tenant_id}")
+                    if source == 'local':
+                        # Local embedding via Sentence Transformers
+                        provider_instance = SentenceTransformersProvider(integration)
+                        await provider_instance.initialize()  # Load the model
+                        provider_key = f"embedding_local_{integration.id}"
+                        self.providers[provider_key] = provider_instance
+                        logger.info(f"Initialized local embedding provider '{integration.provider}' (ID: {integration.id}) for tenant {tenant_id}")
+                    else:
+                        # External embedding (may use gateway_route or direct connection)
+                        provider_instance = WEXGatewayProvider(integration)
+                        provider_key = f"embedding_external_{integration.id}"
+                        self.providers[provider_key] = provider_instance
+                        gateway_route = config.get('gateway_route', False)
+                        route_type = "via gateway" if gateway_route else "direct"
+                        logger.info(f"Initialized external embedding provider '{integration.provider}' ({route_type}) (ID: {integration.id}) for tenant {tenant_id}")
 
                 else:
-                    logger.warning(f"Unknown provider type: {integration.provider} (normalized: {normalized_provider})")
+                    logger.warning(f"Unknown integration type: {integration.type} for provider {integration.provider}")
 
             logger.info(f"Initialized {len(self.providers)} AI providers for tenant {tenant_id}")
             return True
@@ -144,24 +160,9 @@ class HybridProviderManager:
                 Integration.active == True
             )
 
-            if prefer_local:
-                # ETL prefers local models (gateway_route = false in ai_model_config)
-                integrations = query.all()
-                for integration in integrations:
-                    config = integration.ai_model_config or {}
-                    if not config.get('gateway_route', True):  # Default to True if not specified
-                        return integration
-                # Fallback to any active embedding provider
-                return query.first()
-            else:
-                # Frontend can use any embedding provider, prefer external
-                integrations = query.all()
-                for integration in integrations:
-                    config = integration.ai_model_config or {}
-                    if config.get('gateway_route', False):  # Prefer gateway providers
-                        return integration
-                # Fallback to any active embedding provider
-                return query.first()
+            # Always use the first active embedding provider
+            # No preference logic - use whatever is configured as active
+            return query.first()
 
         except Exception as e:
             logger.error(f"Error getting embedding provider: {e}")
@@ -329,21 +330,21 @@ class HybridProviderManager:
 
         # Intelligent selection based on operation type
         if operation == "embedding":
-            # For embeddings: prefer local models for cost savings, WEX Gateway for quality
-            if data_size <= 100:  # Small batches: use local for speed
-                local_providers = [p for p in available_providers if "SentenceTransformers" in p.__class__.__name__]
-                if local_providers:
-                    return local_providers[0]
-            else:  # Large batches: use WEX Gateway for quality
-                wex_providers = [p for p in available_providers if "WEXGateway" in p.__class__.__name__]
-                if wex_providers:
-                    return wex_providers[0]
+            # For embeddings: filter by integration type = 'Embedding'
+            embedding_providers = [p for p in available_providers if p.integration.type == 'Embedding']
+
+            # Always use the first active embedding provider
+            # No fallback logic - different models create incompatible vector spaces
+            if embedding_providers:
+                return embedding_providers[0]
+            if embedding_providers:
+                return embedding_providers[0]
 
         elif operation == "text_generation":
-            # For text generation: prefer WEX Gateway (local models don't support this)
-            wex_providers = [p for p in available_providers if "WEXGateway" in p.__class__.__name__]
-            if wex_providers:
-                return wex_providers[0]
+            # For text generation: filter by integration type = 'AI'
+            ai_providers = [p for p in available_providers if p.integration.type == 'AI']
+            if ai_providers:
+                return ai_providers[0]
 
         # Fallback: return first available provider
         return available_providers[0] if available_providers else None
@@ -365,14 +366,15 @@ class HybridProviderManager:
                           input_count: int, cost: float, processing_time: float):
         """Track AI usage in database"""
         try:
+            # Note: AIUsageTracking model doesn't have processing_time or active fields
+            # Store processing_time in request_metadata instead
             usage_record = AIUsageTracking(
                 tenant_id=tenant_id,
                 provider=provider,
                 operation=operation,
                 input_count=input_count,
                 cost=cost,
-                processing_time=processing_time,
-                active=True
+                request_metadata={"processing_time": processing_time}
             )
 
             self.db_session.add(usage_record)
@@ -447,7 +449,7 @@ class HybridProviderManager:
             elif base_provider_type == 'sentence_transformers':
                 # Test local provider
                 provider = SentenceTransformersProvider(
-                    model=provider_data.get('ai_model', 'all-MiniLM-L6-v2'),
+                    model=provider_data.get('ai_model', 'all-mpnet-base-v2'),
                     model_config=provider_data.get('ai_model_config', {})
                 )
 

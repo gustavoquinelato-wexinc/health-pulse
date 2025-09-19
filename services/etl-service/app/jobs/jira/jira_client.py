@@ -258,6 +258,13 @@ class JiraAPIClient:
             # Try to fetch a page with retries
             for retry_count in range(max_retries):
                 try:
+                    # Send progress update before making API call
+                    if progress_callback:
+                        if len(all_issues) == 0:
+                            progress_callback("Making API request...")
+                        else:
+                            progress_callback(f"Fetching next batch (current: {len(all_issues)} issues)...")
+
                     # Use NEW enhanced JQL API endpoint (latest version)
                     url = f"{self.base_url}/rest/api/latest/search/jql"
 

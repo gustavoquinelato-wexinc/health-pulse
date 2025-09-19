@@ -229,8 +229,8 @@ The system uses JSON-based configuration in `ai_model_config` for flexible routi
 {
   "temperature": 0.3,
   "max_tokens": 700,
-  "gateway_route": true,    // Routes through WEX AI Gateway
-  "source": "external"     // Uses external cloud models
+  "gateway_route": true,    // Uses WEX AI Gateway as intermediary
+  "source": "external"     // Uses external cloud models (not local)
 }
 ```
 
@@ -239,8 +239,8 @@ The system uses JSON-based configuration in `ai_model_config` for flexible routi
 {
   "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
   "cost_tier": "free",
-  "gateway_route": false,   // Direct local processing
-  "source": "local"        // Uses local models
+  "gateway_route": false,   // Direct connection (no gateway intermediary)
+  "source": "local"        // Uses local models (not external)
 }
 ```
 *Database fields: `ai_model = "all-MiniLM-L6-v2"`, `ai_model_config` contains the JSON above*
@@ -250,8 +250,8 @@ The system uses JSON-based configuration in `ai_model_config` for flexible routi
 {
   "model_path": "azure-text-embedding-3-small",
   "cost_tier": "paid",
-  "gateway_route": true,    // Routes through WEX AI Gateway
-  "source": "external"     // Uses external API
+  "gateway_route": true,    // Uses WEX AI Gateway as intermediary
+  "source": "external"     // Uses external API (not local)
 }
 ```
 

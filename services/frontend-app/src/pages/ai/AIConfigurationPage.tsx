@@ -561,7 +561,7 @@ const AIConfigurationPage: React.FC = () => {
                     value={formData.ai_model}
                     onChange={(e) => handleInputChange('ai_model', e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., all-MiniLM-L6-v2, gpt-4"
+                    placeholder="e.g., all-mpnet-base-v2, gpt-4"
                     required
                   />
                 )}
@@ -585,29 +585,32 @@ const AIConfigurationPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1">
-                  Fallback Provider
-                </label>
-                <select
-                  value={formData.fallback_integration_id}
-                  onChange={(e) => handleInputChange('fallback_integration_id', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">No fallback provider</option>
-                  {providers
-                    .filter(p => editingProvider ? p.id !== editingProvider.id : true)
-                    .filter(p => p.active)
-                    .map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.name} ({provider.provider})
-                      </option>
-                    ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Optional fallback provider if this one fails
-                </p>
-              </div>
+              {/* Fallback Provider - Only for AI integrations, not Embedding */}
+              {formData.type === 'AI' && (
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-1">
+                    Fallback Provider
+                  </label>
+                  <select
+                    value={formData.fallback_integration_id}
+                    onChange={(e) => handleInputChange('fallback_integration_id', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">No fallback provider</option>
+                    {providers
+                      .filter(p => editingProvider ? p.id !== editingProvider.id : true)
+                      .filter(p => p.active && p.type === 'AI')
+                      .map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name} ({provider.provider})
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Optional fallback AI provider if this one fails
+                  </p>
+                </div>
+              )}
 
               <div className="flex items-center">
                 <input

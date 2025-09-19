@@ -15,6 +15,7 @@ from app.jobs.github.github_graphql_processor import GitHubGraphQLProcessor
 from app.jobs.github.github_graphql_pagination import (
     paginate_commits, paginate_reviews, paginate_comments, paginate_review_threads, resume_pr_nested_pagination
 )
+from app.jobs.vectorization_helper import VectorizationQueueHelper
 
 logger = get_logger(__name__)
 
@@ -50,6 +51,10 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
         processor = GitHubGraphQLProcessor(integration, repository.id)
         prs_processed = 0
+
+        # Initialize vectorization queue helper
+        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        logger.info(f"[VECTORIZATION_DEBUG] Initialized vectorization helper for tenant {integration.tenant_id}")
 
         # Get last sync timestamp for early termination (DESC ordering optimization)
         # Use job_schedule.last_success_at instead of integration.last_sync_at
@@ -178,8 +183,46 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
                                     # Perform any pending bulk inserts before stopping
                                     if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-                                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
+                                        logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Performing bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+                                        bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments)
                                         session.commit()
+
+                                        # Queue entities for async vectorization (EARLY TERMINATION PATH)
+                                        if bulk_result:
+                                            # Queue PRs
+                                            if bulk_result.get("prs_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("prs_inserted", []), "prs", "insert"
+                                                )
+                                            if bulk_result.get("prs_updated"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("prs_updated", []), "prs", "update"
+                                                )
+
+                                            # Queue commits
+                                            if bulk_result.get("commits_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                                                )
+
+                                            # Queue reviews
+                                            if bulk_result.get("reviews_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                                                )
+
+                                            # Queue comments
+                                            if bulk_result.get("comments_inserted"):
+                                                logger.info(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                                                vectorization_helper.queue_entities_for_vectorization(
+                                                    bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                                                )
+                                        else:
+                                            logger.warning(f"[VECTORIZATION_DEBUG] EARLY TERMINATION: Bulk result is None or empty - no entities queued for vectorization")
 
                                     # Clear checkpoint since we completed successfully
                                     job_schedule.update_checkpoint({})
@@ -203,7 +246,45 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
                     if not pr_result['success']:
                         # Before failing, save any collected data
                         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-                            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+                            logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Performing bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+                            bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+
+                            # Queue entities for async vectorization (FAILURE PATH)
+                            if bulk_result:
+                                # Queue PRs
+                                if bulk_result.get("prs_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("prs_inserted", []), "prs", "insert"
+                                    )
+                                if bulk_result.get("prs_updated"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("prs_updated", []), "prs", "update"
+                                    )
+
+                                # Queue commits
+                                if bulk_result.get("commits_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                                    )
+
+                                # Queue reviews
+                                if bulk_result.get("reviews_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                                    )
+
+                                # Queue comments
+                                if bulk_result.get("comments_inserted"):
+                                    logger.info(f"[VECTORIZATION_DEBUG] FAILURE PATH: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                                    vectorization_helper.queue_entities_for_vectorization(
+                                        bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                                    )
+                            else:
+                                logger.warning(f"[VECTORIZATION_DEBUG] FAILURE PATH: Bulk result is None or empty - no entities queued for vectorization")
 
                         return {
                             'success': False,
@@ -218,16 +299,8 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
 
                     prs_processed += 1
 
-                    # Perform bulk insert when batch is full
-                    if len(bulk_prs) >= BATCH_SIZE:
-                        perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
-                        bulk_prs.clear()
-                        bulk_commits.clear()
-                        bulk_reviews.clear()
-                        bulk_comments.clear()
-
-                        # Yield control after bulk operations to prevent UI blocking
-                        await asyncio.sleep(0.01)  # 10ms yield
+                    # NOTE: Removed per-PR batching to prevent duplicate vectorization queue entries
+                    # Now we batch after each GraphQL response instead of after N PRs
 
                     # Yield control after each PR to keep UI responsive
                     if prs_processed % 5 == 0:  # Yield every 5 PRs instead of 10
@@ -245,6 +318,56 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
                     logger.error(f"[{owner}/{repo_name}] Error processing PR #{pr_node.get('number', 'unknown')}: {e}")
                     continue
 
+            # BULK INSERT AND QUEUE AFTER EACH GRAPHQL PAGE (FIXED APPROACH)
+            # Process all accumulated data from this GraphQL response before moving to next page
+            if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
+                logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Performing bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+                bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+                session.commit()
+
+                # Queue entities for async vectorization (PAGE COMPLETE)
+                if bulk_result:
+                    # Queue PRs
+                    if bulk_result.get("prs_inserted"):
+                        logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                        vectorization_helper.queue_entities_for_vectorization(
+                            bulk_result.get("prs_inserted", []), "prs", "insert"
+                        )
+                    if bulk_result.get("prs_updated"):
+                        logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                        vectorization_helper.queue_entities_for_vectorization(
+                            bulk_result.get("prs_updated", []), "prs", "update"
+                        )
+
+                    # Queue commits
+                    if bulk_result.get("commits_inserted"):
+                        logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                        vectorization_helper.queue_entities_for_vectorization(
+                            bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                        )
+
+                    # Queue reviews
+                    if bulk_result.get("reviews_inserted"):
+                        logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                        vectorization_helper.queue_entities_for_vectorization(
+                            bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                        )
+
+                    # Queue comments
+                    if bulk_result.get("comments_inserted"):
+                        logger.info(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                        vectorization_helper.queue_entities_for_vectorization(
+                            bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                        )
+                else:
+                    logger.warning(f"[VECTORIZATION_DEBUG] PAGE COMPLETE: Bulk result is None or empty - no entities queued for vectorization")
+
+                # Clear bulk arrays after processing this page
+                bulk_prs.clear()
+                bulk_commits.clear()
+                bulk_reviews.clear()
+                bulk_comments.clear()
+
             # Check if there are more pages
             page_info = pull_requests['pageInfo']
             if not page_info['hasNextPage']:
@@ -255,13 +378,71 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
             pr_cursor = page_info['endCursor']
             logger.info(f"[{owner}/{repo_name}] Page completed, moving to next page: prev_cursor={prev_cursor} -> next_cursor={pr_cursor}")
 
+            # INFINITE LOOP DETECTION: Check if cursor hasn't changed
+            if pr_cursor == prev_cursor:
+                logger.error(f"[{owner}/{repo_name}] INFINITE LOOP DETECTED: Cursor hasn't changed ({pr_cursor})")
+                return {
+                    'success': False,
+                    'error': f'Infinite loop detected in PR pagination for {owner}/{repo_name}. Cursor stuck at: {pr_cursor}',
+                    'prs_processed': prs_processed,
+                    'checkpoint_data': {
+                        'last_pr_cursor': None,  # Clear cursor to prevent retry with same cursor
+                        'current_pr_node_id': None,
+                        'last_commit_cursor': None,
+                        'last_review_cursor': None,
+                        'last_comment_cursor': None,
+                        'last_review_thread_cursor': None
+                    }
+                }
+
             # Yield control between pages to keep UI responsive
             await asyncio.sleep(0.02)  # 20ms yield between pages
 
         # Final bulk insert for remaining data
         if bulk_prs or bulk_commits or bulk_reviews or bulk_comments:
-            perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
+            logger.info(f"[VECTORIZATION_DEBUG] Performing FINAL bulk insert for {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
+            bulk_result = perform_bulk_inserts(session, bulk_prs, bulk_commits, bulk_reviews, bulk_comments, f"{owner}/{repo_name}")
             logger.info(f"[{owner}/{repo_name}] Final bulk insert completed")
+            logger.info(f"[VECTORIZATION_DEBUG] Final bulk insert result keys: {list(bulk_result.keys()) if bulk_result else 'None'}")
+
+            # Queue final entities for async vectorization
+            if bulk_result:
+                # Queue PRs
+                if bulk_result.get("prs_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('prs_inserted', []))} inserted PRs for vectorization")
+                    vectorization_helper.queue_entities_for_vectorization(
+                        bulk_result.get("prs_inserted", []), "prs", "insert"
+                    )
+                if bulk_result.get("prs_updated"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('prs_updated', []))} updated PRs for vectorization")
+                    vectorization_helper.queue_entities_for_vectorization(
+                        bulk_result.get("prs_updated", []), "prs", "update"
+                    )
+
+                # Queue commits
+                if bulk_result.get("commits_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('commits_inserted', []))} commits for vectorization")
+                    vectorization_helper.queue_entities_for_vectorization(
+                        bulk_result.get("commits_inserted", []), "prs_commits", "insert"
+                    )
+
+                # Queue reviews
+                if bulk_result.get("reviews_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('reviews_inserted', []))} reviews for vectorization")
+                    vectorization_helper.queue_entities_for_vectorization(
+                        bulk_result.get("reviews_inserted", []), "prs_reviews", "insert"
+                    )
+
+                # Queue comments
+                if bulk_result.get("comments_inserted"):
+                    logger.info(f"[VECTORIZATION_DEBUG] FINAL: Queueing {len(bulk_result.get('comments_inserted', []))} comments for vectorization")
+                    vectorization_helper.queue_entities_for_vectorization(
+                        bulk_result.get("comments_inserted", []), "prs_comments", "insert"
+                    )
+            else:
+                logger.warning(f"[VECTORIZATION_DEBUG] FINAL: Bulk result is None or empty - no entities queued for vectorization")
+        else:
+            logger.info(f"[VECTORIZATION_DEBUG] FINAL: No remaining data to bulk insert - skipping final vectorization queueing")
 
         logger.info(f"Repository {owner}/{repo_name} completed: {prs_processed} PRs processed")
 
@@ -276,6 +457,10 @@ async def process_repository_prs_with_graphql(session: Session, graphql_client: 
             'last_review_thread_cursor': None
         })
         logger.debug(f"Cleared PR-level checkpoints for completed repository {repository.external_id}")
+
+        # Note: Entities are now saved immediately during extraction steps
+        # Vectorization will be triggered at the job level after all repositories are processed
+        logger.info(f"[{owner}/{repo_name}] All entities saved to vectorization queue during extraction")
 
         return {
             'success': True,
@@ -512,7 +697,25 @@ async def process_repository_prs_with_graphql_recovery(session: Session, graphql
                 logger.info(f"Completed recovery processing for {owner}/{repo_name}")
                 break
 
+            prev_cursor = pr_cursor
             pr_cursor = page_info['endCursor']
+
+            # INFINITE LOOP DETECTION: Check if cursor hasn't changed
+            if pr_cursor == prev_cursor:
+                logger.error(f"[{owner}/{repo_name}] INFINITE LOOP DETECTED in recovery mode: Cursor hasn't changed ({pr_cursor})")
+                return {
+                    'success': False,
+                    'error': f'Infinite loop detected in recovery PR pagination for {owner}/{repo_name}. Cursor stuck at: {pr_cursor}',
+                    'prs_processed': prs_processed,
+                    'checkpoint_data': {
+                        'last_pr_cursor': None,  # Clear cursor to prevent retry with same cursor
+                        'current_pr_node_id': None,
+                        'last_commit_cursor': None,
+                        'last_review_cursor': None,
+                        'last_comment_cursor': None,
+                        'last_review_thread_cursor': None
+                    }
+                }
 
         logger.info(f"Repository {owner}/{repo_name} recovery completed: {prs_processed} PRs processed")
 
@@ -604,9 +807,9 @@ def process_single_pr_with_nested_data(session: Session, graphql_client: GitHubG
         # Set the external_repo_id from the repository
         pr_data['external_repo_id'] = repository.external_id
 
-        # Check if PR already exists
+        # Check if PR already exists (using GitHub node ID)
         existing_pr = session.query(Pr).filter(
-            Pr.external_id == str(pr_number),
+            Pr.external_id == pr_data['external_id'],
             Pr.repository_id == repository.id
         ).first()
 
@@ -843,6 +1046,9 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
         # Add to bulk PR collection
         bulk_prs.append(pr_data)
 
+        # Get the PR external_id for linking nested data (this is the PR number as string)
+        pr_external_id = pr_data['external_id']
+
         # Process nested data and add to bulk collections
         # Process commits
         commits_data = pr_node.get('commits', {})
@@ -851,7 +1057,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
             for commit in commits:
                 commit_dict = {
                     'external_id': commit.external_id,
-                    'pull_request_external_id': str(pr_number),  # Use PR number for linking
+                    'pull_request_external_id': pr_external_id,  # Use PR external_id for linking
                     'repository_id': repository.id,
                     'author_name': commit.author_name,
                     'author_email': commit.author_email,
@@ -875,7 +1081,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
             for review in reviews:
                 review_dict = {
                     'external_id': review.external_id,
-                    'pull_request_external_id': str(pr_number),  # Use PR number for linking
+                    'pull_request_external_id': pr_external_id,  # Use PR external_id for linking
                     'author_login': review.author_login,
                     'state': review.state,
                     'body': review.body,
@@ -895,7 +1101,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
             for comment in comments:
                 comment_dict = {
                     'external_id': comment.external_id,
-                    'pull_request_external_id': str(pr_number),  # Use PR number for linking
+                    'pull_request_external_id': pr_external_id,  # Use PR external_id for linking
                     'author_login': comment.author_login,
                     'body': comment.body,
                     'comment_type': comment.comment_type,
@@ -916,7 +1122,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
             for comment in review_comments:
                 comment_dict = {
                     'external_id': comment.external_id,
-                    'pull_request_external_id': str(pr_number),  # Use PR number for linking
+                    'pull_request_external_id': pr_external_id,  # Use PR external_id for linking
                     'author_login': comment.author_login,
                     'body': comment.body,
                     'comment_type': comment.comment_type,
@@ -943,7 +1149,7 @@ def process_single_pr_for_bulk_insert(pr_node: Dict[str, Any], repository: Repos
 
 
 def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
-                        bulk_reviews: list, bulk_comments: list, repo_context: str = None):
+                        bulk_reviews: list, bulk_comments: list, repo_context: str = None) -> Dict[str, Any]:
     """
     Perform bulk UPSERT operations for all collected data.
 
@@ -956,6 +1162,9 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
         bulk_commits: List of commit data dictionaries
         bulk_reviews: List of review data dictionaries
         bulk_comments: List of comment data dictionaries
+
+    Returns:
+        Dict with inserted/updated PR information for AI processing
     """
     try:
         from app.models.unified_models import Pr, PrCommit, PrReview, PrComment
@@ -1022,18 +1231,27 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
 
                 # Update commits with actual PR IDs
                 for commit in bulk_commits:
-                    pr_external_id = commit.pop('pull_request_external_id')
-                    commit['pr_id'] = pr_mappings.get(pr_external_id)
+                    # Use get() to safely retrieve and remove the temporary field
+                    pr_external_id = commit.get('pull_request_external_id')
+                    if pr_external_id:
+                        commit.pop('pull_request_external_id', None)  # Safe removal
+                        commit['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # Update reviews with actual PR IDs
                 for review in bulk_reviews:
-                    pr_external_id = review.pop('pull_request_external_id')
-                    review['pr_id'] = pr_mappings.get(pr_external_id)
+                    # Use get() to safely retrieve and remove the temporary field
+                    pr_external_id = review.get('pull_request_external_id')
+                    if pr_external_id:
+                        review.pop('pull_request_external_id', None)  # Safe removal
+                        review['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # Update comments with actual PR IDs
                 for comment in bulk_comments:
-                    pr_external_id = comment.pop('pull_request_external_id')
-                    comment['pr_id'] = pr_mappings.get(pr_external_id)
+                    # Use get() to safely retrieve and remove the temporary field
+                    pr_external_id = comment.get('pull_request_external_id')
+                    if pr_external_id:
+                        comment.pop('pull_request_external_id', None)  # Safe removal
+                        comment['pr_id'] = pr_mappings.get(pr_external_id)
 
                 # DELETE existing nested data for full refresh approach
                 pr_ids_to_clean = list(pr_mappings.values())
@@ -1062,23 +1280,90 @@ def perform_bulk_inserts(session: Session, bulk_prs: list, bulk_commits: list,
         try:
             if bulk_commits:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_commits)} commits...")
-                session.bulk_insert_mappings(PrCommit, bulk_commits)
+                # Validate that all commits have pr_id set
+                commits_without_pr_id = [c for c in bulk_commits if not c.get('pr_id')]
+                if commits_without_pr_id:
+                    logger.warning(f"{context_prefix}Found {len(commits_without_pr_id)} commits without pr_id - skipping them")
+                    bulk_commits = [c for c in bulk_commits if c.get('pr_id')]
+                if bulk_commits:
+                    session.bulk_insert_mappings(PrCommit, bulk_commits)
 
             if bulk_reviews:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_reviews)} reviews...")
-                session.bulk_insert_mappings(PrReview, bulk_reviews)
+                # Validate that all reviews have pr_id set
+                reviews_without_pr_id = [r for r in bulk_reviews if not r.get('pr_id')]
+                if reviews_without_pr_id:
+                    logger.warning(f"{context_prefix}Found {len(reviews_without_pr_id)} reviews without pr_id - skipping them")
+                    bulk_reviews = [r for r in bulk_reviews if r.get('pr_id')]
+                if bulk_reviews:
+                    session.bulk_insert_mappings(PrReview, bulk_reviews)
 
             if bulk_comments:
                 logger.info(f"{context_prefix}Bulk inserting {len(bulk_comments)} comments...")
-                session.bulk_insert_mappings(PrComment, bulk_comments)
+                # Validate that all comments have pr_id set
+                comments_without_pr_id = [c for c in bulk_comments if not c.get('pr_id')]
+                if comments_without_pr_id:
+                    logger.warning(f"{context_prefix}Found {len(comments_without_pr_id)} comments without pr_id - skipping them")
+                    bulk_comments = [c for c in bulk_comments if c.get('pr_id')]
+                if bulk_comments:
+                    session.bulk_insert_mappings(PrComment, bulk_comments)
 
         except Exception as e:
             logger.error(f"{context_prefix}Error during bulk insert operations: {e}")
+            # Log the first few items for debugging
+            if bulk_commits:
+                logger.error(f"{context_prefix}Sample commit data: {bulk_commits[0] if bulk_commits else 'None'}")
+            if bulk_reviews:
+                logger.error(f"{context_prefix}Sample review data: {bulk_reviews[0] if bulk_reviews else 'None'}")
+            if bulk_comments:
+                logger.error(f"{context_prefix}Sample comment data: {bulk_comments[0] if bulk_comments else 'None'}")
             session.rollback()
             raise  # Re-raise the exception to be handled by the calling function
 
         logger.info(f"{context_prefix}Bulk insert completed: {len(bulk_prs)} PRs, {len(bulk_commits)} commits, {len(bulk_reviews)} reviews, {len(bulk_comments)} comments")
 
+        # Return the original input data with external_ids for vectorization queueing
+        # The vectorization processor will join with actual tables to get internal IDs
+
+        # Initialize variables if they don't exist (when no PRs were processed)
+        if 'prs_to_insert' not in locals():
+            prs_to_insert = []
+        if 'existing_pr_map' not in locals():
+            existing_pr_map = {}
+
+        # Build list of updated PRs - only include PRs that were actually updated in database
+        prs_updated = []
+        if prs_to_update:
+            # Convert updated PR objects back to data format for vectorization
+            for updated_pr in prs_to_update:
+                # Find the corresponding pr_data from bulk_prs
+                for pr_data in bulk_prs:
+                    if (pr_data['external_id'] == updated_pr.external_id and
+                        pr_data['repository_id'] == updated_pr.repository_id):
+                        prs_updated.append(pr_data)
+                        break
+
+        # Return the data for vectorization queueing
+        # The bulk_* arrays contain the data that was actually inserted and should have external_ids
+        result = {
+            "prs_inserted": prs_to_insert,
+            "prs_updated": prs_updated,
+            "comments_inserted": bulk_comments if bulk_comments else [],
+            "reviews_inserted": bulk_reviews if bulk_reviews else [],
+            "commits_inserted": bulk_commits if bulk_commits else []
+        }
+
+        logger.info(f"[VECTORIZATION_DEBUG] perform_bulk_inserts returning:")
+        logger.info(f"[VECTORIZATION_DEBUG]   prs_inserted: {len(result['prs_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   prs_updated: {len(result['prs_updated'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   comments_inserted: {len(result['comments_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   reviews_inserted: {len(result['reviews_inserted'])} items")
+        logger.info(f"[VECTORIZATION_DEBUG]   commits_inserted: {len(result['commits_inserted'])} items")
+
+        return result
+
     except Exception as e:
         logger.error(f"Error performing bulk inserts: {e}")
         raise
+
+

@@ -57,15 +57,43 @@ class AuthService:
                         User.active == True
                     )
                 ).first()
-                
+
                 if not user or not self._verify_password(password, user.password_hash):
                     logger.warning(f"Authentication failed for email: {email}")
+                    return None
+
+                # Block interactive login for system users
+                if user.auth_provider == 'system':
+                    logger.warning(f"Interactive login blocked for system user: {email}")
                     return None
                 
                 return await self._create_session(user, session, ip_address, user_agent)
                 
         except Exception as e:
             logger.error(f"Local authentication error: {e}")
+            return None
+
+    async def authenticate_system(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
+        """System authentication (for automated services like ETL)"""
+        try:
+            with self.database.get_write_session_context() as session:
+                user = session.query(User).filter(
+                    and_(
+                        User.email == email.lower().strip(),
+                        User.auth_provider == 'system',
+                        User.active == True
+                    )
+                ).first()
+
+                if not user or not self._verify_password(password, user.password_hash):
+                    logger.warning(f"System authentication failed for email: {email}")
+                    return None
+
+                logger.info(f"System user authenticated: {email}")
+                return await self._create_session(user, session, ip_address, user_agent)
+
+        except Exception as e:
+            logger.error(f"System authentication error: {e}")
             return None
     
     async def authenticate_okta(self, okta_token: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
@@ -254,15 +282,15 @@ class AuthService:
             if expired_sessions > 0:
                 logger.info(f"Cleaned up {expired_sessions} expired sessions for user {user.id} during login")
 
-            # Create JWT payload
+            # Create JWT payload with UTC timestamps (JWT standard)
             payload = {
                 "user_id": user.id,  # Now using integer ID directly
                 "email": user.email,
                 "role": user.role,
                 "is_admin": user.is_admin,
                 "tenant_id": user.tenant_id,  # ✅ CRITICAL: Include tenant_id for multi-client isolation
-                "exp": DateTimeHelper.now_default() + self.token_expiry,
-                "iat": DateTimeHelper.now_default()
+                "exp": DateTimeHelper.now_utc() + self.token_expiry,
+                "iat": DateTimeHelper.now_utc()
             }
 
             # Generate JWT token
@@ -271,25 +299,25 @@ class AuthService:
             token = jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
             logger.debug(f"🔑 Generated JWT token: {token[:50]}...")
 
-            # Store session in database
+            # Store session in database with UTC timestamps
             token_hash = self._hash_token(token)
             user_session = UserSession(
                 user_id=user.id,
                 token_hash=token_hash,
-                expires_at=DateTimeHelper.now_default() + self.token_expiry,
+                expires_at=DateTimeHelper.now_utc() + self.token_expiry,
                 ip_address=ip_address,
                 user_agent=user_agent,
                 tenant_id=user.tenant_id,
                 active=True,
-                created_at=DateTimeHelper.now_default(),
-                last_updated_at=DateTimeHelper.now_default()
+                created_at=DateTimeHelper.now_utc(),
+                last_updated_at=DateTimeHelper.now_utc()
             )
 
             session.add(user_session)
             
-            # Update last login
-            user.last_login_at = DateTimeHelper.now_default()
-            user.last_updated_at = DateTimeHelper.now_default()
+            # Update last login with UTC timestamps
+            user.last_login_at = DateTimeHelper.now_utc()
+            user.last_updated_at = DateTimeHelper.now_utc()
 
             session.commit()
 

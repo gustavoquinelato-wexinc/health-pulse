@@ -56,7 +56,7 @@ type: "manual"
 - **Database**: PostgreSQL primary (5432) + replica (5433) with streaming replication
 - **Cache**: Redis (6379) for sessions and caching
 - **ETL Routes**: /home (not /dashboard)
-- **Job Statuses**: NOT_STARTED, PENDING, RUNNING, FINISHED, PAUSED
+- **Job Statuses**: READY, PENDING, RUNNING, FINISHED, PAUSED
 
 ### Service Communication Flow
 ```
@@ -137,7 +137,7 @@ class Issue(Base):
 ### ETL Service (Port 8000)
 - **Purpose**: Business data, analytics, job orchestration ONLY
 - **Routes**: Use `/home` not `/dashboard`, no `/admin` prefix (entire service is admin-only)
-- **Job Statuses**: NOT_STARTED, PENDING, RUNNING, FINISHED, ERROR, PAUSED
+- **Job Statuses**: READY, PENDING, RUNNING, FINISHED, ERROR, PAUSED
 - **Client Context**: Automatic client-specific logging with CLIENT_NAME environment variable
 - **Scripts**: Keep `run_etl.py` and `run_etl.bat` - they provide clean shutdown handling
 - **WebSocket**: Real-time job progress at `/ws/progress/{job_name}`
@@ -158,9 +158,9 @@ class Issue(Base):
 
 ### Job Status Flow
 ```
-NOT_STARTED → PENDING → RUNNING → FINISHED
-                ↓
-              PAUSED (can resume to RUNNING)
+READY → PENDING → RUNNING → FINISHED
+          ↓
+        PAUSED (can resume to RUNNING)
 ```
 
 ## 🎨 UI/UX Standards

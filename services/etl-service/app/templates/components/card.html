@@ -45,19 +45,19 @@
 <!-- Helper Functions -->
 {% set status_variants = {
     'RUNNING': 'primary',
-    'PENDING': 'warning', 
+    'PENDING': 'warning',
     'FINISHED': 'success',
     'PAUSED': 'warning',
-    'NOT_STARTED': 'secondary',
+    'READY': 'secondary',
     'ERROR': 'error'
 } %}
 
 {% set status_icons = {
     'RUNNING': 'spinner fa-spin',
     'PENDING': 'clock',
-    'FINISHED': 'check-circle', 
+    'FINISHED': 'check-circle',
     'PAUSED': 'pause-circle',
-    'NOT_STARTED': 'circle',
+    'READY': 'circle',
     'ERROR': 'exclamation-triangle'
 } %}
 

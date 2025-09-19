@@ -6,9 +6,9 @@ This document provides a comprehensive overview of the Pulse Platform's architec
 
 ## 🏗️ System Architecture Overview
 
-### Five-Tier Architecture with AI
+### Five-Tier Architecture with AI ✅ **ENHANCED WITH COMPREHENSIVE VECTORIZATION**
 
-Pulse Platform follows a modern microservices architecture with centralized authentication, AI capabilities, and clear separation of concerns:
+Pulse Platform follows a modern microservices architecture with centralized authentication, comprehensive AI capabilities, and clear separation of concerns. **Phase 3-4 Complete**: All ETL data tables now have AI vectorization for unified semantic search.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -131,8 +131,10 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Real-time Monitoring**: WebSocket updates and progress tracking
 - **Admin Interface**: Configuration and management tools
 - **AI Agent Integration**: LangGraph workflows for strategic business intelligence
-- **Semantic Search**: Vector-based content discovery and analysis
+- **Comprehensive AI Vectorization**: Bulk vector processing for all 13 data tables
+- **Semantic Search**: Vector-based content discovery and analysis across all business data
 - **ML Data Preparation**: Data preprocessing for AI models
+- **ETL → Backend AI Integration**: Clean service boundaries with Backend handling all AI operations
 
 
 
@@ -337,8 +339,9 @@ Pulse Platform has evolved through multiple AI phases, culminating in a clean 3-
 - **Embedding**: Local Embeddings (free), WEX Embeddings (paid)
 
 **Context-Aware Provider Selection**:
-- **ETL Operations**: Automatically prefer local models (`gateway_route: false`) for cost-effective data processing
-- **Frontend Operations**: Automatically prefer gateway providers (`gateway_route: true`) for high-quality AI interactions
+- **ETL Operations**: Automatically prefer local models (`source: "local"`) for cost-effective data processing
+- **Frontend Operations**: Automatically prefer external models (`source: "external"`) for high-quality AI interactions
+- **Gateway Routing**: `gateway_route: true` uses WEX AI Gateway as intermediary, `gateway_route: false` connects directly
 
 **Future-Proof Design**: Easy addition of new providers (Ollama, custom LLMs, external APIs) without schema changes.
 
@@ -448,14 +451,24 @@ WHERE tenant_id = ? AND embedding IS NOT NULL;
 ✅ **Credential Management**: Encrypted storage of integration credentials with .env support
 ✅ **Backward Compatibility**: All existing functionality preserved and enhanced
 
-### Current AI Capabilities (Production Ready)
+### Current AI Capabilities (Production Ready) ✅ **PHASE 3-4 COMPLETE**
 
 ✅ **Strategic Intelligence**: LangGraph-powered business analysis and insights
-✅ **Semantic Search**: Vector-based content discovery across all data sources
+✅ **Comprehensive Vectorization**: All 13 ETL data tables vectorized for unified semantic search
+✅ **Bulk AI Processing**: Optimized ETL → Backend → Qdrant integration with bulk operations
+✅ **Cross-Platform Search**: Unified semantic search across Jira and GitHub data
+✅ **Real-time Vector Generation**: Automatic vectorization during data extraction
 ✅ **Integration Management**: Unified configuration for data sources and AI providers
 ✅ **Performance Optimization**: Redis caching and Qdrant vector operations
 ✅ **Tenant Isolation**: Complete multi-tenant support across all AI components
 ✅ **Monitoring & Analytics**: Real-time AI performance tracking and optimization
+✅ **Error Resilience**: AI operation failures don't impact ETL jobs
+
+### Vectorized Data Tables (13 total):
+- **Jira Core**: changelogs, wits, statuses, projects
+- **GitHub Core**: prs_comments, prs_reviews, prs_commits, repositories
+- **Cross-Platform**: wits_prs_links
+- **Configuration**: wits_hierarchies, wits_mappings, statuses_mappings, workflows
 
 ## � Deployment Architecture
 

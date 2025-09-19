@@ -59,6 +59,7 @@ class Tenant(Base):
     ai_performance_metrics = relationship("AIPerformanceMetric", back_populates="tenant")
     ml_anomaly_alerts = relationship("MLAnomalyAlert", back_populates="tenant")
     ai_usage_trackings = relationship("AIUsageTracking", back_populates="tenant")
+    vectorization_queue = relationship("VectorizationQueue", back_populates="tenant")
 
 
 class BaseEntity:
@@ -985,3 +986,42 @@ class AIUsageTracking(Base, BaseEntity):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="ai_usage_trackings")
+
+
+class VectorizationQueue(Base):
+    """Async vectorization queue for ETL processing."""
+    __tablename__ = 'vectorization_queue'
+    __table_args__ = (
+        # Removed unique constraint to allow multiple operations on same external_id
+        # This supports re-extraction scenarios and multiple updates
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Core queue fields
+    table_name = Column(String(50), nullable=False, quote=False, name="table_name")
+    external_id = Column(String(255), nullable=False, quote=False, name="external_id")  # External system ID
+    operation = Column(String(10), nullable=False, quote=False, name="operation")  # 'insert', 'update', 'delete'
+
+    # Status tracking
+    status = Column(String(20), nullable=False, default='pending', quote=False, name="status")  # 'pending', 'processing', 'completed', 'failed'
+
+    # Timestamps
+    created_at = Column(DateTime, default=func.now(), quote=False, name="created_at")
+    started_at = Column(DateTime, quote=False, name="started_at")
+    completed_at = Column(DateTime, quote=False, name="completed_at")
+
+    # Error handling
+    error_message = Column(Text, quote=False, name="error_message")
+    last_error_at = Column(DateTime, quote=False, name="last_error_at")
+
+    # Embedded data for processing
+    entity_data = Column(JSON, quote=False, name="entity_data")  # Store extracted data directly
+    qdrant_metadata = Column(JSON, quote=False, name="qdrant_metadata")  # Pre-computed Qdrant fields
+
+    # Tenant isolation
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="vectorization_queue")

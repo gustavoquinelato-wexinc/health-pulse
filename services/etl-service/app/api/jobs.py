@@ -112,7 +112,7 @@ async def get_job_status(job_id: str, db: Session = Depends(get_db_session), use
 
     # Map database status to API status
     status_mapping = {
-        'PENDING': JobStatus.NOT_STARTED,
+        'PENDING': JobStatus.READY,
         'RUNNING': JobStatus.RUNNING,
         'FINISHED': JobStatus.SUCCESS,
         'PAUSED': JobStatus.CANCELLED
@@ -281,7 +281,7 @@ async def list_all_jobs(db: Session = Depends(get_db_session), user: UserData = 
     for job in jobs:
         # Map database status to API status
         status_mapping = {
-            'PENDING': JobStatus.NOT_STARTED,
+            'PENDING': JobStatus.READY,
             'RUNNING': JobStatus.RUNNING,
             'FINISHED': JobStatus.SUCCESS,
             'PAUSED': JobStatus.CANCELLED

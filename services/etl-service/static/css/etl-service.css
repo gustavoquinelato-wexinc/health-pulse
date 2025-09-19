@@ -244,7 +244,7 @@ body {
     color: white;
 }
 
-.status-not-started {
+.status-ready {
     background-color: var(--neutral-tertiary);
     color: white;
 }
@@ -1362,7 +1362,7 @@ textarea:disabled {
     color: white;
 }
 
-.status-badge-not-started {
+.status-badge-ready {
     background-color: var(--neutral-tertiary);
     color: white;
 }

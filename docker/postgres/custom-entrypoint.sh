@@ -24,10 +24,10 @@ chmod 700 "$PGDATA"
 
 # Initialize database if needed
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
-    echo "Initializing PostgreSQL database..."
+    echo "Initializing PostgreSQL database with UTF-8 encoding..."
     # Create password file
     echo "$POSTGRES_PASSWORD" > /tmp/pwfile
-    sudo -u postgres /usr/lib/postgresql/15/bin/initdb -D "$PGDATA" --username="$POSTGRES_USER" --pwfile=/tmp/pwfile --auth-local=trust --auth-host=md5
+    sudo -u postgres /usr/lib/postgresql/15/bin/initdb -D "$PGDATA" --username="$POSTGRES_USER" --pwfile=/tmp/pwfile --auth-local=trust --auth-host=md5 --encoding=UTF8 --locale=C.UTF-8
     rm /tmp/pwfile
 
     # Configure PostgreSQL
@@ -38,9 +38,9 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     # Start PostgreSQL temporarily for setup
     sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D "$PGDATA" -w start
 
-    # Create database if specified
+    # Create database if specified with UTF-8 encoding
     if [ "$POSTGRES_DB" != "postgres" ]; then
-        sudo -u postgres /usr/lib/postgresql/15/bin/createdb "$POSTGRES_DB"
+        sudo -u postgres /usr/lib/postgresql/15/bin/createdb "$POSTGRES_DB" --encoding=UTF8 --locale=C.UTF-8 --template=template0
     fi
 
     # Create replication user if specified

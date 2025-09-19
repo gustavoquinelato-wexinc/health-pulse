@@ -54,19 +54,19 @@
             </a>
         </div>
 
-        <!-- Settings (only for admin users) -->
-        {% if user and user.role == 'admin' %}
-        <div class="relative" id="settings-menu">
-            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/settings') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
-                    href="/settings"
+        <!-- Qdrant Analysis -->
+        <div class="relative" id="qdrant-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto {{ 'nav-item-active' if current_path.startswith('/qdrant') else 'text-secondary hover:bg-tertiary hover:text-primary' }}"
+                    href="/qdrant-analysis"
                     tabindex="0"
-                    onmouseenter="showSubmenu(event, 'settings')"
+                    onmouseenter="showSubmenu(event, 'qdrant')"
                     onmouseleave="hideSubmenu()"
-                    {% if current_path.startswith('/settings') %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
-                <i data-lucide="settings" class="w-5 h-5"></i>
+                    {% if current_path.startswith('/qdrant') %}style="background: var(--gradient-1-2) !important; color: var(--on-gradient-1-2) !important;"{% endif %}>
+                <i data-lucide="database" class="w-5 h-5"></i>
             </a>
         </div>
-        {% endif %}
+
+
         </div>
     </div>
 
@@ -128,18 +128,36 @@
     </a>
 </div>
 
-<div id="submenu-settings" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
+<div id="submenu-qdrant" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden"
      onmouseenter="keepSubmenuOpen()"
      onmouseleave="hideSubmenu()">
     <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
-        Settings
+        Qdrant Analysis
     </div>
-    <a href="/settings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/settings' else 'hover:bg-tertiary hover:text-primary' }}"
-       {% if current_path == '/settings' %}style="background: var(--gradient-1-2);"{% endif %}>
-        <i data-lucide="gauge" class="w-4 h-4 mr-2"></i>
-        System Overview
+    <a href="/qdrant-analysis" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 {{ 'text-white shadow-sm' if current_path == '/qdrant-analysis' else 'hover:bg-tertiary hover:text-primary' }}"
+       {% if current_path == '/qdrant-analysis' %}style="background: var(--gradient-1-2);"{% endif %}>
+        <i data-lucide="bar-chart-3" class="w-4 h-4 mr-2"></i>
+        Dashboard
+    </a>
+    <a href="/qdrant-analysis?tab=collections" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <i data-lucide="layers" class="w-4 h-4 mr-2"></i>
+        Collections
+    </a>
+    <a href="/qdrant-analysis?tab=validation" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <i data-lucide="check-circle" class="w-4 h-4 mr-2"></i>
+        Validation
+    </a>
+    <a href="/qdrant-analysis?tab=analytics" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <i data-lucide="trending-up" class="w-4 h-4 mr-2"></i>
+        Analytics
+    </a>
+    <a href="/qdrant-analysis?tab=management" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <i data-lucide="settings" class="w-4 h-4 mr-2"></i>
+        Management
     </a>
 </div>
+
+
 {% endmacro %}
 
 <!-- Sidebar JavaScript Functions -->

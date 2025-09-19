@@ -6,6 +6,7 @@ Uses structlog for organized and traceable logs.
 import logging
 import os
 import sys
+import re
 from pathlib import Path
 from typing import Any, Dict
 import structlog
@@ -135,6 +136,40 @@ settings = get_settings()
 _logging_configured = False
 
 
+class AnsiCleaningFileHandler(logging.FileHandler):
+    """File handler that strips ANSI color codes from log messages."""
+
+    # ANSI escape sequence patterns (multiple formats)
+    ANSI_ESCAPE_FULL = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')  # Full escape sequences
+    ANSI_ESCAPE_BRACKETS = re.compile(r'\[[0-9;]*m')  # Bracket format like [31m, [0m
+
+    def clean_ansi_codes(self, text):
+        """Clean ANSI codes from text using multiple patterns."""
+        if not isinstance(text, str):
+            return text
+
+        # Clean both formats
+        text = self.ANSI_ESCAPE_FULL.sub('', text)
+        text = self.ANSI_ESCAPE_BRACKETS.sub('', text)
+        return text
+
+    def emit(self, record):
+        """Emit a record, cleaning ANSI codes from the message."""
+        try:
+            # Clean the formatted message (this is what gets written to file)
+            if hasattr(record, 'getMessage'):
+                original_msg = record.getMessage()
+                cleaned_msg = self.clean_ansi_codes(original_msg)
+                # Temporarily replace the message for file output
+                record.msg = cleaned_msg
+                record.args = ()
+
+            # Call parent emit
+            super().emit(record)
+        except Exception:
+            self.handleError(record)
+
+
 def setup_logging(force_reconfigure=False):
     """Configures colorful structured logging (Windows-compatible)."""
     global _logging_configured
@@ -198,7 +233,7 @@ def setup_logging(force_reconfigure=False):
         client_name = getattr(settings, 'CLIENT_NAME', 'default').lower()
         log_filename = f"logs/etl_service_{client_name}.log"
 
-        file_handler = logging.FileHandler(log_filename)
+        file_handler = AnsiCleaningFileHandler(log_filename, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
         file_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',

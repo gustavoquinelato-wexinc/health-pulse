@@ -37,7 +37,7 @@ The Pulse Platform uses an intelligent orchestrator that manages multiple ETL jo
 ### Job States & Lifecycle
 
 #### Job Status States
-- **NOT_STARTED**: Job has not been initiated
+- **READY**: Job has not been initiated (replaces NOT_STARTED)
 - **PENDING**: Job is queued and waiting to start
 - **RUNNING**: Job is currently executing
 - **FINISHED**: Job completed successfully
@@ -46,12 +46,17 @@ The Pulse Platform uses an intelligent orchestrator that manages multiple ETL jo
 
 #### State Transitions
 ```
-NOT_STARTED → PENDING → RUNNING → FINISHED
-                ↓         ↓
-              PAUSED ← ERROR
-                ↓      ↓
-              RUNNING (retry)
+READY → PENDING → RUNNING → FINISHED
+          ↓         ↓
+        PAUSED ← ERROR
+          ↓      ↓
+        RUNNING (retry)
 ```
+
+#### Orchestrator Job Selection Logic
+1. **First Priority**: Look for jobs with status = 'PENDING'
+2. **Second Priority**: If no PENDING jobs, look for jobs with status = 'READY'
+3. **No Action**: If neither PENDING nor READY jobs exist
 
 ## 🔄 Individual Job Types
 
@@ -569,8 +574,43 @@ class AIEnhancedRecovery:
 - **Enhanced Job Models**: Vector columns and AI-ready data structures
 - **Monitoring Integration**: Basic AI metrics collection framework
 
-#### Phase 2+ (Future)
-- **Embedding Generation Jobs**: Automatic text-to-vector conversion
+#### Phase 3-1 through 3-3 (Completed ✅)
+- **Qdrant Integration**: High-performance vector database with tenant isolation
+- **Flexible AI Provider Framework**: JSON-based provider configuration
+- **Frontend AI Configuration**: Self-service AI management interface
+
+#### Phase 3-4: ETL AI Integration (Completed ✅) **ENHANCED SEPTEMBER 2025**
+- **Comprehensive Vectorization**: All 13 ETL data tables now vectorized with queue-based processing
+- **Event-Driven Architecture**: Webhook-based completion signals replacing polling mechanisms
+- **Real-Time Progress Tracking**: WebSocket-based progress updates with flexible equal-step system
+- **Automatic Recovery**: Stuck item detection and reset for robust queue processing
+- **Cross-Platform Search**: Unified semantic search across Jira and GitHub data
+- **Clean Service Boundaries**: ETL processes data, Backend handles all AI operations with completion signals
+- **Error Resilience**: AI operation failures don't impact ETL jobs with graceful degradation
+- **External ID Architecture**: Queue-based vectorization using external system IDs (GitHub PR numbers, Jira issue keys) for better performance
+- **GitHub Entity Support**: All GitHub entity types (repositories, PRs, commits, reviews, comments) properly vectorized
+- **Qdrant Analysis Interface**: Comprehensive vector statistics and queue management dashboard
+
+#### Vectorized Data Tables (13 total):
+- **Jira Core**: changelogs, wits, statuses, projects
+- **GitHub Core**: prs_comments, prs_reviews, prs_commits, repositories
+- **Cross-Platform**: wits_prs_links
+- **Configuration**: wits_hierarchies, wits_mappings, statuses_mappings, workflows
+
+#### Vectorization Queue Architecture:
+- **External ID-Based**: Uses external system identifiers (GitHub PR numbers, Jira issue keys) instead of internal database primary keys
+- **Table-Specific Field Mapping**: work_items use "key" field, GitHub entities use "external_id" field
+- **Backend Join Processing**: Backend service joins vectorization queue with actual tables during processing
+- **Event-Driven Completion**: Webhook-based completion signals eliminate race conditions between backend and ETL
+- **Automatic Recovery**: Stuck item detection resets "processing" items back to "pending" for retry
+- **Progress Routing**: Real-time vectorization progress sent to dedicated "Vectorization" WebSocket channel
+- **Entity Data Preparation**: Table-specific data transformation for all GitHub and Jira entity types
+- **Queue Status Management**: Comprehensive status tracking (pending, processing, completed, failed)
+- **Qdrant Integration**: Direct vector storage with PostgreSQL bridge table for metadata tracking
+
+#### Phase 3-5+ (Ready for Implementation)
+- **Vector Collection Management**: Qdrant collection optimization and performance testing
+- **AI Query Interface**: Natural language query processing
 - **ML Model Training Jobs**: Automated model training and deployment
 - **Data Validation Jobs**: AI-powered data quality assurance
 - **Intelligent Recovery**: AI-driven error analysis and recovery strategies
