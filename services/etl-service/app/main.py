@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, RedirectResponse, JSONResponse
+from fastapi.responses import Response, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 import os
@@ -116,7 +116,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
     # Routes that should redirect to login if not authenticated
     # Do not protect /home at middleware level; the page JS validates token and redirects if needed
     PROTECTED_WEB_ROUTES = {
-        "/admin"
+        "/admin",
+        "/qdrant"
     }
 
     # Route prefixes that should be treated as protected web routes
@@ -174,8 +175,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 return response
 
         # User is authenticated, check if they have admin permission for ETL service
-        # ETL service is admin-only (home and admin routes)
-        if (path.startswith("/home") or path.startswith("/admin")) and not auth_result["user_data"].get("is_admin", False):
+        # ETL service is admin-only (home, admin, and qdrant routes)
+        if (path.startswith("/home") or path.startswith("/admin") or path.startswith("/qdrant")) and not auth_result["user_data"].get("is_admin", False):
             logger.debug(f"User lacks admin permission for ETL service {path}")
             # Check if this is an embedded request
             is_embedded = request.query_params.get("embedded") == "true"
@@ -500,6 +501,8 @@ if assets_dir.exists():
 async def favicon():
     """Favicon endpoint to prevent 404 errors."""
     return Response(status_code=204)  # No Content
+
+
 
 
 @app.get("/docs")

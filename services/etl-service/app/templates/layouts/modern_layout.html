@@ -207,7 +207,7 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body style="background-color: var(--bg-primary);" {% if embedded %}class="embedded"{% endif %}>
+<body style="background-color: var(--bg-primary);" {% if embedded %}class="embedded"{% endif %} data-page="{{ page_name if page_name else 'default' }}">
     <div class="min-h-screen" style="background-color: var(--bg-primary);">
         {% if not embedded %}
         <!-- Header - Full Width at Top -->
@@ -275,6 +275,8 @@
                 } else if (href === '/wits-hierarchies' && currentPath.startsWith('/wits')) {
                     isActive = true;
                 } else if (href === '/statuses-mappings' && currentPath.startsWith('/statuses')) {
+                    isActive = true;
+                } else if (href === '/qdrant' && currentPath.startsWith('/qdrant')) {
                     isActive = true;
                 }
 

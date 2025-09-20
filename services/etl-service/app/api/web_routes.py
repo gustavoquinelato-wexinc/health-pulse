@@ -22,6 +22,7 @@ import httpx
 
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
+from app.core.config import get_settings
 from app.jobs.orchestrator import get_job_status, trigger_jira_sync, trigger_github_sync
 from app.core.database import get_database, get_db_session
 from app.models.unified_models import JobSchedule
@@ -82,6 +83,120 @@ templates_dir = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 
 router = APIRouter()
+
+@router.get("/qdrant", response_class=HTMLResponse)
+async def qdrant_page(request: Request):
+    """Serve Qdrant database page"""
+    try:
+        # Get user from token (middleware ensures we're authenticated)
+        token = request.cookies.get("pulse_token")
+        if not token:
+            logger.warning("No token found in cookies for Qdrant page")
+            return RedirectResponse(url="/login?error=no_token", status_code=302)
+
+        # Get user info
+        auth_service = get_centralized_auth_service()
+        user = await auth_service.verify_token(token)
+
+        # Check admin permission
+        if not user or not user.get("is_admin", False):
+            logger.warning(f"Non-admin user attempted to access Qdrant page: {user.get('email') if user else 'Unknown'}")
+            return RedirectResponse(url="/login?error=insufficient_permissions", status_code=302)
+
+        # Get tenant info for template
+        tenant_info = await get_user_tenant_info(token)
+
+        # Get color schema using same logic as home page
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_schema_data = {"mode": "default"}  # Default fallback
+        settings = get_settings()
+
+        logger.debug(f"Qdrant Route: Starting color schema fetch, token present: {bool(token)}")
+
+        if token:
+            try:
+                async with httpx.AsyncClient() as client:
+                    # Get color schema from backend (unified API)
+                    response_color = await client.get(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+
+                    if response_color.status_code == 200:
+                        data = response_color.json()
+                        if data.get("success") and data.get("color_data"):
+                            # Also get user-specific theme mode from backend
+                            theme_response = await client.get(
+                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+
+                            theme_mode = 'light'  # default
+                            if theme_response.status_code == 200:
+                                theme_data = theme_response.json()
+                                if theme_data.get('success'):
+                                    theme_mode = theme_data.get('mode', 'light')
+
+                            logger.debug(f"Qdrant Route: Theme mode: {theme_mode}")
+
+                            color_schema_mode = data.get("color_schema_mode", "default")
+                            color_data = data.get("color_data", [])
+
+                            logger.debug(f"Qdrant Route: Color schema mode: {color_schema_mode}")
+                            logger.debug(f"Qdrant Route: Available color combinations: {[(c.get('color_schema_mode'), c.get('theme_mode'), c.get('accessibility_level')) for c in color_data]}")
+
+                            # Filter by color_schema_mode to get the correct colors
+                            light_regular = next((c for c in color_data if
+                                                c.get('color_schema_mode') == color_schema_mode and
+                                                c.get('theme_mode') == 'light' and
+                                                c.get('accessibility_level') == 'regular'), None)
+                            dark_regular = next((c for c in color_data if
+                                               c.get('color_schema_mode') == color_schema_mode and
+                                               c.get('theme_mode') == 'dark' and
+                                               c.get('accessibility_level') == 'regular'), None)
+
+                            logger.debug(f"Qdrant Route: Selected colors - light_regular: {bool(light_regular)}, dark_regular: {bool(dark_regular)}")
+
+                            # Use colors based on current theme
+                            current_colors = light_regular if theme_mode == 'light' else dark_regular
+                            if not current_colors:
+                                current_colors = light_regular or dark_regular  # fallback
+
+                            if current_colors:
+                                # Combine color schema and theme data
+                                color_schema_data = {
+                                    "success": True,
+                                    "mode": data.get("color_schema_mode", "default"),
+                                    "colors": {
+                                        "color1": current_colors.get("color1"),
+                                        "color2": current_colors.get("color2"),
+                                        "color3": current_colors.get("color3"),
+                                        "color4": current_colors.get("color4"),
+                                        "color5": current_colors.get("color5")
+                                    },
+                                    "theme": theme_mode
+                                }
+                                logger.debug(f"Qdrant Route: Final color_schema_data - mode: {color_schema_data['mode']}, color1: {color_schema_data['colors']['color1']}")
+            except Exception as e:
+                logger.debug(f"Could not fetch color schema for Qdrant page: {e}")
+
+        logger.debug(f"Qdrant Route: Final color_schema_data being sent to template: {color_schema_data}")
+
+        # Render the Qdrant page
+        return templates.TemplateResponse("qdrant.html", {
+            "request": request,
+            "user": user,
+            "tenant_logo": tenant_info.get("tenant_logo"),
+            "tenant_name": tenant_info.get("tenant_name", "Tenant"),
+            "current_path": "/qdrant",
+            "color_schema": color_schema_data,
+            "page_name": "qdrant"
+        })
+
+    except Exception as e:
+        logger.error(f"Error serving Qdrant page: {e}")
+        return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 # Pydantic models
 class LoginRequest(BaseModel):
@@ -379,7 +494,8 @@ async def home_page(request: Request, token: Optional[str] = None):
         "color_schema": color_schema_data,
         "embedded": embedded,
         "tenant_logo": tenant_info["tenant_logo"],
-        "tenant_name": tenant_info["tenant_name"]
+        "tenant_name": tenant_info["tenant_name"],
+        "page_name": "home"
     })
 
 
@@ -1069,7 +1185,8 @@ async def statuses_mappings_page(request: Request, token: Optional[str] = None):
             "color_schema": color_schema_data,
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
-            "tenant_name": tenant_info["tenant_name"]
+            "tenant_name": tenant_info["tenant_name"],
+            "page_name": "statuses"
         })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
@@ -1172,7 +1289,8 @@ async def wits_mappings_page(request: Request):
             "color_schema": color_schema_data,
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
-            "tenant_name": tenant_info["tenant_name"]
+            "tenant_name": tenant_info["tenant_name"],
+            "page_name": "wits"
         })
 
     except Exception as e:
@@ -1276,7 +1394,8 @@ async def integrations_page(request: Request):
             "color_schema": color_schema_data,
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
-            "tenant_name": tenant_info["tenant_name"]
+            "tenant_name": tenant_info["tenant_name"],
+            "page_name": "integrations"
         })
 
     except Exception as e:
@@ -1373,7 +1492,8 @@ async def wits_hierarchies_page(request: Request):
             "color_schema": color_schema_data,
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
-            "tenant_name": tenant_info["tenant_name"]
+            "tenant_name": tenant_info["tenant_name"],
+            "page_name": "wits"
         })
 
     except Exception as e:
@@ -1472,7 +1592,8 @@ async def workflows_page(request: Request):
             "color_schema": color_schema_data,
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
-            "tenant_name": tenant_info["tenant_name"]
+            "tenant_name": tenant_info["tenant_name"],
+            "page_name": "statuses"
         })
 
     except Exception as e:
@@ -1480,59 +1601,7 @@ async def workflows_page(request: Request):
         return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
-@router.get("/qdrant-analysis")
-async def qdrant_analysis_redirect(request: Request):
-    """Redirect old Qdrant analysis route to new Qdrant database route"""
-    return RedirectResponse(url="/qdrant-database", status_code=301)
 
-@router.get("/qdrant-database", response_class=HTMLResponse)
-async def qdrant_database_page(request: Request):
-    """Serve Qdrant database page for vector database management and validation"""
-    try:
-        # Get user from token (middleware ensures we're authenticated)
-        token = request.cookies.get("pulse_token")
-        if not token:
-            logger.warning("No token found in cookies for Qdrant analysis page")
-            return RedirectResponse(url="/login?error=no_token", status_code=302)
-
-        # Get user info
-        auth_service = get_centralized_auth_service()
-        user = await auth_service.verify_token(token)
-
-        # Check admin permission - simplified since we're using centralized auth
-        if not user or not user.get("is_admin", False):
-            logger.warning(f"Non-admin user attempted to access Qdrant analysis: {user.get('email') if user else 'Unknown'}")
-            return RedirectResponse(url="/login?error=insufficient_permissions", status_code=302)
-
-        # Get user and tenant information
-        tenant_info = await get_user_tenant_info(token)
-
-        # Get color schema from user preferences
-        color_schema = await get_user_color_schema(token)
-
-        logger.info(f"Rendering Qdrant analysis page for user: {user.get('email')} (role: {user.get('role')})")
-
-        # Create template context with all required variables
-        context = {
-            "request": request,
-            "user": user,
-            "color_schema": color_schema,
-            "tenant_logo": tenant_info.get("tenant_logo", ""),
-            "tenant_name": tenant_info.get("tenant_name", ""),
-            "current_path": "/qdrant-database",
-            "embedded": False  # Add missing embedded variable
-        }
-
-        logger.info(f"Template context keys: {list(context.keys())}")
-        logger.info(f"User role check: user.role='{user.get('role')}', is_admin={user.get('is_admin')}")
-
-        return templates.TemplateResponse("qdrant_database.html", context)
-
-    except Exception as e:
-        import traceback
-        logger.error(f"Qdrant analysis page error: {e}")
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        return RedirectResponse(url="/login?error=server_error", status_code=302)
 
 
 @router.get("/logout", response_class=HTMLResponse)

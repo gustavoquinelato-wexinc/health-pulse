@@ -1392,6 +1392,12 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                     "FINISHED",
                     {"message": "Vectorization job completed successfully"}
                 )
+                # Also send completion message to trigger progress bar hiding
+                await websocket_manager.send_completion(
+                    "Vectorization",
+                    True,
+                    {"message": "Vectorization job completed successfully", "result": result}
+                )
             else:
                 # Mark job as failed using set_pending_with_checkpoint
                 error_msg = result.get('message', 'Unknown error')
@@ -1405,6 +1411,12 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                     "Vectorization",
                     "FAILED",
                     {"message": f"Vectorization job failed: {error_msg}"}
+                )
+                # Also send completion message to trigger progress bar hiding
+                await websocket_manager.send_completion(
+                    "Vectorization",
+                    False,
+                    {"message": f"Vectorization job failed: {error_msg}", "error": error_msg}
                 )
 
             # Find next ready job (skips paused jobs)

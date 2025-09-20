@@ -357,43 +357,66 @@
 
 
 
-    /* Enhanced inactive job card styling - clear visual distinction */
+    /* Enhanced inactive job card styling - collapsed and distinct background */
     .job-card-inactive {
-        opacity: 0.6;
-        background: var(--bg-secondary) !important;
-        border: 2px dashed var(--status-neutral) !important;
-        border-left: 6px solid var(--status-neutral) !important;
-        position: relative;
+        background: var(--color-1) !important;
+        background: color-mix(in srgb, var(--color-1) 15%, transparent) !important;
+        border: 1px solid var(--color-1) !important;
+        border: 1px solid color-mix(in srgb, var(--color-1) 30%, transparent) !important;
+        border-radius: 8px;
+        padding: 8px 12px !important;
+        margin: 4px 0;
+        transition: all 0.3s ease;
+        opacity: 0.9;
     }
 
-    /* Dim inactive job content */
-    .job-card-inactive .job-header,
+    /* Fallback for browsers that don't support color-mix */
+    @supports not (background: color-mix(in srgb, var(--color-1) 15%, transparent)) {
+        .job-card-inactive {
+            background: var(--color-1) !important;
+            opacity: 0.15 !important;
+        }
+
+        .job-card-inactive * {
+            opacity: 1 !important;
+        }
+    }
+
+    /* Hide most elements in inactive jobs - show only name and toggle */
     .job-card-inactive .job-status,
-    .job-card-inactive .job-actions {
-        opacity: 0.7;
+    .job-card-inactive .job-actions,
+    .job-card-inactive .job-progress,
+    .job-card-inactive .job-progress-message,
+    .job-card-inactive .job-dates,
+    .job-card-inactive .job-duration {
+        display: none !important;
     }
 
-    /* Make inactive job buttons more obviously disabled */
-    .job-card-inactive .job-action-btn {
-        opacity: 0.4;
-        cursor: not-allowed;
-        pointer-events: none;
+    /* Collapsed layout for inactive jobs */
+    .job-card-inactive {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        min-height: 40px !important;
+        height: auto !important;
     }
 
-    /* Exception: Keep the toggle button functional */
-    .job-card-inactive .job-action-btn[onclick*="toggleJobActiveStatus"] {
-        opacity: 1;
-        cursor: pointer;
-        pointer-events: auto;
-        background: var(--status-warning) !important;
-        border-color: var(--status-warning) !important;
+    /* Inactive job name styling */
+    .job-card-inactive .job-name {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        font-weight: 500;
     }
 
+    /* Keep toggle button visible and functional */
+    .job-card-inactive .job-toggle-container {
+        display: flex !important;
+        align-items: center;
+    }
 
-
-    .job-card-inactive .job-action-btn[onclick*="toggleJobActiveStatus"]:hover {
-        background: var(--crud-create) !important;
-        border-color: var(--crud-create) !important;
+    /* Smooth transition back to normal when activated */
+    .job-row {
+        transition: all 0.3s ease;
     }
 
     /* Vertical Pipeline Layout Styles */
@@ -441,6 +464,14 @@
         background: var(--bg-tertiary);
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         transform: translateY(-1px);
+    }
+
+    /* Disable hover effects for inactive jobs */
+    .job-card-inactive:hover {
+        background: var(--color-1) !important;
+        background: color-mix(in srgb, var(--color-1) 15%, transparent) !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
 
 
@@ -1528,6 +1559,10 @@
 
         if (success) {
             updateJobProgress(jobName, 100, 'Completed successfully');
+            // Hide progress bar after showing completion for 2 seconds
+            setTimeout(() => {
+                updateJobProgress(jobName, -1, '');
+            }, 2000);
         } else {
             addJobException(jobName, 'ERROR', summary.error || 'Job failed', new Date().toISOString());
         }
@@ -1736,68 +1771,118 @@
         const jobDates = formatJobDates(jobData.last_run_started_at, jobData.last_success_at);
         const errorMessage = getErrorMessage(jobData, status);
 
-        row.innerHTML = `
-            <!-- Execution Order Number -->
-            <div class="execution-number">${jobData.execution_order || 0}</div>
-
-            <!-- Job Icon -->
-            <div class="job-icon">
-                ${hasCustomLogo ?
-                    `<img src="${logoPath}" alt="${jobTitle}" class="w-5 h-5 object-contain">` :
-                    `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-5 h-5" style="color: var(--color-1);"></i>`
-                }
-            </div>
-
-            <!-- Job Name, Dates, and Duration -->
-            <div class="job-name-section">
-                <div class="job-name">${jobTitle}</div>
-                <div class="job-metadata">
-                    <span class="job-info">
-                        ${jobDates ? `• ${jobDates}` : ''}
-                        ${duration ? ` • Duration: ${duration}` : ''}
-                    </span>
-                    ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
+        if (isInactive) {
+            // Simplified layout for inactive jobs - only show icon, name, and toggle
+            row.innerHTML = `
+                <!-- Job Icon -->
+                <div class="job-icon" style="margin-right: 8px;">
+                    ${hasCustomLogo ?
+                        `<img src="${logoPath}" alt="${jobTitle}" class="w-5 h-5 object-contain">` :
+                        `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-5 h-5" style="color: var(--text-secondary);"></i>`
+                    }
                 </div>
-            </div>
 
-            <!-- Progress Message (left of Force Pending button) -->
-            <div class="job-progress-message-container" style="display: none; flex: 1; align-items: center; justify-content: flex-end; margin-right: 12px;">
-                <span class="job-progress-message" style="color: var(--color-2); font-weight: 500; font-size: 11px; white-space: nowrap;"></span>
-            </div>
+                <!-- Job Name -->
+                <div class="job-name" style="flex: 1;">${jobTitle}</div>
 
-            <!-- 4) Force Pending Button -->
-            <div class="job-force-pending">
-                ${createForcePendingButton(jobName, jobData, isInactive)}
-            </div>
-
-            <!-- 3) Pause/Resume Button -->
-            <div class="job-pause-resume">
-                ${createPauseResumeButton(jobName, jobData, isInactive)}
-            </div>
-
-            <!-- 2) Details Button -->
-            <div class="job-details">
-                ${createDetailsButton(jobName)}
-            </div>
-
-            <!-- 1) Job Status (center aligned) -->
-            <div class="job-status ${statusClass}">
-                <i data-lucide="${statusIcon}" class="w-4 h-4 mr-1"></i>
-                ${status}
-            </div>
-
-            <!-- 0) Toggle Switch (rightmost) -->
-            <div class="job-toggle-container">
-                <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="${isInactive ? 'Activate this job' : 'Deactivate this job'}">
-                    <div class="toggle-switch ${isInactive ? '' : 'active'}">
-                        <div class="toggle-slider"></div>
+                <!-- Toggle Switch -->
+                <div class="job-toggle-container">
+                    <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="Activate this job">
+                        <div class="toggle-switch">
+                            <div class="toggle-slider"></div>
+                        </div>
+                        <span class="toggle-label">Off</span>
                     </div>
-                    <span class="toggle-label">${isInactive ? 'Off' : 'On'}</span>
-                </div>
-            </div>
+                </div>`;
+        } else {
+            // Full layout for active jobs
+            row.innerHTML = `
+                <!-- Execution Order Number -->
+                <div class="execution-number">${jobData.execution_order || 0}</div>
 
-            <!-- Progress Bar (hidden by default) -->
-            <div class="job-progress"></div>`;
+                <!-- Job Icon -->
+                <div class="job-icon">
+                    ${hasCustomLogo ?
+                        `<img src="${logoPath}" alt="${jobTitle}" class="w-5 h-5 object-contain">` :
+                        `<i data-lucide="${getJobLucideIcon(jobName)}" class="w-5 h-5" style="color: var(--color-1);"></i>`
+                    }
+                </div>
+
+                <!-- Job Name, Dates, and Duration -->
+                <div class="job-name-section">
+                    <div class="job-name">${jobTitle}</div>
+                    <div class="job-metadata">
+                        <span class="job-info">
+                            ${jobDates ? `• ${jobDates}` : ''}
+                            ${duration ? ` • Duration: ${duration}` : ''}
+                        </span>
+                        ${errorMessage ? `<span class="job-error-message">${errorMessage}</span>` : ''}
+                    </div>
+                </div>
+
+                <!-- Progress Message (left of Force Pending button) -->
+                <div class="job-progress-message-container" style="display: none; flex: 1; align-items: center; justify-content: flex-end; margin-right: 12px;">
+                    <span class="job-progress-message" style="color: var(--color-2); font-weight: 500; font-size: 11px; white-space: nowrap;"></span>
+                </div>
+
+                <!-- 4) Force Pending Button -->
+                <div class="job-force-pending">
+                    ${createForcePendingButton(jobName, jobData, isInactive)}
+                </div>
+
+                <!-- 3) Pause/Resume Button -->
+                <div class="job-pause-resume">
+                    ${createPauseResumeButton(jobName, jobData, isInactive)}
+                </div>
+
+                <!-- 2) Details Button -->
+                <div class="job-details">
+                    ${createDetailsButton(jobName)}
+                </div>
+
+                <!-- 1) Job Status (center aligned) -->
+                <div class="job-status ${statusClass}">
+                    <i data-lucide="${statusIcon}" class="w-4 h-4 mr-1"></i>
+                    ${status}
+                </div>
+
+                <!-- 0) Toggle Switch (rightmost) -->
+                <div class="job-toggle-container">
+                    <div class="job-toggle-switch" onclick="toggleJobActiveStatus('${jobName}', ${jobData.id})" title="Deactivate this job">
+                        <div class="toggle-switch active">
+                            <div class="toggle-slider"></div>
+                        </div>
+                        <span class="toggle-label">On</span>
+                    </div>
+                </div>
+
+                <!-- Progress Bar (hidden by default) -->
+                <div class="job-progress"></div>`;
+        }
+
+        // Clean up progress elements for non-running jobs on initial load
+        setTimeout(() => {
+            const status = jobData.status || 'UNKNOWN';
+            // Hide progress bar for any job that's not actively RUNNING
+            if (status !== 'RUNNING') {
+                const progressBar = row.querySelector('.job-progress');
+                if (progressBar) {
+                    progressBar.classList.remove('visible');
+                    progressBar.style.width = '0%';
+                }
+
+                const progressMessage = row.querySelector('.job-progress-message');
+                if (progressMessage) {
+                    progressMessage.textContent = '';
+                    progressMessage.style.display = 'none';
+                }
+
+                // Clear stored progress data
+                if (window.lastProgressPercentage && window.lastProgressPercentage[jobName] !== undefined) {
+                    delete window.lastProgressPercentage[jobName];
+                }
+            }
+        }, 100); // Small delay to ensure DOM is ready
 
         return row;
     }
@@ -2329,7 +2414,7 @@
 
             const newEnabledState = !isCurrentlyActive;
 
-            console.log(`[SET_ENABLED] Job ${jobName} (ID: ${jobId}) current active: ${isCurrentlyActive}, setting to: ${newEnabledState}`);
+
 
             const response = await fetch(`/api/v1/jobs/${jobId}/set-enabled`, {
                 method: 'POST',
@@ -2342,30 +2427,15 @@
 
             if (response.ok) {
                 const result = await response.json();
-                console.log(`[SET_ENABLED] Response for ${jobName}:`, result);
                 showNotification(result.message, 'success');
 
-                // Immediately update the visual state for better UX
-                const jobCard = document.querySelector(`[data-job="${jobName}"]`);
-                if (jobCard) {
-                    if (newEnabledState) {
-                        // Job was enabled - remove inactive styling
-                        jobCard.classList.remove('job-card-inactive');
-                        console.log(`[SET_ENABLED] Removed inactive styling from ${jobName}`);
-                    } else {
-                        // Job was disabled - add inactive styling
-                        jobCard.classList.add('job-card-inactive');
-                        console.log(`[SET_ENABLED] Added inactive styling to ${jobName}`);
-                    }
-
-                    // Update global data immediately
-                    if (window.jobsData && window.jobsData[jobName]) {
-                        window.jobsData[jobName].active = newEnabledState;
-                    }
+                // Update global data immediately
+                if (window.jobsData && window.jobsData[jobName]) {
+                    window.jobsData[jobName].active = newEnabledState;
                 }
 
-                // Refresh the job cards to show updated status (for any other changes)
-                debouncedRefreshData(500);
+                // Refresh the job cards to rebuild with correct layout (collapsed/expanded)
+                debouncedRefreshData(100);
             } else {
                 const result = await response.json();
                 console.error(`[SET_ENABLED] Failed to toggle ${jobName}: ${result.detail}`);
@@ -2864,6 +2934,13 @@
         if (progressBar) {
             // Store the last valid percentage to prevent progress bar from disappearing
             const jobName = jobRow.dataset.job;
+
+            // Check job status - don't show progress for finished jobs
+            const jobData = window.jobsData && window.jobsData[jobName];
+            const status = jobData ? jobData.status : 'UNKNOWN';
+            if (status !== 'RUNNING') {
+                return;
+            }
             if (!window.lastProgressPercentage) {
                 window.lastProgressPercentage = {};
             }
@@ -2965,6 +3042,27 @@
             const statusIcon = getStatusIcon(status);
             statusSpan.className = `text-sm ${statusClass}`;
             statusSpan.innerHTML = `<i data-lucide="${statusIcon}" class="w-4 h-4 mr-1"></i>${status}`;
+        }
+
+        // Clear progress elements when job is not running
+        if (status !== 'RUNNING') {
+            const progressBar = jobCard.querySelector('.job-progress');
+            if (progressBar) {
+                progressBar.classList.remove('visible');
+                progressBar.style.width = '0%';
+            }
+
+            const progressMessage = jobCard.querySelector('.job-progress-message');
+            if (progressMessage) {
+                progressMessage.textContent = '';
+                progressMessage.style.display = 'none';
+            }
+
+            // Clear stored progress data
+            const jobName = jobCard.dataset.job;
+            if (window.lastProgressPercentage && window.lastProgressPercentage[jobName] !== undefined) {
+                delete window.lastProgressPercentage[jobName];
+            }
         }
     }
 

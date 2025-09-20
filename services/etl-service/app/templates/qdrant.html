@@ -59,6 +59,52 @@
 {% endblock %}
 
 {% block extra_head %}
+<script>
+    // ===== COLOR SCHEMA APPLICATION =====
+
+    // Apply color schema from backend
+    document.addEventListener('DOMContentLoaded', function() {
+        const colorSchemaData = {{ color_schema | tojson | safe }};
+        console.log('Color schema data:', colorSchemaData);
+        console.log('Color schema data type:', typeof colorSchemaData);
+        console.log('Has success property:', 'success' in colorSchemaData);
+        console.log('Has colors property:', 'colors' in colorSchemaData);
+
+        // Check if we have color data (either with success flag or direct colors)
+        if (colorSchemaData && ((colorSchemaData.success && colorSchemaData.colors) || colorSchemaData.colors)) {
+            const colors = colorSchemaData.colors;
+            const root = document.documentElement;
+
+            console.log('Colors object:', colors);
+
+            // Apply the 5-color system
+            if (colors.color1) {
+                root.style.setProperty('--color-1', colors.color1);
+                console.log('Applied color1:', colors.color1);
+            }
+            if (colors.color2) {
+                root.style.setProperty('--color-2', colors.color2);
+                console.log('Applied color2:', colors.color2);
+            }
+            if (colors.color3) root.style.setProperty('--color-3', colors.color3);
+            if (colors.color4) root.style.setProperty('--color-4', colors.color4);
+            if (colors.color5) root.style.setProperty('--color-5', colors.color5);
+
+            // Apply gradient variables
+            if (colors.color1 && colors.color2) {
+                const gradient = `linear-gradient(135deg, ${colors.color1}, ${colors.color2})`;
+                root.style.setProperty('--gradient-1-2', gradient);
+                root.style.setProperty('--on-gradient-1-2', '#ffffff');
+                console.log('Applied gradient:', gradient);
+            }
+
+            console.log('Applied custom colors to Qdrant page');
+        } else {
+            console.log('Using default colors for Qdrant page');
+            console.log('Reason: colorSchemaData =', colorSchemaData);
+        }
+    });
+</script>
 <style>
     /* Qdrant Analysis Tab Styles */
     .qdrant-tab {
@@ -455,7 +501,7 @@
                                 <span>Run Validation Check</span>
                             </button>
                             <button onclick="showQdrantTab('management')" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--neutral-secondary); color: white;">
-                                <i data-lucide="tool" class="w-4 h-4"></i>
+                                <i data-lucide="settings" class="w-4 h-4"></i>
                                 <span>Management Tools</span>
                             </button>
                         </div>
@@ -1376,6 +1422,8 @@
             }, 5000);
         }
     }
+
+
 
     // ===== END QDRANT ANALYSIS FUNCTIONS =====
 </script>
