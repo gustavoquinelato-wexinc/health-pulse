@@ -35,42 +35,44 @@ def create_text_content_from_admin_entity(entity_data: Dict[str, Any], table_nam
 
         if table_name == "wits_hierarchies":
             parts = []
-            if entity_data.get("parent_name"):
-                parts.append(f"Parent: {entity_data['parent_name']}")
-            if entity_data.get("child_name"):
-                parts.append(f"Child: {entity_data['child_name']}")
-            if entity_data.get("hierarchy_level"):
-                parts.append(f"Level: {entity_data['hierarchy_level']}")
+            if entity_data.get("level_name"):
+                parts.append(f"Level Name: {entity_data['level_name']}")
+            if entity_data.get("level_number") is not None:
+                parts.append(f"Level Number: {entity_data['level_number']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
             return " | ".join(parts)
 
         elif table_name == "wits_mappings":
             parts = []
-            if entity_data.get("external_name"):
-                parts.append(f"External: {entity_data['external_name']}")
-            if entity_data.get("internal_name"):
-                parts.append(f"Internal: {entity_data['internal_name']}")
-            if entity_data.get("mapping_type"):
-                parts.append(f"Type: {entity_data['mapping_type']}")
+            if entity_data.get("wit_from"):
+                parts.append(f"From: {entity_data['wit_from']}")
+            if entity_data.get("wit_to"):
+                parts.append(f"To: {entity_data['wit_to']}")
+            if entity_data.get("wits_hierarchy_id"):
+                parts.append(f"Hierarchy ID: {entity_data['wits_hierarchy_id']}")
             return " | ".join(parts)
 
         elif table_name == "statuses_mappings":
             parts = []
-            if entity_data.get("external_status"):
-                parts.append(f"External: {entity_data['external_status']}")
-            if entity_data.get("internal_status"):
-                parts.append(f"Internal: {entity_data['internal_status']}")
+            if entity_data.get("status_from"):
+                parts.append(f"From: {entity_data['status_from']}")
+            if entity_data.get("status_to"):
+                parts.append(f"To: {entity_data['status_to']}")
             if entity_data.get("status_category"):
                 parts.append(f"Category: {entity_data['status_category']}")
             return " | ".join(parts)
 
         elif table_name == "workflows":
             parts = []
-            if entity_data.get("name"):
-                parts.append(f"Name: {entity_data['name']}")
-            if entity_data.get("description"):
-                parts.append(f"Description: {entity_data['description']}")
-            if entity_data.get("workflow_type"):
-                parts.append(f"Type: {entity_data['workflow_type']}")
+            if entity_data.get("step_name"):
+                parts.append(f"Step: {entity_data['step_name']}")
+            if entity_data.get("step_number") is not None:
+                parts.append(f"Number: {entity_data['step_number']}")
+            if entity_data.get("step_category"):
+                parts.append(f"Category: {entity_data['step_category']}")
+            if entity_data.get("is_commitment_point"):
+                parts.append("Commitment Point: Yes")
             return " | ".join(parts)
 
         else:
@@ -156,8 +158,12 @@ class TableVectorizationService:
                     None, qdrant_client.client.get_collection, collection_name
                 )
                 vector_count = collection_info.vectors_count if collection_info else 0
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[TABLE_STATUS] Collection {collection_name} not found or error: {e}")
                 vector_count = 0
+
+            # Ensure vector_count is always an integer
+            vector_count = int(vector_count) if vector_count is not None else 0
             
             # Check for active session
             active_session = None
@@ -170,8 +176,8 @@ class TableVectorizationService:
             return {
                 "table_name": table_name,
                 "display_name": self.TABLE_MAPPING[table_name]["display_name"],
-                "total_items": total_items,
-                "vectorized_items": vector_count,
+                "total_items": int(total_items),
+                "vectorized_items": int(vector_count),
                 "qdrant_collection": collection_name,
                 "status": active_session["status"] if active_session else "idle",
                 "session_id": active_session["session_id"] if active_session else None,
@@ -186,10 +192,15 @@ class TableVectorizationService:
         """Start vectorization process for a specific table."""
         if not self._validate_table_name(table_name):
             raise ValueError(f"Unsupported table name: {table_name}")
-        
+
+        # Clear any stuck sessions for this table (older than 30 minutes)
+        cleared_sessions = self.clear_stuck_sessions(table_name, max_age_minutes=30)
+        if cleared_sessions > 0:
+            logger.info(f"Cleared {cleared_sessions} stuck session(s) for table {table_name}")
+
         # Check if there's already an active session for this table
         for session_data in self.active_sessions.values():
-            if (session_data.get("table_name") == table_name and 
+            if (session_data.get("table_name") == table_name and
                 session_data.get("tenant_id") == tenant_id and
                 session_data.get("status") in ["processing", "starting"]):
                 raise ValueError(f"Vectorization already in progress for {table_name}")
@@ -321,6 +332,7 @@ class TableVectorizationService:
 
                             # Create text content
                             text_content = create_text_content_from_admin_entity(entity_data, table_name)
+                            logger.debug(f"[TABLE_VECTORIZATION] Generated text content for {table_name} item {entity_data.get('id')}: '{text_content[:100]}...' (length: {len(text_content)})")
 
                             if text_content:
                                 entity_texts.append(text_content)
@@ -335,7 +347,7 @@ class TableVectorizationService:
                                 session_data["current_item"] = self._get_item_display_name(item, table_name)
                             else:
                                 vectors_failed += 1
-                                logger.warning(f"[TABLE_VECTORIZATION] No text content for {table_name} item {entity_data.get('id')}")
+                                logger.warning(f"[TABLE_VECTORIZATION] No text content for {table_name} item {entity_data.get('id')}: {entity_data}")
 
                         except Exception as e:
                             vectors_failed += 1
@@ -436,19 +448,36 @@ class TableVectorizationService:
             )
 
             if store_result.success:
-                # Create bridge record in PostgreSQL
-                bridge_record = QdrantVector(
-                    tenant_id=tenant_id,
-                    table_name=table_name,
-                    record_id=record_id,
-                    qdrant_collection=collection_name,
-                    qdrant_point_id=point_id,
-                    vector_type="entity_embedding",
-                    embedding_model=provider_used,
-                    embedding_provider=provider_used
-                )
-                db_session.add(bridge_record)
-                logger.debug(f"[TABLE_VECTORIZATION] Stored vector and bridge record for {table_name} {record_id}")
+                # Check if bridge record already exists
+                existing_record = db_session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == tenant_id,
+                    QdrantVector.table_name == table_name,
+                    QdrantVector.record_id == record_id,
+                    QdrantVector.vector_type == "entity_embedding"
+                ).first()
+
+                if existing_record:
+                    # Update existing record
+                    existing_record.qdrant_collection = collection_name
+                    existing_record.qdrant_point_id = point_id
+                    existing_record.embedding_model = provider_used
+                    existing_record.embedding_provider = provider_used
+                    existing_record.last_updated_at = datetime.utcnow()
+                    logger.debug(f"[TABLE_VECTORIZATION] Updated existing bridge record for {table_name} {record_id}")
+                else:
+                    # Create new bridge record
+                    bridge_record = QdrantVector(
+                        tenant_id=tenant_id,
+                        table_name=table_name,
+                        record_id=record_id,
+                        qdrant_collection=collection_name,
+                        qdrant_point_id=point_id,
+                        vector_type="entity_embedding",
+                        embedding_model=provider_used,
+                        embedding_provider=provider_used
+                    )
+                    db_session.add(bridge_record)
+                    logger.debug(f"[TABLE_VECTORIZATION] Created new bridge record for {table_name} {record_id}")
             else:
                 raise Exception(f"Qdrant storage failed: {store_result.error}")
 
@@ -476,11 +505,50 @@ class TableVectorizationService:
         session_data = self.active_sessions.get(session_id)
         if not session_data:
             return False
-        
+
         session_data["status"] = "cancelled"
         session_data["cancelled_at"] = datetime.utcnow()
-        
+
         return True
+
+    def clear_stuck_sessions(self, table_name: str = None, max_age_minutes: int = 30) -> int:
+        """Clear stuck sessions that are older than max_age_minutes."""
+        current_time = datetime.now()
+        sessions_to_remove = []
+
+        for session_id, session_data in self.active_sessions.items():
+            # Check if session is stuck (older than max_age_minutes)
+            session_age = current_time - session_data.get("started_at", current_time)
+            is_old = session_age.total_seconds() > (max_age_minutes * 60)
+
+            # Check if session matches table filter (if provided)
+            matches_table = table_name is None or session_data.get("table_name") == table_name
+
+            # Check if session is in a state that could be stuck
+            status = session_data.get("status", "")
+            is_potentially_stuck = status in ["starting", "processing"]
+
+            if is_old and matches_table and is_potentially_stuck:
+                sessions_to_remove.append(session_id)
+
+        # Remove stuck sessions
+        for session_id in sessions_to_remove:
+            del self.active_sessions[session_id]
+
+        return len(sessions_to_remove)
+
+    def get_active_sessions_for_table(self, table_name: str) -> List[Dict[str, Any]]:
+        """Get all active sessions for a specific table."""
+        sessions = []
+        for session_id, session_data in self.active_sessions.items():
+            if session_data.get("table_name") == table_name:
+                sessions.append({
+                    "session_id": session_id,
+                    "status": session_data.get("status"),
+                    "started_at": session_data.get("started_at"),
+                    "tenant_id": session_data.get("tenant_id")
+                })
+        return sessions
 
 
 # Global instance

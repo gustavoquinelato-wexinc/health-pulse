@@ -345,7 +345,20 @@ class VectorizationCard {
     }
     
     getAuthToken() {
-        return localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+        // Check localStorage first, then cookies (same pattern as other ETL pages)
+        let token = localStorage.getItem('pulse_token');
+        if (!token) {
+            // Check cookies
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'pulse_token') {
+                    token = value;
+                    break;
+                }
+            }
+        }
+        return token;
     }
     
     showNotification(message, type) {

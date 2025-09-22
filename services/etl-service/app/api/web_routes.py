@@ -1178,6 +1178,10 @@ async def statuses_mappings_page(request: Request, token: Optional[str] = None):
         # Get tenant information for integration logos
         tenant_info = await get_user_tenant_info(auth_token)
 
+        # Get backend service URL for vectorization API calls
+        from app.core.config import get_settings
+        settings = get_settings()
+
         # Create response and set cookie if token came from URL parameter
         response = templates.TemplateResponse("statuses_mappings.html", {
             "request": request,
@@ -1186,7 +1190,8 @@ async def statuses_mappings_page(request: Request, token: Optional[str] = None):
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
             "tenant_name": tenant_info["tenant_name"],
-            "page_name": "statuses"
+            "page_name": "statuses",
+            "backend_service_url": settings.BACKEND_SERVICE_URL
         })
         if token:  # Token came from URL parameter
             response.set_cookie("pulse_token", token, max_age=86400, httponly=True, path="/")
@@ -1283,6 +1288,10 @@ async def wits_mappings_page(request: Request):
         # Get tenant information for integration logos
         tenant_info = await get_user_tenant_info(token)
 
+        # Get backend service URL for vectorization API calls
+        from app.core.config import get_settings
+        settings = get_settings()
+
         return templates.TemplateResponse("wits_mappings.html", {
             "request": request,
             "user": user,
@@ -1290,7 +1299,8 @@ async def wits_mappings_page(request: Request):
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
             "tenant_name": tenant_info["tenant_name"],
-            "page_name": "wits"
+            "page_name": "wits",
+            "backend_service_url": settings.BACKEND_SERVICE_URL
         })
 
     except Exception as e:
@@ -1486,6 +1496,10 @@ async def wits_hierarchies_page(request: Request):
         # Get tenant information for integration logos
         tenant_info = await get_user_tenant_info(token)
 
+        # Get backend service URL for vectorization API calls
+        from app.core.config import get_settings
+        settings = get_settings()
+
         return templates.TemplateResponse("wits_hierarchies.html", {
             "request": request,
             "user": user,
@@ -1493,7 +1507,8 @@ async def wits_hierarchies_page(request: Request):
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
             "tenant_name": tenant_info["tenant_name"],
-            "page_name": "wits"
+            "page_name": "wits",
+            "backend_service_url": settings.BACKEND_SERVICE_URL
         })
 
     except Exception as e:
@@ -1586,6 +1601,10 @@ async def workflows_page(request: Request):
         # Get tenant information for header
         tenant_info = await get_user_tenant_info(token)
 
+        # Get backend service URL for vectorization API calls
+        from app.core.config import get_settings
+        settings = get_settings()
+
         return templates.TemplateResponse("workflows.html", {
             "request": request,
             "user": user,
@@ -1593,7 +1612,8 @@ async def workflows_page(request: Request):
             "embedded": embedded,
             "tenant_logo": tenant_info["tenant_logo"],
             "tenant_name": tenant_info["tenant_name"],
-            "page_name": "statuses"
+            "page_name": "statuses",
+            "backend_service_url": settings.BACKEND_SERVICE_URL
         })
 
     except Exception as e:

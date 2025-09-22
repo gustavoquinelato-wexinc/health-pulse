@@ -1399,10 +1399,12 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                     {"message": "Vectorization job completed successfully", "result": result}
                 )
             else:
-                # Mark job as failed using set_pending_with_checkpoint
+                # Store error message but keep job RUNNING until backend completes
                 error_msg = result.get('message', 'Unknown error')
-                job_schedule.set_pending_with_checkpoint(error_msg)
+                job_schedule.error_message = error_msg
+                job_schedule.retry_count += 1
                 logger.error(f"Vectorization job failed: {error_msg}")
+                logger.info(f"Job status remains RUNNING until backend processing completes")
 
                 # Send WebSocket failure update
                 from app.core.websocket_manager import get_websocket_manager
@@ -1418,6 +1420,10 @@ async def run_vectorization_sync_async(job_schedule_id: int):
                     False,
                     {"message": f"Vectorization job failed: {error_msg}", "error": error_msg}
                 )
+
+                # Now that backend processing is complete, set job to PENDING for retry
+                job_schedule.status = 'PENDING'
+                logger.info(f"Vectorization job set to PENDING for retry after backend completion")
 
             # Find next ready job (skips paused jobs)
             next_job = find_next_ready_job(session, tenant_id, current_order)

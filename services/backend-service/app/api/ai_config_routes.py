@@ -2009,20 +2009,38 @@ async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], ten
                 )
 
                 if store_result.success:
-                    # Create bridge record in PostgreSQL
-                    bridge_record = QdrantVector(
-                        tenant_id=tenant_id,
-                        table_name=table_name,
-                        record_id=record_id,
-                        qdrant_collection=collection_name,
-                        qdrant_point_id=point_id,
-                        vector_type="entity_embedding",
-                        embedding_model=embedding_result.provider_used,
-                        embedding_provider=embedding_result.provider_used
-                    )
-                    db_session.add(bridge_record)
+                    # Check if bridge record already exists (upsert logic)
+                    existing_record = db_session.query(QdrantVector).filter(
+                        QdrantVector.tenant_id == tenant_id,
+                        QdrantVector.table_name == table_name,
+                        QdrantVector.record_id == record_id,
+                        QdrantVector.vector_type == "entity_embedding"
+                    ).first()
+
+                    if existing_record:
+                        # Update existing record
+                        existing_record.qdrant_collection = collection_name
+                        existing_record.qdrant_point_id = point_id
+                        existing_record.embedding_model = embedding_result.provider_used
+                        existing_record.embedding_provider = embedding_result.provider_used
+                        existing_record.last_updated_at = datetime.utcnow()
+                        logger.debug(f"[QUEUE_PROCESSOR] Updated existing bridge record for {table_name} {record_id}")
+                    else:
+                        # Create new bridge record
+                        bridge_record = QdrantVector(
+                            tenant_id=tenant_id,
+                            table_name=table_name,
+                            record_id=record_id,
+                            qdrant_collection=collection_name,
+                            qdrant_point_id=point_id,
+                            vector_type="entity_embedding",
+                            embedding_model=embedding_result.provider_used,
+                            embedding_provider=embedding_result.provider_used
+                        )
+                        db_session.add(bridge_record)
+                        logger.debug(f"[QUEUE_PROCESSOR] Created new bridge record for {table_name} {record_id}")
+
                     vectors_stored += 1
-                    logger.debug(f"[QUEUE_PROCESSOR] Stored vector and bridge record for {table_name} {record_id}")
                 else:
                     vectors_failed += 1
                     logger.warning(f"[QUEUE_PROCESSOR] Failed to store vector for {table_name} {record_id}: {store_result.error}")

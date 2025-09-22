@@ -204,6 +204,38 @@ async def cancel_session(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post("/sessions/clear-stuck")
+async def clear_stuck_sessions(
+    table_name: str = None,
+    max_age_minutes: int = 30,
+    user: User = Depends(require_authentication)
+):
+    """
+    Clear stuck vectorization sessions.
+
+    Args:
+        table_name: Optional table name to filter sessions (if None, clears all stuck sessions)
+        max_age_minutes: Maximum age in minutes for sessions to be considered stuck
+        user: Current user info
+
+    Returns:
+        Number of sessions cleared
+    """
+    try:
+        cleared_count = table_vectorization_service.clear_stuck_sessions(table_name, max_age_minutes)
+
+        return {
+            "message": f"Cleared {cleared_count} stuck session(s)",
+            "cleared_count": cleared_count,
+            "table_name": table_name,
+            "max_age_minutes": max_age_minutes
+        }
+
+    except Exception as e:
+        logger.error(f"Error clearing stuck sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.get("/tables")
 async def get_supported_tables(
     user: User = Depends(require_authentication)

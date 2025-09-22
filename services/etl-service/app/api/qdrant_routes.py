@@ -18,7 +18,9 @@ from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import (
     Pr, PrComment, PrReview, PrCommit,
-    WorkItem, VectorizationQueue
+    WorkItem, Changelog, VectorizationQueue,
+    WitHierarchy, WitMapping, StatusMapping, Workflow,
+    Repository, Project, Status, Wit, WitPrLinks
 )
 from app.auth.centralized_auth_middleware import (
     UserData, require_admin_authentication
@@ -47,42 +49,143 @@ async def get_database_summary(user: UserData = Depends(require_admin_authentica
         with database.get_read_session_context() as session:
             tenant_id = user.tenant_id
             
-            # Count records in each table
+            # Count records in each table (with unique external_id counts for vectorization comparison)
             tables_summary = {}
-            
+
             # Pull Requests
-            prs_count = session.query(func.count(Pr.id)).filter(
+            prs_total = session.query(func.count(Pr.id)).filter(
                 Pr.tenant_id == tenant_id
             ).scalar() or 0
-            tables_summary['prs'] = {'total_count': prs_count}
-            
+            prs_unique = session.query(func.count(func.distinct(Pr.external_id))).filter(
+                Pr.tenant_id == tenant_id,
+                Pr.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['prs'] = {'total_count': prs_total, 'unique_count': prs_unique}
+
             # PR Comments
-            pr_comments_count = session.query(func.count(PrComment.id)).filter(
+            pr_comments_total = session.query(func.count(PrComment.id)).filter(
                 PrComment.tenant_id == tenant_id
             ).scalar() or 0
-            tables_summary['prs_comments'] = {'total_count': pr_comments_count}
-            
+            pr_comments_unique = session.query(func.count(func.distinct(PrComment.external_id))).filter(
+                PrComment.tenant_id == tenant_id,
+                PrComment.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['prs_comments'] = {'total_count': pr_comments_total, 'unique_count': pr_comments_unique}
+
             # PR Reviews
-            pr_reviews_count = session.query(func.count(PrReview.id)).filter(
+            pr_reviews_total = session.query(func.count(PrReview.id)).filter(
                 PrReview.tenant_id == tenant_id
             ).scalar() or 0
-            tables_summary['prs_reviews'] = {'total_count': pr_reviews_count}
-            
+            pr_reviews_unique = session.query(func.count(func.distinct(PrReview.external_id))).filter(
+                PrReview.tenant_id == tenant_id,
+                PrReview.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['prs_reviews'] = {'total_count': pr_reviews_total, 'unique_count': pr_reviews_unique}
+
             # PR Commits
-            pr_commits_count = session.query(func.count(PrCommit.id)).filter(
+            pr_commits_total = session.query(func.count(PrCommit.id)).filter(
                 PrCommit.tenant_id == tenant_id
             ).scalar() or 0
-            tables_summary['prs_commits'] = {'total_count': pr_commits_count}
+            pr_commits_unique = session.query(func.count(func.distinct(PrCommit.external_id))).filter(
+                PrCommit.tenant_id == tenant_id,
+                PrCommit.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['prs_commits'] = {'total_count': pr_commits_total, 'unique_count': pr_commits_unique}
             
             # Work Items (Issues)
-            issues_count = session.query(func.count(WorkItem.id)).filter(
+            work_items_total = session.query(func.count(WorkItem.id)).filter(
                 WorkItem.tenant_id == tenant_id
             ).scalar() or 0
-            tables_summary['issues'] = {'total_count': issues_count}
+            work_items_unique = session.query(func.count(func.distinct(WorkItem.external_id))).filter(
+                WorkItem.tenant_id == tenant_id,
+                WorkItem.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['work_items'] = {'total_count': work_items_total, 'unique_count': work_items_unique}
+
+            # Changelogs
+            changelogs_total = session.query(func.count(Changelog.id)).filter(
+                Changelog.tenant_id == tenant_id
+            ).scalar() or 0
+            changelogs_unique = session.query(func.count(func.distinct(Changelog.external_id))).filter(
+                Changelog.tenant_id == tenant_id,
+                Changelog.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['changelogs'] = {'total_count': changelogs_total, 'unique_count': changelogs_unique}
 
             # Work Item Comments (not implemented yet)
-            tables_summary['issues_comments'] = {'total_count': 0}
-            
+            tables_summary['issues_comments'] = {'total_count': 0, 'unique_count': 0}
+
+            # Admin Tables (these are the ones we're actually vectorizing)
+            # WIT Hierarchies (no external_id, so unique = total)
+            wits_hierarchies_count = session.query(func.count(WitHierarchy.id)).filter(
+                WitHierarchy.tenant_id == tenant_id
+            ).scalar() or 0
+            tables_summary['wits_hierarchies'] = {'total_count': wits_hierarchies_count, 'unique_count': wits_hierarchies_count}
+
+            # WIT Mappings (no external_id, so unique = total)
+            wits_mappings_count = session.query(func.count(WitMapping.id)).filter(
+                WitMapping.tenant_id == tenant_id
+            ).scalar() or 0
+            tables_summary['wits_mappings'] = {'total_count': wits_mappings_count, 'unique_count': wits_mappings_count}
+
+            # Status Mappings (no external_id, so unique = total)
+            statuses_mappings_count = session.query(func.count(StatusMapping.id)).filter(
+                StatusMapping.tenant_id == tenant_id
+            ).scalar() or 0
+            tables_summary['statuses_mappings'] = {'total_count': statuses_mappings_count, 'unique_count': statuses_mappings_count}
+
+            # Workflows (no external_id, so unique = total)
+            workflows_count = session.query(func.count(Workflow.id)).filter(
+                Workflow.tenant_id == tenant_id
+            ).scalar() or 0
+            tables_summary['workflows'] = {'total_count': workflows_count, 'unique_count': workflows_count}
+
+            # Repositories
+            repositories_total = session.query(func.count(Repository.id)).filter(
+                Repository.tenant_id == tenant_id
+            ).scalar() or 0
+            repositories_unique = session.query(func.count(func.distinct(Repository.external_id))).filter(
+                Repository.tenant_id == tenant_id,
+                Repository.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['repositories'] = {'total_count': repositories_total, 'unique_count': repositories_unique}
+
+            # Projects
+            projects_total = session.query(func.count(Project.id)).filter(
+                Project.tenant_id == tenant_id
+            ).scalar() or 0
+            projects_unique = session.query(func.count(func.distinct(Project.external_id))).filter(
+                Project.tenant_id == tenant_id,
+                Project.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['projects'] = {'total_count': projects_total, 'unique_count': projects_unique}
+
+            # Statuses
+            statuses_total = session.query(func.count(Status.id)).filter(
+                Status.tenant_id == tenant_id
+            ).scalar() or 0
+            statuses_unique = session.query(func.count(func.distinct(Status.external_id))).filter(
+                Status.tenant_id == tenant_id,
+                Status.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['statuses'] = {'total_count': statuses_total, 'unique_count': statuses_unique}
+
+            # WITs
+            wits_total = session.query(func.count(Wit.id)).filter(
+                Wit.tenant_id == tenant_id
+            ).scalar() or 0
+            wits_unique = session.query(func.count(func.distinct(Wit.external_id))).filter(
+                Wit.tenant_id == tenant_id,
+                Wit.external_id.isnot(None)
+            ).scalar() or 0
+            tables_summary['wits'] = {'total_count': wits_total, 'unique_count': wits_unique}
+
+            # WIT PR Links (no external_id, so unique = total)
+            wits_prs_links_count = session.query(func.count(WitPrLinks.id)).filter(
+                WitPrLinks.tenant_id == tenant_id
+            ).scalar() or 0
+            tables_summary['wits_prs_links'] = {'total_count': wits_prs_links_count, 'unique_count': wits_prs_links_count}
+
             # Calculate totals
             total_records = sum(table['total_count'] for table in tables_summary.values())
             

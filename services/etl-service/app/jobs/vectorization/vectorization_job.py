@@ -212,7 +212,7 @@ class VectorizationJobProcessor:
                 logger.info(f"✅ Backend vectorization triggered successfully - waiting for completion")
 
                 # Step 4: Wait for completion (75% → 100%)
-                completion_result = await self._wait_for_backend_completion(session, job_schedule.tenant_id, total_steps)
+                completion_result = await self._wait_for_backend_completion(tenant_id, total_steps)
 
                 return completion_result
 
@@ -244,7 +244,7 @@ class VectorizationJobProcessor:
             logger.error(f"Failed to get system auth token: {e}")
             return None
 
-    async def _wait_for_backend_completion(self, session, tenant_id: int, total_steps: int) -> Dict[str, Any]:
+    async def _wait_for_backend_completion(self, tenant_id: int, total_steps: int) -> Dict[str, Any]:
         """
         Wait for backend vectorization to complete using webhook completion signals.
         The backend will send a completion webhook when 100% done, which is more reliable

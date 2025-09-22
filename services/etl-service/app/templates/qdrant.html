@@ -18,9 +18,6 @@
         <div class="flex items-center space-x-2">
             <div id="qdrantStatusDot" class="w-3 h-3 rounded-full bg-gray-400"></div>
             <span class="text-sm" style="color: var(--text-secondary);" id="qdrantStatusText">Connecting...</span>
-            <button onclick="refreshQdrantAnalysis()" class="btn-neutral-secondary" title="Refresh Analysis">
-                <i data-lucide="refresh-cw"></i>
-            </button>
         </div>
     </div>
 </div>
@@ -31,15 +28,8 @@
         <button onclick="showQdrantTab('dashboard')" id="qdrantTabDashboard" class="qdrant-tab active px-6 py-3 text-sm font-medium rounded-t-lg transition-colors">
             <i data-lucide="bar-chart-3" class="w-4 h-4 mr-2"></i>Dashboard
         </button>
-        <button onclick="showQdrantTab('collections')" id="qdrantTabCollections" class="qdrant-tab px-6 py-3 text-sm font-medium rounded-t-lg transition-colors">
-            <i data-lucide="layers" class="w-4 h-4 mr-2"></i>Collections
-        </button>
-        <button onclick="showQdrantTab('validation')" id="qdrantTabValidation" class="qdrant-tab px-6 py-3 text-sm font-medium rounded-t-lg transition-colors">
-            <i data-lucide="check-circle" class="w-4 h-4 mr-2"></i>Validation
-        </button>
-        <button onclick="showQdrantTab('analytics')" id="qdrantTabAnalytics" class="qdrant-tab px-6 py-3 text-sm font-medium rounded-t-lg transition-colors">
-            <i data-lucide="trending-up" class="w-4 h-4 mr-2"></i>Analytics
-        </button>
+
+
         <button onclick="showQdrantTab('management')" id="qdrantTabManagement" class="qdrant-tab px-6 py-3 text-sm font-medium rounded-t-lg transition-colors">
             <i data-lucide="settings" class="w-4 h-4 mr-2"></i>Management
         </button>
@@ -65,26 +55,18 @@
     // Apply color schema from backend
     document.addEventListener('DOMContentLoaded', function() {
         const colorSchemaData = {{ color_schema | tojson | safe }};
-        console.log('Color schema data:', colorSchemaData);
-        console.log('Color schema data type:', typeof colorSchemaData);
-        console.log('Has success property:', 'success' in colorSchemaData);
-        console.log('Has colors property:', 'colors' in colorSchemaData);
 
         // Check if we have color data (either with success flag or direct colors)
         if (colorSchemaData && ((colorSchemaData.success && colorSchemaData.colors) || colorSchemaData.colors)) {
             const colors = colorSchemaData.colors;
             const root = document.documentElement;
 
-            console.log('Colors object:', colors);
-
             // Apply the 5-color system
             if (colors.color1) {
                 root.style.setProperty('--color-1', colors.color1);
-                console.log('Applied color1:', colors.color1);
             }
             if (colors.color2) {
                 root.style.setProperty('--color-2', colors.color2);
-                console.log('Applied color2:', colors.color2);
             }
             if (colors.color3) root.style.setProperty('--color-3', colors.color3);
             if (colors.color4) root.style.setProperty('--color-4', colors.color4);
@@ -95,14 +77,153 @@
                 const gradient = `linear-gradient(135deg, ${colors.color1}, ${colors.color2})`;
                 root.style.setProperty('--gradient-1-2', gradient);
                 root.style.setProperty('--on-gradient-1-2', '#ffffff');
-                console.log('Applied gradient:', gradient);
             }
-
-            console.log('Applied custom colors to Qdrant page');
+            if (colors.color2 && colors.color3) {
+                const gradient = `linear-gradient(135deg, ${colors.color2}, ${colors.color3})`;
+                root.style.setProperty('--gradient-2-3', gradient);
+                root.style.setProperty('--on-gradient-2-3', '#ffffff');
+            }
+            if (colors.color3 && colors.color4) {
+                const gradient = `linear-gradient(135deg, ${colors.color3}, ${colors.color4})`;
+                root.style.setProperty('--gradient-3-4', gradient);
+                root.style.setProperty('--on-gradient-3-4', '#ffffff');
+            }
         } else {
             console.log('Using default colors for Qdrant page');
             console.log('Reason: colorSchemaData =', colorSchemaData);
         }
+
+        // Get entity key from display name (reverse mapping)
+        window.getEntityKey = function(displayName) {
+            const reverseMap = {
+                'Work Items': 'work_items',
+                'Changelogs': 'changelogs',
+                'Projects': 'projects',
+                'Statuses': 'statuses',
+                'Work Item Types': 'wits',
+                'WIT Hierarchies': 'wits_hierarchies',
+                'WIT Mappings': 'wits_mappings',
+                'WIT PR Links': 'wits_prs_links',
+                'Status Mappings': 'statuses_mappings',
+                'Workflows': 'workflows',
+                'Pull Requests': 'prs',
+                'PR Comments': 'prs_comments',
+                'PR Reviews': 'prs_reviews',
+                'PR Commits': 'prs_commits',
+                'Repositories': 'repositories'
+            };
+            return reverseMap[displayName] || displayName.toLowerCase().replace(/\s+/g, '_');
+        };
+
+        // Helper functions for validation data in collection details modal
+        window.getDatabaseCount = function(entityKey) {
+            const dbData = qdrantData.databaseCounts[entityKey] || {};
+            return (dbData.unique_count || 0).toLocaleString();
+        };
+
+        window.getMissingCount = function(entityKey, qdrantCount) {
+            const dbData = qdrantData.databaseCounts[entityKey] || {};
+            const dbCount = dbData.unique_count || 0;
+            return Math.max(0, dbCount - (qdrantCount || 0));
+        };
+
+        window.getCompletionPercentage = function(entityKey, qdrantCount) {
+            const dbData = qdrantData.databaseCounts[entityKey] || {};
+            const dbCount = dbData.unique_count || 0;
+            if (dbCount === 0) return 100;
+            return Math.round(((qdrantCount || 0) / dbCount) * 100);
+        };
+
+        window.getHealthStatus = function(entityKey, qdrantCount) {
+            const completion = getCompletionPercentage(entityKey, qdrantCount);
+            if (completion >= 100) {
+                return { label: 'Complete', class: 'bg-green-100 text-green-700' };
+            } else if (completion >= 80) {
+                return { label: 'Good', class: 'bg-blue-100 text-blue-700' };
+            } else if (completion >= 50) {
+                return { label: 'Partial', class: 'bg-yellow-100 text-yellow-700' };
+            } else {
+                return { label: 'Needs Attention', class: 'bg-red-100 text-red-700' };
+            }
+        };
+
+        // Helper function for entity display names
+        window.getEntityDisplayName = function(entityKey) {
+            const entityNameMap = {
+                'changelogs': 'Changelogs',
+                'prs_comments': 'PR Comments',
+                'prs_commits': 'PR Commits',
+                'prs_reviews': 'PR Reviews',
+                'projects': 'Projects',
+                'prs': 'Pull Requests',
+                'repositories': 'Repositories',
+                'statuses_mappings': 'Status Mappings',
+                'statuses': 'Statuses',
+                'wits_hierarchies': 'WIT Hierarchies',
+                'wits_mappings': 'WIT Mappings',
+                'wits_prs_links': 'WIT PR Links',
+                'wits': 'Work Item Types',
+                'work_items': 'Work Items',
+                'workflows': 'Workflows'
+            };
+            return entityNameMap[entityKey] || entityKey;
+        };
+
+        // Helper function for formatting bytes
+        window.formatBytes = function(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        // Group entities by integration context
+        window.getEntityGroupsByIntegration = function(entities) {
+            const tenantName = '{{ tenant_name|lower }}' || 'wex';
+
+            const groups = [
+                {
+                    title: 'Jira',
+                    logoPath: `/static/assets/${tenantName}/integrations/jira.svg`,
+                    entities: entities.filter(e => [
+                        'Work Items', 'Changelogs', 'Projects', 'Statuses', 'Work Item Types',
+                        'WIT Hierarchies', 'WIT Mappings', 'WIT PR Links', 'Status Mappings', 'Workflows'
+                    ].includes(e.name))
+                },
+                {
+                    title: 'GitHub',
+                    logoPath: `/static/assets/${tenantName}/integrations/github.svg`,
+                    entities: entities.filter(e => ['Pull Requests', 'PR Comments', 'PR Reviews', 'PR Commits', 'Repositories'].includes(e.name))
+                }
+            ];
+
+            return groups.filter(group => group.entities.length > 0);
+        };
+
+        // Get Lucide icons for entities (matching sidebar menu icons)
+        window.getEntityIcon = function(entityName) {
+            const iconMap = {
+                'Pull Requests': 'git-pull-request',
+                'PR Comments': 'message-circle',
+                'PR Reviews': 'eye',
+                'PR Commits': 'git-commit',
+                'Repositories': 'folder-git',
+                'Work Items': 'list-todo',
+                'Changelogs': 'history',
+                'Projects': 'folder',
+                'Statuses': 'flag',
+                'Work Item Types': 'tag',
+                'WIT Hierarchies': 'layers',        // matches sidebar: layers
+                'WIT Mappings': 'network',          // matches sidebar: network
+                'Status Mappings': 'arrow-left-right', // matches sidebar: arrow-left-right
+                'Workflows': 'workflow'             // matches sidebar: workflow
+            };
+
+            return iconMap[entityName] || 'circle';
+        };
+
+
     });
 </script>
 <style>
@@ -168,6 +289,228 @@
         transition: width 0.3s ease;
     }
 
+    /* Dashboard Tiles Styles */
+    .entity-tiles-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .entity-tile {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .entity-tile:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        border-color: var(--color-1);
+    }
+
+    /* Entity Groups by Integration */
+    .entity-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .entity-group {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1.5rem;
+    }
+
+    .group-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .group-logo {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+    }
+
+    .integration-logo {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+    }
+
+    .entity-group-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .group-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .group-subtitle {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-left: auto;
+    }
+
+    /* Rectangle Entity Tiles */
+    .entity-tiles-rectangle {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .entity-tile-rect {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .entity-tile-rect:hover {
+        border-color: var(--color-1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .entity-icon {
+        width: 20px;
+        height: 20px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+    }
+
+    .entity-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .entity-name {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .entity-stats {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .entity-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .view-details-btn {
+        background: var(--color-1);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 6px;
+        cursor: pointer;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+    }
+
+    .view-details-btn:hover {
+        opacity: 1;
+    }
+
+    .completion-badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        min-width: 45px;
+        text-align: center;
+    }
+
+    .completion-complete {
+        background-color: rgba(34, 197, 94, 0.1);
+        color: rgb(34, 197, 94);
+    }
+
+    .completion-partial {
+        background-color: rgba(245, 158, 11, 0.1);
+        color: rgb(245, 158, 11);
+    }
+
+    .completion-empty {
+        background-color: rgba(107, 114, 128, 0.1);
+        color: rgb(107, 114, 128);
+    }
+
+    .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .status-dot.complete {
+        background-color: rgb(34, 197, 94);
+    }
+
+    .status-dot.partial {
+        background-color: rgb(245, 158, 11);
+    }
+
+    .status-dot.empty {
+        background-color: rgb(107, 114, 128);
+    }
+
+    /* Responsive behavior */
+    @media (max-width: 1024px) {
+        .entity-tiles-grid {
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .entity-tiles-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .entity-tile {
+            padding: 0.75rem;
+        }
+
+        .entity-tile-count {
+            font-size: 1.125rem;
+        }
+    }
+
     /* Enhanced styling for better visual hierarchy */
     .qdrant-section-title {
         font-size: 1.25rem;
@@ -216,10 +559,31 @@
     const QDRANT_URL = 'http://localhost:6333';
     let qdrantData = {
         collections: [],
-        dashboard: null,
-        validation: null,
-        analytics: null
+        dashboard: null
     };
+
+    // Initialize Lucide icons after content loads
+    function initializeLucideIcons() {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        } else {
+            // Retry after a short delay if Lucide isn't loaded yet
+            setTimeout(initializeLucideIcons, 100);
+        }
+    }
+
+    // Fallback icon function for integration logos
+    function showFallbackIcon(imgElement, integrationName) {
+        const iconName = integrationName.toLowerCase() === 'github' ? 'github' :
+                        integrationName.toLowerCase() === 'jira' ? 'ticket' : 'plug';
+
+        imgElement.outerHTML = `<i data-lucide="${iconName}" class="group-logo" style="color: var(--text-secondary);"></i>`;
+
+        // Re-initialize Lucide icons for the new element
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
 
     // Initialize Qdrant Analysis on page load
     document.addEventListener('DOMContentLoaded', function() {
@@ -392,15 +756,8 @@
             case 'dashboard':
                 content.innerHTML = generateDashboardContent();
                 break;
-            case 'collections':
-                content.innerHTML = generateCollectionsContent();
-                break;
-            case 'validation':
-                content.innerHTML = generateValidationContent();
-                break;
-            case 'analytics':
-                content.innerHTML = generateAnalyticsContent();
-                break;
+
+
             case 'management':
                 content.innerHTML = generateManagementContent();
                 break;
@@ -412,6 +769,9 @@
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
+
+        // Initialize icons for new content
+        initializeLucideIcons();
     }
 
     function generateDashboardContent() {
@@ -433,459 +793,319 @@
 
                 <!-- Summary Cards -->
                 <div class="qdrant-summary-grid">
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-3xl font-bold mb-2" style="color: var(--color-1);">${comparisonData.totalDatabase.toLocaleString()}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Total Records</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">In Database</div>
+                    <div class="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%); color: var(--on-gradient-1-2);">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-medium opacity-90">Total Records</h3>
+                            <div class="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="text-2xl font-bold">${comparisonData.totalDatabase.toLocaleString()}</div>
+                            <div class="text-xs opacity-80">In Database</div>
+                        </div>
                     </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-3xl font-bold mb-2" style="color: var(--color-2);">${comparisonData.totalVectorized.toLocaleString()}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Vectorized</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">In Qdrant</div>
+                    <div class="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-2) 0%, var(--color-3) 100%); color: var(--on-gradient-2-3);">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-medium opacity-90">Vectorized</h3>
+                            <div class="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="text-2xl font-bold">${comparisonData.totalVectorized.toLocaleString()}</div>
+                            <div class="text-xs opacity-80">In Qdrant</div>
+                        </div>
                     </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-3xl font-bold mb-2 ${comparisonData.overallCompletion >= 100 ? 'qdrant-status-healthy' : comparisonData.overallCompletion >= 80 ? 'qdrant-status-warning' : 'qdrant-status-error'}">${comparisonData.overallCompletion}%</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Completion</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Overall Progress</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-3xl font-bold mb-2 ${comparisonData.missingRecords === 0 ? 'qdrant-status-healthy' : 'qdrant-status-error'}">${comparisonData.missingRecords.toLocaleString()}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Missing</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Not Vectorized</div>
+                    <div class="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-3) 0%, var(--color-4) 100%); color: var(--text-primary); opacity: 1; transform: none;">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-medium opacity-90">Completion</h3>
+                            <div class="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="text-2xl font-bold">${comparisonData.overallCompletion}%</div>
+                            <div class="text-xs opacity-80">Overall Progress</div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Entity Breakdown -->
-                <div class="qdrant-metric-card">
-                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Entity Type Breakdown</h4>
-                    <div class="space-y-4">
-                        ${comparisonData.entities.map(entity => `
-                            <div class="flex items-center justify-between p-3 rounded-lg" style="background-color: var(--bg-tertiary);">
-                                <div class="flex-1">
-                                    <div class="flex items-center justify-between mb-2">
-                                        <span class="font-medium" style="color: var(--text-primary);">${entity.name}</span>
-                                        <span class="text-sm" style="color: var(--text-secondary);">${entity.completion}%</span>
-                                    </div>
-                                    <div class="qdrant-progress-bar">
-                                        <div class="qdrant-progress-fill" style="width: ${entity.completion}%;"></div>
-                                    </div>
-                                    <div class="flex justify-between text-xs mt-1" style="color: var(--text-muted);">
-                                        <span>DB: ${entity.database.toLocaleString()}</span>
-                                        <span>Qdrant: ${entity.qdrant.toLocaleString()}</span>
-                                        ${entity.queue > 0 ? `<span class="qdrant-status-warning">Queue: ${entity.queue}</span>` : ''}
-                                    </div>
-                                </div>
+                <!-- Entity Breakdown by Integration -->
+                <div class="entity-groups">
+                    ${getEntityGroupsByIntegration(comparisonData.entities).map(group => `
+                        <div class="entity-group">
+                            <div class="group-header">
+                                <img src="${group.logoPath}" alt="${group.title}" class="group-logo" onerror="showFallbackIcon(this, '${group.title}')">
+                                <h5 class="group-title">${group.title.toUpperCase()}</h5>
+                                <div class="group-subtitle">${group.entities.length} entities</div>
                             </div>
-                        `).join('')}
-                    </div>
+                            <div class="entity-tiles-rectangle">
+                                ${group.entities.map(entity => {
+                                    // Determine status classes
+                                    let statusClass = 'empty';
+                                    let completionClass = 'completion-empty';
+
+                                    if (entity.completion >= 100) {
+                                        statusClass = 'complete';
+                                        completionClass = 'completion-complete';
+                                    } else if (entity.completion > 0) {
+                                        statusClass = 'partial';
+                                        completionClass = 'completion-partial';
+                                    }
+
+                                    return `
+                                    <div class="entity-tile-rect">
+                                        <i data-lucide="${getEntityIcon(entity.name)}" class="entity-icon"></i>
+                                        <div class="entity-content">
+                                            <div class="entity-name">${entity.name}</div>
+                                            <div class="entity-stats">${entity.qdrant}/${entity.database} vectorized</div>
+                                        </div>
+                                        <div class="entity-actions">
+                                            <div class="completion-badge ${completionClass}">${entity.completion}%</div>
+                                            <div class="status-dot ${statusClass}"></div>
+                                            <button class="view-details-btn" onclick="showCollectionDetails('${getCurrentTenantName().toLowerCase()}_${getEntityKey(entity.name)}')" title="View Details">
+                                                <i data-lucide="eye" class="w-3 h-3"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
                 </div>
 
-                <!-- Quick Actions -->
-                <div class="qdrant-detail-grid">
-                    <div class="qdrant-metric-card">
-                        <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Quick Actions</h4>
-                        <div class="space-y-3">
-                            ${comparisonData.missingRecords > 0 ? `
-                                <button onclick="revectorizeAllMissing()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--color-1); color: white;">
-                                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                                    <span>Vectorize ${comparisonData.missingRecords} Missing Records</span>
-                                </button>
-                            ` : `
-                                <div class="text-center py-4 text-sm qdrant-status-healthy">
-                                    <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2"></i>
-                                    All records are vectorized!
-                                </div>
-                            `}
-                            <button onclick="showQdrantTab('validation')" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--color-2); color: white;">
-                                <i data-lucide="check-circle" class="w-4 h-4"></i>
-                                <span>Run Validation Check</span>
-                            </button>
-                            <button onclick="showQdrantTab('management')" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--neutral-secondary); color: white;">
-                                <i data-lucide="settings" class="w-4 h-4"></i>
-                                <span>Management Tools</span>
-                            </button>
-                        </div>
-                    </div>
 
-                    <div class="qdrant-metric-card">
-                        <h4 class="font-semibold mb-4" style="color: var(--text-primary);">System Health</h4>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between">
-                                <span style="color: var(--text-secondary);">Collections:</span>
-                                <span class="font-medium" style="color: var(--text-primary);">${qdrantData.collections.length}</span>
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span style="color: var(--text-secondary);">Healthy Collections:</span>
-                                <span class="font-medium qdrant-status-healthy">${comparisonData.healthyCollections}</span>
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span style="color: var(--text-secondary);">Qdrant Status:</span>
-                                <span class="font-medium qdrant-status-healthy">Connected</span>
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span style="color: var(--text-secondary);">Last Updated:</span>
-                                <span class="font-medium" style="color: var(--text-primary);">${new Date().toLocaleTimeString()}</span>
-                            </div>
-                        </div>
-                    </div>
+
+
                 </div>
             </div>
         `;
     }
 
-    function generateCollectionsContent() {
+
+
+    function generateCollectionCard(collection, tenantPrefix) {
+        const details = collection.details || {};
+        const entityKey = collection.name.replace(tenantPrefix, '');
+        const status = details.status || 'unknown';
+        const pointsCount = details.points_count || 0;
+        const vectorsCount = details.vectors_count || 0;
+        const vectorSize = details.config?.params?.vectors?.size || 'unknown';
+        const distance = details.config?.params?.vectors?.distance || 'unknown';
+
+        // Map entity keys to display names (same as Dashboard)
+        const entityNameMap = {
+            'changelogs': 'Changelogs',
+            'prs_comments': 'PR Comments',
+            'prs_commits': 'PR Commits',
+            'prs_reviews': 'PR Reviews',
+            'projects': 'Projects',
+            'prs': 'Pull Requests',
+            'repositories': 'Repositories',
+            'statuses_mappings': 'Status Mappings',
+            'statuses': 'Statuses',
+            'wits_hierarchies': 'WIT Hierarchies',
+            'wits_mappings': 'WIT Mappings',
+            'wits_prs_links': 'WIT PR Links',
+            'wits': 'Work Item Types',
+            'work_items': 'Work Items',
+            'workflows': 'Workflows'
+        };
+
+        const entityDisplayName = entityNameMap[entityKey] || entityKey;
+
+        return `
+            <div class="qdrant-metric-card">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h4 class="font-semibold" style="color: var(--text-primary);">${entityDisplayName}</h4>
+                        <div class="text-xs" style="color: var(--text-muted);">${collection.name}</div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full ${status === 'green' ? 'bg-green-500' : status === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}"></div>
+                </div>
+
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span style="color: var(--text-secondary);">Points:</span>
+                        <span class="font-medium" style="color: var(--text-primary);">${pointsCount.toLocaleString()}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span style="color: var(--text-secondary);">Vectors:</span>
+                        <span class="font-medium" style="color: var(--text-primary);">${vectorsCount.toLocaleString()}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span style="color: var(--text-secondary);">Dimensions:</span>
+                        <span class="font-medium" style="color: var(--text-primary);">${vectorSize}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span style="color: var(--text-secondary);">Distance:</span>
+                        <span class="font-medium" style="color: var(--text-primary);">${distance}</span>
+                    </div>
+                </div>
+
+                <div class="mt-3 pt-3 border-t" style="border-color: var(--border-color);">
+                    <button onclick="showCollectionDetails('${collection.name}')" class="text-xs px-3 py-1 rounded" style="background-color: var(--color-1); color: white;">
+                        View Details
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+
+
+
+
+
+    function generateManagementContent() {
         const tenantName = getCurrentTenantName();
         const tenantPrefix = tenantName ? tenantName.toLowerCase() + '_' : '';
         const tenantCollections = qdrantData.collections.filter(c => c.name.startsWith(tenantPrefix));
 
+        // Calculate real statistics
+        const totalVectors = tenantCollections.reduce((sum, c) => sum + (c.details?.points_count || 0), 0);
+        const totalStorage = tenantCollections.reduce((sum, c) => {
+            const points = c.details?.points_count || 0;
+            const dimensions = c.details?.config?.params?.vectors?.size || 0;
+            return sum + (points * dimensions * 4); // 4 bytes per float
+        }, 0);
+
+        // Get queue statistics
+        const queueStats = qdrantData.queueData || {};
+        const pendingItems = queueStats.total_pending || 0;
+        const failedItems = queueStats.total_failed || 0;
+
         return `
             <div class="space-y-6">
-                <div class="flex justify-between items-center">
-                    <h3 class="qdrant-section-title">
-                        <i data-lucide="layers" class="w-5 h-5 mr-2"></i>
-                        Collections Overview
-                    </h3>
-                    <div class="text-sm" style="color: var(--text-secondary);">
-                        ${tenantCollections.length} collections found
+                <h3 class="qdrant-section-title">
+                    <i data-lucide="settings" class="w-5 h-5 mr-2"></i>
+                    Management Tools
+                </h3>
+
+                <!-- System Overview -->
+                <div class="qdrant-metric-card">
+                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">System Overview</h4>
+                    <div class="qdrant-summary-grid text-sm">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--text-primary);">${tenantCollections.length}</div>
+                            <div style="color: var(--text-secondary);">Collections</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--text-primary);">${totalVectors.toLocaleString()}</div>
+                            <div style="color: var(--text-secondary);">Total Vectors</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--text-primary);">${formatBytes(totalStorage)}</div>
+                            <div style="color: var(--text-secondary);">Storage Used</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold ${pendingItems > 0 ? 'text-yellow-600' : 'text-green-600'}">${pendingItems}</div>
+                            <div style="color: var(--text-secondary);">Queue Pending</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="qdrant-detail-grid">
-                    ${tenantCollections.map(collection => {
-                        const details = collection.details || {};
-                        const entityType = collection.name.replace(tenantPrefix, '');
-                        const status = details.status || 'unknown';
-                        const pointsCount = details.points_count || 0;
-                        const vectorsCount = details.vectors_count || 0;
-                        const vectorSize = details.config?.params?.vectors?.size || 'unknown';
-                        const distance = details.config?.params?.vectors?.distance || 'unknown';
-
-                        return `
-                            <div class="qdrant-metric-card">
-                                <div class="flex justify-between items-start mb-3">
-                                    <div>
-                                        <h4 class="font-semibold" style="color: var(--text-primary);">${entityType}</h4>
-                                        <div class="text-xs" style="color: var(--text-muted);">${collection.name}</div>
-                                    </div>
-                                    <div class="w-3 h-3 rounded-full ${status === 'green' ? 'bg-green-500' : status === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}"></div>
-                                </div>
-
-                                <div class="space-y-2 text-sm">
-                                    <div class="flex justify-between">
-                                        <span style="color: var(--text-secondary);">Points:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${pointsCount.toLocaleString()}</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span style="color: var(--text-secondary);">Vectors:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${vectorsCount.toLocaleString()}</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span style="color: var(--text-secondary);">Dimensions:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${vectorSize}</span>
-                                    </div>
-                                    <div class="flex justify-between">
-                                        <span style="color: var(--text-secondary);">Distance:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${distance}</span>
-                                    </div>
-                                </div>
-
-                                <div class="mt-3 pt-3 border-t" style="border-color: var(--border-color);">
-                                    <button onclick="showCollectionDetails('${collection.name}')" class="text-xs px-3 py-1 rounded" style="background-color: var(--color-1); color: white;">
-                                        View Details
-                                    </button>
+                <!-- Quick Actions -->
+                <div class="qdrant-metric-card">
+                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Quick Actions</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button onclick="triggerVectorization()" class="p-4 rounded-lg border text-left hover:bg-opacity-80 transition-colors" style="background-color: var(--color-1); color: white; border-color: var(--color-1);">
+                            <div class="flex items-center space-x-3">
+                                <i data-lucide="play" class="w-5 h-5"></i>
+                                <div>
+                                    <div class="font-medium">Start Vectorization</div>
+                                    <div class="text-sm opacity-80">Process pending queue items</div>
                                 </div>
                             </div>
-                        `;
-                    }).join('')}
-                </div>
-
-                ${tenantCollections.length === 0 ? `
-                    <div class="text-center py-8" style="color: var(--text-muted);">
-                        <i data-lucide="database" class="w-12 h-12 mx-auto mb-4 opacity-50"></i>
-                        <p>No collections found for tenant: ${tenantName}</p>
-                        <p class="text-sm mt-2">Collections should be prefixed with: ${tenantPrefix}</p>
-                    </div>
-                ` : ''}
-            </div>
-        `;
-    }
-
-    function generateValidationContent() {
-        const tenantName = getCurrentTenantName();
-        const tenantPrefix = tenantName ? tenantName.toLowerCase() + '_' : '';
-        const validationResults = calculateValidationResults(tenantPrefix);
-
-        return `
-            <div class="space-y-6">
-                <div class="flex justify-between items-center">
-                    <h3 class="qdrant-section-title">
-                        <i data-lucide="check-circle" class="w-5 h-5 mr-2"></i>
-                        Data Validation
-                    </h3>
-                    <div class="flex items-center space-x-2">
-                        <div class="w-3 h-3 rounded-full ${validationResults.overallHealth === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'}"></div>
-                        <span class="text-sm" style="color: var(--text-secondary);">${validationResults.overallHealth}</span>
+                        </button>
+                        <button onclick="cleanupFailedItems()" class="p-4 rounded-lg border text-left hover:bg-opacity-80 transition-colors" style="background-color: var(--status-warning); color: white; border-color: var(--status-warning);">
+                            <div class="flex items-center space-x-3">
+                                <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                <div>
+                                    <div class="font-medium">Cleanup Failed Items</div>
+                                    <div class="text-sm opacity-80">${failedItems} failed items to clean</div>
+                                </div>
+                            </div>
+                        </button>
+                        <button onclick="optimizeCollections()" class="p-4 rounded-lg border text-left hover:bg-opacity-80 transition-colors" style="background-color: var(--color-3); color: white; border-color: var(--color-3);">
+                            <div class="flex items-center space-x-3">
+                                <i data-lucide="zap" class="w-5 h-5"></i>
+                                <div>
+                                    <div class="font-medium">Optimize Collections</div>
+                                    <div class="text-sm opacity-80">Improve query performance</div>
+                                </div>
+                            </div>
+                        </button>
+                        <button onclick="exportVectorData()" class="p-4 rounded-lg border text-left hover:bg-opacity-80 transition-colors" style="background-color: var(--color-4); color: white; border-color: var(--color-4);">
+                            <div class="flex items-center space-x-3">
+                                <i data-lucide="download" class="w-5 h-5"></i>
+                                <div>
+                                    <div class="font-medium">Export Data</div>
+                                    <div class="text-sm opacity-80">Download vector collections</div>
+                                </div>
+                            </div>
+                        </button>
                     </div>
                 </div>
 
-                <!-- Summary Cards -->
-                <div class="qdrant-summary-grid">
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold qdrant-status-healthy">${validationResults.syncedEntities}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Synced</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold qdrant-status-warning">${validationResults.outOfSyncEntities}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Out of Sync</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold qdrant-status-error">${validationResults.missingRecords}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Missing</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold" style="color: var(--text-primary);">${validationResults.orphanedRecords}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Orphaned</div>
-                    </div>
-                </div>
-
-                <!-- Detailed Validation Results -->
+                <!-- Collection Management -->
                 <div class="qdrant-metric-card">
-                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Entity Validation Details</h4>
+                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Collection Management</h4>
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm">
                             <thead>
                                 <tr class="border-b" style="border-color: var(--border-color);">
-                                    <th class="text-left py-2" style="color: var(--text-secondary);">Entity Type</th>
-                                    <th class="text-right py-2" style="color: var(--text-secondary);">Database</th>
-                                    <th class="text-right py-2" style="color: var(--text-secondary);">Qdrant</th>
-                                    <th class="text-right py-2" style="color: var(--text-secondary);">Missing</th>
-                                    <th class="text-right py-2" style="color: var(--text-secondary);">Orphaned</th>
+                                    <th class="text-left py-2" style="color: var(--text-secondary);">Collection</th>
+                                    <th class="text-right py-2" style="color: var(--text-secondary);">Vectors</th>
+                                    <th class="text-right py-2" style="color: var(--text-secondary);">Size</th>
                                     <th class="text-center py-2" style="color: var(--text-secondary);">Status</th>
+                                    <th class="text-center py-2" style="color: var(--text-secondary);">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${validationResults.entities.map(entity => `
-                                    <tr class="border-b" style="border-color: var(--border-color);">
-                                        <td class="py-2 font-medium" style="color: var(--text-primary);">${entity.name}</td>
-                                        <td class="py-2 text-right" style="color: var(--text-primary);">${entity.database.toLocaleString()}</td>
-                                        <td class="py-2 text-right" style="color: var(--text-primary);">${entity.qdrant.toLocaleString()}</td>
-                                        <td class="py-2 text-right ${entity.missing > 0 ? 'qdrant-status-error' : 'qdrant-status-healthy'}">${entity.missing.toLocaleString()}</td>
-                                        <td class="py-2 text-right ${entity.orphaned > 0 ? 'qdrant-status-warning' : 'qdrant-status-healthy'}">${entity.orphaned.toLocaleString()}</td>
-                                        <td class="py-2 text-center">
-                                            <span class="px-2 py-1 rounded text-xs ${entity.status === 'synced' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${entity.status}</span>
-                                        </td>
-                                    </tr>
-                                `).join('')}
+                                ${tenantCollections.map(collection => {
+                                    const entityKey = collection.name.replace(tenantPrefix, '');
+                                    const entityName = getEntityDisplayName(entityKey);
+                                    const points = collection.details?.points_count || 0;
+                                    const dimensions = collection.details?.config?.params?.vectors?.size || 0;
+                                    const sizeBytes = points * dimensions * 4;
+                                    const status = collection.details?.status || 'unknown';
+
+                                    return `
+                                        <tr class="border-b" style="border-color: var(--border-color);">
+                                            <td class="py-2 font-medium" style="color: var(--text-primary);">${entityName}</td>
+                                            <td class="py-2 text-right" style="color: var(--text-primary);">${points.toLocaleString()}</td>
+                                            <td class="py-2 text-right" style="color: var(--text-primary);">${formatBytes(sizeBytes)}</td>
+                                            <td class="py-2 text-center">
+                                                <span class="px-2 py-1 rounded text-xs ${status === 'green' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">${status}</span>
+                                            </td>
+                                            <td class="py-2 text-center">
+                                                <button onclick="showCollectionDetails('${collection.name}')" class="text-xs px-2 py-1 rounded hover:opacity-80" style="background-color: var(--color-1); color: white;" title="View Details">
+                                                    <i data-lucide="eye" class="w-3 h-3"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                ${validationResults.outOfSyncEntities > 0 ? `
-                    <div class="qdrant-metric-card">
-                        <h4 class="font-semibold mb-3" style="color: var(--text-primary);">Recommended Actions</h4>
-                        <div class="space-y-2 text-sm">
-                            ${validationResults.missingRecords > 0 ? `
-                                <div class="flex items-center space-x-2">
-                                    <i data-lucide="alert-triangle" class="w-4 h-4 qdrant-status-warning"></i>
-                                    <span style="color: var(--text-primary);">Re-vectorize ${validationResults.missingRecords} missing records</span>
-                                    <button onclick="revectorizeAllMissing()" class="ml-auto text-xs px-2 py-1 rounded" style="background-color: var(--color-1); color: white;">Fix Now</button>
-                                </div>
-                            ` : ''}
-                            ${validationResults.orphanedRecords > 0 ? `
-                                <div class="flex items-center space-x-2">
-                                    <i data-lucide="trash-2" class="w-4 h-4 qdrant-status-error"></i>
-                                    <span style="color: var(--text-primary);">Clean up ${validationResults.orphanedRecords} orphaned vectors</span>
-                                    <button onclick="cleanupOrphanedVectors()" class="ml-auto text-xs px-2 py-1 rounded" style="background-color: var(--status-error); color: white;">Clean Up</button>
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                ` : ''}
-            </div>
-        `;
-    }
-
-    function generateAnalyticsContent() {
-        const analyticsData = calculateAnalyticsData();
-
-        return `
-            <div class="space-y-6">
-                <h3 class="qdrant-section-title">
-                    <i data-lucide="trending-up" class="w-5 h-5 mr-2"></i>
-                    Analytics & Insights
-                </h3>
-
-                <!-- Performance Metrics -->
-                <div class="qdrant-summary-grid">
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold" style="color: var(--color-1);">${analyticsData.totalVectors.toLocaleString()}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Total Vectors</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Across all collections</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold" style="color: var(--color-2);">${analyticsData.avgVectorSize}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Avg Vector Size</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Dimensions</div>
-                    </div>
-                    <div class="qdrant-metric-card text-center">
-                        <div class="text-2xl font-bold" style="color: var(--status-success);">${analyticsData.storageUsage}</div>
-                        <div class="text-sm" style="color: var(--text-secondary);">Est. Storage</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Approximate</div>
-                    </div>
-                </div>
-
-                <!-- Collection Distribution -->
-                <div class="qdrant-metric-card">
-                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Collection Distribution</h4>
-                    <div class="space-y-3">
-                        ${analyticsData.collectionStats.map(stat => `
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-4 h-4 rounded" style="background-color: ${stat.color};"></div>
-                                    <span style="color: var(--text-primary);">${stat.name}</span>
-                                </div>
-                                <div class="text-right">
-                                    <div class="font-medium" style="color: var(--text-primary);">${stat.count.toLocaleString()}</div>
-                                    <div class="text-xs" style="color: var(--text-muted);">${stat.percentage}%</div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-
-                <!-- Queue Performance -->
-                <div class="qdrant-metric-card">
-                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Vectorization Queue Status</h4>
-                    ${qdrantData.queueData && qdrantData.queueData.summary ? `
-                        <div class="qdrant-summary-grid text-center">
-                            <div>
-                                <div class="text-xl font-bold" style="color: var(--status-warning);">${qdrantData.queueData.summary.total_pending || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Pending</div>
-                            </div>
-                            <div>
-                                <div class="text-xl font-bold" style="color: var(--color-2);">${qdrantData.queueData.summary.total_processing || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Processing</div>
-                            </div>
-                            <div>
-                                <div class="text-xl font-bold" style="color: var(--status-success);">${qdrantData.queueData.summary.total_completed || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Completed</div>
-                            </div>
-                            <div>
-                                <div class="text-xl font-bold" style="color: var(--status-error);">${qdrantData.queueData.summary.total_failed || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Failed</div>
-                            </div>
-                        </div>
-                    ` : `
-                        <div class="text-center py-4" style="color: var(--text-muted);">
-                            Queue data unavailable
-                        </div>
-                    `}
-                </div>
-            </div>
-        `;
-    }
-
-    function generateManagementContent() {
-        return `
-            <div class="space-y-6">
-                <h3 class="qdrant-section-title">
-                    <i data-lucide="tool" class="w-5 h-5 mr-2"></i>
-                    Management Tools
-                </h3>
-
-                <!-- Quick Actions -->
-                <div class="qdrant-detail-grid">
-                    <div class="qdrant-metric-card">
-                        <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Vectorization Actions</h4>
-                        <div class="space-y-3">
-                            <button onclick="revectorizeAllMissing()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--color-1); color: white;">
-                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                                <span>Re-vectorize Missing Records</span>
-                            </button>
-                            <button onclick="revectorizeEntityType()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--color-2); color: white;">
-                                <i data-lucide="layers" class="w-4 h-4"></i>
-                                <span>Re-vectorize by Entity Type</span>
-                            </button>
-                            <button onclick="revectorizeByDateRange()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--neutral-primary); color: white;">
-                                <i data-lucide="calendar" class="w-4 h-4"></i>
-                                <span>Re-vectorize by Date Range</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="qdrant-metric-card">
-                        <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Cleanup Actions</h4>
-                        <div class="space-y-3">
-                            <button onclick="cleanupOrphanedVectors()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--status-warning); color: white;">
-                                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                <span>Clean Orphaned Vectors</span>
-                            </button>
-                            <button onclick="optimizeCollections()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--neutral-secondary); color: white;">
-                                <i data-lucide="zap" class="w-4 h-4"></i>
-                                <span>Optimize Collections</span>
-                            </button>
-                            <button onclick="exportVectorData()" class="w-full px-4 py-2 rounded flex items-center justify-center space-x-2" style="background-color: var(--neutral-tertiary); color: white;">
-                                <i data-lucide="download" class="w-4 h-4"></i>
-                                <span>Export Vector Data</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Bulk Operations -->
-                <div class="qdrant-metric-card">
-                    <h4 class="font-semibold mb-4" style="color: var(--text-primary);">Bulk Operations</h4>
-                    <div class="qdrant-detail-grid">
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Entity Type</label>
-                            <select id="bulkEntityType" class="w-full px-3 py-2 rounded" style="background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary);">
-                                <option value="">All Types</option>
-                                <option value="prs">Pull Requests</option>
-                                <option value="prs_comments">PR Comments</option>
-                                <option value="prs_reviews">PR Reviews</option>
-                                <option value="prs_commits">PR Commits</option>
-                                <option value="issues">Issues</option>
-                                <option value="issues_comments">Issue Comments</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">Date Range</label>
-                            <input type="date" id="bulkDateFrom" class="w-full px-3 py-2 rounded" style="background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-2" style="color: var(--text-secondary);">&nbsp;</label>
-                            <input type="date" id="bulkDateTo" class="w-full px-3 py-2 rounded" style="background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary);">
-                        </div>
-                    </div>
-                    <div class="mt-4 flex space-x-2">
-                        <button onclick="executeBulkRevectorization()" class="px-4 py-2 rounded" style="background-color: var(--color-1); color: white;">
-                            Execute Bulk Re-vectorization
-                        </button>
-                        <button onclick="previewBulkOperation()" class="px-4 py-2 rounded" style="background-color: var(--neutral-secondary); color: white;">
-                            Preview Changes
-                        </button>
                     </div>
                 </div>
 
                 <!-- System Information -->
                 <div class="qdrant-metric-card">
                     <h4 class="font-semibold mb-4" style="color: var(--text-primary);">System Information</h4>
-                    <div class="qdrant-summary-grid text-sm">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
                             <div class="font-medium" style="color: var(--text-secondary);">Qdrant URL</div>
                             <div style="color: var(--text-primary);">${QDRANT_URL}</div>
                         </div>
                         <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Collections</div>
-                            <div style="color: var(--text-primary);">${qdrantData.collections.length}</div>
+                            <div class="font-medium" style="color: var(--text-secondary);">Tenant</div>
+                            <div style="color: var(--text-primary);">${tenantName || 'Unknown'}</div>
                         </div>
                         <div>
                             <div class="font-medium" style="color: var(--text-secondary);">Last Refresh</div>
                             <div style="color: var(--text-primary);">${new Date().toLocaleTimeString()}</div>
                         </div>
                         <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Status</div>
+                            <div class="font-medium" style="color: var(--text-secondary);">Connection</div>
                             <div class="qdrant-status-healthy">Connected</div>
                         </div>
                     </div>
@@ -900,20 +1120,41 @@
         // Get tenant name from auth data or default
         try {
             const authData = JSON.parse(localStorage.getItem('authData') || '{}');
-            return authData.tenant_name || 'wex';
+            // Map tenant_id to tenant name for collection prefixes
+            const tenantIdToName = {
+                1: 'client_1',
+                2: 'client_2',
+                3: 'client_3'
+            };
+
+            if (authData.tenant_id) {
+                return tenantIdToName[authData.tenant_id] || `client_${authData.tenant_id}`;
+            }
+
+            // Fallback to client_1 (WEX)
+            return 'client_1';
         } catch {
-            return 'wex';
+            return 'client_1';
         }
     }
 
     function calculateComparisonData(tenantPrefix) {
         const entities = [
-            { key: 'prs', name: 'Pull Requests' },
+            // Ordered alphabetically by name for better UX
+            { key: 'changelogs', name: 'Changelogs' },
             { key: 'prs_comments', name: 'PR Comments' },
-            { key: 'prs_reviews', name: 'PR Reviews' },
             { key: 'prs_commits', name: 'PR Commits' },
-            { key: 'issues', name: 'Issues' },
-            { key: 'issues_comments', name: 'Issue Comments' }
+            { key: 'prs_reviews', name: 'PR Reviews' },
+            { key: 'projects', name: 'Projects' },
+            { key: 'prs', name: 'Pull Requests' },
+            { key: 'repositories', name: 'Repositories' },
+            { key: 'statuses_mappings', name: 'Status Mappings' },
+            { key: 'statuses', name: 'Statuses' },
+            { key: 'wits_hierarchies', name: 'WIT Hierarchies' },
+            { key: 'wits_mappings', name: 'WIT Mappings' },
+            { key: 'wits', name: 'Work Item Types' },
+            { key: 'work_items', name: 'Work Items' },
+            { key: 'workflows', name: 'Workflows' }
         ];
 
         let totalDatabase = 0;
@@ -922,28 +1163,35 @@
         const entityData = [];
 
         entities.forEach(entity => {
-            const dbCount = qdrantData.databaseCounts[entity.key]?.total_count || 0;
-            const collection = qdrantData.collections.find(c => c.name === tenantPrefix + entity.key);
+            const dbData = qdrantData.databaseCounts[entity.key] || {};
+            const totalCount = dbData.total_count || 0;
+            const uniqueCount = dbData.unique_count || 0;
+
+            const expectedCollectionName = tenantPrefix + entity.key;
+            const collection = qdrantData.collections.find(c => c.name === expectedCollectionName);
+
             const qdrantCount = collection?.details?.points_count || 0;
             const queueCount = qdrantData.queueData?.by_entity_type?.[entity.key] || 0;
 
-            const completion = dbCount > 0 ? Math.round((qdrantCount / dbCount) * 100) : 100;
+            // Use unique count for completion calculation (matches what's actually in Qdrant)
+            const completion = uniqueCount > 0 ? Math.round((qdrantCount / uniqueCount) * 100) : 0;
 
-            totalDatabase += dbCount;
+            totalDatabase += uniqueCount; // Use unique count for totals
             totalVectorized += qdrantCount;
 
             if (completion >= 100) healthyCollections++;
 
             entityData.push({
                 name: entity.name,
-                database: dbCount,
+                database: uniqueCount,
+                totalReferences: totalCount,
                 qdrant: qdrantCount,
                 queue: queueCount,
                 completion: completion
             });
         });
 
-        const overallCompletion = totalDatabase > 0 ? Math.round((totalVectorized / totalDatabase) * 100) : 100;
+        const overallCompletion = totalDatabase > 0 ? Math.round((totalVectorized / totalDatabase) * 100) : 0;
         const missingRecords = Math.max(0, totalDatabase - totalVectorized);
 
         return {
@@ -956,44 +1204,7 @@
         };
     }
 
-    function calculateValidationResults(tenantPrefix) {
-        const comparisonData = calculateComparisonData(tenantPrefix);
 
-        let syncedEntities = 0;
-        let outOfSyncEntities = 0;
-        let missingRecords = 0;
-        let orphanedRecords = 0;
-
-        const entityResults = comparisonData.entities.map(entity => {
-            const missing = Math.max(0, entity.database - entity.qdrant);
-            const orphaned = Math.max(0, entity.qdrant - entity.database);
-            const status = missing === 0 && orphaned === 0 ? 'synced' : 'out_of_sync';
-
-            if (status === 'synced') syncedEntities++;
-            else outOfSyncEntities++;
-
-            missingRecords += missing;
-            orphanedRecords += orphaned;
-
-            return {
-                name: entity.name,
-                database: entity.database,
-                qdrant: entity.qdrant,
-                missing,
-                orphaned,
-                status
-            };
-        });
-
-        return {
-            entities: entityResults,
-            syncedEntities,
-            outOfSyncEntities,
-            missingRecords,
-            orphanedRecords,
-            overallHealth: outOfSyncEntities === 0 ? 'healthy' : 'needs_attention'
-        };
-    }
 
     function calculateAnalyticsData() {
         const tenantName = getCurrentTenantName();
@@ -1070,6 +1281,123 @@
     }
 
     // ===== MANAGEMENT ACTION FUNCTIONS =====
+
+    async function triggerVectorization() {
+        if (!confirm('This will start processing the vectorization queue. Continue?')) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/jobs/vectorization/trigger', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                showNotification('Vectorization job triggered successfully', 'success');
+                // Redirect to home page to see job progress
+                window.location.href = '/';
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error triggering vectorization:', error);
+            showNotification('Failed to trigger vectorization job', 'error');
+        }
+    }
+
+    async function cleanupFailedItems() {
+        if (!confirm('This will remove all failed items from the vectorization queue. Continue?')) return;
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/v1/vectorization/queue/cleanup-failed', {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                showNotification(`Cleaned up ${result.deleted_count || 0} failed items`, 'success');
+                await refreshQdrantAnalysis();
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error cleaning up failed items:', error);
+            showNotification('Failed to cleanup failed items', 'error');
+        }
+    }
+
+    async function optimizeCollections() {
+        if (!confirm('This will optimize all Qdrant collections. This may take some time. Continue?')) return;
+
+        try {
+            showNotification('Collection optimization started...', 'info');
+
+            const tenantName = getCurrentTenantName();
+            const tenantPrefix = tenantName ? tenantName.toLowerCase() + '_' : '';
+            const tenantCollections = qdrantData.collections.filter(c => c.name.startsWith(tenantPrefix));
+
+            let optimized = 0;
+            for (const collection of tenantCollections) {
+                try {
+                    const response = await fetch(`${QDRANT_URL}/collections/${collection.name}/index`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) optimized++;
+                } catch (error) {
+                    console.warn(`Failed to optimize collection ${collection.name}:`, error);
+                }
+            }
+
+            showNotification(`Optimized ${optimized}/${tenantCollections.length} collections`, 'success');
+        } catch (error) {
+            console.error('Error optimizing collections:', error);
+            showNotification('Failed to optimize collections', 'error');
+        }
+    }
+
+    async function exportVectorData() {
+        try {
+            showNotification('Preparing vector data export...', 'info');
+
+            const tenantName = getCurrentTenantName();
+            const tenantPrefix = tenantName ? tenantName.toLowerCase() + '_' : '';
+            const tenantCollections = qdrantData.collections.filter(c => c.name.startsWith(tenantPrefix));
+
+            const exportData = {
+                tenant: tenantName,
+                exported_at: new Date().toISOString(),
+                collections: tenantCollections.map(c => ({
+                    name: c.name,
+                    points_count: c.details?.points_count || 0,
+                    vector_size: c.details?.config?.params?.vectors?.size || 0,
+                    distance: c.details?.config?.params?.vectors?.distance || 'unknown'
+                }))
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `qdrant-export-${tenantName}-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showNotification('Vector data exported successfully', 'success');
+        } catch (error) {
+            console.error('Error exporting vector data:', error);
+            showNotification('Failed to export vector data', 'error');
+        }
+    }
 
     async function revectorizeAllMissing() {
         if (!confirm('This will queue all missing records for re-vectorization. Continue?')) return;
@@ -1277,47 +1605,154 @@
             }
 
             const details = collection.details || {};
-            const detailsHtml = `
-                <div class="space-y-4">
-                    <h4 class="text-lg font-semibold" style="color: var(--text-primary);">Collection: ${collectionName}</h4>
+            const entityKey = collectionName.replace(getCurrentTenantName().toLowerCase() + '_', '');
+            const entityNameMap = {
+                'changelogs': 'Changelogs',
+                'prs_comments': 'PR Comments',
+                'prs_commits': 'PR Commits',
+                'prs_reviews': 'PR Reviews',
+                'projects': 'Projects',
+                'prs': 'Pull Requests',
+                'repositories': 'Repositories',
+                'statuses_mappings': 'Status Mappings',
+                'statuses': 'Statuses',
+                'wits_hierarchies': 'WIT Hierarchies',
+                'wits_mappings': 'WIT Mappings',
+                'wits_prs_links': 'WIT PR Links',
+                'wits': 'Work Item Types',
+                'work_items': 'Work Items',
+                'workflows': 'Workflows'
+            };
+            const entityDisplayName = entityNameMap[entityKey] || entityKey;
 
-                    <div class="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Status</div>
-                            <div style="color: var(--text-primary);">${details.status || 'unknown'}</div>
+            // Create modal similar to job details modal
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 p-4';
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+
+            modal.innerHTML = `
+                <div class="rounded-lg w-full max-w-4xl mx-auto my-8 max-h-[80vh] overflow-y-auto" style="background-color: var(--bg-primary); width: min(90vw, 800px);">
+                    <div class="flex justify-between items-center p-3 border-b sticky top-0 z-10" style="border-color: var(--border-color); background-color: var(--bg-primary);">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="database" class="w-4 h-4" style="color: var(--text-primary);"></i>
+                            <h3 class="text-lg font-bold" style="color: var(--text-primary);">${entityDisplayName}</h3>
                         </div>
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Points Count</div>
-                            <div style="color: var(--text-primary);">${(details.points_count || 0).toLocaleString()}</div>
-                        </div>
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Vectors Count</div>
-                            <div style="color: var(--text-primary);">${(details.vectors_count || 0).toLocaleString()}</div>
-                        </div>
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Indexed Vectors</div>
-                            <div style="color: var(--text-primary);">${(details.indexed_vectors_count || 0).toLocaleString()}</div>
-                        </div>
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Vector Size</div>
-                            <div style="color: var(--text-primary);">${details.config?.params?.vectors?.size || 'unknown'}</div>
-                        </div>
-                        <div>
-                            <div class="font-medium" style="color: var(--text-secondary);">Distance Metric</div>
-                            <div style="color: var(--text-primary);">${details.config?.params?.vectors?.distance || 'unknown'}</div>
+                        <button onclick="this.closest('.fixed').remove()" class="hover:opacity-75" style="color: var(--text-secondary);" title="Close">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                    <div class="p-4">
+                        <div class="space-y-4">
+                            <!-- Collection Overview -->
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div class="rounded-xl p-4 space-y-3 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%); color: var(--on-gradient-1-2);">
+                                    <div class="flex items-center justify-between">
+                                        <h3 class="text-xs font-medium opacity-90">Total Points</h3>
+                                        <div class="w-2 h-2 bg-white bg-opacity-30 rounded-full"></div>
+                                    </div>
+                                    <div class="space-y-1">
+                                        <div class="text-xl font-bold">${(details.points_count || 0).toLocaleString()}</div>
+                                        <div class="text-xs opacity-80">In Collection</div>
+                                    </div>
+                                </div>
+                                <div class="rounded-xl p-4 space-y-3 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-2) 0%, var(--color-3) 100%); color: var(--on-gradient-2-3);">
+                                    <div class="flex items-center justify-between">
+                                        <h3 class="text-xs font-medium opacity-90">Vectors</h3>
+                                        <div class="w-2 h-2 bg-white bg-opacity-30 rounded-full"></div>
+                                    </div>
+                                    <div class="space-y-1">
+                                        <div class="text-xl font-bold">${(details.vectors_count || 0).toLocaleString()}</div>
+                                        <div class="text-xs opacity-80">Vector Count</div>
+                                    </div>
+                                </div>
+                                <div class="rounded-xl p-4 space-y-3 backdrop-blur-sm hover:shadow-md transition-all duration-300" style="background: linear-gradient(135deg, var(--color-3) 0%, var(--color-4) 100%); color: var(--text-primary);">
+                                    <div class="flex items-center justify-between">
+                                        <h3 class="text-xs font-medium opacity-90">Dimensions</h3>
+                                        <div class="w-2 h-2 bg-white bg-opacity-30 rounded-full"></div>
+                                    </div>
+                                    <div class="space-y-1">
+                                        <div class="text-xl font-bold">${details.config?.params?.vectors?.size || 'N/A'}</div>
+                                        <div class="text-xs opacity-80">Vector Size</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Detailed Information -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="space-y-3">
+                                    <h4 class="text-sm font-semibold" style="color: var(--text-primary);">Collection Information</h4>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Collection:</span>
+                                            <span class="font-medium text-xs" style="color: var(--text-primary);">${collectionName}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Status:</span>
+                                            <span class="px-2 py-1 rounded text-xs ${details.status === 'green' ? 'bg-green-100 text-green-800' : details.status === 'yellow' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}">${details.status || 'unknown'}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Indexed:</span>
+                                            <span class="font-medium" style="color: var(--text-primary);">${(details.indexed_vectors_count || 0).toLocaleString()}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Distance:</span>
+                                            <span class="font-medium" style="color: var(--text-primary);">${details.config?.params?.vectors?.distance || 'unknown'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <h4 class="text-sm font-semibold" style="color: var(--text-primary);">Data Validation</h4>
+                                    <div class="space-y-2 text-sm">
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Database Records:</span>
+                                            <span class="font-medium" style="color: var(--text-primary);">${getDatabaseCount(entityKey)}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Vectorized:</span>
+                                            <span class="font-medium" style="color: var(--text-primary);">${details.points_count || 0}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Missing:</span>
+                                            <span class="font-medium ${getMissingCount(entityKey, details.points_count) > 0 ? 'text-red-600' : 'text-green-600'}">${getMissingCount(entityKey, details.points_count)}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Completion:</span>
+                                            <span class="font-medium" style="color: var(--text-primary);">${getCompletionPercentage(entityKey, details.points_count)}%</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span style="color: var(--text-secondary);">Health:</span>
+                                            <span class="px-2 py-1 rounded text-xs ${getHealthStatus(entityKey, details.points_count).class}">${getHealthStatus(entityKey, details.points_count).label}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            ${details.config ? `
+                                <div class="space-y-2">
+                                    <h4 class="text-sm font-semibold" style="color: var(--text-primary);">Configuration</h4>
+                                    <pre class="text-xs p-3 rounded-lg overflow-x-auto max-h-48" style="background-color: var(--bg-tertiary); color: var(--text-primary);">${JSON.stringify(details.config, null, 2)}</pre>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
-
-                    ${details.config ? `
-                        <div>
-                            <div class="font-medium mb-2" style="color: var(--text-secondary);">Configuration</div>
-                            <pre class="text-xs p-3 rounded" style="background-color: var(--bg-tertiary); color: var(--text-primary); overflow-x: auto;">${JSON.stringify(details.config, null, 2)}</pre>
-                        </div>
-                    ` : ''}
+                    <div class="flex justify-end p-3 border-t" style="border-color: var(--border-color); background-color: var(--bg-primary);">
+                        <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 rounded hover:opacity-90 transition-opacity text-sm" style="background-color: var(--color-1); color: white;">
+                            Close
+                        </button>
+                    </div>
                 </div>
             `;
 
-            showNotification(`Collection Details: ${collectionName}`, 'info', detailsHtml);
+            document.body.appendChild(modal);
+
+            // Initialize Lucide icons for the modal
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+
         } catch (error) {
             console.error('Error showing collection details:', error);
             showNotification('Failed to load collection details', 'error');

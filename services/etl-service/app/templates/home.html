@@ -56,20 +56,26 @@
 
         <!-- Control Buttons -->
         <div class="flex items-center space-x-2">
-            <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="action-icon-btn force-pending" title="Run Now">
-                <i data-lucide="flag"></i>
-            </button>
-            <button onclick="toggleOrchestratorPause()" id="pauseOrchestratorBtn" class="btn-status-warning-sm" title="Pause">
-                <i data-lucide="pause"></i>
+            <button onclick="forceStartOrchestrator()" id="forceStartOrchestratorBtn" class="job-action-btn" title="Run Now">
+                <i data-lucide="play"></i>
             </button>
 
-
-            <button onclick="showLogManagement()" class="btn-neutral-secondary" title="Logs">
+            <button onclick="showLogManagement()" class="job-action-btn" title="Logs">
                 <i data-lucide="file-text"></i>
             </button>
-            <button onclick="showOrchestratorSettings()" class="btn-neutral-primary-sm" title="Settings">
+            <button onclick="showOrchestratorSettings()" class="job-action-btn" title="Settings">
                 <i data-lucide="settings"></i>
             </button>
+
+            <!-- On/Off Toggle Switch (rightmost, like jobs) -->
+            <div class="job-toggle-container">
+                <div class="job-toggle-switch" onclick="toggleOrchestratorOnOff()" id="toggleOrchestratorBtn" title="Turn Off">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -921,22 +927,11 @@
 
 
 
-    /* Orchestrator Control Buttons - Force Uniform Sizing */
+    /* Orchestrator Control Buttons - Use standard job-action-btn styling */
     #forceStartOrchestratorBtn,
-    #pauseOrchestratorBtn,
     button[onclick="showLogManagement()"],
     button[onclick="showOrchestratorSettings()"] {
-        width: 2.5rem !important;
-        height: 2.5rem !important;
-        min-width: 2.5rem !important;
-        min-height: 2.5rem !important;
-        padding: 0 !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 0.375rem !important;
-        font-size: 0.875rem !important;
-        box-sizing: border-box !important;
+        /* All styling now handled by job-action-btn class */
     }
 </style>
 
@@ -1494,7 +1489,6 @@
 
         // If refresh is currently blocked, ignore this call completely
         if (refreshBlocked) {
-            console.log('[DEBOUNCE] Refresh blocked - ignoring call');
             return;
         }
 
@@ -1527,7 +1521,6 @@
 
         // If refresh is currently blocked, ignore this call completely
         if (orchestratorRefreshBlocked) {
-            console.log('[DEBOUNCE] Orchestrator refresh blocked - ignoring call');
             return;
         }
 
@@ -2062,7 +2055,15 @@
         const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
 
         if (hasErrors) {
-            return '<span class="error-text">ERROR: check details</span>';
+            // Show actual error message if available, otherwise generic message
+            if (jobData.error_message) {
+                const truncatedError = jobData.error_message.length > 50
+                    ? jobData.error_message.substring(0, 50) + '...'
+                    : jobData.error_message;
+                return `<span class="error-text">ERROR: ${truncatedError}</span>`;
+            } else {
+                return '<span class="error-text">ERROR: check details</span>';
+            }
         } else if (hasAlerts) {
             return '<span class="alert-text">ALERT: check details</span>';
         }
@@ -3180,8 +3181,6 @@
     // Force pending job function (using new state-based endpoint)
     async function forcePendingJob(jobName, jobId) {
         try {
-            console.log(`[SET_STATUS_PENDING] Setting job ${jobName} (ID: ${jobId}) to pending`);
-
             const token = getAuthToken();
             if (!token) {
                 throw new Error('No authentication token found');
@@ -3196,14 +3195,11 @@
             });
 
             const result = await response.json();
-            console.log(`[SET_STATUS_PENDING] Response for ${jobName}:`, result);
 
             if (response.ok) {
-                console.log(`[SET_STATUS_PENDING] ${jobName} set to pending successfully, refreshing data...`);
                 showNotification(result.message || `${jobName} set to pending`, 'success');
                 debouncedRefreshData();
             } else {
-                console.error(`[SET_STATUS_PENDING] Failed to set ${jobName} to pending: ${result.detail || result.message}`);
                 showNotification(`Failed to set ${jobName} to pending: ${result.detail || result.message}`, 'error');
             }
         } catch (error) {
@@ -3218,19 +3214,19 @@
     let orchestratorStarting = false; // Prevent multiple simultaneous starts
 
     function disableOrchestratorButtons() {
-        // Disable pause/resume button
-        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
-        if (pauseBtn) {
-            pauseBtn.disabled = true;
-            pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
-            pauseBtn.title = 'Orchestrator starting...';
+        // Disable on/off toggle switch
+        const toggleSwitch = document.getElementById('toggleOrchestratorBtn');
+        if (toggleSwitch) {
+            toggleSwitch.style.pointerEvents = 'none';
+            toggleSwitch.style.opacity = '0.5';
+            toggleSwitch.title = 'Orchestrator starting...';
         }
 
         // Disable logs button
         const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
         if (logsBtn) {
             logsBtn.disabled = true;
-            logsBtn.className = 'btn-neutral-secondary opacity-50 cursor-not-allowed';
+            logsBtn.className = 'job-action-btn disabled';
             logsBtn.title = 'Logs unavailable while orchestrator is starting';
         }
 
@@ -3238,7 +3234,7 @@
         const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
         if (settingsBtn) {
             settingsBtn.disabled = true;
-            settingsBtn.className = 'btn-neutral-primary-sm opacity-50 cursor-not-allowed';
+            settingsBtn.className = 'job-action-btn disabled';
             settingsBtn.title = 'Settings unavailable while orchestrator is starting';
         }
     }
@@ -3390,15 +3386,16 @@
         }
     }
 
-    async function toggleOrchestratorPause() {
-        // Get current status from the pause button to determine action
-        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
-        const buttonTitle = pauseBtn ? pauseBtn.title.toLowerCase() : '';
+    async function toggleOrchestratorOnOff() {
+        // Get current status from the toggle switch to determine action
+        const toggleSwitch = document.getElementById('toggleOrchestratorBtn');
+        const toggleSwitchElement = toggleSwitch ? toggleSwitch.querySelector('.toggle-switch') : null;
+        const isCurrentlyOn = toggleSwitchElement ? toggleSwitchElement.classList.contains('active') : false;
 
-        if (buttonTitle === 'resume') {
-            await resumeOrchestrator();
-        } else {
+        if (isCurrentlyOn) {
             await pauseOrchestrator();
+        } else {
+            await resumeOrchestrator();
         }
     }
 
@@ -3491,7 +3488,9 @@
 
     function updateOrchestratorUI(status) {
         const statusDot = document.getElementById('orchestratorStatusDot');
-        const pauseBtn = document.getElementById('pauseOrchestratorBtn');
+        const toggleSwitch = document.getElementById('toggleOrchestratorBtn');
+        const toggleSwitchElement = toggleSwitch ? toggleSwitch.querySelector('.toggle-switch') : null;
+        const toggleLabel = toggleSwitch ? toggleSwitch.querySelector('.toggle-label') : null;
         const runNowBtn = document.getElementById('forceStartOrchestratorBtn');
         const logsBtn = document.querySelector('button[onclick="showLogManagement()"]');
         const settingsBtn = document.querySelector('button[onclick="showOrchestratorSettings()"]');
@@ -3502,28 +3501,27 @@
             statusDot.className = 'w-2 h-2 rounded-full ';
             if (status.status === 'paused') {
                 statusDot.className += 'bg-yellow-500';
-                if (pauseBtn) {
-                    pauseBtn.classList.remove('hidden');
-                    pauseBtn.className = 'btn-status-success-sm';
-                    pauseBtn.innerHTML = '<i data-lucide="play"></i>';
-                    pauseBtn.title = 'Resume';
-                    pauseBtn.disabled = false;
-                    refreshLucideIcons();
+                if (toggleSwitch && toggleSwitchElement && toggleLabel) {
+                    toggleSwitch.style.pointerEvents = 'auto';
+                    toggleSwitch.style.opacity = '1';
+                    toggleSwitch.title = 'Turn On';
+                    toggleSwitchElement.classList.remove('active');
+                    toggleLabel.textContent = 'Off';
                 }
                 if (runNowBtn) {
                     runNowBtn.disabled = false;
-                    runNowBtn.className = 'action-icon-btn force-pending';
+                    runNowBtn.className = 'job-action-btn';
                     runNowBtn.title = 'Run Now';
                 }
                 // Enable logs and settings buttons when paused
                 if (logsBtn) {
                     logsBtn.disabled = false;
-                    logsBtn.className = 'btn-neutral-secondary';
+                    logsBtn.className = 'job-action-btn';
                     logsBtn.title = 'Logs';
                 }
                 if (settingsBtn) {
                     settingsBtn.disabled = false;
-                    settingsBtn.className = 'btn-neutral-primary-sm';
+                    settingsBtn.className = 'job-action-btn';
                     settingsBtn.title = 'Settings';
                 }
                 stopCountdownTimer();
@@ -3534,28 +3532,28 @@
                 // Check if jobs are running to disable/enable buttons
                 const jobsRunning = status.any_job_running;
 
-                if (pauseBtn) {
-                    pauseBtn.classList.remove('hidden');
-                    pauseBtn.innerHTML = '<i data-lucide="pause"></i>';
-                    pauseBtn.title = 'Pause';
-                    refreshLucideIcons();
+                if (toggleSwitch && toggleSwitchElement && toggleLabel) {
+                    toggleSwitch.title = 'Turn Off';
+                    toggleSwitchElement.classList.add('active');
+                    toggleLabel.textContent = 'On';
                     if (jobsRunning) {
-                        pauseBtn.disabled = true;
-                        pauseBtn.className = 'btn-status-warning-sm opacity-50 cursor-not-allowed';
+                        toggleSwitch.style.pointerEvents = 'none';
+                        toggleSwitch.style.opacity = '0.5';
+                        toggleSwitch.title = 'Cannot turn off while jobs are running';
                     } else {
-                        pauseBtn.disabled = false;
-                        pauseBtn.className = 'btn-status-warning-sm';
+                        toggleSwitch.style.pointerEvents = 'auto';
+                        toggleSwitch.style.opacity = '1';
                     }
                 }
 
                 if (runNowBtn) {
                     if (jobsRunning) {
                         runNowBtn.disabled = true;
-                        runNowBtn.className = 'action-icon-btn force-pending opacity-50 cursor-not-allowed';
+                        runNowBtn.className = 'job-action-btn disabled';
                         runNowBtn.title = 'Cannot run while jobs are running';
                     } else {
                         runNowBtn.disabled = false;
-                        runNowBtn.className = 'action-icon-btn force-pending';
+                        runNowBtn.className = 'job-action-btn';
                         runNowBtn.title = 'Run Now';
                     }
                 }
@@ -3564,11 +3562,11 @@
                 if (logsBtn) {
                     if (jobsRunning) {
                         logsBtn.disabled = true;
-                        logsBtn.className = 'btn-neutral-secondary opacity-50 cursor-not-allowed';
+                        logsBtn.className = 'job-action-btn disabled';
                         logsBtn.title = 'Logs unavailable while jobs are running';
                     } else {
                         logsBtn.disabled = false;
-                        logsBtn.className = 'btn-neutral-secondary';
+                        logsBtn.className = 'job-action-btn';
                         logsBtn.title = 'Logs';
                     }
                 }
@@ -3576,11 +3574,11 @@
                 if (settingsBtn) {
                     if (jobsRunning) {
                         settingsBtn.disabled = true;
-                        settingsBtn.className = 'btn-neutral-primary-sm opacity-50 cursor-not-allowed';
+                        settingsBtn.className = 'job-action-btn disabled';
                         settingsBtn.title = 'Settings unavailable while jobs are running';
                     } else {
                         settingsBtn.disabled = false;
-                        settingsBtn.className = 'btn-neutral-primary-sm';
+                        settingsBtn.className = 'job-action-btn';
                         settingsBtn.title = 'Settings';
                     }
                 }
@@ -5063,28 +5061,23 @@
     // Vectorization-specific modal functions
     async function showVectorizationDetailsModal() {
         try {
-            // Fetch vectorization queue and vector data from API
-            const [queueResponse, vectorResponse] = await Promise.all([
-                fetch('/api/v1/vectorization/queue-stats', {
-                    headers: { 'Authorization': `Bearer ${getAuthToken()}` }
-                }),
-                fetch('/api/v1/vectorization/vector-stats', {
-                    headers: { 'Authorization': `Bearer ${getAuthToken()}` }
-                })
-            ]);
+            // Get vectorization job details from the home jobs API
+            const jobsResponse = await fetch('/api/v1/home/jobs', {
+                headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+            });
 
-            let queueData = null;
-            let vectorData = null;
-
-            if (queueResponse.ok) {
-                queueData = await queueResponse.json();
+            if (!jobsResponse.ok) {
+                throw new Error('Failed to fetch job data');
             }
 
-            if (vectorResponse.ok) {
-                vectorData = await vectorResponse.json();
+            const jobsData = await jobsResponse.json();
+            const vectorizationJob = jobsData.find(job => job.job_name.toLowerCase() === 'vectorization');
+
+            if (!vectorizationJob) {
+                throw new Error('Vectorization job not found');
             }
 
-            displayVectorizationDetailsModal(queueData, vectorData);
+            displayVectorizationDetailsModal(vectorizationJob);
 
         } catch (error) {
             console.error('Error fetching vectorization details:', error);
@@ -5092,151 +5085,89 @@
         }
     }
 
-    function displayVectorizationDetailsModal(queueData, vectorData) {
+    function displayVectorizationDetailsModal(jobData) {
         // Set icon and title for Vectorization
         const jobIcon = document.getElementById('jobDetailsIcon');
         const jobTitle = document.getElementById('jobDetailsTitle');
 
         jobIcon.innerHTML = '<i data-lucide="zap" class="mr-2" style="color: var(--text-primary);"></i>';
-        jobTitle.textContent = 'Vectorization Job Details';
+        jobTitle.textContent = 'Vectorization Job - Errors & Alerts';
 
         const content = document.getElementById('jobDetailsContent');
 
+        // Check for errors and alerts
+        const hasErrors = jobData.retry_count > 0 || jobData.status === 'ERROR';
+        const hasAlerts = jobData.last_run_started_at && !jobData.last_success_at;
+
         content.innerHTML = `
-            <div class="space-y-6">
-                <!-- Queue Statistics -->
-                <div class="bg-card border border-border rounded-lg p-4">
-                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
-                        <i data-lucide="database" class="mr-2 w-5 h-5"></i>
-                        Vectorization Queue
-                    </h4>
-                    ${queueData ? `
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-blue-600">${queueData.pending || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Pending</div>
+            <div class="space-y-4">
+                ${hasErrors && jobData.error_message ? `
+                    <!-- Error Message -->
+                    <div class="rounded-lg p-4 border" style="background-color: rgba(var(--status-error-rgb), 0.1); border-color: rgba(var(--status-error-rgb), 0.3);">
+                        <div class="flex items-center mb-3">
+                            <i data-lucide="alert-circle" class="w-5 h-5 mr-2" style="color: var(--status-error);"></i>
+                            <h4 class="text-lg font-semibold" style="color: var(--status-error);">Error Details</h4>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="text-sm">
+                                <span class="font-medium" style="color: var(--text-secondary);">Error Message:</span>
                             </div>
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-yellow-600">${queueData.processing || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Processing</div>
+                            <div class="p-3 rounded text-sm max-h-32 overflow-y-auto" style="background-color: rgba(var(--status-error-rgb), 0.05); color: var(--text-primary);">
+                                ${jobData.error_message}
                             </div>
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-green-600">${queueData.completed || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Completed</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-2xl font-bold text-red-600">${queueData.failed || 0}</div>
-                                <div class="text-sm" style="color: var(--text-secondary);">Failed</div>
+                            <div class="text-xs" style="color: var(--text-secondary);">
+                                Retry Count: ${jobData.retry_count || 0}
                             </div>
                         </div>
-                        <div class="mt-4 pt-4 border-t" style="border-color: var(--border-color);">
-                            <div class="flex justify-between text-sm">
-                                <span style="color: var(--text-secondary);">Total Items:</span>
-                                <span class="font-medium" style="color: var(--text-primary);">${queueData.total || 0}</span>
-                            </div>
-                            <div class="flex justify-between text-sm mt-2">
-                                <span style="color: var(--text-secondary);">Last Updated:</span>
-                                <span class="font-medium" style="color: var(--text-primary);">${queueData.last_updated ? new Date(queueData.last_updated).toLocaleString() : 'Never'}</span>
-                            </div>
-                        </div>
-                    ` : `
-                        <div class="text-center py-4">
-                            <span style="color: var(--text-muted);">Queue statistics unavailable</span>
-                        </div>
-                    `}
-                </div>
+                    </div>
+                ` : ''}
 
-                <!-- Vector Database Statistics -->
-                <div class="bg-card border border-border rounded-lg p-4">
-                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
-                        <i data-lucide="layers" class="mr-2 w-5 h-5"></i>
-                        Vector Database (Qdrant)
-                    </h4>
-                    ${vectorData ? `
-                        <div class="space-y-4">
-                            ${vectorData.collections && vectorData.collections.length > 0 ? `
-                                <div class="grid gap-3">
-                                    ${vectorData.collections.map(collection => `
-                                        <div class="border rounded-lg p-3" style="border-color: var(--border-color);">
-                                            <div class="flex justify-between items-center">
-                                                <span class="font-medium" style="color: var(--text-primary);">${collection.name}</span>
-                                                <span class="text-sm px-2 py-1 rounded" style="background-color: var(--bg-tertiary); color: var(--text-secondary);">
-                                                    ${collection.vectors_count || 0} vectors
-                                                </span>
-                                            </div>
-                                            <div class="mt-2 text-sm grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <span style="color: var(--text-secondary);">Status:</span>
-                                                    <span class="ml-1" style="color: var(--text-primary);">${collection.status || 'Unknown'}</span>
-                                                </div>
-                                                <div>
-                                                    <span style="color: var(--text-secondary);">Size:</span>
-                                                    <span class="ml-1" style="color: var(--text-primary);">${collection.disk_usage || 'Unknown'}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            ` : `
-                                <div class="text-center py-4">
-                                    <span style="color: var(--text-muted);">No vector collections found</span>
-                                </div>
-                            `}
-
-                            ${vectorData.total_vectors ? `
-                                <div class="mt-4 pt-4 border-t" style="border-color: var(--border-color);">
-                                    <div class="flex justify-between text-sm">
-                                        <span style="color: var(--text-secondary);">Total Vectors:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${vectorData.total_vectors}</span>
-                                    </div>
-                                    <div class="flex justify-between text-sm mt-2">
-                                        <span style="color: var(--text-secondary);">Total Collections:</span>
-                                        <span class="font-medium" style="color: var(--text-primary);">${vectorData.collections ? vectorData.collections.length : 0}</span>
-                                    </div>
-                                </div>
-                            ` : ''}
+                ${hasAlerts ? `
+                    <!-- Alert Message -->
+                    <div class="rounded-lg p-4 border" style="background-color: rgba(var(--status-warning-rgb), 0.1); border-color: rgba(var(--status-warning-rgb), 0.3);">
+                        <div class="flex items-center mb-3">
+                            <i data-lucide="alert-triangle" class="w-5 h-5 mr-2" style="color: var(--status-warning);"></i>
+                            <h4 class="text-lg font-semibold" style="color: var(--status-warning);">Alert Details</h4>
                         </div>
-                    ` : `
-                        <div class="text-center py-4">
-                            <span style="color: var(--text-muted);">Vector database statistics unavailable</span>
-                        </div>
-                    `}
-                </div>
-
-                <!-- Processing Statistics -->
-                <div class="bg-card border border-border rounded-lg p-4">
-                    <h4 class="text-lg font-semibold mb-4 flex items-center" style="color: var(--text-primary);">
-                        <i data-lucide="activity" class="mr-2 w-5 h-5"></i>
-                        Processing Metrics
-                    </h4>
-                    ${queueData && queueData.processing_stats ? `
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="space-y-2">
-                                <div class="flex justify-between text-sm">
-                                    <span style="color: var(--text-secondary);">Success Rate:</span>
-                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.success_rate || 'N/A'}</span>
-                                </div>
-                                <div class="flex justify-between text-sm">
-                                    <span style="color: var(--text-secondary);">Avg Processing Time:</span>
-                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.avg_processing_time || 'N/A'}</span>
-                                </div>
+                        <div class="space-y-2">
+                            <div class="text-sm" style="color: var(--text-primary);">
+                                Job was started but has not completed successfully yet.
                             </div>
-                            <div class="space-y-2">
-                                <div class="flex justify-between text-sm">
-                                    <span style="color: var(--text-secondary);">Last Batch Size:</span>
-                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.last_batch_size || 'N/A'}</span>
-                                </div>
-                                <div class="flex justify-between text-sm">
-                                    <span style="color: var(--text-secondary);">Last Run:</span>
-                                    <span class="font-medium" style="color: var(--text-primary);">${queueData.processing_stats.last_run ? new Date(queueData.processing_stats.last_run).toLocaleString() : 'Never'}</span>
-                                </div>
+                            <div class="text-xs" style="color: var(--text-secondary);">
+                                Last Started: ${jobData.last_run_started_at ? new Date(jobData.last_run_started_at).toLocaleString() : 'Never'}
                             </div>
                         </div>
-                    ` : `
-                        <div class="text-center py-4">
-                            <span style="color: var(--text-muted);">Processing metrics will appear after job runs</span>
+                    </div>
+                ` : ''}
+
+                ${!hasErrors && !hasAlerts ? `
+                    <!-- No Issues -->
+                    <div class="rounded-lg p-4 border text-center" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                        <div class="flex items-center justify-center mb-2">
+                            <i data-lucide="check-circle" class="w-5 h-5 mr-2" style="color: var(--status-success);"></i>
+                            <h4 class="text-lg font-semibold" style="color: var(--status-success);">No Issues Found</h4>
                         </div>
-                    `}
+                        <div class="text-sm" style="color: var(--text-secondary);">
+                            The vectorization job is running normally without errors or alerts.
+                        </div>
+                        ${jobData.last_success_at ? `
+                            <div class="text-xs mt-2" style="color: var(--text-muted);">
+                                Last Success: ${new Date(jobData.last_success_at).toLocaleString()}
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+
+                <!-- Analysis Link -->
+                <div class="rounded-lg p-4 border text-center" style="background-color: var(--bg-secondary); border-color: var(--border-color);">
+                    <div class="text-sm mb-3" style="color: var(--text-secondary);">
+                        For detailed vectorization analysis and statistics:
+                    </div>
+                    <a href="/qdrant" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                       style="background-color: var(--primary); color: white; text-decoration: none;">
+                        <i data-lucide="bar-chart-3" class="w-4 h-4 mr-2"></i>
+                        View Vectorization Analysis
+                    </a>
                 </div>
             </div>
         `;
