@@ -658,6 +658,52 @@ async def get_job_details(job_id: int, user: UserData = Depends(require_admin_au
             detail=f"Failed to get job details for job_id {job_id}: {str(e)}"
         )
 
+@router.get("/api/v1/jobs/{job_name}/errors")
+async def get_job_errors(job_name: str, user: UserData = Depends(require_admin_authentication)):
+    """Get error information for a specific job"""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import JobSchedule
+
+        database = get_database()
+
+        with database.get_read_session_context() as session:
+            # SECURITY: Filter job schedule by tenant_id
+            job_schedule = session.query(JobSchedule).filter(
+                JobSchedule.job_name == job_name,
+                JobSchedule.tenant_id == user.tenant_id
+            ).first()
+
+            if not job_schedule:
+                return {
+                    "errors": [],
+                    "message": f"No job found for {job_name}"
+                }
+
+            errors = []
+            if job_schedule.error_message:
+                errors.append({
+                    "type": "error",
+                    "message": job_schedule.error_message,
+                    "timestamp": job_schedule.last_run_started_at.isoformat() if job_schedule.last_run_started_at else None,
+                    "retry_count": job_schedule.retry_count or 0
+                })
+
+            return {
+                "errors": errors,
+                "job_name": job_name,
+                "status": job_schedule.status,
+                "last_run": job_schedule.last_run_started_at.isoformat() if job_schedule.last_run_started_at else None,
+                "last_success": job_schedule.last_success_at.isoformat() if job_schedule.last_success_at else None
+            }
+
+    except Exception as e:
+        logger.error(f"Error getting job errors for {job_name}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job errors for {job_name}: {str(e)}"
+        )
+
 @router.get("/api/v1/jobs/Jira/summary")
 async def get_jira_summary(user: UserData = Depends(require_admin_authentication)):
     """Get Jira data summary for the Jira details modal"""
@@ -2407,11 +2453,11 @@ async def start_job(
 ):
     """Force start a specific job with optional execution parameters"""
     try:
-        valid_jobs = ['jira', 'github', 'wex fabric', 'wex ad']
+        valid_jobs = ['jira', 'github', 'wex fabric', 'wex ad', 'vectorization']
         if job_name.lower() not in valid_jobs:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid job name. Must be one of: Jira, GitHub, WEX Fabric, WEX AD"
+                detail=f"Invalid job name. Must be one of: Jira, GitHub, WEX Fabric, WEX AD, Vectorization"
             )
         
         # Log execution parameters
@@ -2485,6 +2531,18 @@ async def start_job(
             result = {
                 'status': 'triggered',
                 'message': f'WEX AD sync job triggered successfully for client {user.tenant_id}',
+                'job_name': job_name
+            }
+        elif job_name_lower == 'vectorization':
+            from app.jobs.orchestrator import trigger_vectorization_sync
+            asyncio.create_task(trigger_vectorization_sync(
+                force_manual=True,
+                execution_params=execution_params,
+                tenant_id=user.tenant_id
+            ))
+            result = {
+                'status': 'triggered',
+                'message': f'Vectorization job triggered successfully for client {user.tenant_id}',
                 'job_name': job_name
             }
         else:

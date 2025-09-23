@@ -280,20 +280,20 @@ class VectorizationQueueHelper:
     
 
     
-    async def bulk_insert_to_queue_and_trigger(self, auth_token: str) -> Dict[str, Any]:
+    async def bulk_insert_to_queue_and_trigger(self, auth_token: str = None) -> Dict[str, Any]:
         """
         Legacy method - now just triggers vectorization since entities are saved immediately.
-        Kept for backward compatibility.
+        Kept for backward compatibility. auth_token parameter is ignored (uses internal auth).
         """
         logger.warning("bulk_insert_to_queue_and_trigger is deprecated - use trigger_vectorization_only instead")
-        return await self.trigger_vectorization_only(auth_token)
+        if auth_token:
+            logger.warning("auth_token parameter is deprecated and ignored - using internal authentication")
+        return await self.trigger_vectorization_only()
 
-    async def trigger_vectorization_only(self, auth_token: str) -> Dict[str, Any]:
+    async def trigger_vectorization_only(self) -> Dict[str, Any]:
         """
         Trigger vectorization processing without bulk inserting (since entities are saved immediately).
-
-        Args:
-            auth_token: Authentication token for backend API calls
+        Uses internal authentication for service-to-service communication.
 
         Returns:
             Dictionary with trigger status
@@ -301,7 +301,7 @@ class VectorizationQueueHelper:
         try:
             # Trigger async processing
             asyncio.create_task(
-                self._trigger_async_vectorization(auth_token)
+                self._trigger_async_vectorization()
             )
 
             logger.info("Triggered vectorization processing for immediately saved entities")
@@ -314,13 +314,21 @@ class VectorizationQueueHelper:
         except Exception as e:
             logger.error(f"Failed to trigger vectorization processing: {e}")
             raise
-    
-    async def _trigger_async_vectorization(self, auth_token: str):
-        """Fire-and-forget call to backend processor."""
+
+    async def _trigger_async_vectorization(self):
+        """Fire-and-forget call to backend processor using internal auth."""
         try:
-            url = f"{self.backend_url}/api/v1/ai/vectors/process-queue"
+            # Use internal secret for service-to-service communication
+            from app.core.config import get_settings
+            settings = get_settings()
+            internal_secret = settings.ETL_INTERNAL_SECRET
+
+            url = f"{self.backend_url}/api/v1/ai/vectors/process-queue-internal"
             payload = {"tenant_id": self.tenant_id}
-            headers = {"Authorization": f"Bearer {auth_token}"}
+            headers = {
+                "X-Internal-Auth": internal_secret,
+                "Content-Type": "application/json"
+            }
 
             logger.info(f"[VECTORIZATION] Sending trigger request to: {url}")
             logger.info(f"[VECTORIZATION] Payload: {payload}")

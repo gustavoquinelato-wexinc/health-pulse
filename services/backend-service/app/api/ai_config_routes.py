@@ -27,6 +27,23 @@ from app.ai.qdrant_client import PulseQdrantClient
 
 logger = get_logger(__name__)
 
+# Internal authentication for service-to-service calls
+def verify_internal_auth(request: Request):
+    """Verify internal authentication using ETL_INTERNAL_SECRET"""
+    from app.core.config import get_settings
+    settings = get_settings()
+    internal_secret = settings.ETL_INTERNAL_SECRET
+    provided = request.headers.get("X-Internal-Auth")
+
+    if not internal_secret:
+        logger.warning("ETL_INTERNAL_SECRET not configured; rejecting internal auth request")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Internal auth not configured")
+    if not provided or provided != internal_secret:
+        logger.warning(f"Invalid internal auth: expected secret, got {provided[:10] if provided else 'None'}...")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized internal request")
+
+    logger.debug("Internal authentication successful")
+
 # Initialize router
 router = APIRouter()
 
@@ -1017,6 +1034,40 @@ async def process_vectorization_queue(
 
     except Exception as e:
         logger.error(f"Error starting vectorization queue processing: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start processing: {str(e)}"
+        )
+
+
+@router.post("/ai/vectors/process-queue-internal")
+async def process_vectorization_queue_internal(
+    request: VectorizationQueueRequest,
+    background_tasks: BackgroundTasks,
+    req: Request
+):
+    """Process vectorization queue for a tenant (async) - Internal service endpoint"""
+    try:
+        # Verify internal authentication
+        verify_internal_auth(req)
+
+        from fastapi import BackgroundTasks
+        from app.models.unified_models import VectorizationQueue
+
+        tenant_id = request.tenant_id
+
+        logger.info(f"[QUEUE_PROCESSOR_INTERNAL] Received vectorization trigger request for tenant {tenant_id}")
+
+        # Start background processing
+        import asyncio
+        asyncio.create_task(process_tenant_vectorization_queue(tenant_id))
+
+        logger.info(f"[QUEUE_PROCESSOR_INTERNAL] Started async vectorization processing for tenant {tenant_id}")
+
+        return {"status": "processing_started", "tenant_id": tenant_id}
+
+    except Exception as e:
+        logger.error(f"Error starting vectorization queue processing (internal): {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start processing: {str(e)}"

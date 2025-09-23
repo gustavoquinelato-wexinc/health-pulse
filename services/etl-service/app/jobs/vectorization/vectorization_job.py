@@ -170,22 +170,19 @@ class VectorizationJobProcessor:
             Dict containing processing results
         """
         try:
-            # Get system authentication token
-            auth_token = self._get_auth_token(tenant_id)
-            if not auth_token:
-                return {
-                    'success': False,
-                    'error': 'Failed to obtain system authentication token'
-                }
+            # Use internal secret for service-to-service communication
+            from app.core.config import get_settings
+            settings = get_settings()
+            internal_secret = settings.ETL_INTERNAL_SECRET
 
             async with httpx.AsyncClient(timeout=1800.0) as client:  # 30 minute timeout
                 headers = {
-                    'Authorization': f'Bearer {auth_token}',
+                    'X-Internal-Auth': internal_secret,
                     'Content-Type': 'application/json'
                 }
 
                 # Step 2: Queue Preparation (25% → 50%)
-                start_url = f"{self.backend_base_url}/api/v1/ai/vectors/process-queue"
+                start_url = f"{self.backend_base_url}/api/v1/ai/vectors/process-queue-internal"
                 logger.info(f"Starting backend vectorization for tenant {tenant_id}")
                 await websocket_manager.send_step_progress_update("Vectorization", 1, total_steps, 0.0, "[PROCESSING] Starting backend vectorization...")
 
@@ -226,23 +223,7 @@ class VectorizationJobProcessor:
 
     
 
-    def _get_auth_token(self, tenant_id: int) -> Optional[str]:
-        """Get system authentication token for backend API calls."""
-        try:
-            # Use system token for automated job execution
-            from app.jobs.orchestrator import _get_system_token
 
-            token = _get_system_token(tenant_id)
-            if token:
-                logger.debug(f"System token obtained for tenant {tenant_id}")
-                return token
-            else:
-                logger.error(f"Failed to get system token for tenant {tenant_id}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Failed to get system auth token: {e}")
-            return None
 
     async def _wait_for_backend_completion(self, tenant_id: int, total_steps: int) -> Dict[str, Any]:
         """
