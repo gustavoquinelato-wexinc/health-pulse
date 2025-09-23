@@ -343,6 +343,10 @@ app.include_router(ai_config_router, prefix="/api/v1", tags=["AI Configuration"]
 from app.api.v1.table_vectorization import router as table_vectorization_router
 app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", tags=["Table Vectorization"])
 
+# Include AI Query routes
+from app.api.ai_query_routes import router as ai_query_router
+app.include_router(ai_query_router, prefix="/api/v1", tags=["AI Query Interface"])
+
 # Backend Service - API only, no static files or web routes
 
 
