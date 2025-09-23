@@ -482,25 +482,25 @@
                 case 'todo':
                 case 'to_do':
                 case 'to do':
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--neutral-secondary); color: white;">To Do</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--neutral-secondary); color: white; width: 120px; height: 32px;">TO DO</span>`;
                     break;
                 case 'in_progress':
                 case 'in progress':
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-edit); color: white;">In Progress</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--crud-edit); color: white; width: 120px; height: 32px;">IN PROGRESS</span>`;
                     break;
                 case 'waiting':
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--status-warning); color: white;">Waiting</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--status-warning); color: white; width: 120px; height: 32px;">WAITING</span>`;
                     break;
                 case 'done':
                 case 'completed':
                 case 'complete':
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-create); color: white;">Done</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--crud-create); color: white; width: 120px; height: 32px;">DONE</span>`;
                     break;
                 case 'discarded':
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--crud-delete); color: white;">Discarded</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--crud-delete); color: white; width: 120px; height: 32px;">DISCARDED</span>`;
                     break;
                 default:
-                    categoryBadge = `<span class="px-2 py-1 text-xs rounded" style="background-color: var(--neutral-secondary); color: white;">${category}</span>`;
+                    categoryBadge = `<span class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold uppercase" style="background-color: var(--neutral-secondary); color: white; width: 120px; height: 32px;">${category.toUpperCase()}</span>`;
             }
 
             row.innerHTML = `

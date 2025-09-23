@@ -222,9 +222,19 @@ async def get_vectorization_queue_summary(user: UserData = Depends(require_admin
             ).filter(
                 VectorizationQueue.tenant_id == tenant_id
             ).group_by(VectorizationQueue.status).all()
+
+            # Get queue statistics by operation type (for pending items)
+            operation_stats = session.query(
+                VectorizationQueue.operation,
+                func.count(VectorizationQueue.id).label('count')
+            ).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'pending'
+            ).group_by(VectorizationQueue.operation).all()
             
-            # Convert to dictionary
+            # Convert to dictionaries
             status_counts = {stat.status: stat.count for stat in queue_stats}
+            operation_counts = {op.operation: op.count for op in operation_stats}
             
             # Get statistics by table name (entity type)
             entity_stats = session.query(
@@ -259,9 +269,13 @@ async def get_vectorization_queue_summary(user: UserData = Depends(require_admin
                     "total_processing": total_processing,
                     "total_completed": total_completed,
                     "total_failed": total_failed,
-                    "total_count": total_count
+                    "total_count": total_count,
+                    "pending_new": operation_counts.get('insert', 0),
+                    "pending_updates": operation_counts.get('update', 0),
+                    "pending_deletes": operation_counts.get('delete', 0)
                 },
                 "by_status": status_counts,
+                "by_operation": operation_counts,
                 "by_entity_type": by_entity_type,
                 "tenant_id": tenant_id,
                 "last_updated": datetime.utcnow().isoformat()

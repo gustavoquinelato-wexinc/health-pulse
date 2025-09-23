@@ -87,9 +87,7 @@
             <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
             <select id="filterIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
                 <option value="">All Integrations</option>
-                <option value="jira">Jira</option>
-                <option value="github">GitHub</option>
-                <option value="fabric">WEX Fabric</option>
+                <!-- Options will be populated dynamically from active Data type integrations -->
             </select>
         </div>
 
@@ -318,12 +316,9 @@ function populateIntegrationSelect() {
     // Clear existing options (except first)
     integrationSelect.innerHTML = '<option value="">Select Integration</option>';
 
-    // Filter to only show Data type integrations
+    // Filter to only show active Data type integrations
     const dataIntegrations = integrations.filter(integration =>
-        integration.integration_type === 'data_source' ||
-        integration.integration_type === 'Data' ||
-        integration.type === 'data_source' ||
-        integration.type === 'Data'
+        integration.active && integration.integration_type === 'Data'
     );
 
     dataIntegrations.forEach(integration => {
@@ -338,12 +333,9 @@ function populateIntegrationFilter() {
     // Clear existing options (except first)
     filterSelect.innerHTML = '<option value="">All Integrations</option>';
 
-    // Filter to only show Data type integrations
+    // Filter to only show active Data type integrations
     const dataIntegrations = integrations.filter(integration =>
-        integration.integration_type === 'data_source' ||
-        integration.integration_type === 'Data' ||
-        integration.type === 'data_source' ||
-        integration.type === 'Data'
+        integration.active && integration.integration_type === 'Data'
     );
 
     dataIntegrations.forEach(integration => {
@@ -488,6 +480,9 @@ function showCreateModal() {
     toggleLabel.textContent = 'On';
     hiddenInput.value = 'true';
 
+    // Ensure integration dropdown is populated with active Data type integrations
+    populateIntegrationSelect();
+
     openModal('hierarchyModal');
 }
 
@@ -499,6 +494,10 @@ function editHierarchy(id) {
         document.getElementById('levelName').value = hierarchy.level_name || '';
         document.getElementById('levelNumber').value = hierarchy.level_number || '';
         document.getElementById('description').value = hierarchy.description || '';
+
+        // Ensure integration dropdown is populated with active Data type integrations
+        populateIntegrationSelect();
+
         document.getElementById('integration').value = hierarchy.integration_id || '';
 
         // Set toggle state based on hierarchy.active
