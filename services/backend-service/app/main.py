@@ -339,6 +339,10 @@ app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", t
 from app.api.ai_config_routes import router as ai_config_router
 app.include_router(ai_config_router, prefix="/api/v1", tags=["AI Configuration"])
 
+# Include Table Vectorization routes
+from app.api.v1.table_vectorization import router as table_vectorization_router
+app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", tags=["Table Vectorization"])
+
 # Backend Service - API only, no static files or web routes
 
 
