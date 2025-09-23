@@ -34,11 +34,17 @@ services:
       POSTGRES_DB: ${POSTGRES_DATABASE}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replicator_password
+      POSTGRES_PRIMARY_HOST: postgres
+      POSTGRES_PRIMARY_PORT: 5432
       PGDATA: /var/lib/postgresql/data
     ports:
       - "5433:5432"
     volumes:
       - postgres_replica_data:/var/lib/postgresql/data
+      - ./docker/postgres/replica/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/postgres/replica/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
       - ./docker/postgres/custom-entrypoint.sh:/custom-entrypoint.sh:ro
     networks:
       - pulse-network

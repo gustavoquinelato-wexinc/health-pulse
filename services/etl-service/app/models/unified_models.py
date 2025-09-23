@@ -638,6 +638,7 @@ class JobSchedule(Base, IntegrationBaseEntity):
         from app.core.utils import DateTimeHelper
         self.status = 'FINISHED'
         self.last_success_at = DateTimeHelper.now_default()
+        self.retry_count = 0  # Reset retry count on successful completion
         self.clear_checkpoints()
 
     def set_paused(self):

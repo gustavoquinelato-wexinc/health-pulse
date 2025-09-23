@@ -57,13 +57,20 @@ async def wait_for_vectorization_completion(tenant_id: int, timeout_seconds: int
     """
     try:
         signal_key = f"vectorization_{tenant_id}"
-        
-        # Create event if it doesn't exist
-        if signal_key not in _completion_events:
+
+        # Clear any existing stale completion signals before waiting
+        if signal_key in _completion_signals:
+            logger.warning(f"[COMPLETION_SIGNAL] Clearing stale completion signal for tenant {tenant_id}")
+            del _completion_signals[signal_key]
+
+        # Create fresh event (clear any existing one)
+        if signal_key in _completion_events:
+            _completion_events[signal_key].clear()
+        else:
             _completion_events[signal_key] = asyncio.Event()
-        
+
         logger.info(f"[COMPLETION_SIGNAL] Waiting for vectorization completion signal for tenant {tenant_id} (timeout: {timeout_seconds}s)")
-        
+
         # Wait for the completion signal with timeout
         try:
             await asyncio.wait_for(_completion_events[signal_key].wait(), timeout=timeout_seconds)

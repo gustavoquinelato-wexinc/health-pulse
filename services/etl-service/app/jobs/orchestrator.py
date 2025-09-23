@@ -1357,94 +1357,185 @@ async def run_vectorization_sync_async(job_schedule_id: int):
         # Import here to avoid circular imports
         from app.jobs.vectorization.vectorization_job import run_vectorization_sync
 
-        # Use shorter session for job execution
+        # Execute the job with proper error handling
         database = get_database()
-        with database.get_job_session_context() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
-            if not job_schedule:
-                logger.error(f"Job schedule {job_schedule_id} not found")
-                return
+        result = None
 
-            # Execute the job
-            result = await run_vectorization_sync(session, job_schedule)
+        try:
+            with database.get_job_session_context() as session:
+                job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+                if not job_schedule:
+                    logger.error(f"Job schedule {job_schedule_id} not found")
+                    return
 
-        # Mark job as completed and set next job to PENDING
-        with database.get_write_session_context() as session:
-            job_schedule = session.query(JobSchedule).get(job_schedule_id)
-            if not job_schedule:
-                logger.error(f"Job schedule {job_schedule_id} not found")
-                return
+                # Execute the job
+                result = await run_vectorization_sync(session, job_schedule)
 
-            tenant_id = job_schedule.tenant_id
-            current_order = job_schedule.execution_order
-
-            # Check if job was successful
-            if result.get('status') == 'success':
-                # Mark current job as finished
-                job_schedule.set_finished()
-                logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
-
-                # Send WebSocket completion update
-                from app.core.websocket_manager import get_websocket_manager
-                websocket_manager = get_websocket_manager()
-                await websocket_manager.send_status_update(
-                    "Vectorization",
-                    "FINISHED",
-                    {"message": "Vectorization job completed successfully"}
-                )
+        except Exception as session_error:
+            logger.error(f"Job session error: {session_error}")
+            # If session fails, still try to get the result from the job
+            # The job might have succeeded even if the session commit failed
+            if result is None:
+                result = {'status': 'error', 'message': f'Database session error: {str(session_error)}'}
             else:
-                # Mark job as failed using set_pending_with_checkpoint
-                error_msg = result.get('message', 'Unknown error')
-                job_schedule.set_pending_with_checkpoint(error_msg)
-                logger.error(f"Vectorization job failed: {error_msg}")
+                logger.info(f"Job completed but session commit failed: {session_error}")
+                # Job succeeded but commit failed - we'll handle this in the next session
 
-                # Send WebSocket failure update
-                from app.core.websocket_manager import get_websocket_manager
-                websocket_manager = get_websocket_manager()
-                await websocket_manager.send_status_update(
-                    "Vectorization",
-                    "FAILED",
-                    {"message": f"Vectorization job failed: {error_msg}"}
-                )
+        # Mark job as completed and set next job to PENDING with retry logic
+        max_retries = 3
+        retry_count = 0
 
-            # Find next ready job (skips paused jobs)
-            next_job = find_next_ready_job(session, tenant_id, current_order)
+        while retry_count < max_retries:
+            try:
+                with database.get_write_session_context() as session:
+                    job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                    if not job_schedule:
+                        logger.error(f"Job schedule {job_schedule_id} not found")
+                        return
 
-            if next_job:
-                next_job.status = 'PENDING'
-                logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
-            else:
-                logger.info("No more jobs in sequence - cycle complete")
+                    tenant_id = job_schedule.tenant_id
+                    current_order = job_schedule.execution_order
 
-            session.commit()
+                    # Check if job was successful
+                    if result.get('status') == 'success':
+                        # Mark current job as finished
+                        job_schedule.set_finished()
+                        logger.info(f"Vectorization job completed successfully: {result.get('message', 'No message')}")
 
-            # Resume orchestrator countdown and handle scheduling outside transaction
-            from app.core.orchestrator_scheduler import get_orchestrator_scheduler
-            orchestrator_scheduler = get_orchestrator_scheduler()
-            orchestrator_scheduler.resume_orchestrator('Vectorization')
-
-            if next_job:
-                # Check if this is cycling back to the first job (restart)
-                with database.get_read_session_context() as check_session:
-                    first_job = check_session.query(JobSchedule).filter(
-                        JobSchedule.tenant_id == tenant_id,
-                        JobSchedule.active == True,
-                        JobSchedule.status != 'PAUSED'
-                    ).order_by(JobSchedule.execution_order.asc()).first()
-
-                    is_cycle_restart = (first_job and next_job.id == first_job.id)
-
-                    if is_cycle_restart:
-                        # Cycle restart - use regular countdown
-                        logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
-                        orchestrator_scheduler.restore_normal_schedule()
+                        # Send WebSocket completion update
+                        from app.core.websocket_manager import get_websocket_manager
+                        websocket_manager = get_websocket_manager()
+                        await websocket_manager.send_status_update(
+                            "Vectorization",
+                            "FINISHED",
+                            {"message": "Vectorization job completed successfully"}
+                        )
+                        # Also send completion message to trigger progress bar hiding
+                        await websocket_manager.send_completion(
+                            "Vectorization",
+                            True,
+                            {"message": "Vectorization job completed successfully", "result": result}
+                        )
                     else:
-                        # Normal sequence - use fast transition for quick transition
-                        logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition for quick transition")
-                        orchestrator_scheduler.schedule_fast_transition('Vectorization')
+                        # Job failed - mark as FINISHED with error (don't set to PENDING)
+                        error_msg = result.get('message', 'Unknown error')
+                        job_schedule.error_message = error_msg
+                        job_schedule.retry_count += 1
+                        job_schedule.set_finished()  # Mark as FINISHED with error
+                        logger.error(f"Vectorization job failed and marked as FINISHED: {error_msg}")
+
+                        # Send WebSocket failure update
+                        from app.core.websocket_manager import get_websocket_manager
+                        websocket_manager = get_websocket_manager()
+                        await websocket_manager.send_status_update(
+                            "Vectorization",
+                            "FAILED",
+                            {"message": f"Vectorization job failed: {error_msg}"}
+                        )
+                        # Also send completion message to trigger progress bar hiding
+                        await websocket_manager.send_completion(
+                            "Vectorization",
+                            False,
+                            {"message": f"Vectorization job failed: {error_msg}", "error": error_msg}
+                        )
+
+                    # Only set next job to PENDING if current job was successful
+                    next_job = None
+                    if result.get('status') == 'success':
+                        # Find next ready job (skips paused jobs)
+                        next_job = find_next_ready_job(session, tenant_id, current_order)
+
+                        if next_job:
+                            next_job.status = 'PENDING'
+                            logger.info(f"Set next ready job to PENDING: {next_job.job_name} (order: {next_job.execution_order})")
+
+                    # If we get here, the session completed successfully
+                    break
+
+            except Exception as db_error:
+                retry_count += 1
+                logger.error(f"Database error on attempt {retry_count}/{max_retries}: {db_error}")
+
+                if retry_count >= max_retries:
+                    logger.error(f"Failed to update job status after {max_retries} attempts. Job may have completed but status not updated.")
+                    # Send WebSocket update even if DB update failed
+                    try:
+                        from app.core.websocket_manager import get_websocket_manager
+                        websocket_manager = get_websocket_manager()
+                        if result and result.get('status') == 'success':
+                            await websocket_manager.send_completion(
+                                "Vectorization",
+                                True,
+                                {"message": "Vectorization completed but status update failed", "result": result}
+                            )
+                        else:
+                            await websocket_manager.send_completion(
+                                "Vectorization",
+                                False,
+                                {"message": "Vectorization failed and status update failed", "error": str(db_error)}
+                            )
+                    except Exception as ws_error:
+                        logger.error(f"WebSocket notification also failed: {ws_error}")
+                    break
+                else:
+                    # Wait a bit before retrying
+                    import asyncio
+                    await asyncio.sleep(1)
+                    logger.info(f"Retrying database update (attempt {retry_count + 1}/{max_retries})...")
+
+        # Handle post-job logic outside the retry loop
+        if result and result.get('status') == 'success':
+            logger.info("Vectorization job completed successfully")
+        else:
+            logger.info("Vectorization job failed - no next job will be set to PENDING")
+
+        # Resume orchestrator countdown and handle scheduling outside transaction
+        from app.core.orchestrator_scheduler import get_orchestrator_scheduler
+        orchestrator_scheduler = get_orchestrator_scheduler()
+        orchestrator_scheduler.resume_orchestrator('Vectorization')
+
+        # Check if we need to schedule next job (only if job was successful and we have next_job info)
+        try:
+            if result and result.get('status') == 'success':
+                # Try to get next job info for scheduling
+                with database.get_read_session_context() as check_session:
+                    current_job = check_session.query(JobSchedule).get(job_schedule_id)
+                    if current_job:
+                        tenant_id = current_job.tenant_id
+                        current_order = current_job.execution_order
+
+                        # Find next ready job
+                        next_job = find_next_ready_job(check_session, tenant_id, current_order)
+
+                        if next_job:
+                            # Check if this is cycling back to the first job (restart)
+                            first_job = check_session.query(JobSchedule).filter(
+                                JobSchedule.tenant_id == tenant_id,
+                                JobSchedule.active == True,
+                                JobSchedule.status != 'PAUSED'
+                            ).order_by(JobSchedule.execution_order.asc()).first()
+
+                            is_cycle_restart = (first_job and next_job.id == first_job.id)
+
+                            if is_cycle_restart:
+                                # Cycle restart - use regular countdown
+                                logger.info(f"Next job is cycle restart ({next_job.job_name}) - using regular countdown")
+                                orchestrator_scheduler.restore_normal_schedule()
+                            else:
+                                # Normal sequence - use fast transition for quick transition
+                                logger.info(f"Next job is in sequence ({next_job.job_name}) - using fast transition")
+                                orchestrator_scheduler.schedule_fast_transition('Vectorization')
+                        else:
+                            # No next job - restore normal schedule
+                            orchestrator_scheduler.restore_normal_schedule()
             else:
-                # No next job - restore normal schedule
+                # Job failed - restore normal schedule
                 orchestrator_scheduler.restore_normal_schedule()
+
+        except Exception as scheduling_error:
+            logger.error(f"Error in post-job scheduling: {scheduling_error}")
+            # Fallback to normal schedule
+            orchestrator_scheduler.restore_normal_schedule()
 
     except Exception as e:
         logger.error(f"Vectorization job error: {e}")
@@ -1509,11 +1600,15 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
                     if job.job_name.lower() == 'vectorization':
                         job.status = 'PENDING'
                         job.error_message = None
+                        job.retry_count = 0  # Reset retry count for manual trigger
                     elif job.status != 'PAUSED':  # Preserve PAUSED jobs
                         job.status = 'READY'
                         job.error_message = None
 
                 session.commit()
+
+            # Trigger the orchestrator to process the job for this client only (non-blocking)
+            asyncio.create_task(run_orchestrator_for_client(tenant_id))
 
         return {
             'status': 'triggered',

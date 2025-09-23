@@ -62,6 +62,10 @@
     /* Text color RGB versions */
     --text-primary-rgb: 15, 23, 42;
 
+    /* Gradient Definitions */
+    --gradient-1-2: linear-gradient(135deg, var(--color-1), var(--color-2));
+    --on-gradient-1-2: #ffffff;
+
     /* Light Theme Variables - Exact Frontend Match */
     --bg-primary: #ffffff;
     --bg-secondary: #f8fafc;
@@ -1892,6 +1896,148 @@ body {
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
+/* Universal Card Hover Effect - Primary Color Border */
+.card:hover,
+.job-card:hover,
+.integration-card:hover,
+.status-card:hover,
+.wit-card:hover,
+.metric-card:hover,
+.qdrant-metric-card:hover,
+.admin-card:hover,
+.dashboard-card:hover,
+.stats-card:hover,
+.info-card:hover,
+[class*="-card"]:hover,
+[class^="card-"]:hover,
+/* Job rows in home page */
+.job-row:hover,
+.job-container:hover,
+/* Orchestrator section */
+.orchestrator-section:hover,
+div[class*="orchestrator"]:hover,
+/* ETL Orchestrator Section - specific selector */
+div.mb-8.p-6.rounded-lg:hover {
+    border: 1px solid var(--color-1) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    transform: translateY(-1px) !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Enhanced Table UX Improvements */
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+table thead th {
+    background-color: var(--bg-tertiary) !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    padding: 1rem 1.5rem !important;
+    border-bottom: 2px solid var(--border-color) !important;
+}
+
+/* Table row base styles - using box-shadow for zero movement */
+table tbody tr {
+    border: none !important;
+    border-radius: 4px !important;
+    transition: box-shadow 0.2s ease !important;
+    position: relative !important;
+    background-color: var(--bg-secondary) !important;
+    box-shadow: inset 0 0 0 2px transparent !important;
+}
+
+/* Force table row hover using inset box-shadow - guaranteed zero movement */
+table tbody tr:hover,
+.table tbody tr:hover,
+#integrationsTableBody tr:hover,
+#hierarchies-table-body tr:hover,
+#mappings-table-body tr:hover,
+#statuses-table-body tr:hover,
+#workflows-table-body tr:hover,
+tbody tr:hover,
+tr:hover {
+    box-shadow: inset 0 0 0 2px var(--color-1) !important;
+    border-radius: 4px !important;
+    transition: box-shadow 0.2s ease !important;
+}
+
+table tbody td {
+    padding: 1rem 1.5rem !important;
+    vertical-align: middle !important;
+}
+
+/* Enhanced Action Buttons in Tables */
+.table-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.table-actions .btn-neutral-secondary,
+.table-actions .btn-crud-delete {
+    padding: 0.5rem !important;
+    min-width: 2.5rem !important;
+    height: 2.5rem !important;
+    border-radius: 0.375rem !important;
+    background-color: transparent !important;
+}
+
+.table-actions .btn-neutral-secondary:hover {
+    background-color: var(--color-2) !important;
+    color: white !important;
+    transform: scale(1.05) !important;
+}
+
+.table-actions .btn-crud-delete:hover {
+    transform: scale(1.05) !important;
+}
+
+/* Force integrations table to use consistent action button styling */
+#integrationsTableBody .table-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+#integrationsTableBody .table-actions button {
+    padding: 0.5rem !important;
+    min-width: 2.5rem !important;
+    height: 2.5rem !important;
+    border-radius: 0.375rem !important;
+    background-color: transparent !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Status Badges Enhancement */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-badge.active {
+    background-color: rgba(34, 197, 94, 0.1);
+    color: rgb(34, 197, 94);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.status-badge.inactive {
+    background-color: rgba(156, 163, 175, 0.1);
+    color: rgb(156, 163, 175);
+    border: 1px solid rgba(156, 163, 175, 0.2);
+}
+
 /* Enhanced Navigation & Sidebar Styles */
 .nav-item {
     position: relative;
@@ -1920,11 +2066,89 @@ body {
 }
 
 .nav-item-active {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    background: var(--gradient-1-2);
-    color: var(--on-gradient-1-2);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    background: var(--gradient-1-2) !important;
+    color: var(--on-gradient-1-2) !important;
     border-radius: 0 !important;
     /* Flat corners to match frontend sidebar */
+}
+
+/* Ensure nav-item-active persists and overrides other styles */
+.nav-item.nav-item-active,
+.sidebar-nav-item.nav-item-active {
+    background: var(--gradient-1-2) !important;
+    color: var(--on-gradient-1-2) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Smaller active navigation items on non-home pages */
+body:not([data-page="home"]) .nav-item-active,
+body:not([data-page="home"]) .nav-item.nav-item-active,
+body:not([data-page="home"]) .sidebar-nav-item.nav-item-active {
+    width: 2.5rem !important;  /* 40px instead of 48px */
+    height: 2.5rem !important; /* 40px instead of 48px */
+    border-radius: 0.375rem !important; /* 6px instead of 8px */
+}
+
+/* Adjust icons inside smaller active nav items */
+body:not([data-page="home"]) .nav-item-active i,
+body:not([data-page="home"]) .nav-item.nav-item-active i,
+body:not([data-page="home"]) .sidebar-nav-item.nav-item-active i {
+    width: 1rem !important;  /* 16px instead of 20px */
+    height: 1rem !important; /* 16px instead of 20px */
+}
+
+/* Enhanced toggle switches matching home page style for non-home pages */
+body:not([data-page="home"]) .job-toggle-switch {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    justify-content: center;
+}
+
+body:not([data-page="home"]) .toggle-switch {
+    position: relative;
+    width: 36px !important;
+    height: 18px !important;
+    background-color: var(--status-neutral) !important;
+    border-radius: 9px !important;
+    transition: background-color 0.3s ease !important;
+    cursor: pointer !important;
+    margin-right: 6px !important;
+}
+
+body:not([data-page="home"]) .toggle-switch input {
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+body:not([data-page="home"]) .toggle-slider {
+    position: absolute !important;
+    top: 1px !important;
+    left: 1px !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-color: white !important;
+    border-radius: 50% !important;
+    transition: transform 0.3s ease !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+body:not([data-page="home"]) .toggle-switch input:checked + .toggle-slider {
+    transform: translateX(18px) !important;
+}
+
+body:not([data-page="home"]) .toggle-switch.active {
+    background-color: var(--crud-create) !important;
+}
+
+body:not([data-page="home"]) .toggle-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 6px;
 }
 
 /* Professional Sidebar Container */

@@ -3,6 +3,7 @@
 {% block title %}Pulse ETL Management - Status Mappings{% endblock %}
 
 {% block extra_head %}
+<script src="{{ url_for('static', path='js/vectorization-card.js') }}"></script>
 <style>
     /* Action button styles matching home page job buttons exactly */
     .job-action-btn {
@@ -44,68 +45,7 @@
         pointer-events: none;
     }
 
-    /* Toggle Switch Styles */
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 24px;
-    }
-
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-
-    .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--neutral-tertiary);
-        transition: 0.3s;
-        border-radius: 24px;
-        border: 1px solid var(--border-color);
-    }
-
-    .toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: 0.3s;
-        border-radius: 50%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: var(--crud-create);
-        border-color: var(--crud-create);
-    }
-
-    .toggle-switch input:checked + .toggle-slider:before {
-        transform: translateX(20px);
-    }
-
-    .toggle-switch input:disabled + .toggle-slider {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    /* Hover effects */
-    .toggle-slider:hover {
-        box-shadow: 0 0 0 2px rgba(var(--primary-color-rgb), 0.2);
-    }
-
-    .toggle-switch input:checked + .toggle-slider:hover {
-        box-shadow: 0 0 0 2px rgba(var(--crud-create-rgb), 0.2);
-    }
+    /* Toggle Switch Styles - Using Home Page Style (defined in main CSS) */
 </style>
 {% endblock %}
 
@@ -120,9 +60,6 @@
             </h1>
             <p class="text-lg" style="color: var(--text-secondary);">Manage status mappings between integrations</p>
         </div>
-        <button onclick="showCreateModal()" class="btn-crud-create">
-            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Mapping
-        </button>
     </div>
 </div>
 {% else %}
@@ -136,19 +73,22 @@
 </div>
 {% endif %}
 
+<!-- Vectorization Card -->
+<div id="vectorization-card-container"></div>
+
 <!-- Filters Section -->
 <div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
     <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <!-- 1. Source Status -->
+        <!-- 1. From Status -->
         <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Status</label>
-            <input type="text" id="filterSourceStatus" placeholder="Filter by source status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">From</label>
+            <input type="text" id="filterSourceStatus" placeholder="Filter by from status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
         </div>
 
-        <!-- 2. Target Status -->
+        <!-- 2. To Status -->
         <div>
-            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Status</label>
-            <input type="text" id="filterTargetStatus" placeholder="Filter by target status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">To</label>
+            <input type="text" id="filterTargetStatus" placeholder="Filter by to status..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
         </div>
 
         <!-- 3. Workflow Step -->
@@ -186,8 +126,8 @@
 <div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
     <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
         <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Status Mappings</h2>
-        <button onclick="loadStatusMappings()" class="btn-neutral-secondary">
-            <i data-lucide="refresh-cw" class="w-4 h-4 mr-1"></i>Refresh
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>Create Mapping
         </button>
     </div>
     
@@ -195,8 +135,8 @@
         <table class="w-full">
             <thead style="background-color: var(--bg-tertiary);">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Source Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Target Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">From</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">To</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Workflow Step</th>
                     <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Step Number</th>
                     <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
@@ -237,23 +177,15 @@
     <form id="statusMappingForm">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
-                <select id="mappingIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
-                    <option value="">Select Integration</option>
-                    <option value="jira">Jira</option>
-                    <option value="github">GitHub</option>
-                </select>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">From</label>
+                <input type="text" id="sourceStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Status</label>
-                <input type="text" id="sourceStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">To</label>
+                <input type="text" id="targetStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
             </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Status</label>
-                <input type="text" id="targetStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
-            </div>
             <div>
                 <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Workflow Step</label>
                 <select id="workflowStep" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
@@ -261,14 +193,26 @@
                     <!-- Options will be populated dynamically -->
                 </select>
             </div>
+            <div>
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                <select id="mappingIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" required>
+                    <option value="">Select Integration</option>
+                    <!-- Options will be populated dynamically from Data type integrations -->
+                </select>
+            </div>
         </div>
         <div class="mb-4">
             <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Description</label>
             <textarea id="mappingDescription" rows="3" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" placeholder="Optional description for this mapping..."></textarea>
         </div>
-        <div class="flex items-center mb-4">
-            <input type="checkbox" id="mappingActive" class="mr-2" checked>
-            <label for="mappingActive" class="text-sm" style="color: var(--text-primary);">Active</label>
+        <div class="mb-4">
+            <div class="job-toggle-switch" onclick="toggleModalActive()" style="justify-content: flex-start;">
+                <div class="toggle-switch active" id="modalToggleSwitch">
+                    <div class="toggle-slider"></div>
+                </div>
+                <span class="toggle-label" id="modalToggleLabel">On</span>
+            </div>
+            <input type="hidden" id="mappingActive" name="active" value="true">
         </div>
         <div class="flex justify-end space-x-3">
             <button type="button" onclick="closeModal('statusMappingModal')" class="btn-crud-cancel">
@@ -314,10 +258,10 @@
 
 <!-- Deactivate Status Mapping Modal -->
 {% from 'components/modal.html' import modal %}
-{% call modal('deactivateStatusMappingModal', 'Pause Status Mapping', 'lg') %}
+{% call modal('deactivateStatusMappingModal', 'Inactivate Status Mapping', 'lg') %}
     <div class="mb-4">
         <p class="text-sm mb-4" style="color: var(--text-secondary);">
-            You are about to pause the mapping: <strong id="deactivateStatusMappingName" style="color: var(--text-primary);"></strong>
+            You are about to inactivate the mapping: <strong id="deactivateStatusMappingName" style="color: var(--text-primary);"></strong>
         </p>
         <p class="text-sm mb-4" style="color: var(--text-secondary);">
             This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
@@ -335,8 +279,8 @@
         <button type="button" onclick="closeModal('deactivateStatusMappingModal')" class="btn-neutral-secondary">
             Cancel
         </button>
-        <button type="button" onclick="confirmDeactivateStatusMapping()" class="btn-crud-warning">
-            <i data-lucide="pause" class="w-4 h-4 mr-2"></i>Deactivate
+        <button type="button" onclick="confirmDeactivateStatusMapping()" class="btn-crud-delete">
+            <i data-lucide="x-circle" class="w-4 h-4 mr-2"></i>Inactivate
         </button>
     </div>
 {% endcall %}
@@ -371,7 +315,20 @@
         loadStatusMappings();
         loadWorkflowSteps();
         loadIntegrations();
+
+        // Initialize vectorization card
+        initializeVectorizationCard();
     });
+
+    // Initialize vectorization card
+    function initializeVectorizationCard() {
+        const vectorizationCard = new VectorizationCard({
+            tableName: 'statuses_mappings',
+            displayName: 'Status Mappings',
+            containerId: 'vectorization-card-container',
+            apiBaseUrl: '{{ backend_service_url }}/api/v1/vectorization'
+        });
+    }
 
     async function loadStatusMappings() {
         try {
@@ -526,13 +483,16 @@
         const dropdown = document.getElementById('mappingIntegration');
         dropdown.innerHTML = '<option value="">Select Integration</option>';
 
-        integrations.forEach(integration => {
-            if (integration.active) {
-                const option = document.createElement('option');
-                option.value = integration.id;
-                option.textContent = integration.name;
-                dropdown.appendChild(option);
-            }
+        // Filter to only show Data type integrations
+        const dataIntegrations = integrations.filter(integration =>
+            integration.active && integration.integration_type === 'Data'
+        );
+
+        dataIntegrations.forEach(integration => {
+            const option = document.createElement('option');
+            option.value = integration.id;
+            option.textContent = integration.name;
+            dropdown.appendChild(option);
         });
     }
 
@@ -556,10 +516,12 @@
 
             // Toggle switch for active/inactive
             const toggleSwitch = `
-                <label class="toggle-switch">
-                    <input type="checkbox" ${mapping.active ? 'checked' : ''} onchange="toggleStatusMappingActive(${mapping.id}, this.checked, '${mapping.status_from} → ${mapping.status_to}')">
-                    <span class="toggle-slider"></span>
-                </label>
+                <div class="job-toggle-switch" onclick="toggleStatusMapping(${mapping.id})">
+                    <div class="toggle-switch ${mapping.active ? 'active' : ''}">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">${mapping.active ? 'On' : 'Off'}</span>
+                </div>
             `;
 
             // Construct integration logo display
@@ -714,7 +676,7 @@
                 throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
             }
 
-            showNotification('Status mapping paused successfully', 'success');
+            showNotification('Status mapping inactivated successfully', 'success');
             loadStatusMappings();
 
         } catch (error) {
@@ -756,7 +718,7 @@
                 throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
             }
 
-            showNotification('Status mapping paused successfully', 'success');
+            showNotification('Status mapping inactivated successfully', 'success');
             closeModal('deactivateStatusMappingModal');
             loadStatusMappings();
 
@@ -796,12 +758,22 @@
         }
     }
 
+    function toggleStatusMapping(id) {
+        const mapping = statusMappings.find(m => m.id === id);
+        if (mapping) {
+            const newActiveState = !mapping.active;
+            toggleStatusMappingActive(id, newActiveState, mapping.status_from + ' → ' + mapping.status_to);
+        }
+    }
+
     function showCreateModal() {
         document.getElementById('statusMappingForm').reset();
         document.getElementById('mappingActive').checked = true;
         currentMappingId = null;
         // Set modal title for create mode
         document.getElementById('statusMappingModalTitle').textContent = 'Create Status Mapping';
+        // Ensure integration dropdown is populated with Data type integrations
+        updateIntegrationDropdown();
         openModal('statusMappingModal');
     }
 
@@ -813,13 +785,16 @@
         // Set modal title for edit mode
         document.getElementById('statusMappingModalTitle').textContent = 'Edit Status Mapping';
 
+        // Ensure integration dropdown is populated with Data type integrations
+        updateIntegrationDropdown();
+
         // Populate form fields with correct form field IDs
         // For integration, use the integration ID from the API response
         document.getElementById('mappingIntegration').value = mapping.integration_id || '';
         document.getElementById('sourceStatus').value = mapping.status_from || '';
         document.getElementById('targetStatus').value = mapping.status_to || '';
-        document.getElementById('workflowStep').value = mapping.workflow_step_id || '';
-        document.getElementById('mappingDescription').value = mapping.description || '';
+        document.getElementById('workflowStep').value = mapping.workflow_id || '';
+        document.getElementById('mappingDescription').value = mapping.status_category || '';
         document.getElementById('mappingActive').checked = mapping.active;
 
         currentMappingId = id;
@@ -1028,53 +1003,108 @@
         e.preventDefault();
         
         const formData = {
-            integration: document.getElementById('mappingIntegration').value,
-            source_status: document.getElementById('sourceStatus').value,
-            target_status: document.getElementById('targetStatus').value,
-            category: document.getElementById('statusCategory').value,
-            description: document.getElementById('mappingDescription').value,
-            active: document.getElementById('mappingActive').checked
+            integration_id: parseInt(document.getElementById('mappingIntegration').value) || null,
+            status_from: document.getElementById('sourceStatus').value,
+            status_to: document.getElementById('targetStatus').value,
+            status_category: document.getElementById('mappingDescription').value || 'General',
+            workflow_id: parseInt(document.getElementById('workflowStep').value) || null
         };
         
         try {
             const token = getAuthToken();
-            const url = currentMappingId ? 
-                `/api/v1/admin/status-mappings/${currentMappingId}` : 
+            const url = currentMappingId ?
+                `/api/v1/admin/status-mappings/${currentMappingId}` :
                 '/api/v1/admin/status-mappings';
-            
+
             const method = currentMappingId ? 'PUT' : 'POST';
-            
-            // Simulate API call
-            console.log(`${method} ${url}`, formData);
-            alert(`Status mapping ${currentMappingId ? 'updated' : 'created'} successfully`);
-            
-            closeModal('statusMappingModal');
-            loadStatusMappings();
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            if (response.ok) {
+                showSuccess(`Status mapping ${currentMappingId ? 'updated' : 'created'} successfully`);
+                closeModal('statusMappingModal');
+                loadStatusMappings();
+            } else {
+                const errorText = await response.text();
+                showError(`Error saving status mapping: ${errorText}`);
+            }
         } catch (error) {
             console.error('Error saving status mapping:', error);
-            alert('Error saving status mapping');
+            showError('Error saving status mapping');
         }
     });
 
-    // Simple notification function
+    function toggleModalActive() {
+        const toggleSwitch = document.getElementById('modalToggleSwitch');
+        const toggleLabel = document.getElementById('modalToggleLabel');
+        const hiddenInput = document.getElementById('mappingActive');
+
+        const isActive = toggleSwitch.classList.contains('active');
+
+        if (isActive) {
+            toggleSwitch.classList.remove('active');
+            toggleLabel.textContent = 'Off';
+            hiddenInput.value = 'false';
+        } else {
+            toggleSwitch.classList.add('active');
+            toggleLabel.textContent = 'On';
+            hiddenInput.value = 'true';
+        }
+    }
+
+    // Modern notification system - consistent across all pages
     function showNotification(message, type = 'info') {
         // Create notification element
         const notification = document.createElement('div');
-        notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg text-white z-50 transition-all duration-300`;
-        notification.style.backgroundColor = type === 'success' ? 'var(--status-success)' :
-                                           type === 'error' ? 'var(--status-error)' :
-                                           'var(--color-1)';
-        notification.textContent = message;
+        notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm max-w-sm transition-all duration-300 transform translate-x-full`;
 
+        // Set background color based on type
+        switch (type) {
+            case 'success':
+                notification.style.backgroundColor = '#10b981';
+                break;
+            case 'error':
+                notification.style.backgroundColor = '#ef4444';
+                break;
+            case 'warning':
+                notification.style.backgroundColor = 'var(--color-1)';
+                break;
+            default:
+                notification.style.backgroundColor = '#3b82f6';
+        }
+
+        notification.textContent = message;
         document.body.appendChild(notification);
 
-        // Remove after 3 seconds
+        // Animate in
         setTimeout(() => {
-            notification.style.opacity = '0';
+            notification.style.transform = 'translateX(0)';
+        }, 100);
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            notification.style.transform = 'translateX(full)';
             setTimeout(() => {
-                document.body.removeChild(notification);
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
             }, 300);
         }, 3000);
+    }
+
+    function showSuccess(message) {
+        showNotification(message, 'success');
+    }
+
+    function showError(message) {
+        showNotification(message, 'error');
     }
 
     // Function to re-initialize Lucide icons after dynamic content updates

@@ -23,7 +23,8 @@ echo "Container IP: $(hostname -i)"
 
 # Test basic connectivity
 echo "🌐 Testing basic connectivity to primary..."
-if nc -z "$POSTGRES_PRIMARY_HOST" "$POSTGRES_PRIMARY_PORT"; then
+# Test connectivity using pg_isready instead of nc
+if pg_isready -h "$POSTGRES_PRIMARY_HOST" -p "$POSTGRES_PRIMARY_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
     echo "✅ Network connection to primary successful"
 else
     echo "❌ Network connection to primary failed"
@@ -41,6 +42,9 @@ fi
 # Only set up replica if standby.signal doesn't exist (indicating it's not already a replica)
 if [ ! -f "$PGDATA/standby.signal" ]; then
     echo "🧹 Setting up fresh replica..."
+
+    # Stop PostgreSQL if running
+    sudo -u postgres /usr/lib/postgresql/15/bin/pg_ctl -D "$PGDATA" -m fast stop || true
 
     # Remove any existing data directory contents
     rm -rf "$PGDATA"/*

@@ -25,6 +25,8 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/home", tags=["home"])
 
 
+
+
 # Pydantic models for home page responses
 class HomeStatsResponse(BaseModel):
     total_records: int
