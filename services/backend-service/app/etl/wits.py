@@ -56,6 +56,20 @@ class HierarchyUpdateRequest(BaseModel):
     target_hierarchy_id: Optional[int] = None
 
 
+class HierarchyCreateRequest(BaseModel):
+    level_name: str
+    level_number: int
+    description: Optional[str] = None
+    integration_id: Optional[int] = None
+
+
+class WitMappingCreateRequest(BaseModel):
+    wit_from: str
+    wit_to: str
+    hierarchy_level: int
+    integration_id: Optional[int] = None
+
+
 @router.get("/wits", response_model=List[WitResponse])
 async def get_wits(
     user: User = Depends(require_authentication)
@@ -386,3 +400,129 @@ async def delete_wit_hierarchy(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting hierarchy: {str(e)}")
+
+
+@router.post("/wits-hierarchies", response_model=WitHierarchyResponse)
+async def create_wit_hierarchy(
+    hierarchy_data: HierarchyCreateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Create a new work item type hierarchy"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Create new hierarchy
+            new_hierarchy = WitHierarchy(
+                level_name=hierarchy_data.level_name,
+                level_number=hierarchy_data.level_number,
+                description=hierarchy_data.description,
+                integration_id=hierarchy_data.integration_id,
+                tenant_id=user.tenant_id,
+                active=True,
+                created_at=DateTimeHelper.utcnow(),
+                last_updated_at=DateTimeHelper.utcnow()
+            )
+
+            session.add(new_hierarchy)
+            session.flush()  # Get the ID
+
+            # Get integration info if exists
+            integration_name = None
+            integration_logo = None
+            if new_hierarchy.integration_id:
+                integration = session.query(Integration).filter(
+                    Integration.id == new_hierarchy.integration_id,
+                    Integration.tenant_id == user.tenant_id
+                ).first()
+                if integration:
+                    integration_name = integration.provider
+                    integration_logo = integration.logo_filename
+
+            return WitHierarchyResponse(
+                id=new_hierarchy.id,
+                level_number=new_hierarchy.level_number,
+                level_name=new_hierarchy.level_name,
+                description=new_hierarchy.description,
+                integration_id=new_hierarchy.integration_id,
+                integration_name=integration_name,
+                integration_logo=integration_logo,
+                active=new_hierarchy.active
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create hierarchy: {str(e)}"
+        )
+
+
+@router.post("/wit-mappings", response_model=WitMappingResponse)
+async def create_wit_mapping(
+    mapping_data: WitMappingCreateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Create a new work item type mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Validate hierarchy level exists and is active
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.level_number == mapping_data.hierarchy_level,
+                WitHierarchy.tenant_id == user.tenant_id,
+                WitHierarchy.active == True
+            ).first()
+
+            if not hierarchy:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Active hierarchy level {mapping_data.hierarchy_level} not found"
+                )
+
+            # Create new mapping
+            new_mapping = WitMapping(
+                wit_from=mapping_data.wit_from,
+                wit_to=mapping_data.wit_to,
+                hierarchy_level=mapping_data.hierarchy_level,
+                wits_hierarchy_id=hierarchy.id,
+                integration_id=mapping_data.integration_id,
+                tenant_id=user.tenant_id,
+                active=True,
+                created_at=DateTimeHelper.utcnow(),
+                last_updated_at=DateTimeHelper.utcnow()
+            )
+
+            session.add(new_mapping)
+            session.flush()  # Get the ID
+
+            # Get integration info if exists
+            integration_name = None
+            integration_logo = None
+            if new_mapping.integration_id:
+                integration = session.query(Integration).filter(
+                    Integration.id == new_mapping.integration_id,
+                    Integration.tenant_id == user.tenant_id
+                ).first()
+                if integration:
+                    integration_name = integration.provider
+                    integration_logo = integration.logo_filename
+
+            return WitMappingResponse(
+                id=new_mapping.id,
+                wit_from=new_mapping.wit_from,
+                wit_to=new_mapping.wit_to,
+                hierarchy_level=new_mapping.hierarchy_level,
+                integration_id=new_mapping.integration_id,
+                integration_name=integration_name,
+                integration_logo=integration_logo,
+                active=new_mapping.active
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create mapping: {str(e)}"
+        )

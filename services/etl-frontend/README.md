@@ -50,7 +50,6 @@ Create a `.env` file in the root directory:
 
 ```env
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ETL_SERVICE_URL=http://localhost:8000
 ```
 
 ## Project Structure
@@ -89,8 +88,7 @@ src/
 ## API Integration
 
 The frontend communicates with:
-- **Backend Service** (port 3001): Authentication and core APIs
-- **ETL Service** (port 8000): ETL-specific operations
+- **Backend Service** (port 3001): Authentication, core APIs, and ETL operations
 - **Analytics App** (port 3000): Cross-navigation and shared resources
 
 ## Deployment
@@ -106,5 +104,5 @@ npm run build
 
 - Uses the same authentication system as the main analytics app
 - Shares color schemes and theming with the main app
-- Designed to work alongside the existing ETL service
+- All ETL operations are handled through the backend service
 - Port 3333 is used to avoid conflicts with other services

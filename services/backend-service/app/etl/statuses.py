@@ -50,6 +50,22 @@ class WorkflowResponse(BaseModel):
     active: bool
 
 
+class StatusMappingCreateRequest(BaseModel):
+    status_from: str
+    status_to: str
+    status_category: str
+    workflow_id: Optional[int] = None
+    integration_id: Optional[int] = None
+
+
+class WorkflowCreateRequest(BaseModel):
+    step_name: str
+    step_number: Optional[int] = None
+    step_category: str
+    is_commitment_point: bool = False
+    integration_id: Optional[int] = None
+
+
 @router.get("/statuses", response_model=List[StatusResponse])
 async def get_statuses(
     user: User = Depends(require_authentication)
@@ -163,4 +179,134 @@ async def get_workflows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch workflows: {str(e)}"
+        )
+
+
+@router.post("/status-mappings", response_model=StatusMappingResponse)
+async def create_status_mapping(
+    mapping_data: StatusMappingCreateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Create a new status mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Create new status mapping
+            new_mapping = StatusMapping(
+                status_from=mapping_data.status_from,
+                status_to=mapping_data.status_to,
+                status_category=mapping_data.status_category,
+                workflow_id=mapping_data.workflow_id,
+                integration_id=mapping_data.integration_id,
+                tenant_id=user.tenant_id,
+                active=True,
+                created_at=DateTimeHelper.utcnow(),
+                last_updated_at=DateTimeHelper.utcnow()
+            )
+
+            session.add(new_mapping)
+            session.flush()  # Get the ID
+
+            # Get workflow and integration info if they exist
+            workflow_step_name = None
+            step_number = None
+            integration_name = None
+            integration_logo = None
+
+            if new_mapping.workflow_id:
+                workflow = session.query(Workflow).filter(
+                    Workflow.id == new_mapping.workflow_id,
+                    Workflow.tenant_id == user.tenant_id
+                ).first()
+                if workflow:
+                    workflow_step_name = workflow.step_name
+                    step_number = workflow.step_number
+
+            if new_mapping.integration_id:
+                integration = session.query(Integration).filter(
+                    Integration.id == new_mapping.integration_id,
+                    Integration.tenant_id == user.tenant_id
+                ).first()
+                if integration:
+                    integration_name = integration.provider
+                    integration_logo = integration.logo_filename
+
+            return StatusMappingResponse(
+                id=new_mapping.id,
+                status_from=new_mapping.status_from,
+                status_to=new_mapping.status_to,
+                status_category=new_mapping.status_category,
+                workflow_step_name=workflow_step_name,
+                workflow_id=new_mapping.workflow_id,
+                step_number=step_number,
+                integration_name=integration_name,
+                integration_id=new_mapping.integration_id,
+                integration_logo=integration_logo,
+                active=new_mapping.active
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create status mapping: {str(e)}"
+        )
+
+
+@router.post("/workflows", response_model=WorkflowResponse)
+async def create_workflow(
+    workflow_data: WorkflowCreateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Create a new workflow"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Create new workflow
+            new_workflow = Workflow(
+                step_name=workflow_data.step_name,
+                step_number=workflow_data.step_number,
+                step_category=workflow_data.step_category,
+                is_commitment_point=workflow_data.is_commitment_point,
+                integration_id=workflow_data.integration_id,
+                tenant_id=user.tenant_id,
+                active=True,
+                created_at=DateTimeHelper.utcnow(),
+                last_updated_at=DateTimeHelper.utcnow()
+            )
+
+            session.add(new_workflow)
+            session.flush()  # Get the ID
+
+            # Get integration info if exists
+            integration_name = None
+            integration_logo = None
+            if new_workflow.integration_id:
+                integration = session.query(Integration).filter(
+                    Integration.id == new_workflow.integration_id,
+                    Integration.tenant_id == user.tenant_id
+                ).first()
+                if integration:
+                    integration_name = integration.provider
+                    integration_logo = integration.logo_filename
+
+            return WorkflowResponse(
+                id=new_workflow.id,
+                step_name=new_workflow.step_name,
+                step_number=new_workflow.step_number,
+                step_category=new_workflow.step_category,
+                is_commitment_point=new_workflow.is_commitment_point,
+                integration_id=new_workflow.integration_id,
+                integration_name=integration_name,
+                integration_logo=integration_logo,
+                active=new_workflow.active
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create workflow: {str(e)}"
         )
