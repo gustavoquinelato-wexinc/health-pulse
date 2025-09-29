@@ -3,6 +3,7 @@ import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
 import ConfirmationModal from '../components/ConfirmationModal'
+import EditModal from '../components/EditModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
@@ -32,6 +33,12 @@ const WitsMappingsPage: React.FC = () => {
   const [hierarchyLevelFilter, setHierarchyLevelFilter] = useState('')
   const [integrationFilter, setIntegrationFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    mapping: null as WitMapping | null
+  })
 
   // Dependency modal state
   const [dependencyModal, setDependencyModal] = useState({
@@ -114,9 +121,42 @@ const WitsMappingsPage: React.FC = () => {
   }
 
   const handleEdit = (mappingId: number) => {
-    // TODO: Implement edit functionality
-    console.log(`Edit mapping ${mappingId}`)
-    showWarning('Feature Coming Soon', 'Edit functionality will be implemented soon.')
+    const mapping = mappings.find(m => m.id === mappingId)
+    if (mapping) {
+      setEditModal({
+        isOpen: true,
+        mapping
+      })
+    }
+  }
+
+  // Handle edit save
+  const handleEditSave = async (formData: Record<string, any>) => {
+    if (!editModal.mapping) return
+
+    try {
+      const updateData = {
+        wit_from: formData.wit_from,
+        wit_to: formData.wit_to,
+        hierarchy_level: parseInt(formData.hierarchy_level),
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      await witsApi.updateWitMapping(editModal.mapping.id, updateData)
+
+      // Update local state
+      setMappings(prev => prev.map(m =>
+        m.id === editModal.mapping!.id
+          ? { ...m, ...updateData }
+          : m
+      ))
+
+      showSuccess('Mapping Updated', 'The mapping has been updated successfully.')
+      setEditModal({ isOpen: false, mapping: null })
+    } catch (error) {
+      console.error('Error updating mapping:', error)
+      showError('Update Failed', 'Failed to update mapping. Please try again.')
+    }
   }
 
   const handleDelete = async (mappingId: number) => {
@@ -513,6 +553,54 @@ const WitsMappingsPage: React.FC = () => {
         type={confirmation.type}
         icon={confirmation.icon}
       />
+
+      {/* Edit Modal */}
+      {editModal.mapping && (
+        <EditModal
+          isOpen={editModal.isOpen}
+          onClose={() => setEditModal({ isOpen: false, mapping: null })}
+          onSave={handleEditSave}
+          title="Edit Mapping"
+          fields={[
+            {
+              name: 'wit_from',
+              label: 'Source Type',
+              type: 'text',
+              value: editModal.mapping.wit_from,
+              required: true,
+              placeholder: 'Enter source work item type'
+            },
+            {
+              name: 'wit_to',
+              label: 'Target Type',
+              type: 'text',
+              value: editModal.mapping.wit_to,
+              required: true,
+              placeholder: 'Enter target work item type'
+            },
+            {
+              name: 'hierarchy_level',
+              label: 'Hierarchy Level',
+              type: 'number',
+              value: editModal.mapping.hierarchy_level,
+              required: true,
+              placeholder: 'Enter hierarchy level'
+            },
+            {
+              name: 'integration_id',
+              label: 'Integration',
+              type: 'select',
+              value: editModal.mapping.integration_id || '',
+              options: [
+                { value: '', label: 'No Integration' },
+                // TODO: Load actual integrations
+                { value: '1', label: 'Jira' },
+                { value: '2', label: 'GitHub' }
+              ]
+            }
+          ]}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />

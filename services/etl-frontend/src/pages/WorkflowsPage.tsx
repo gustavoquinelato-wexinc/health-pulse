@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
+import EditModal from '../components/EditModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { statusesApi } from '../services/etlApiService'
@@ -23,6 +24,12 @@ const WorkflowsPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    workflow: null as Workflow | null
+  })
 
   // Dependency modal state
   const [dependencyModal, setDependencyModal] = useState({
@@ -100,6 +107,47 @@ const WorkflowsPage: React.FC = () => {
     } catch (error) {
       console.error('Error updating workflow:', error)
       showError('Update Failed', 'Failed to update workflow status. Please try again.')
+    }
+  }
+
+  // Handle edit
+  const handleEdit = (workflowId: number) => {
+    const workflow = workflows.find(w => w.id === workflowId)
+    if (workflow) {
+      setEditModal({
+        isOpen: true,
+        workflow
+      })
+    }
+  }
+
+  // Handle edit save
+  const handleEditSave = async (formData: Record<string, any>) => {
+    if (!editModal.workflow) return
+
+    try {
+      const updateData = {
+        step_name: formData.step_name,
+        step_number: formData.step_number ? parseInt(formData.step_number) : null,
+        step_category: formData.step_category,
+        is_commitment_point: formData.is_commitment_point || false,
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      await statusesApi.updateWorkflow(editModal.workflow.id, updateData)
+
+      // Update local state
+      setWorkflows(prev => prev.map(w =>
+        w.id === editModal.workflow!.id
+          ? { ...w, ...updateData }
+          : w
+      ))
+
+      showSuccess('Workflow Updated', 'The workflow has been updated successfully.')
+      setEditModal({ isOpen: false, workflow: null })
+    } catch (error) {
+      console.error('Error updating workflow:', error)
+      showError('Update Failed', 'Failed to update workflow. Please try again.')
     }
   }
 
@@ -329,6 +377,7 @@ const WorkflowsPage: React.FC = () => {
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center space-x-2">
                                   <button
+                                    onClick={() => handleEdit(workflow.id)}
                                     className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-primary hover:text-primary transition-colors"
                                     title="Edit"
                                   >
@@ -381,6 +430,65 @@ const WorkflowsPage: React.FC = () => {
         allowSkipReassignment={dependencyModal.action === 'deactivate'}
         onShowError={showError}
       />
+
+      {/* Edit Modal */}
+      {editModal.workflow && (
+        <EditModal
+          isOpen={editModal.isOpen}
+          onClose={() => setEditModal({ isOpen: false, workflow: null })}
+          onSave={handleEditSave}
+          title="Edit Workflow"
+          fields={[
+            {
+              name: 'step_name',
+              label: 'Step Name',
+              type: 'text',
+              value: editModal.workflow.step_name,
+              required: true,
+              placeholder: 'Enter step name'
+            },
+            {
+              name: 'step_number',
+              label: 'Step Number',
+              type: 'number',
+              value: editModal.workflow.step_number || '',
+              placeholder: 'Enter step number (optional)'
+            },
+            {
+              name: 'step_category',
+              label: 'Step Category',
+              type: 'select',
+              value: editModal.workflow.step_category,
+              required: true,
+              options: [
+                { value: 'To Do', label: 'To Do' },
+                { value: 'In Progress', label: 'In Progress' },
+                { value: 'Done', label: 'Done' },
+                { value: 'Blocked', label: 'Blocked' }
+              ]
+            },
+            {
+              name: 'is_commitment_point',
+              label: 'Commitment Point',
+              type: 'checkbox',
+              value: editModal.workflow.is_commitment_point,
+              placeholder: 'Mark as commitment point'
+            },
+            {
+              name: 'integration_id',
+              label: 'Integration',
+              type: 'select',
+              value: editModal.workflow.integration_id || '',
+              options: [
+                { value: '', label: 'No Integration' },
+                // TODO: Load actual integrations
+                { value: '1', label: 'Jira' },
+                { value: '2', label: 'GitHub' }
+              ]
+            }
+          ]}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />

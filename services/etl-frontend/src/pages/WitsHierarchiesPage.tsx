@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
+import EditModal from '../components/EditModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { witsApi } from '../services/etlApiService'
@@ -22,6 +23,12 @@ const WitsHierarchiesPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    hierarchy: null as WitHierarchy | null
+  })
 
   // Dependency modal state
   const [dependencyModal, setDependencyModal] = useState<{
@@ -121,8 +128,42 @@ const WitsHierarchiesPage: React.FC = () => {
 
   // Handle edit
   const handleEdit = (hierarchyId: number) => {
-    // TODO: Implement edit functionality
-    console.log('Edit hierarchy:', hierarchyId)
+    const hierarchy = hierarchies.find(h => h.id === hierarchyId)
+    if (hierarchy) {
+      setEditModal({
+        isOpen: true,
+        hierarchy
+      })
+    }
+  }
+
+  // Handle edit save
+  const handleEditSave = async (formData: Record<string, any>) => {
+    if (!editModal.hierarchy) return
+
+    try {
+      const updateData = {
+        level_name: formData.level_name,
+        level_number: parseInt(formData.level_number),
+        description: formData.description || null,
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      await witsApi.updateWitHierarchy(editModal.hierarchy.id, updateData)
+
+      // Update local state
+      setHierarchies(prev => prev.map(h =>
+        h.id === editModal.hierarchy!.id
+          ? { ...h, ...updateData }
+          : h
+      ))
+
+      showSuccess('Hierarchy Updated', 'The hierarchy has been updated successfully.')
+      setEditModal({ isOpen: false, hierarchy: null })
+    } catch (error) {
+      console.error('Error updating hierarchy:', error)
+      showError('Update Failed', 'Failed to update hierarchy. Please try again.')
+    }
   }
 
   // Handle delete
@@ -498,6 +539,53 @@ const WitsHierarchiesPage: React.FC = () => {
         allowSkipReassignment={dependencyModal.action === 'deactivate'}
         onShowError={showError}
       />
+
+      {/* Edit Modal */}
+      {editModal.hierarchy && (
+        <EditModal
+          isOpen={editModal.isOpen}
+          onClose={() => setEditModal({ isOpen: false, hierarchy: null })}
+          onSave={handleEditSave}
+          title="Edit Hierarchy"
+          fields={[
+            {
+              name: 'level_name',
+              label: 'Level Name',
+              type: 'text',
+              value: editModal.hierarchy.level_name,
+              required: true,
+              placeholder: 'Enter level name'
+            },
+            {
+              name: 'level_number',
+              label: 'Level Number',
+              type: 'number',
+              value: editModal.hierarchy.level_number,
+              required: true,
+              placeholder: 'Enter level number'
+            },
+            {
+              name: 'description',
+              label: 'Description',
+              type: 'textarea',
+              value: editModal.hierarchy.description || '',
+              placeholder: 'Enter description (optional)'
+            },
+            {
+              name: 'integration_id',
+              label: 'Integration',
+              type: 'select',
+              value: editModal.hierarchy.integration_id || '',
+              options: [
+                { value: '', label: 'No Integration' },
+                // TODO: Load actual integrations
+                { value: '1', label: 'Jira' },
+                { value: '2', label: 'GitHub' }
+              ]
+            }
+          ]}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />

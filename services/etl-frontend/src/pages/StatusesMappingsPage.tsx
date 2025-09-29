@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
+import EditModal from '../components/EditModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { statusesApi } from '../services/etlApiService'
@@ -31,6 +32,12 @@ const StatusesMappingsPage: React.FC = () => {
   const [targetStatusFilter, setTargetStatusFilter] = useState('')
   const [integrationFilter, setIntegrationFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    mapping: null as StatusMapping | null
+  })
 
   // Dependency modal state
   const [dependencyModal, setDependencyModal] = useState({
@@ -108,6 +115,47 @@ const StatusesMappingsPage: React.FC = () => {
     } catch (error) {
       console.error('Error updating mapping:', error)
       showError('Update Failed', 'Failed to update mapping status. Please try again.')
+    }
+  }
+
+  // Handle edit
+  const handleEdit = (mappingId: number) => {
+    const mapping = mappings.find(m => m.id === mappingId)
+    if (mapping) {
+      setEditModal({
+        isOpen: true,
+        mapping
+      })
+    }
+  }
+
+  // Handle edit save
+  const handleEditSave = async (formData: Record<string, any>) => {
+    if (!editModal.mapping) return
+
+    try {
+      const updateData = {
+        status_from: formData.status_from,
+        status_to: formData.status_to,
+        status_category: formData.status_category,
+        workflow_id: formData.workflow_id ? parseInt(formData.workflow_id) : null,
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      await statusesApi.updateStatusMapping(editModal.mapping.id, updateData)
+
+      // Update local state
+      setMappings(prev => prev.map(m =>
+        m.id === editModal.mapping!.id
+          ? { ...m, ...updateData }
+          : m
+      ))
+
+      showSuccess('Mapping Updated', 'The status mapping has been updated successfully.')
+      setEditModal({ isOpen: false, mapping: null })
+    } catch (error) {
+      console.error('Error updating mapping:', error)
+      showError('Update Failed', 'Failed to update status mapping. Please try again.')
     }
   }
 
@@ -357,6 +405,7 @@ const StatusesMappingsPage: React.FC = () => {
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center space-x-2">
                                   <button
+                                    onClick={() => handleEdit(mapping.id)}
                                     className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-primary hover:text-primary transition-colors"
                                     title="Edit"
                                   >
@@ -409,6 +458,71 @@ const StatusesMappingsPage: React.FC = () => {
         allowSkipReassignment={dependencyModal.action === 'deactivate'}
         onShowError={showError}
       />
+
+      {/* Edit Modal */}
+      {editModal.mapping && (
+        <EditModal
+          isOpen={editModal.isOpen}
+          onClose={() => setEditModal({ isOpen: false, mapping: null })}
+          onSave={handleEditSave}
+          title="Edit Status Mapping"
+          fields={[
+            {
+              name: 'status_from',
+              label: 'Source Status',
+              type: 'text',
+              value: editModal.mapping.status_from,
+              required: true,
+              placeholder: 'Enter source status'
+            },
+            {
+              name: 'status_to',
+              label: 'Target Status',
+              type: 'text',
+              value: editModal.mapping.status_to,
+              required: true,
+              placeholder: 'Enter target status'
+            },
+            {
+              name: 'status_category',
+              label: 'Status Category',
+              type: 'select',
+              value: editModal.mapping.status_category || '',
+              required: true,
+              options: [
+                { value: 'To Do', label: 'To Do' },
+                { value: 'In Progress', label: 'In Progress' },
+                { value: 'Done', label: 'Done' },
+                { value: 'Blocked', label: 'Blocked' }
+              ]
+            },
+            {
+              name: 'workflow_id',
+              label: 'Workflow',
+              type: 'select',
+              value: editModal.mapping.workflow_id || '',
+              options: [
+                { value: '', label: 'No Workflow' },
+                // TODO: Load actual workflows
+                { value: '1', label: 'Development Workflow' },
+                { value: '2', label: 'Support Workflow' }
+              ]
+            },
+            {
+              name: 'integration_id',
+              label: 'Integration',
+              type: 'select',
+              value: editModal.mapping.integration_id || '',
+              options: [
+                { value: '', label: 'No Integration' },
+                // TODO: Load actual integrations
+                { value: '1', label: 'Jira' },
+                { value: '2', label: 'GitHub' }
+              ]
+            }
+          ]}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
