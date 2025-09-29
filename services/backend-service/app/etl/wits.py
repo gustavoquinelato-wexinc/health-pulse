@@ -112,32 +112,24 @@ async def get_wit_mappings(
         database = get_database()
         with database.get_read_session_context() as session:
             # Query mappings with hierarchy and integration information, filtered by tenant
-            mappings = session.query(WitMapping).join(
+            # Use INNER JOIN to ensure we only get mappings with valid hierarchies
+            mappings = session.query(WitMapping, WitHierarchy, Integration).join(
                 WitHierarchy, WitMapping.wits_hierarchy_id == WitHierarchy.id
             ).outerjoin(
                 Integration, WitMapping.integration_id == Integration.id
             ).filter(
                 WitMapping.tenant_id == user.tenant_id,
-                WitMapping.active == True
+                WitMapping.active == True,
+                WitHierarchy.active == True  # Only include active hierarchies
             ).all()
 
             result = []
-            for mapping in mappings:
-                # Get the hierarchy information
-                hierarchy = session.query(WitHierarchy).filter(
-                    WitHierarchy.id == mapping.wits_hierarchy_id
-                ).first()
-
-                # Get the integration information
-                integration = session.query(Integration).filter(
-                    Integration.id == mapping.integration_id
-                ).first() if mapping.integration_id else None
-
+            for mapping, hierarchy, integration in mappings:
                 result.append(WitMappingResponse(
                     id=mapping.id,
                     wit_from=mapping.wit_from,
                     wit_to=mapping.wit_to,
-                    hierarchy_level=hierarchy.level_number if hierarchy else None,
+                    hierarchy_level=hierarchy.level_number,  # Always available due to INNER JOIN
                     integration_id=mapping.integration_id,
                     integration_name=integration.provider if integration else None,
                     integration_logo=integration.logo_filename if integration else None,

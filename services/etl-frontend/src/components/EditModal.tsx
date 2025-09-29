@@ -140,8 +140,8 @@ export default function EditModal({
                 {field.type === 'number' && (
                   <input
                     type="number"
-                    value={formData[field.name] || ''}
-                    onChange={(e) => handleInputChange(field.name, parseInt(e.target.value) || '')}
+                    value={formData[field.name] !== undefined && formData[field.name] !== null ? formData[field.name] : ''}
+                    onChange={(e) => handleInputChange(field.name, e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
                     placeholder={field.placeholder}
                     disabled={field.disabled || loading}
                     className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
