@@ -383,7 +383,7 @@ class DateTimeHelper:
         Get current datetime in Central Time (America/Chicago) as timezone-naive.
 
         WARNING: This should ONLY be used for display purposes, NOT for database storage.
-        All database operations should use now_utc() for consistency.
+        All database operations should use now_default() for consistency.
 
         Returns:
             datetime: Current Central Time without timezone info
@@ -425,7 +425,7 @@ class DateTimeHelper:
 
 
     @staticmethod
-    def now_utc_iso() -> str:
+    def now_default_iso() -> str:
         """
         Get current datetime as ISO format string in configured timezone.
 
