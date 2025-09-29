@@ -202,8 +202,8 @@ async def create_status_mapping(
                 integration_id=mapping_data.integration_id,
                 tenant_id=user.tenant_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
-                last_updated_at=DateTimeHelper.utcnow()
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
             session.add(new_mapping)
@@ -274,8 +274,8 @@ async def create_workflow(
                 integration_id=workflow_data.integration_id,
                 tenant_id=user.tenant_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
-                last_updated_at=DateTimeHelper.utcnow()
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
             session.add(new_workflow)

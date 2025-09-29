@@ -421,8 +421,8 @@ async def create_wit_hierarchy(
                 integration_id=hierarchy_data.integration_id,
                 tenant_id=user.tenant_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
-                last_updated_at=DateTimeHelper.utcnow()
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
             session.add(new_hierarchy)
@@ -491,8 +491,8 @@ async def create_wit_mapping(
                 integration_id=mapping_data.integration_id,
                 tenant_id=user.tenant_id,
                 active=True,
-                created_at=DateTimeHelper.utcnow(),
-                last_updated_at=DateTimeHelper.utcnow()
+                created_at=DateTimeHelper.now_default(),
+                last_updated_at=DateTimeHelper.now_default()
             )
 
             session.add(new_mapping)

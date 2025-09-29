@@ -193,8 +193,8 @@ async def create_project(
             url=project_data.url,
             tenant_id=user.tenant_id,
             active=True,
-            created_at=DateTimeHelper.now_utc(),
-            last_updated_at=DateTimeHelper.now_utc()
+            created_at=DateTimeHelper.now_default(),
+            last_updated_at=DateTimeHelper.now_default()
             # embedding automatically defaults to None in model
         )
         
@@ -239,7 +239,7 @@ async def update_project(
                 setattr(project, field, value)
         
         # Update timestamp
-        project.last_updated_at = DateTimeHelper.now_utc()
+        project.last_updated_at = DateTimeHelper.now_default()
 
         db.commit()
         db.refresh(project)
@@ -276,7 +276,7 @@ async def delete_project(
 
         # Soft delete
         project.active = False
-        project.last_updated_at = DateTimeHelper.now_utc()
+        project.last_updated_at = DateTimeHelper.now_default()
 
         db.commit()
 

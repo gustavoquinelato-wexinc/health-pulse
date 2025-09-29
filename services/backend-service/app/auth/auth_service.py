@@ -315,9 +315,9 @@ class AuthService:
 
             session.add(user_session)
             
-            # Update last login with UTC timestamps
-            user.last_login_at = DateTimeHelper.now_utc()
-            user.last_updated_at = DateTimeHelper.now_utc()
+            # Update last login with configured timezone timestamps
+            user.last_login_at = DateTimeHelper.now_default()
+            user.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
