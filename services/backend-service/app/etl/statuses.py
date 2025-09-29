@@ -66,6 +66,24 @@ class WorkflowCreateRequest(BaseModel):
     integration_id: Optional[int] = None
 
 
+class StatusMappingUpdateRequest(BaseModel):
+    status_from: Optional[str] = None
+    status_to: Optional[str] = None
+    status_category: Optional[str] = None
+    workflow_id: Optional[int] = None
+    integration_id: Optional[int] = None
+    active: Optional[bool] = None
+
+
+class WorkflowUpdateRequest(BaseModel):
+    step_name: Optional[str] = None
+    step_number: Optional[int] = None
+    step_category: Optional[str] = None
+    is_commitment_point: Optional[bool] = None
+    integration_id: Optional[int] = None
+    active: Optional[bool] = None
+
+
 @router.get("/statuses", response_model=List[StatusResponse])
 async def get_statuses(
     user: User = Depends(require_authentication)
@@ -309,4 +327,241 @@ async def create_workflow(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create workflow: {str(e)}"
+        )
+
+
+@router.put("/status-mappings/{mapping_id}", response_model=StatusMappingResponse)
+async def update_status_mapping(
+    mapping_id: int,
+    mapping_data: StatusMappingUpdateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Update a status mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Get the existing mapping
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.tenant_id == user.tenant_id
+            ).first()
+
+            if not mapping:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Status mapping not found"
+                )
+
+            # Update fields if provided
+            if mapping_data.status_from is not None:
+                mapping.status_from = mapping_data.status_from
+            if mapping_data.status_to is not None:
+                mapping.status_to = mapping_data.status_to
+            if mapping_data.status_category is not None:
+                mapping.status_category = mapping_data.status_category
+            if mapping_data.workflow_id is not None:
+                mapping.workflow_id = mapping_data.workflow_id
+            if mapping_data.integration_id is not None:
+                mapping.integration_id = mapping_data.integration_id
+            if mapping_data.active is not None:
+                mapping.active = mapping_data.active
+
+            mapping.last_updated_at = DateTimeHelper.now_default()
+            session.commit()
+
+            # Get workflow and integration info for response
+            workflow = session.query(Workflow).filter(
+                Workflow.id == mapping.workflow_id
+            ).first() if mapping.workflow_id else None
+
+            integration = session.query(Integration).filter(
+                Integration.id == mapping.integration_id
+            ).first() if mapping.integration_id else None
+
+            return StatusMappingResponse(
+                id=mapping.id,
+                status_from=mapping.status_from,
+                status_to=mapping.status_to,
+                status_category=mapping.status_category,
+                workflow_step_name=workflow.step_name if workflow else None,
+                workflow_id=mapping.workflow_id,
+                step_number=workflow.step_number if workflow else None,
+                integration_name=integration.provider if integration else None,
+                integration_id=mapping.integration_id,
+                integration_logo=integration.logo_filename if integration else None,
+                active=mapping.active
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update status mapping: {str(e)}"
+        )
+
+
+@router.put("/workflows/{workflow_id}", response_model=WorkflowResponse)
+async def update_workflow(
+    workflow_id: int,
+    workflow_data: WorkflowUpdateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Update a workflow"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Get the existing workflow
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.tenant_id == user.tenant_id
+            ).first()
+
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found"
+                )
+
+            # Update fields if provided
+            if workflow_data.step_name is not None:
+                workflow.step_name = workflow_data.step_name
+            if workflow_data.step_number is not None:
+                workflow.step_number = workflow_data.step_number
+            if workflow_data.step_category is not None:
+                workflow.step_category = workflow_data.step_category
+            if workflow_data.is_commitment_point is not None:
+                workflow.is_commitment_point = workflow_data.is_commitment_point
+            if workflow_data.integration_id is not None:
+                workflow.integration_id = workflow_data.integration_id
+            if workflow_data.active is not None:
+                workflow.active = workflow_data.active
+
+            workflow.last_updated_at = DateTimeHelper.now_default()
+            session.commit()
+
+            # Get integration info for response
+            integration = session.query(Integration).filter(
+                Integration.id == workflow.integration_id
+            ).first() if workflow.integration_id else None
+
+            return WorkflowResponse(
+                id=workflow.id,
+                step_name=workflow.step_name,
+                step_number=workflow.step_number,
+                step_category=workflow.step_category,
+                is_commitment_point=workflow.is_commitment_point,
+                integration_id=workflow.integration_id,
+                integration_name=integration.provider if integration else None,
+                integration_logo=integration.logo_filename if integration else None,
+                active=workflow.active
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update workflow: {str(e)}"
+        )
+
+
+@router.delete("/status-mappings/{mapping_id}")
+async def delete_status_mapping(
+    mapping_id: int,
+    user: User = Depends(require_authentication)
+):
+    """Delete a status mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the existing mapping
+            mapping = session.query(StatusMapping).filter(
+                StatusMapping.id == mapping_id,
+                StatusMapping.tenant_id == user.tenant_id
+            ).first()
+
+            if not mapping:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Status mapping not found"
+                )
+
+            # Check for dependent statuses
+            dependent_statuses = session.query(Status).filter(
+                Status.status_mapping_id == mapping_id,
+                Status.active == True
+            ).count()
+
+            if dependent_statuses > 0:
+                # Soft delete to preserve referential integrity
+                mapping.active = False
+                from app.core.utils import DateTimeHelper
+                mapping.last_updated_at = DateTimeHelper.now_default()
+                session.commit()
+                return {"message": f"Status mapping deactivated successfully ({dependent_statuses} dependent statuses preserved)"}
+            else:
+                # Hard delete if no dependencies
+                session.delete(mapping)
+                session.commit()
+                return {"message": "Status mapping deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete status mapping: {str(e)}"
+        )
+
+
+@router.delete("/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: int,
+    user: User = Depends(require_authentication)
+):
+    """Delete a workflow"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the existing workflow
+            workflow = session.query(Workflow).filter(
+                Workflow.id == workflow_id,
+                Workflow.tenant_id == user.tenant_id
+            ).first()
+
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Workflow not found"
+                )
+
+            # Check for dependent status mappings
+            dependent_mappings = session.query(StatusMapping).filter(
+                StatusMapping.workflow_id == workflow_id
+            ).count()
+
+            if dependent_mappings > 0:
+                # Soft delete to preserve referential integrity
+                workflow.active = False
+                from app.core.utils import DateTimeHelper
+                workflow.last_updated_at = DateTimeHelper.now_default()
+                session.commit()
+                return {"message": f"Workflow deactivated successfully ({dependent_mappings} dependent status mappings preserved)"}
+            else:
+                # Hard delete if no dependencies
+                session.delete(workflow)
+                session.commit()
+                return {"message": "Workflow deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete workflow: {str(e)}"
         )

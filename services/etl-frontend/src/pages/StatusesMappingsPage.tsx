@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
+import ConfirmationModal from '../components/ConfirmationModal'
 import EditModal from '../components/EditModal'
 import CreateModal from '../components/CreateModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
+import { useConfirmation } from '../hooks/useConfirmation'
 import { statusesApi } from '../services/etlApiService'
 
 interface StatusMapping {
@@ -27,6 +29,7 @@ const StatusesMappingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+  const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
 
   // Filter states
   const [sourceStatusFilter, setSourceStatusFilter] = useState('')
@@ -187,6 +190,31 @@ const StatusesMappingsPage: React.FC = () => {
       console.error('Error creating mapping:', error)
       showError('Create Failed', 'Failed to create status mapping. Please try again.')
     }
+  }
+
+  // Handle delete
+  const handleDelete = async (mappingId: number) => {
+    const mapping = mappings.find(m => m.id === mappingId)
+    if (!mapping) return
+
+    confirmDelete(
+      `${mapping.status_from} → ${mapping.status_to}`,
+      async () => {
+        try {
+          const response = await statusesApi.deleteStatusMapping(mappingId)
+
+          // Remove from local state
+          setMappings(prev => prev.filter(m => m.id !== mappingId))
+
+          // Show success message from backend
+          const message = response.data?.message || 'Status mapping deleted successfully.'
+          showSuccess('Mapping Deleted', message)
+        } catch (error) {
+          console.error('Error deleting mapping:', error)
+          showError('Delete Failed', 'Failed to delete status mapping. Please try again.')
+        }
+      }
+    )
   }
 
   // Filtered mappings based on filter states
@@ -448,6 +476,7 @@ const StatusesMappingsPage: React.FC = () => {
                                     </svg>
                                   </button>
                                   <button
+                                    onClick={() => handleDelete(mapping.id)}
                                     className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-red-500 hover:text-white transition-colors"
                                     title="Delete"
                                   >
@@ -613,6 +642,19 @@ const StatusesMappingsPage: React.FC = () => {
             ]
           }
         ]}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmation.isOpen}
+        onClose={hideConfirmation}
+        onConfirm={confirmation.onConfirm}
+        title={confirmation.title}
+        message={confirmation.message}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        type={confirmation.type}
+        icon={confirmation.icon}
       />
 
       {/* Toast Notifications */}

@@ -173,9 +173,14 @@ const WitsMappingsPage: React.FC = () => {
       `${mapping.wit_from} → ${mapping.wit_to}`,
       async () => {
         try {
-          // TODO: Implement delete functionality
-          console.log(`Delete mapping ${mappingId}`)
-          showWarning('Feature Coming Soon', 'Delete functionality will be implemented soon.')
+          const response = await witsApi.deleteWitMapping(mappingId)
+
+          // Remove from local state
+          setMappings(prev => prev.filter(m => m.id !== mappingId))
+
+          // Show success message from backend
+          const message = response.data?.message || 'Mapping deleted successfully.'
+          showSuccess('Mapping Deleted', message)
         } catch (error) {
           console.error('Error deleting mapping:', error)
           showError('Delete Failed', 'Failed to delete mapping. Please try again.')

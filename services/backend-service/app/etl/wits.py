@@ -70,6 +70,14 @@ class WitMappingCreateRequest(BaseModel):
     integration_id: Optional[int] = None
 
 
+class WitMappingUpdateRequest(BaseModel):
+    wit_from: Optional[str] = None
+    wit_to: Optional[str] = None
+    hierarchy_level: Optional[int] = None
+    integration_id: Optional[int] = None
+    active: Optional[bool] = None
+
+
 @router.get("/wits", response_model=List[WitResponse])
 async def get_wits(
     user: User = Depends(require_authentication)
@@ -517,4 +525,137 @@ async def create_wit_mapping(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create mapping: {str(e)}"
+        )
+
+
+@router.put("/wit-mappings/{mapping_id}", response_model=WitMappingResponse)
+async def update_wit_mapping(
+    mapping_id: int,
+    mapping_data: WitMappingUpdateRequest,
+    user: User = Depends(require_authentication)
+):
+    """Update a work item type mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            from app.core.utils import DateTimeHelper
+
+            # Get the existing mapping
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
+            ).first()
+
+            if not mapping:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Mapping not found"
+                )
+
+            # Update fields if provided
+            if mapping_data.wit_from is not None:
+                mapping.wit_from = mapping_data.wit_from
+            if mapping_data.wit_to is not None:
+                mapping.wit_to = mapping_data.wit_to
+            if mapping_data.integration_id is not None:
+                mapping.integration_id = mapping_data.integration_id
+            if mapping_data.active is not None:
+                mapping.active = mapping_data.active
+
+            # Handle hierarchy level update
+            if mapping_data.hierarchy_level is not None:
+                # Validate hierarchy level exists and is active
+                hierarchy = session.query(WitHierarchy).filter(
+                    WitHierarchy.level_number == mapping_data.hierarchy_level,
+                    WitHierarchy.tenant_id == user.tenant_id,
+                    WitHierarchy.active == True
+                ).first()
+
+                if not hierarchy:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Active hierarchy level {mapping_data.hierarchy_level} not found"
+                    )
+
+                mapping.wits_hierarchy_id = hierarchy.id
+
+            mapping.last_updated_at = DateTimeHelper.now_default()
+            session.commit()
+
+            # Get updated hierarchy and integration info for response
+            hierarchy = session.query(WitHierarchy).filter(
+                WitHierarchy.id == mapping.wits_hierarchy_id
+            ).first()
+
+            integration = session.query(Integration).filter(
+                Integration.id == mapping.integration_id
+            ).first() if mapping.integration_id else None
+
+            return WitMappingResponse(
+                id=mapping.id,
+                wit_from=mapping.wit_from,
+                wit_to=mapping.wit_to,
+                hierarchy_level=hierarchy.level_number if hierarchy else None,
+                integration_id=mapping.integration_id,
+                integration_name=integration.provider if integration else None,
+                integration_logo=integration.logo_filename if integration else None,
+                active=mapping.active
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update mapping: {str(e)}"
+        )
+
+
+@router.delete("/wit-mappings/{mapping_id}")
+async def delete_wit_mapping(
+    mapping_id: int,
+    user: User = Depends(require_authentication)
+):
+    """Delete a work item type mapping"""
+    try:
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the existing mapping
+            mapping = session.query(WitMapping).filter(
+                WitMapping.id == mapping_id,
+                WitMapping.tenant_id == user.tenant_id
+            ).first()
+
+            if not mapping:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Mapping not found"
+                )
+
+            # Check for dependent WITs
+            from app.models.unified_models import Wit
+            dependent_wits = session.query(Wit).filter(
+                Wit.wit_mapping_id == mapping_id,
+                Wit.active == True
+            ).count()
+
+            if dependent_wits > 0:
+                # Soft delete to preserve referential integrity
+                mapping.active = False
+                from app.core.utils import DateTimeHelper
+                mapping.last_updated_at = DateTimeHelper.now_default()
+                session.commit()
+                return {"message": f"Mapping deactivated successfully ({dependent_wits} dependent work items preserved)"}
+            else:
+                # Hard delete if no dependencies
+                session.delete(mapping)
+                session.commit()
+                return {"message": "Mapping deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete mapping: {str(e)}"
         )

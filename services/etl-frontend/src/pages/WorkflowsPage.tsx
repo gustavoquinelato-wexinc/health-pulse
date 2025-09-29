@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
+import ConfirmationModal from '../components/ConfirmationModal'
 import EditModal from '../components/EditModal'
 import CreateModal from '../components/CreateModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
+import { useConfirmation } from '../hooks/useConfirmation'
 import { statusesApi } from '../services/etlApiService'
 
 interface Workflow {
@@ -25,6 +27,7 @@ const WorkflowsPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+  const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
 
   // Edit modal state
   const [editModal, setEditModal] = useState({
@@ -179,6 +182,31 @@ const WorkflowsPage: React.FC = () => {
       console.error('Error creating workflow:', error)
       showError('Create Failed', 'Failed to create workflow. Please try again.')
     }
+  }
+
+  // Handle delete
+  const handleDelete = async (workflowId: number) => {
+    const workflow = workflows.find(w => w.id === workflowId)
+    if (!workflow) return
+
+    confirmDelete(
+      workflow.step_name,
+      async () => {
+        try {
+          const response = await statusesApi.deleteWorkflow(workflowId)
+
+          // Remove from local state
+          setWorkflows(prev => prev.filter(w => w.id !== workflowId))
+
+          // Show success message from backend
+          const message = response.data?.message || 'Workflow deleted successfully.'
+          showSuccess('Workflow Deleted', message)
+        } catch (error) {
+          console.error('Error deleting workflow:', error)
+          showError('Delete Failed', 'Failed to delete workflow. Please try again.')
+        }
+      }
+    )
   }
 
   useEffect(() => {
@@ -420,6 +448,7 @@ const WorkflowsPage: React.FC = () => {
                                     </svg>
                                   </button>
                                   <button
+                                    onClick={() => handleDelete(workflow.id)}
                                     className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-red-500 hover:text-white transition-colors"
                                     title="Delete"
                                   >
@@ -573,6 +602,19 @@ const WorkflowsPage: React.FC = () => {
             ]
           }
         ]}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmation.isOpen}
+        onClose={hideConfirmation}
+        onConfirm={confirmation.onConfirm}
+        title={confirmation.title}
+        message={confirmation.message}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        type={confirmation.type}
+        icon={confirmation.icon}
       />
 
       {/* Toast Notifications */}

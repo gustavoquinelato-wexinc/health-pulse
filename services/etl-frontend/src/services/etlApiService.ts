@@ -65,6 +65,9 @@ export const witsApi = {
   updateWitMapping: async (mappingId: number, data: any) => {
     return await etlApi.put(`/wit-mappings/${mappingId}`, data)
   },
+  deleteWitMapping: async (mappingId: number) => {
+    return await etlApi.delete(`/wit-mappings/${mappingId}`)
+  },
 }
 
 // Status Mappings API
@@ -89,6 +92,12 @@ export const statusesApi = {
   },
   updateWorkflow: async (workflowId: number, data: any) => {
     return await etlApi.put(`/workflows/${workflowId}`, data)
+  },
+  deleteStatusMapping: async (mappingId: number) => {
+    return await etlApi.delete(`/status-mappings/${mappingId}`)
+  },
+  deleteWorkflow: async (workflowId: number) => {
+    return await etlApi.delete(`/workflows/${workflowId}`)
   },
 }
 
