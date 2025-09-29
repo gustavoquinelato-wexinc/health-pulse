@@ -4,6 +4,7 @@ import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import EditModal from '../components/EditModal'
+import CreateModal from '../components/CreateModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
@@ -38,6 +39,11 @@ const WitsMappingsPage: React.FC = () => {
   const [editModal, setEditModal] = useState({
     isOpen: false,
     mapping: null as WitMapping | null
+  })
+
+  // Create modal state
+  const [createModal, setCreateModal] = useState({
+    isOpen: false
   })
 
   // Dependency modal state
@@ -179,9 +185,30 @@ const WitsMappingsPage: React.FC = () => {
   }
 
   const handleCreateMapping = () => {
-    // TODO: Implement create mapping functionality
-    console.log('Create new mapping')
-    showWarning('Feature Coming Soon', 'Create mapping functionality will be implemented soon.')
+    setCreateModal({ isOpen: true })
+  }
+
+  // Handle create save
+  const handleCreateSave = async (formData: Record<string, any>) => {
+    try {
+      const createData = {
+        wit_from: formData.wit_from,
+        wit_to: formData.wit_to,
+        hierarchy_level: parseInt(formData.hierarchy_level),
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      const response = await witsApi.createWitMapping(createData)
+
+      // Add new mapping to local state
+      setMappings(prev => [...prev, response.data])
+
+      showSuccess('Mapping Created', 'The mapping has been created successfully.')
+      setCreateModal({ isOpen: false })
+    } catch (error) {
+      console.error('Error creating mapping:', error)
+      showError('Create Failed', 'Failed to create mapping. Please try again.')
+    }
   }
 
   const handleVectorizationDetails = () => {
@@ -601,6 +628,48 @@ const WitsMappingsPage: React.FC = () => {
           ]}
         />
       )}
+
+      {/* Create Modal */}
+      <CreateModal
+        isOpen={createModal.isOpen}
+        onClose={() => setCreateModal({ isOpen: false })}
+        onSave={handleCreateSave}
+        title="Create Mapping"
+        fields={[
+          {
+            name: 'wit_from',
+            label: 'Source Type',
+            type: 'text',
+            required: true,
+            placeholder: 'Enter source work item type'
+          },
+          {
+            name: 'wit_to',
+            label: 'Target Type',
+            type: 'text',
+            required: true,
+            placeholder: 'Enter target work item type'
+          },
+          {
+            name: 'hierarchy_level',
+            label: 'Hierarchy Level',
+            type: 'number',
+            required: true,
+            placeholder: 'Enter hierarchy level'
+          },
+          {
+            name: 'integration_id',
+            label: 'Integration',
+            type: 'select',
+            options: [
+              { value: '', label: 'No Integration' },
+              // TODO: Load actual integrations
+              { value: '1', label: 'Jira' },
+              { value: '2', label: 'GitHub' }
+            ]
+          }
+        ]}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />

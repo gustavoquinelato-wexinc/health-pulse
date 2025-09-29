@@ -53,8 +53,14 @@ export const witsApi = {
   getWitsHierarchies: async () => {
     return await etlApi.get('/wits-hierarchies')
   },
+  createWitHierarchy: async (data: any) => {
+    return await etlApi.post('/wits-hierarchies', data)
+  },
   updateWitHierarchy: async (hierarchyId: number, data: any) => {
     return await etlApi.put(`/wits-hierarchies/${hierarchyId}`, data)
+  },
+  createWitMapping: async (data: any) => {
+    return await etlApi.post('/wit-mappings', data)
   },
   updateWitMapping: async (mappingId: number, data: any) => {
     return await etlApi.put(`/wit-mappings/${mappingId}`, data)
@@ -72,8 +78,14 @@ export const statusesApi = {
   getWorkflows: async () => {
     return await etlApi.get('/workflows')
   },
+  createStatusMapping: async (data: any) => {
+    return await etlApi.post('/status-mappings', data)
+  },
   updateStatusMapping: async (mappingId: number, data: any) => {
     return await etlApi.put(`/status-mappings/${mappingId}`, data)
+  },
+  createWorkflow: async (data: any) => {
+    return await etlApi.post('/workflows', data)
   },
   updateWorkflow: async (workflowId: number, data: any) => {
     return await etlApi.put(`/workflows/${workflowId}`, data)

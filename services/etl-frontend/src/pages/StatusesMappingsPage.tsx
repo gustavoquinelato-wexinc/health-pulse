@@ -3,6 +3,7 @@ import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
 import EditModal from '../components/EditModal'
+import CreateModal from '../components/CreateModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { statusesApi } from '../services/etlApiService'
@@ -37,6 +38,11 @@ const StatusesMappingsPage: React.FC = () => {
   const [editModal, setEditModal] = useState({
     isOpen: false,
     mapping: null as StatusMapping | null
+  })
+
+  // Create modal state
+  const [createModal, setCreateModal] = useState({
+    isOpen: false
   })
 
   // Dependency modal state
@@ -156,6 +162,30 @@ const StatusesMappingsPage: React.FC = () => {
     } catch (error) {
       console.error('Error updating mapping:', error)
       showError('Update Failed', 'Failed to update status mapping. Please try again.')
+    }
+  }
+
+  // Handle create save
+  const handleCreateSave = async (formData: Record<string, any>) => {
+    try {
+      const createData = {
+        status_from: formData.status_from,
+        status_to: formData.status_to,
+        status_category: formData.status_category,
+        workflow_id: formData.workflow_id ? parseInt(formData.workflow_id) : null,
+        integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
+      }
+
+      const response = await statusesApi.createStatusMapping(createData)
+
+      // Add new mapping to local state
+      setMappings(prev => [...prev, response.data])
+
+      showSuccess('Mapping Created', 'The status mapping has been created successfully.')
+      setCreateModal({ isOpen: false })
+    } catch (error) {
+      console.error('Error creating mapping:', error)
+      showError('Create Failed', 'Failed to create status mapping. Please try again.')
     }
   }
 
@@ -342,7 +372,10 @@ const StatusesMappingsPage: React.FC = () => {
                   <div className="rounded-lg overflow-hidden bg-secondary border border-tertiary/20">
                     <div className="px-6 py-4 border-b border-tertiary/20 bg-tertiary/10 flex justify-between items-center">
                       <h2 className="text-lg font-semibold text-primary">Status Mappings</h2>
-                      <button className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors flex items-center space-x-2">
+                      <button
+                        onClick={() => setCreateModal({ isOpen: true })}
+                        className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors flex items-center space-x-2"
+                      >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M5 12h14"></path>
                           <path d="M12 5v14"></path>
@@ -523,6 +556,64 @@ const StatusesMappingsPage: React.FC = () => {
           ]}
         />
       )}
+
+      {/* Create Modal */}
+      <CreateModal
+        isOpen={createModal.isOpen}
+        onClose={() => setCreateModal({ isOpen: false })}
+        onSave={handleCreateSave}
+        title="Create Status Mapping"
+        fields={[
+          {
+            name: 'status_from',
+            label: 'Source Status',
+            type: 'text',
+            required: true,
+            placeholder: 'Enter source status'
+          },
+          {
+            name: 'status_to',
+            label: 'Target Status',
+            type: 'text',
+            required: true,
+            placeholder: 'Enter target status'
+          },
+          {
+            name: 'status_category',
+            label: 'Status Category',
+            type: 'select',
+            required: true,
+            options: [
+              { value: 'To Do', label: 'To Do' },
+              { value: 'In Progress', label: 'In Progress' },
+              { value: 'Done', label: 'Done' },
+              { value: 'Blocked', label: 'Blocked' }
+            ]
+          },
+          {
+            name: 'workflow_id',
+            label: 'Workflow',
+            type: 'select',
+            options: [
+              { value: '', label: 'No Workflow' },
+              // TODO: Load actual workflows
+              { value: '1', label: 'Development Workflow' },
+              { value: '2', label: 'Support Workflow' }
+            ]
+          },
+          {
+            name: 'integration_id',
+            label: 'Integration',
+            type: 'select',
+            options: [
+              { value: '', label: 'No Integration' },
+              // TODO: Load actual integrations
+              { value: '1', label: 'Jira' },
+              { value: '2', label: 'GitHub' }
+            ]
+          }
+        ]}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
