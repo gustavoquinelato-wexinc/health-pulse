@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ETL Management - Pulse</title>
+    
+    <!-- Preload Inter font for better performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Theme initialization script to prevent flash -->
+    <script>
+      (function() {
+        // Check for existing theme in localStorage
+        let theme = localStorage.getItem('pulse_theme');
+        
+        // If no theme is set, check for authentication token
+        if (!theme) {
+          const token = localStorage.getItem('pulse_token');
+          if (token) {
+            // User is logged in but no theme cached - assume dark
+            theme = 'dark';
+          } else {
+            // No user logged in, use light as default
+            theme = 'light';
+          }
+          localStorage.setItem('pulse_theme', theme);
+        }
+        
+        // Apply theme immediately to prevent flash
+        document.documentElement.setAttribute('data-theme', theme);
+        
+        // Store initial theme for React to pick up
+        window.__INITIAL_THEME__ = theme;
+        
+        // Disable transitions during initial paint
+        document.documentElement.classList.add('no-transitions');
+        
+        // Re-enable transitions after a short delay
+        setTimeout(() => {
+          document.documentElement.classList.remove('no-transitions');
+        }, 100);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

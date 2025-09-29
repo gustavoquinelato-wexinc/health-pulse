@@ -98,7 +98,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip authentication for API routes (they handle their own auth)
-        if path.startswith("/api/") or path.startswith("/auth/"):
+        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/"):
             logger.debug(f"API/Auth route {path} - skipping middleware auth")
             return await call_next(request)
 
@@ -346,6 +346,10 @@ app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", t
 # Include AI Query routes
 from app.api.ai_query_routes import router as ai_query_router
 app.include_router(ai_query_router, prefix="/api/v1", tags=["AI Query Interface"])
+
+# Include ETL routes
+from app.etl.router import router as etl_router
+app.include_router(etl_router, prefix="/app/etl", tags=["ETL Management"])
 
 # Backend Service - API only, no static files or web routes
 

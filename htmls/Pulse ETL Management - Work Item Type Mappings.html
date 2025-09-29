@@ -1,0 +1,2546 @@
+<!DOCTYPE html>
+<!-- saved from url=(0035)http://localhost:8000/wits-mappings -->
+<html lang="en" data-theme="light" data-color-schema="default" style="--color-1: #2862EB; --color-2: #763DED; --color-3: #059669; --color-4: #0EA5E9; --color-5: #F59E0B; --gradient-1-2: linear-gradient(135deg, #2862EB 0%, #763DED 100%); --gradient-2-3: linear-gradient(135deg, #763DED 0%, #059669 100%); --gradient-3-4: linear-gradient(135deg, #059669 0%, #0EA5E9 100%); --gradient-4-5: linear-gradient(135deg, #0EA5E9 0%, #F59E0B 100%); --gradient-5-1: linear-gradient(135deg, #F59E0B 0%, #2862EB 100%); --on-color-1: #FFFFFF; --on-color-2: #FFFFFF; --on-color-3: #FFFFFF; --on-color-4: #FFFFFF; --on-color-5: #FFFFFF; --on-gradient-1-2: #FFFFFF; --on-gradient-2-3: #FFFFFF; --on-gradient-3-4: #FFFFFF; --on-gradient-4-5: #FFFFFF; --on-gradient-5-1: #FFFFFF;"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse ETL Management - Work Item Type Mappings</title>
+    <link rel="icon" type="image/svg+xml" href="http://localhost:8000/static/heart-pulse.svg">
+    <link href="./Pulse ETL Management - Work Item Type Mappings_files/tailwind.min.css" rel="stylesheet">
+    <script src="./Pulse ETL Management - Work Item Type Mappings_files/lucide.js.download"></script>
+    <link href="./Pulse ETL Management - Work Item Type Mappings_files/etl-service.css" rel="stylesheet">
+
+    <!-- Server-side color schema data -->
+    
+    <script type="application/json" id="server-color-schema">{"colors": {"color1": "#2862EB", "color2": "#763DED", "color3": "#059669", "color4": "#0EA5E9", "color5": "#F59E0B"}, "mode": "default", "success": true, "theme": "light"}</script>
+    
+
+    <!-- Load colors immediately to prevent flashing -->
+    <script>
+        // Load colors from URL parameters first, then localStorage, then server-side data
+        (function() {
+            try {
+                // Check if color data was passed via URL parameters (from frontend)
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlColorData = urlParams.get('color_data');
+                const urlTheme = urlParams.get('theme');
+                const urlMode = urlParams.get('mode');
+
+                // If URL has color data, store it in localStorage for future use
+                if (urlColorData) {
+                    try {
+                        const decodedColorData = decodeURIComponent(urlColorData);
+                        localStorage.setItem('pulse_complete_color_data', decodedColorData);
+                        if (urlTheme) localStorage.setItem('pulse_theme', urlTheme);
+                        if (urlMode) localStorage.setItem('pulse_color_schema_mode', urlMode);
+
+
+                        // Clean up URL to remove color data parameters
+                        const cleanUrl = window.location.pathname;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    } catch (e) {
+                        console.warn('Failed to process color data from URL:', e);
+                    }
+                }
+
+                // Now try localStorage complete color data (most up-to-date)
+                const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+                const savedColorSchemaMode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+                const completeColorData = localStorage.getItem('pulse_complete_color_data');
+
+                let colorsApplied = false;
+
+
+
+                if (completeColorData) {
+                    try {
+                        const allColors = JSON.parse(completeColorData);
+
+
+                        const targetColors = allColors.find(function(c) {
+                            return c.color_schema_mode === savedColorSchemaMode &&
+                                   c.theme_mode === savedTheme &&
+                                   c.accessibility_level === 'regular';
+                        });
+
+
+
+                        if (targetColors) {
+                            document.documentElement.setAttribute('data-theme', savedTheme);
+                            document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+
+                            const root = document.documentElement;
+                            root.style.setProperty('--color-1', targetColors.color1);
+                            root.style.setProperty('--color-2', targetColors.color2);
+                            root.style.setProperty('--color-3', targetColors.color3);
+                            root.style.setProperty('--color-4', targetColors.color4);
+                            root.style.setProperty('--color-5', targetColors.color5);
+
+                            // Set gradient variables
+                            root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${targetColors.color1} 0%, ${targetColors.color2} 100%)`);
+                            root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${targetColors.color2} 0%, ${targetColors.color3} 100%)`);
+                            root.style.setProperty('--gradient-3-4', `linear-gradient(135deg, ${targetColors.color3} 0%, ${targetColors.color4} 100%)`);
+                            root.style.setProperty('--gradient-4-5', `linear-gradient(135deg, ${targetColors.color4} 0%, ${targetColors.color5} 100%)`);
+                            root.style.setProperty('--gradient-5-1', `linear-gradient(135deg, ${targetColors.color5} 0%, ${targetColors.color1} 100%)`);
+
+                            // Apply on-colors if available
+                            if (targetColors.on_color1) {
+                                root.style.setProperty('--on-color-1', targetColors.on_color1);
+                                root.style.setProperty('--on-color-2', targetColors.on_color2);
+                                root.style.setProperty('--on-color-3', targetColors.on_color3);
+                                root.style.setProperty('--on-color-4', targetColors.on_color4);
+                                root.style.setProperty('--on-color-5', targetColors.on_color5);
+                            }
+
+                            // Apply gradient on-colors if available
+                            if (targetColors.on_gradient_1_2) {
+                                root.style.setProperty('--on-gradient-1-2', targetColors.on_gradient_1_2);
+                                root.style.setProperty('--on-gradient-2-3', targetColors.on_gradient_2_3);
+                                root.style.setProperty('--on-gradient-3-4', targetColors.on_gradient_3_4);
+                                root.style.setProperty('--on-gradient-4-5', targetColors.on_gradient_4_5);
+                                root.style.setProperty('--on-gradient-5-1', targetColors.on_gradient_5_1);
+                            }
+
+                            colorsApplied = true;
+
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse complete color data from localStorage');
+                    }
+                }
+
+                // Fallback to server-side color schema data if localStorage didn't work
+                if (!colorsApplied) {
+
+                    const serverSchemaElement = document.getElementById('server-color-schema');
+                    if (serverSchemaElement) {
+                    const serverColorSchema = JSON.parse(serverSchemaElement.textContent);
+
+                    const theme = serverColorSchema.theme || 'light';
+                    const colorSchemaMode = serverColorSchema.mode || 'default';
+
+                    document.documentElement.setAttribute('data-theme', theme);
+                    document.documentElement.setAttribute('data-color-schema', colorSchemaMode);
+
+                    // Apply active colors (default or custom) from server; compute on-colors if missing
+                    if (serverColorSchema.colors) {
+                        const colors = serverColorSchema.colors;
+                        const root = document.documentElement;
+                        root.style.setProperty('--color-1', colors.color1);
+                        root.style.setProperty('--color-2', colors.color2);
+                        root.style.setProperty('--color-3', colors.color3);
+                        root.style.setProperty('--color-4', colors.color4);
+                        root.style.setProperty('--color-5', colors.color5);
+
+                        // Helper function to convert hex to RGB values
+                        function hexToRgb(hex) {
+                            try {
+                                const h = hex.replace('#', '');
+                                const r = parseInt(h.slice(0, 2), 16);
+                                const g = parseInt(h.slice(2, 4), 16);
+                                const b = parseInt(h.slice(4, 6), 16);
+                                return r + ', ' + g + ', ' + b;
+                            } catch (e) {
+                                return '0, 0, 0'; // Fallback to black
+                            }
+                        }
+
+                        // Set RGB versions for rgba() usage (needed for job icons and other components)
+                        root.style.setProperty('--color-1-rgb', hexToRgb(colors.color1));
+                        root.style.setProperty('--color-2-rgb', hexToRgb(colors.color2));
+                        root.style.setProperty('--color-3-rgb', hexToRgb(colors.color3));
+                        root.style.setProperty('--color-4-rgb', hexToRgb(colors.color4));
+                        root.style.setProperty('--color-5-rgb', hexToRgb(colors.color5));
+
+                        // Set gradient variables
+                        root.style.setProperty('--gradient-1-2', `linear-gradient(135deg, ${colors.color1} 0%, ${colors.color2} 100%)`);
+                        root.style.setProperty('--gradient-2-3', `linear-gradient(135deg, ${colors.color2} 0%, ${colors.color3} 100%)`);
+                        root.style.setProperty('--gradient-3-4', `linear-gradient(135deg, ${colors.color3} 0%, ${colors.color4} 100%)`);
+                        root.style.setProperty('--gradient-4-5', `linear-gradient(135deg, ${colors.color4} 0%, ${colors.color5} 100%)`);
+                        root.style.setProperty('--gradient-5-1', `linear-gradient(135deg, ${colors.color5} 0%, ${colors.color1} 100%)`);
+
+                        // Apply on-colors if provided; compute fallback if missing
+                        const on = serverColorSchema.on_colors || {};
+                        const onGrad = serverColorSchema.on_gradients || {};
+                        const pickOn = (hex) => {
+                            try {
+                                const h = hex.replace('#','');
+                                const r = parseInt(h.slice(0,2), 16) / 255;
+                                const g = parseInt(h.slice(2,4), 16) / 255;
+                                const b = parseInt(h.slice(4,6), 16) / 255;
+                                const lin = (c) => (c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4));
+                                const L = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+                                const contrast = (Lbg, Lfg) => (Math.max(Lbg, Lfg) + 0.05) / (Math.min(Lbg, Lfg) + 0.05);
+                                const cBlack = contrast(L, 0);
+                                const cWhite = contrast(L, 1);
+                                return cWhite >= cBlack ? '#FFFFFF' : '#000000';
+                            } catch { return '#000000'; }
+                        };
+                        const pairOn = (a, b) => {
+                            const onA = pickOn(a), onB = pickOn(b);
+                            return onA === onB ? onA : '#FFFFFF';
+                        };
+                        root.style.setProperty('--on-color-1', on.color1 || pickOn(colors.color1));
+                        root.style.setProperty('--on-color-2', on.color2 || pickOn(colors.color2));
+                        root.style.setProperty('--on-color-3', on.color3 || pickOn(colors.color3));
+                        root.style.setProperty('--on-color-4', on.color4 || pickOn(colors.color4));
+                        root.style.setProperty('--on-color-5', on.color5 || pickOn(colors.color5));
+                        root.style.setProperty('--on-gradient-1-2', onGrad['1-2'] || pairOn(colors.color1, colors.color2));
+                        root.style.setProperty('--on-gradient-2-3', onGrad['2-3'] || pairOn(colors.color2, colors.color3));
+                        root.style.setProperty('--on-gradient-3-4', onGrad['3-4'] || pairOn(colors.color3, colors.color4));
+                        root.style.setProperty('--on-gradient-4-5', onGrad['4-5'] || pairOn(colors.color4, colors.color5));
+                    }
+                } else {
+                    // No server-side data available, set basic theme attributes
+                    document.documentElement.setAttribute('data-theme', savedTheme);
+                    document.documentElement.setAttribute('data-color-schema', savedColorSchemaMode);
+
+                }
+                }
+            } catch (error) {
+                console.error('Error loading color schema:', error);
+                // Fallback to saved theme or light theme if anything goes wrong
+                const savedTheme = localStorage.getItem('pulse_theme') || 'light';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                document.documentElement.setAttribute('data-color-schema', 'default');
+            }
+        })();
+    </script>
+
+    
+<script src="./Pulse ETL Management - Work Item Type Mappings_files/vectorization-card.js.download"></script>
+<style>
+    /* Action button styles matching home page job buttons exactly */
+    .job-action-btn {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 6px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+    }
+
+    .job-action-btn:hover {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    /* Light mode specific hover - use dark text for visibility */
+    [data-theme="light"] .job-action-btn:hover {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border-color: var(--border-color);
+    }
+
+    [data-theme="light"] .job-action-btn:hover i {
+        color: var(--text-primary);
+    }
+
+    .job-action-btn:disabled,
+    .job-action-btn.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+    /* Toggle Switch Styles - Using Home Page Style (defined in main CSS) */
+</style>
+
+</head>
+<body style="background-color: var(--bg-primary);" data-page="wits">
+    <div class="min-h-screen" style="background-color: var(--bg-primary);">
+        
+        <!-- Header - Full Width at Top -->
+        
+        
+<header class="modern-header header-enhanced flex items-center justify-between px-6">
+    <!-- Logo and Title -->
+    <div class="flex items-center space-x-4">
+        <!-- Tenant Logo -->
+        <div class="h-8">
+            
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/logo.png" alt=" Logo" class="h-full object-contain">
+            
+        </div>
+
+        <!-- Divider -->
+        <div class="h-6 w-px" style="background-color: var(--border-color);"></div>
+
+        <!-- Pulse Brand -->
+        <div class="flex items-center space-x-2">
+            <div class="w-12 h-8 flex items-center justify-center" style="background: var(--gradient-1-2);">
+                <span class="text-xs font-bold" style="color: var(--on-gradient-1-2)">PEM</span>
+            </div>
+            <div>
+                <h1 class="text-lg font-semibold" style="color: var(--text-primary);">PULSE ETL MANAGEMENT</h1>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Side Actions -->
+    <div class="flex items-center space-x-4">
+        <!-- Pulse Icon -->
+        <a id="pulse-link" href="http://localhost:3000/home?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJlbWFpbCI6Imd1c3Rhdm8ucXVpbmVsYXRvQHdleGluYy5jb20iLCJyb2xlIjoiYWRtaW4iLCJpc19hZG1pbiI6dHJ1ZSwidGVuYW50X2lkIjoxLCJleHAiOjE3NTkxNDk0MjMsImlhdCI6MTc1OTA2MzAyMywiaXNzIjoicHVsc2UtYXV0aC1zZXJ2aWNlIn0.-kLnsmjMpDpZcuLk75pdp7_1hbcnN56lszlZjHTAuO8" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg nav-item transition-colors inline-block" style="background-color: var(--bg-tertiary);" title="Pulse" onmouseover="this.style.backgroundColor=&#39;var(--bg-primary)&#39;" onmouseout="this.style.backgroundColor=&#39;var(--bg-tertiary)&#39;">
+            <img src="./Pulse ETL Management - Work Item Type Mappings_files/heart-pulse-fill-svgrepo-com.svg" alt="Pulse" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%);">
+        </a>
+
+        
+        <!-- Theme Toggle -->
+        <button onclick="toggleTheme()" class="p-2 rounded-lg nav-item transition-colors" style="background-color: var(--bg-tertiary);" title="Toggle Theme" onmouseover="this.style.backgroundColor=&#39;var(--bg-primary)&#39;" onmouseout="this.style.backgroundColor=&#39;var(--bg-tertiary)&#39;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="moon" id="theme-icon" class="lucide lucide-moon w-5 h-5"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path></svg>
+        </button>
+        
+
+        
+        <!-- User Menu -->
+        <div class="relative">
+            <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 nav-item transition-colors" style="background-color: var(--bg-tertiary); border-radius: 0.5rem;" onmouseover="this.style.backgroundColor=&#39;var(--bg-primary)&#39;" onmouseout="this.style.backgroundColor=&#39;var(--bg-tertiary)&#39;">
+                <div class="w-8 h-8 flex items-center justify-center" style="background: linear-gradient(135deg, var(--color-3), var(--color-4)); border-radius: 9999px;">
+                    <span class="text-sm font-medium" id="user-initials" style="color: var(--on-gradient-3-4);">GQ</span>
+                </div>
+                <span class="text-sm font-medium hidden md:block" style="color: var(--text-primary);" id="user-name">Gustavo Quinelato</span>
+            </button>
+
+            <!-- User Dropdown -->
+            <div id="user-menu" class="hidden absolute right-0 mt-2 w-64 p-2 space-y-1 shadow-lg z-50" style="border: 1px solid var(--border-color); background-color: var(--bg-secondary); border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); top: 100%; right: 0;">
+                <div class="px-3 py-2" style="border-bottom: 1px solid var(--border-color);">
+                    <p class="text-sm font-medium" style="color: var(--text-primary);" id="user-name-display">Gustavo Quinelato</p>
+                    <p class="text-xs" style="color: var(--text-muted);" id="user-email-display">gustavo.quinelato@wexinc.com</p>
+                    <p class="text-xs" style="color: var(--text-muted);" id="user-role-display">admin</p>
+                </div>
+                <button class="w-full text-left px-3 py-2 text-sm rounded-md transition-colors" style="color: var(--text-secondary);" onmouseover="this.style.backgroundColor=&#39;var(--bg-tertiary)&#39;" onmouseout="this.style.backgroundColor=&#39;transparent&#39;">
+                    Profile Settings
+                </button>
+                <button class="w-full text-left px-3 py-2 text-sm rounded-md transition-colors" style="color: var(--text-secondary);" onmouseover="this.style.backgroundColor=&#39;var(--bg-tertiary)&#39;" onmouseout="this.style.backgroundColor=&#39;transparent&#39;">
+                    Preferences
+                </button>
+                <hr style="border-color: var(--border-color);">
+                <button onclick="logout()" class="w-full text-left px-3 py-2 text-sm rounded-md transition-colors" style="color: var(--status-error);" onmouseover="this.style.backgroundColor=&#39;rgba(var(--status-error-rgb), 0.1)&#39;" onmouseout="this.style.backgroundColor=&#39;transparent&#39;">
+                    Sign Out
+                </button>
+            </div>
+        </div>
+        
+    </div>
+</header>
+
+        
+
+        <!-- Content Area Below Header -->
+        <div class="flex">
+            
+            <!-- Sidebar - Fixed Position Below Header -->
+            
+            
+<aside class="modern-sidebar sidebar-container">
+    <!-- Main Navigation -->
+    <div class="flex-1 flex flex-col justify-center px-2">
+        <div class="flex flex-col space-y-3">
+        <!-- Home with Hover Submenu -->
+        <div class="relative" id="home-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto text-secondary hover:bg-tertiary hover:text-primary" href="http://localhost:8000/home" tabindex="0" onmouseenter="showSubmenu(event, &#39;home&#39;)" onmouseleave="hideSubmenu()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="home" class="lucide lucide-home w-5 h-5"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+            </a>
+        </div>
+
+        <!-- Work Item Types with Hover Submenu -->
+        <div class="relative" id="wits-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto nav-item-active" href="http://localhost:8000/wits-hierarchies" tabindex="0" onmouseenter="showSubmenu(event, &#39;wits&#39;)" onmouseleave="hideSubmenu()" style="background: var(--gradient-1-2); color: var(--on-gradient-1-2);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="list" class="lucide lucide-list w-5 h-5"><path d="M3 5h.01"></path><path d="M3 12h.01"></path><path d="M3 19h.01"></path><path d="M8 5h13"></path><path d="M8 12h13"></path><path d="M8 19h13"></path></svg>
+            </a>
+        </div>
+
+        <!-- Statuses with Hover Submenu -->
+        <div class="relative" id="statuses-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto text-secondary hover:bg-tertiary hover:text-primary" href="http://localhost:8000/statuses-mappings" tabindex="0" onmouseenter="showSubmenu(event, &#39;statuses&#39;)" onmouseleave="hideSubmenu()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="refresh-cw" class="lucide lucide-refresh-cw w-5 h-5"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
+            </a>
+        </div>
+
+        <!-- Integrations -->
+        <div class="relative" id="integrations-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto text-secondary hover:bg-tertiary hover:text-primary" href="http://localhost:8000/integrations" tabindex="0" onmouseenter="showSubmenu(event, &#39;integrations&#39;)" onmouseleave="hideSubmenu()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="plug" class="lucide lucide-plug w-5 h-5"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path></svg>
+            </a>
+        </div>
+
+        <!-- Qdrant Database -->
+        <div class="relative" id="qdrant-menu">
+            <a class="sidebar-nav-item sidebar-nav-item-with-submenu nav-item w-12 h-12 flex items-center justify-center mx-auto text-secondary hover:bg-tertiary hover:text-primary" href="http://localhost:8000/qdrant" tabindex="0" onmouseenter="showSubmenu(event, &#39;qdrant&#39;)" onmouseleave="hideSubmenu()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="database" class="lucide lucide-database w-5 h-5"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+            </a>
+        </div>
+
+
+        </div>
+    </div>
+
+
+</aside>
+
+<!-- Sidebar Submenu Panels -->
+<div id="submenu-home" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden" onmouseenter="keepSubmenuOpen()" onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Home
+    </div>
+</div>
+
+<div id="submenu-integrations" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden" onmouseenter="keepSubmenuOpen()" onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Integrations
+    </div>
+</div>
+
+
+
+<div id="submenu-wits" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden" onmouseenter="keepSubmenuOpen()" onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Work Item Types
+    </div>
+    <a href="http://localhost:8000/wits-hierarchies" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="layers" class="lucide lucide-layers w-4 h-4 mr-2"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"></path><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"></path><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"></path></svg>
+        Hierarchies
+    </a>
+    <a href="http://localhost:8000/wits-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 text-white shadow-sm" style="background: var(--gradient-1-2);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="network" class="lucide lucide-network w-4 h-4 mr-2"><rect x="16" y="16" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="9" y="2" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path></svg>
+        Mappings
+    </a>
+</div>
+
+<div id="submenu-statuses" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden" onmouseenter="keepSubmenuOpen()" onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium border-b" style="color: var(--text-primary); border-color: var(--border-color);">
+        Statuses
+    </div>
+    <a href="http://localhost:8000/statuses-mappings" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-left-right" class="lucide lucide-arrow-left-right w-4 h-4 mr-2"><path d="M8 3 4 7l4 4"></path><path d="M4 7h16"></path><path d="m16 21 4-4-4-4"></path><path d="M20 17H4"></path></svg>
+        Mappings
+    </a>
+    <a href="http://localhost:8000/workflows" class="submenu-item flex items-center px-3 py-2 text-sm cursor-pointer transition-all duration-200 hover:bg-tertiary hover:text-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="workflow" class="lucide lucide-workflow w-4 h-4 mr-2"><rect width="8" height="8" x="3" y="3" rx="2"></rect><path d="M7 11v4a2 2 0 0 0 2 2h4"></path><rect width="8" height="8" x="13" y="13" rx="2"></rect></svg>
+        Workflows
+    </a>
+</div>
+
+<div id="submenu-qdrant" class="submenu-panel fixed z-50 rounded-lg py-2 min-w-48 hidden" onmouseenter="keepSubmenuOpen()" onmouseleave="hideSubmenu()">
+    <div class="px-3 py-2 text-sm font-medium" style="color: var(--text-primary);">
+        Qdrant Database
+    </div>
+</div>
+
+
+            
+
+            <!-- Main Content - Conditional margin for sidebar -->
+            <main class="flex-1 p-6 ml-16">
+                
+
+<!-- Page Header -->
+<div class="mb-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-3xl font-bold" style="color: var(--text-primary);">
+                Work Item Type Mappings
+            </h1>
+            <p class="text-lg" style="color: var(--text-secondary);">Manage work item type mappings between integrations</p>
+        </div>
+    </div>
+</div>
+
+
+<!-- Vectorization Card -->
+<div id="vectorization-card-container">
+            <div class="vectorization-card bg-white rounded-lg shadow-sm border p-4 mb-6" style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="vectorization-icon">
+                            <svg class="w-5 h-5" style="color: var(--text-secondary);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium" style="color: var(--text-primary);">
+                                Vectorize WITs Mappings
+                            </h3>
+                            <p class="text-xs vectorization-status" style="color: var(--text-secondary);">28 items • 0 vectorized</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <button class="details-btn px-3 py-1.5 text-xs rounded-md border" style="border-color: var(--border-color); color: var(--text-secondary); background-color: var(--bg-primary);">
+                            Details
+                        </button>
+                        <button class="execute-btn px-3 py-1.5 text-xs rounded-md text-white" style="background-color: #3b82f6;">
+                            Execute
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Progress Bar (hidden by default) -->
+                <div class="progress-container mt-3 hidden">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs progress-text" style="color: var(--text-secondary);">Processing...</span>
+                        <span class="text-xs progress-percentage" style="color: var(--text-secondary);">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2" style="background-color: var(--bg-tertiary);">
+                        <div class="progress-bar bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="text-xs mt-1 current-item" style="color: var(--text-tertiary);"></div>
+                </div>
+            </div>
+        </div>
+
+<!-- Filters Section -->
+<div class="mb-6 p-4 rounded-lg" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- Source Type Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Source Type</label>
+            <input type="text" id="filterSourceType" placeholder="Filter by source type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- Target Type Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Target Type</label>
+            <input type="text" id="filterTargetType" placeholder="Filter by target type..." class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" oninput="applyFilters()">
+        </div>
+
+        <!-- Integration Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+            <select id="filterIntegration" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()"><option value="">All Integrations</option><option value="GitHub">GitHub</option><option value="Jira">Jira</option></select>
+        </div>
+
+        <!-- Status Filter -->
+        <div>
+            <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Status</label>
+            <select id="filterStatus" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Work Item Type Mappings Table -->
+<div class="rounded-lg overflow-hidden" style="background-color: var(--bg-secondary); border: 1px solid var(--border-color);">
+    <div class="px-6 py-4 border-b flex justify-between items-center" style="border-color: var(--border-color); background-color: var(--bg-tertiary);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Work Item Type Mappings</h2>
+        <button onclick="showCreateModal()" class="btn-crud-create">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="plus" class="lucide lucide-plus w-4 h-4 mr-2"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Create Mapping
+        </button>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead style="background-color: var(--bg-tertiary);">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">From</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">To</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Hierarchy Level</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Integration</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Active</th>
+                    <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style="color: var(--text-secondary);">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="mappingsTableBody" style="background-color: var(--bg-secondary);"><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Capital Investment</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Capital Investment</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">4</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(1)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(1)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(1)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Product Objective</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Product Objective</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">3</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(2)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(2)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(2)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Milestone</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Milestone</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">2</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(3)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(3)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(3)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Epic</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Epic</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(4)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(4)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(4)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Feature</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Epic</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(5)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(5)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(5)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Bug</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Bug</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(21)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(21)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(21)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Devops Story</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(8)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(8)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(8)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Educational Services</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(17)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(17)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(17)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Impediment</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(18)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(18)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(18)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Incident</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Incident</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(23)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(23)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(23)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Performance</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(10)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(10)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(10)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Requirement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(19)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(19)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(19)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Security Remediation</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(11)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(11)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(11)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Shared Parameter</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(20)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(20)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(20)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Shared Steps</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(16)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(16)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(16)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Spike</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Spike</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(24)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(24)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(24)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Story</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Story</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(7)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(7)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(7)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(13)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(13)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(13)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Debt</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(9)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(9)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(9)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Tech Enhancement</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(12)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(12)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(12)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">UAT</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(14)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(14)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(14)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Unparented Tasks</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(15)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(15)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(15)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">User Story</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Story</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(6)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(6)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(6)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Work item</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Incident</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">0</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(22)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(22)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(22)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Approval</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Approval</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">-1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(28)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(28)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(28)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Defect</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Defect</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">-1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(25)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(25)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(25)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Sprint Work item</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Defect</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">-1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(26)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(26)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(26)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr><tr class="border-b hover:bg-gray-50" style="border-color: var(--border-color);">
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Sub-task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">Sub-task</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">-1</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center"><div class="flex items-center justify-center">
+                <img src="./Pulse ETL Management - Work Item Type Mappings_files/jira.svg" alt="Jira" class="h-6 w-auto max-w-16 object-contain" onerror="this.style.display=&#39;none&#39;; this.nextElementSibling.style.display=&#39;inline&#39;;">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">Jira</span>
+            </div></td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(27)">
+                    <div class="toggle-switch active">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">On</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(27)" class="job-action-btn" title="Edit">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="edit" class="lucide lucide-edit w-4 h-4"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path></svg>
+                    </button>
+                    <button onclick="deleteMapping(27)" class="job-action-btn" title="Delete">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="trash-2" class="lucide lucide-trash-2 w-4 h-4"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                </div>
+            </td>
+        </tr></tbody>
+        </table>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="p-8 text-center" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="loader-2" class="lucide lucide-loader-2 w-8 h-8 mb-2 animate-spin mx-auto" style="color: var(--crud-edit);"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+        <p class="text-sm" style="color: var(--text-secondary);">Loading work item type mappings...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="p-8 text-center hidden" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="network" class="lucide lucide-network w-16 h-16 mb-4 mx-auto" style="color: var(--text-muted);"><rect x="16" y="16" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="9" y="2" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path></svg>
+        <h3 class="text-lg font-medium mb-2" style="color: var(--text-primary);">No Work Item Type Mappings Found</h3>
+        <p class="text-sm" style="color: var(--text-secondary);">Use the Create Mapping button above to get started.</p>
+    </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div id="mappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 id="modalTitle" class="text-xl font-semibold text-primary">Create Work Item Type Mapping</h3>
+            <button onclick="closeModal(&#39;mappingModal&#39;)" class="text-muted hover:text-primary transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="x" class="lucide lucide-x w-5 h-5"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-6">
+            <form id="mappingForm">
+                <input type="hidden" id="mappingId" name="id">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">From</label>
+                        <input type="text" id="externalType" name="external_type" required="" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">To</label>
+                        <input type="text" id="internalType" name="internal_type_id" required="" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Hierarchy Level</label>
+                        <select id="hierarchyLevel" name="hierarchy_level" required="" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"><option value="">Select Hierarchy Level</option><option value="4">Level 4 - Capital Investment</option><option value="3">Level 3 - Product Objective</option><option value="2">Level 2 - Milestone</option><option value="1">Level 1 - Epic</option><option value="0">Level 0 - Story</option><option value="-1">Level -1 - Sub-task</option></select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Integration</label>
+                        <select id="integration" name="integration_id" required="" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);"><option value="">Select Integration</option><option value="2">GitHub</option><option value="1">Jira</option></select>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <div class="job-toggle-switch" onclick="toggleModalActive()" style="justify-content: flex-start;">
+                        <div class="toggle-switch active" id="modalToggleSwitch">
+                            <div class="toggle-slider"></div>
+                        </div>
+                        <span class="toggle-label" id="modalToggleLabel">On</span>
+                    </div>
+                    <input type="hidden" id="active" name="active" value="true">
+                </div>
+            </form>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal(&#39;mappingModal&#39;)" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="saveMapping()" class="btn-crud-create">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Pause Mapping Modal -->
+<div id="pauseMappingModal" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm items-center justify-center z-50 hidden">
+    <div class="modal-content max-w-lg w-full mx-4">
+        <div class="flex items-center justify-between p-6 border-b border-default">
+            <h3 class="text-xl font-semibold text-primary">Inactivate Work Item Type Mapping</h3>
+            <button onclick="closeModal(&#39;pauseMappingModal&#39;)" class="text-muted hover:text-primary transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="x" class="lucide lucide-x w-5 h-5"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4">
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    You are about to inactivate the mapping: <strong id="pauseMappingName" style="color: var(--text-primary);"></strong>
+                </p>
+                <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                    This mapping has dependencies. You can optionally reassign them to another mapping, or leave empty to keep all associated records.
+                </p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2" style="color: var(--text-primary);">Move to Mapping (Optional)</label>
+                <select id="moveToMapping" class="w-full px-3 py-2 border rounded-lg" style="border-color: var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">Keep existing associations</option>
+                    <!-- Options will be loaded dynamically -->
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end space-x-3 p-6 border-t border-default">
+            <button type="button" onclick="closeModal(&#39;pauseMappingModal&#39;)" class="btn-neutral-secondary">Cancel</button>
+            <button type="button" onclick="confirmPauseMapping()" class="btn-crud-delete">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="x-circle" class="lucide lucide-x-circle w-4 h-4 mr-2"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>Inactivate
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Fix dropdown option text color */
+select option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-primary) !important;
+}
+</style>
+
+<script>
+let mappings = [];
+let integrations = [];
+let hierarchies = [];
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadMappings();
+    loadIntegrations();
+    loadHierarchies();
+
+    // Initialize vectorization card
+    initializeVectorizationCard();
+});
+
+// Initialize vectorization card
+function initializeVectorizationCard() {
+    const vectorizationCard = new VectorizationCard({
+        tableName: 'wits_mappings',
+        displayName: 'WITs Mappings',
+        containerId: 'vectorization-card-container',
+        apiBaseUrl: 'http://localhost:3001/api/v1/vectorization'
+    });
+}
+
+async function loadMappings() {
+    try {
+        // Show loading state
+        document.getElementById('loadingState').style.display = 'block';
+        document.getElementById('emptyState').style.display = 'none';
+
+        const response = await fetch('/api/v1/admin/wit-mappings', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            mappings = await response.json();
+            renderMappingsTable();
+        } else {
+            showError('Failed to load mappings');
+        }
+    } catch (error) {
+        console.error('Error loading mappings:', error);
+        showError('Error loading mappings');
+    } finally {
+        // Hide loading state
+        document.getElementById('loadingState').style.display = 'none';
+    }
+}
+
+async function loadIntegrations() {
+    try {
+        const response = await fetch('/api/v1/admin/integrations', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            integrations = await response.json();
+            populateIntegrationSelect();
+            populateIntegrationFilter();
+        } else {
+            showError('Failed to load integrations');
+        }
+    } catch (error) {
+        console.error('Error loading integrations:', error);
+        showError('Error loading integrations');
+    }
+}
+
+
+
+async function loadHierarchies() {
+    try {
+        const response = await fetch('/api/v1/admin/wits-hierarchies', {
+            credentials: 'include'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            hierarchies = data.hierarchies || [];
+            populateHierarchySelect();
+        } else {
+            showError('Failed to load hierarchies');
+        }
+    } catch (error) {
+        console.error('Error loading hierarchies:', error);
+        showError('Error loading hierarchies');
+    }
+}
+
+function populateIntegrationSelect() {
+    const select = document.getElementById('integration');
+    select.innerHTML = '<option value="">Select Integration</option>';
+
+    // Filter to only show active Data type integrations
+    const dataIntegrations = integrations.filter(integration =>
+        integration.active && integration.integration_type === 'Data'
+    );
+
+    dataIntegrations.forEach(integration => {
+        const option = new Option(integration.name || integration.provider || `Integration ${integration.id}`, integration.id);
+        select.add(option);
+    });
+}
+
+function populateIntegrationFilter() {
+    const filterSelect = document.getElementById('filterIntegration');
+
+    // Clear existing options (except first)
+    filterSelect.innerHTML = '<option value="">All Integrations</option>';
+
+    // Filter to only show active Data type integrations
+    const dataIntegrations = integrations.filter(integration =>
+        integration.active && integration.integration_type === 'Data'
+    );
+
+    dataIntegrations.forEach(integration => {
+        const option = new Option(integration.name || integration.provider || `Integration ${integration.id}`, integration.name || integration.provider);
+        filterSelect.add(option);
+    });
+}
+
+
+
+function populateHierarchySelect() {
+    const select = document.getElementById('hierarchyLevel');
+    select.innerHTML = '<option value="">Select Hierarchy Level</option>';
+
+    hierarchies.forEach(hierarchy => {
+        const option = new Option(`Level ${hierarchy.level_number} - ${hierarchy.level_name}`, hierarchy.level_number);
+        select.add(option);
+    });
+}
+
+function renderMappingsTable() {
+    const tbody = document.getElementById('mappingsTableBody');
+    tbody.innerHTML = '';
+
+    if (mappings.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        return;
+    } else {
+        document.getElementById('emptyState').style.display = 'none';
+    }
+
+    mappings.forEach(mapping => {
+        const row = document.createElement('tr');
+        row.className = 'border-b hover:bg-gray-50';
+        row.style.borderColor = 'var(--border-color)';
+
+        // Construct integration logo display
+        const tenantName = 'wex' || 'wex';
+        const hasLogo = mapping.integration_logo && mapping.integration_logo.trim() !== '';
+        const logoPath = hasLogo ? `/static/assets/${tenantName}/integrations/${mapping.integration_logo}` : null;
+
+        const integrationDisplay = logoPath ?
+            `<div class="flex items-center justify-center">
+                <img src="${logoPath}" alt="${mapping.integration_name || 'Integration'}" class="h-6 w-auto max-w-16 object-contain"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';">
+                <span class="text-sm" style="color: var(--text-primary); display: none;">${mapping.integration_name || 'N/A'}</span>
+            </div>` :
+            `<span class="text-sm" style="color: var(--text-primary);">${mapping.integration_name || 'N/A'}</span>`;
+
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_from || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm" style="color: var(--text-primary);">${mapping.wit_to || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-center" style="color: var(--text-primary);">${mapping.hierarchy_level !== null && mapping.hierarchy_level !== undefined ? mapping.hierarchy_level : 0}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">${integrationDisplay}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <div class="job-toggle-switch" onclick="toggleMapping(${mapping.id})">
+                    <div class="toggle-switch ${mapping.active ? 'active' : ''}">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <span class="toggle-label">${mapping.active ? 'On' : 'Off'}</span>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                <div class="flex justify-center space-x-1">
+                    <button onclick="editMapping(${mapping.id})" class="job-action-btn" title="Edit">
+                        <i data-lucide="edit" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="deleteMapping(${mapping.id})" class="job-action-btn" title="Delete">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    // Re-initialize Lucide icons after table rendering
+    refreshLucideIcons();
+}
+
+function applyFilters() {
+    const sourceTypeFilter = document.getElementById('filterSourceType').value.toLowerCase();
+    const targetTypeFilter = document.getElementById('filterTargetType').value.toLowerCase();
+    const integrationFilter = document.getElementById('filterIntegration').value.toLowerCase();
+    const statusFilter = document.getElementById('filterStatus').value;
+
+    const filteredMappings = mappings.filter(mapping => {
+        // Source type filter
+        if (sourceTypeFilter && !mapping.source_type_name.toLowerCase().includes(sourceTypeFilter)) {
+            return false;
+        }
+
+        // Target type filter
+        if (targetTypeFilter && !mapping.target_type_name.toLowerCase().includes(targetTypeFilter)) {
+            return false;
+        }
+
+        // Integration filter
+        if (integrationFilter && (!mapping.integration_name || mapping.integration_name.toLowerCase() !== integrationFilter)) {
+            return false;
+        }
+
+        // Status filter
+        if (statusFilter) {
+            const isActive = mapping.active;
+            if (statusFilter === 'active' && !isActive) return false;
+            if (statusFilter === 'inactive' && isActive) return false;
+        }
+
+        return true;
+    });
+
+    renderMappingsTable(filteredMappings);
+}
+
+function toggleMapping(id) {
+    const mapping = mappings.find(m => m.id === id);
+    if (mapping) {
+        const newActiveState = !mapping.active;
+        toggleMappingActive(id, newActiveState, mapping.source_type_name + ' → ' + mapping.target_type_name);
+    }
+}
+
+function toggleModalActive() {
+    const toggleSwitch = document.getElementById('modalToggleSwitch');
+    const toggleLabel = document.getElementById('modalToggleLabel');
+    const hiddenInput = document.getElementById('active');
+
+    const isActive = toggleSwitch.classList.contains('active');
+
+    if (isActive) {
+        toggleSwitch.classList.remove('active');
+        toggleLabel.textContent = 'Off';
+        hiddenInput.value = 'false';
+    } else {
+        toggleSwitch.classList.add('active');
+        toggleLabel.textContent = 'On';
+        hiddenInput.value = 'true';
+    }
+}
+
+function showCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Create Work Item Type Mapping';
+    document.getElementById('mappingForm').reset();
+    document.getElementById('mappingId').value = '';
+
+    // Reset toggle to active state
+    const toggleSwitch = document.getElementById('modalToggleSwitch');
+    const toggleLabel = document.getElementById('modalToggleLabel');
+    const hiddenInput = document.getElementById('active');
+    toggleSwitch.classList.add('active');
+    toggleLabel.textContent = 'On';
+    hiddenInput.value = 'true';
+
+    openModal('mappingModal');
+}
+
+function editMapping(id) {
+    const mapping = mappings.find(m => m.id === id);
+    if (mapping) {
+        document.getElementById('modalTitle').textContent = 'Edit Work Item Type Mapping';
+        document.getElementById('mappingId').value = mapping.id;
+        document.getElementById('integration').value = mapping.integration_id || '';
+        document.getElementById('externalType').value = mapping.wit_from || '';
+        document.getElementById('internalType').value = mapping.wit_to || '';
+        document.getElementById('hierarchyLevel').value = mapping.hierarchy_level || '';
+
+        // Set toggle state based on mapping.active
+        const toggleSwitch = document.getElementById('modalToggleSwitch');
+        const toggleLabel = document.getElementById('modalToggleLabel');
+        const hiddenInput = document.getElementById('active');
+
+        if (mapping.active) {
+            toggleSwitch.classList.add('active');
+            toggleLabel.textContent = 'On';
+            hiddenInput.value = 'true';
+        } else {
+            toggleSwitch.classList.remove('active');
+            toggleLabel.textContent = 'Off';
+            hiddenInput.value = 'false';
+        }
+
+        openModal('mappingModal');
+    }
+}
+
+async function saveMapping() {
+    const form = document.getElementById('mappingForm');
+    const formData = new FormData(form);
+    const id = formData.get('id');
+    
+    const data = {
+        integration_id: parseInt(formData.get('integration_id')),
+        wit_from: formData.get('external_type'),
+        wit_to: formData.get('internal_type_id'),
+        hierarchy_level: parseInt(formData.get('hierarchy_level')),
+        active: formData.get('active') === 'true'
+    };
+    
+    try {
+        const url = id ? `/api/v1/admin/wit-mappings/${id}` : '/api/v1/admin/wit-mappings';
+        const method = id ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            closeModal('mappingModal');
+            loadMappings();
+            showSuccess(id ? 'Mapping updated successfully' : 'Mapping created successfully');
+        } else {
+            const error = await response.text();
+            showError(`Failed to save mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error saving mapping:', error);
+        showError('Error saving mapping');
+    }
+}
+
+async function deleteMapping(id) {
+    // Create modern confirmation modal
+    const confirmed = await showConfirmDialog(
+        'Delete Mapping',
+        'Are you sure you want to delete this mapping? This action cannot be undone.',
+        'Delete',
+        'Cancel'
+    );
+
+    if (confirmed) {
+        try {
+            const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                loadMappings();
+                showNotification('Mapping deleted successfully', 'success');
+            } else {
+                showNotification('Failed to delete mapping', 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting mapping:', error);
+            showNotification('Error deleting mapping', 'error');
+        }
+    }
+}
+
+let currentMappingId = null;
+
+async function showPauseModal(id, mappingName) {
+    currentMappingId = id;
+
+    try {
+        // Load other mappings for the move dropdown
+        const moveSelect = document.getElementById('moveToMapping');
+        moveSelect.innerHTML = '<option value="">Keep existing associations</option>';
+
+        mappings.forEach(mapping => {
+            if (mapping.id !== id && mapping.active) {
+                const option = new Option(`${mapping.wit_from} → ${mapping.wit_to}`, mapping.id);
+                moveSelect.add(option);
+            }
+        });
+
+        document.getElementById('pauseMappingName').textContent = mappingName;
+        openModal('pauseMappingModal');
+
+    } catch (error) {
+        console.error('Error loading mappings for move:', error);
+        showError('Error loading mappings for move');
+    }
+}
+
+async function confirmPauseMapping() {
+    if (!currentMappingId) return;
+
+    try {
+        const moveToId = document.getElementById('moveToMapping').value;
+        const data = {
+            active: false,
+            move_to_mapping_id: moveToId || null
+        };
+
+        const response = await fetch(`/api/v1/admin/wit-mappings/${currentMappingId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Mapping inactivated successfully');
+            closeModal('pauseMappingModal');
+            loadMappings();
+        } else {
+            const error = await response.text();
+            showError(`Failed to inactivate mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error pausing mapping:', error);
+        showError('Error pausing mapping');
+    }
+}
+
+// Toggle function for active/inactive switch
+async function toggleMappingActive(id, isActive, mappingName) {
+    try {
+        if (!isActive) {
+            // When deactivating, check if we need to show the pause modal for dependencies
+            // For now, we'll use the existing pause modal logic
+            currentMappingId = id;
+            document.getElementById('pauseMappingName').textContent = mappingName;
+            openModal('pauseMappingModal');
+
+            // Reset the toggle since we're showing the modal
+            const toggle = document.querySelector(`input[onchange*="${id}"]`);
+            if (toggle) toggle.checked = true;
+            return;
+        } else {
+            // Activating - direct API call
+            await resumeMapping(id);
+        }
+    } catch (error) {
+        console.error('Error toggling mapping:', error);
+        showError('Error updating mapping status');
+
+        // Reset toggle on error
+        const toggle = document.querySelector(`input[onchange*="${id}"]`);
+        if (toggle) toggle.checked = !isActive;
+    }
+}
+
+async function resumeMapping(id) {
+    try {
+        const data = { active: true };
+
+        const response = await fetch(`/api/v1/admin/wit-mappings/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            showSuccess('Mapping resumed successfully');
+            loadMappings();
+        } else {
+            const error = await response.text();
+            showError(`Failed to resume mapping: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error resuming mapping:', error);
+        showError('Error resuming mapping');
+    }
+}
+
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// Modern confirmation dialog
+function showConfirmDialog(title, message, confirmText = 'Confirm', cancelText = 'Cancel') {
+    return new Promise((resolve) => {
+        // Create modal backdrop
+        const backdrop = document.createElement('div');
+        backdrop.className = 'fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50';
+
+        // Create modal content
+        const modal = document.createElement('div');
+        modal.className = 'bg-white rounded-lg shadow-xl max-w-md w-full mx-4';
+        modal.style.backgroundColor = 'var(--bg-secondary)';
+        modal.style.border = '1px solid var(--border-color)';
+
+        modal.innerHTML = `
+            <div class="p-6">
+                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">${title}</h3>
+                <p class="text-sm mb-6" style="color: var(--text-secondary);">${message}</p>
+                <div class="flex justify-end space-x-3">
+                    <button id="cancelBtn" class="px-4 py-2 text-sm rounded-lg border" style="border-color: var(--border-color); color: var(--text-secondary); background-color: var(--bg-primary);">
+                        ${cancelText}
+                    </button>
+                    <button id="confirmBtn" class="px-4 py-2 text-sm rounded-lg text-white" style="background-color: #ef4444;">
+                        ${confirmText}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+
+        // Handle button clicks
+        const confirmBtn = modal.querySelector('#confirmBtn');
+        const cancelBtn = modal.querySelector('#cancelBtn');
+
+        confirmBtn.onclick = () => {
+            document.body.removeChild(backdrop);
+            resolve(true);
+        };
+
+        cancelBtn.onclick = () => {
+            document.body.removeChild(backdrop);
+            resolve(false);
+        };
+
+        // Handle backdrop click
+        backdrop.onclick = (e) => {
+            if (e.target === backdrop) {
+                document.body.removeChild(backdrop);
+                resolve(false);
+            }
+        };
+    });
+}
+
+// Modern notification system - consistent across all pages
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm max-w-sm transition-all duration-300 transform translate-x-full`;
+
+    // Set background color based on type
+    switch (type) {
+        case 'success':
+            notification.style.backgroundColor = '#10b981';
+            break;
+        case 'error':
+            notification.style.backgroundColor = '#ef4444';
+            break;
+        case 'warning':
+            notification.style.backgroundColor = 'var(--color-1)';
+            break;
+        default:
+            notification.style.backgroundColor = '#3b82f6';
+    }
+
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    // Animate in
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 100);
+
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        notification.style.transform = 'translateX(full)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+function showSuccess(message) {
+    showNotification(message, 'success');
+}
+
+function showError(message) {
+    showNotification(message, 'error');
+}
+
+// Function to re-initialize Lucide icons after dynamic content updates
+function refreshLucideIcons() {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+</script>
+
+
+            </main>
+        </div>
+    </div>
+
+    <!-- Base JavaScript -->
+    <script>
+        // Navigation Active State (specific to layout)
+        function updateActiveNavigation() {
+            const currentPath = window.location.pathname;
+            const navItems = document.querySelectorAll('.nav-item');
+
+            navItems.forEach(item => {
+                const path = item.getAttribute('data-path');
+                if (currentPath.startsWith(path)) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        // Sidebar and Header Highlighting (ensures CSS variables are available)
+        function updateSidebarHighlighting() {
+            const currentPath = window.location.pathname;
+
+            // Check if CSS variables are available
+            const rootStyle = getComputedStyle(document.documentElement);
+            const gradientValue = rootStyle.getPropertyValue('--gradient-1-2').trim();
+            const onGradientValue = rootStyle.getPropertyValue('--on-gradient-1-2').trim();
+
+            // If CSS variables are not loaded yet, try again later
+            if (!gradientValue || !onGradientValue) {
+                setTimeout(updateSidebarHighlighting, 200);
+                return;
+            }
+
+            // Apply highlighting to active menu items
+            const sidebarItems = document.querySelectorAll('.sidebar-nav-item');
+            sidebarItems.forEach(item => {
+                const href = item.getAttribute('href');
+                let isActive = false;
+
+                if (href === '/home' && currentPath === '/home') {
+                    isActive = true;
+                } else if (href === '/integrations' && currentPath === '/integrations') {
+                    isActive = true;
+                } else if (href === '/wits-hierarchies' && currentPath.startsWith('/wits')) {
+                    isActive = true;
+                } else if (href === '/statuses-mappings' && (currentPath.startsWith('/statuses') || currentPath.startsWith('/workflow'))) {
+                    isActive = true;
+                } else if (href === '/qdrant' && currentPath.startsWith('/qdrant')) {
+                    isActive = true;
+                }
+
+                if (isActive) {
+                    item.style.background = 'var(--gradient-1-2)';
+                    item.style.color = 'var(--on-gradient-1-2)';
+                    item.classList.add('nav-item-active');
+                } else {
+                    item.style.background = '';
+                    item.style.color = '';
+                    item.classList.remove('nav-item-active');
+                }
+            });
+
+            // Apply highlighting to PEM symbol in header
+            const pemElement = document.querySelector('.w-12.h-8.flex.items-center.justify-center');
+            if (pemElement) {
+                // PEM should always be highlighted as it represents the active ETL service
+                pemElement.style.background = 'var(--gradient-1-2)';
+                const pemText = pemElement.querySelector('span');
+                if (pemText) {
+                    pemText.style.color = 'var(--on-gradient-1-2)';
+                }
+            }
+        }
+
+        // Global user data
+        let currentUser = null;
+
+        // Authentication helper (prefer cookie token; keep localStorage in sync)
+        function getAuthToken() {
+            const cookieToken = getCookie('pulse_token');
+            let lsToken = localStorage.getItem('pulse_token');
+            if (cookieToken && cookieToken !== lsToken) {
+                localStorage.setItem('pulse_token', cookieToken);
+                lsToken = cookieToken;
+            }
+            return lsToken || cookieToken || null;
+        }
+
+        // Helper function to get user initials (prefer first/last; fill missing from email username parts)
+        function getUserInitials(user) {
+            if (!user) return 'U';
+
+            const first = (user.first_name || '').trim();
+            const last = (user.last_name || '').trim();
+            const fi = first ? first[0] : '';
+            const li = last ? last[0] : '';
+
+            // If both provided
+            if (fi && li) return (fi + li).toUpperCase();
+
+            // Derive from email username
+            const uname = (user.email || '').split('@')[0];
+            const parts = uname.split(/[.\-_]+/).filter(Boolean);
+
+            if (fi && !li) {
+                const second = (parts[1]?.[0]) || (parts[0]?.[1]) || '';
+                const res = (fi + (second || '')).toUpperCase();
+                return res || 'U';
+            }
+            if (!fi && li) {
+                const firstFromEmail = (parts[0]?.[0]) || '';
+                const res = ((firstFromEmail || '') + li).toUpperCase();
+                return res || 'U';
+            }
+
+            // No names: use email parts
+            if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+            if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase();
+            return 'U';
+        }
+
+        // Load user information
+        async function loadUserInfo() {
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    console.warn('No auth token available for user info');
+                    return;
+                }
+
+                const response = await fetch('/api/v1/auth/validate', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.valid && data.user) {
+                        currentUser = data.user;
+                        updateUserDisplay();
+                    }
+                } else if (response.status === 401) {
+                    console.warn('User token validation failed - user may need to re-login');
+                    // Don't redirect here - let individual pages handle authentication
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+            }
+        }
+
+        // Update user display in header
+        function updateUserDisplay() {
+            if (!currentUser) return;
+
+            // Format user name
+            const userName = (currentUser.first_name && currentUser.last_name)
+                ? `${currentUser.first_name} ${currentUser.last_name}`
+                : (currentUser.first_name || currentUser.last_name)
+                    ? (currentUser.first_name || currentUser.last_name)
+                    : (currentUser.email ? currentUser.email.split('@')[0] : 'User');
+
+            // Update user initials
+            const userInitialsElement = document.getElementById('user-initials');
+            if (userInitialsElement) {
+                userInitialsElement.textContent = getUserInitials(currentUser);
+            }
+
+            // Update user name in button (always prefer First + Last when available)
+            const userNameElement = document.getElementById('user-name');
+            if (userNameElement) {
+                const uname = (currentUser.email || '').split('@')[0];
+                const parts = uname.split(/[.\-_]+/).filter(Boolean);
+                const toTitle = s => s ? (s[0].toUpperCase() + s.slice(1).toLowerCase()) : '';
+                const preferredName = (currentUser.first_name && currentUser.last_name)
+                    ? `${toTitle(currentUser.first_name)} ${toTitle(currentUser.last_name)}`
+                    : (currentUser.first_name || currentUser.last_name)
+                        ? toTitle(currentUser.first_name || currentUser.last_name)
+                        : parts.length >= 2
+                            ? `${toTitle(parts[0])} ${toTitle(parts[1])}`
+                            : toTitle(uname);
+                userNameElement.textContent = preferredName;
+            }
+
+            // Update dropdown display
+            const userNameDisplay = document.getElementById('user-name-display');
+            if (userNameDisplay) {
+                const uname = (currentUser.email || '').split('@')[0];
+                const parts = uname.split(/[.\-_]+/).filter(Boolean);
+                const toTitle = s => s ? (s[0].toUpperCase() + s.slice(1).toLowerCase()) : '';
+                const preferredName = (currentUser.first_name && currentUser.last_name)
+                    ? `${toTitle(currentUser.first_name)} ${toTitle(currentUser.last_name)}`
+                    : (currentUser.first_name || currentUser.last_name)
+                        ? toTitle(currentUser.first_name || currentUser.last_name)
+                        : parts.length >= 2
+                            ? `${toTitle(parts[0])} ${toTitle(parts[1])}`
+                            : toTitle(uname);
+                userNameDisplay.textContent = preferredName;
+            }
+
+            const userEmailDisplay = document.getElementById('user-email-display');
+            if (userEmailDisplay) {
+                userEmailDisplay.textContent = currentUser.email;
+            }
+
+            const userRoleDisplay = document.getElementById('user-role-display');
+            if (userRoleDisplay) {
+                userRoleDisplay.textContent = currentUser.role;
+            }
+        }
+
+        // Theme Management
+        async function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+            // Update UI immediately for responsiveness
+            html.setAttribute('data-theme', newTheme);
+            const icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.setAttribute('data-lucide', newTheme === 'light' ? 'moon' : 'sun');
+                icon.className = 'w-5 h-5';
+                // Re-initialize Lucide icons to update the icon
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+
+            // Save to database for cross-browser sync
+            try {
+                // Get current auth token
+                const token = getCookie('pulse_token');
+                if (!token) {
+                    console.warn('ETL Service: No auth token found for theme update');
+                    return;
+                }
+
+                // Call backend service directly for user theme update
+                const backendUrl = window.location.protocol + '//' + window.location.hostname + ':3001';
+                const response = await fetch(`${backendUrl}/api/v1/user/theme-mode`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ mode: newTheme })
+                });
+
+                if (response.ok) {
+                    console.log('ETL Service: Theme saved to database:', newTheme);
+                    // Update localStorage for caching
+                    localStorage.setItem('pulse_theme', newTheme);
+                } else {
+                    console.warn('ETL Service: Failed to save theme to database');
+                    // Revert UI change if database update failed
+                    html.setAttribute('data-theme', currentTheme);
+                    if (icon) {
+                        icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+                    }
+                }
+            } catch (error) {
+                console.error('ETL Service: Error saving theme to database:', error);
+                // Revert UI change if database update failed
+                html.setAttribute('data-theme', currentTheme);
+                if (icon) {
+                    icon.textContent = currentTheme === 'light' ? '🌙' : '☀️';
+                }
+            }
+        }
+
+        // Helper function to get cookie value
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+
+        // User Menu
+        function toggleUserMenu(event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            const menu = document.getElementById('user-menu');
+            if (menu) {
+                menu.classList.toggle('hidden');
+            }
+        }
+
+        // Close user menu on outside click
+        document.addEventListener('click', function(e) {
+            const userMenu = document.getElementById('user-menu');
+            const userButton = e.target.closest('[onclick*="toggleUserMenu"]');
+            if (userMenu && !userButton && !userMenu.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+
+        // Initialize layout
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize theme - respect server-side setting if available
+            const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('pulse_theme') || 'light';
+            document.documentElement.setAttribute('data-theme', currentTheme);
+            const icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.setAttribute('data-lucide', currentTheme === 'light' ? 'moon' : 'sun');
+                icon.className = 'w-5 h-5';
+                // Re-initialize Lucide icons to update the icon
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+
+            // Cross-browser theme sync completely removed to prevent infinite API calls
+
+            // Load user information
+            loadUserInfo();
+
+            // Update navigation active state
+            updateActiveNavigation();
+
+            // Ensure sidebar highlighting works after color schema loads
+            setTimeout(function() {
+                updateSidebarHighlighting();
+            }, 100);
+
+            // Handle submenu mouse leave events
+            document.querySelectorAll('[id^="submenu-"]').forEach(submenu => {
+                submenu.addEventListener('mouseleave', () => {
+                    setTimeout(() => {
+                        isHoveringSubmenu = false;
+                        currentSubmenu = null;
+                        submenu.classList.add('hidden');
+                    }, 100);
+                });
+            });
+        });
+
+        // Generic Modal Functions
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        // Sidebar Submenu functionality - Global scope
+        let hoverTimeout = null;
+        let currentSubmenu = null;
+        let isHoveringSubmenu = false;
+
+        function showSubmenu(event, menuType) {
+            clearTimeout(hoverTimeout);
+
+            const rect = event.currentTarget.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const submenuHeight = 120; // Estimate submenu height
+
+            // Calculate optimal Y position
+            let yPosition = rect.top;
+            if (rect.top + submenuHeight > viewportHeight) {
+                yPosition = rect.bottom - submenuHeight;
+            }
+
+            // Hide current submenu if different
+            if (currentSubmenu && currentSubmenu !== menuType) {
+                document.getElementById(`submenu-${currentSubmenu}`).classList.add('hidden');
+            }
+
+            // Show new submenu
+            const submenu = document.getElementById(`submenu-${menuType}`);
+            if (submenu) {
+                submenu.style.left = `${rect.right + 8}px`; // Position to the right of the icon with 8px gap
+                submenu.style.top = `${yPosition}px`;
+                submenu.style.zIndex = '1000';
+                submenu.style.position = 'fixed';
+                submenu.classList.remove('hidden');
+                currentSubmenu = menuType;
+            }
+        }
+
+        function hideSubmenu() {
+            clearTimeout(hoverTimeout);
+            hoverTimeout = setTimeout(() => {
+                if (!isHoveringSubmenu) {
+                    currentSubmenu = null;
+                    document.querySelectorAll('[id^="submenu-"]').forEach(el => {
+                        el.classList.add('hidden');
+                    });
+                }
+            }, 200); // 200ms delay like frontend
+        }
+
+        function keepSubmenuOpen() {
+            clearTimeout(hoverTimeout);
+            isHoveringSubmenu = true;
+        }
+
+        // Navigation function - Global scope
+        function navigateTo(path) {
+            window.location.href = path;
+        }
+
+        // Return to Dashboard function
+        function returnToDashboard() {
+            // Navigate without passing token in the URL. Authentication uses shared cookie.
+            const FRONTEND_URL = 'http://localhost:3000';
+            window.location.href = `${FRONTEND_URL}/home`;
+        }
+
+        // Handle token parameter and clean up URL
+        function handleTokenParameter() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlToken = urlParams.get('token');
+
+            if (urlToken) {
+                // Store token in cookie (it should already be there from POST navigation, but just in case)
+                document.cookie = `pulse_token=${urlToken}; path=/; max-age=3600; SameSite=Lax`;
+
+                // Clean up URL by removing token parameter
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('token');
+                window.history.replaceState({}, document.title, newUrl.toString());
+
+                console.log('Token parameter processed and URL cleaned');
+            }
+        }
+
+        // Update the pulse link href dynamically when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle token parameter first
+            handleTokenParameter();
+
+            // Update pulse link href
+            const pulseLink = document.getElementById('pulse-link');
+            if (pulseLink) {
+                const token = getCookie('pulse_token');
+                const FRONTEND_URL = 'http://localhost:3000';
+
+                if (token) {
+                    pulseLink.href = `${FRONTEND_URL}/home?token=${encodeURIComponent(token)}`;
+                } else {
+                    pulseLink.href = `${FRONTEND_URL}/home`;
+                }
+            }
+        });
+
+        // Helper function to get cookie value
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+
+        function confirmAction(modalId) {
+            // This function should be overridden by specific pages
+            // that need custom confirmation logic
+            console.warn(`confirmAction called for ${modalId} but no specific handler defined`);
+            closeModal(modalId);
+        }
+
+        // Close modal on ESC key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const openModals = document.querySelectorAll('.fixed.inset-0:not(.hidden)');
+                openModals.forEach(modal => {
+                    if (modal.id) {
+                        closeModal(modal.id);
+                    }
+                });
+            }
+        });
+
+        // Close modal on backdrop click
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('fixed') && e.target.classList.contains('inset-0')) {
+                const modalId = e.target.id;
+                if (modalId) {
+                    closeModal(modalId);
+                }
+            }
+        });
+
+        // Logout function
+        async function logout() {
+            try {
+                // Get current token
+                const token = getAuthToken();
+
+                if (token) {
+                    // Call ETL logout endpoint to invalidate session
+                    try {
+                        const response = await fetch('/api/logout', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                    } catch (error) {
+                        // Silently handle server logout errors
+                    }
+                }
+
+                // Clear all authentication data
+                localStorage.removeItem('pulse_token');
+                document.cookie = 'pulse_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+
+                // Clear any axios default headers
+                if (window.axios && window.axios.defaults) {
+                    delete window.axios.defaults.headers.common['Authorization'];
+                }
+
+                // Redirect to login page
+                window.location.href = '/login';
+
+            } catch (error) {
+                // Still redirect to login even if there's an error
+                window.location.href = '/login';
+            }
+        }
+    </script>
+
+    <!-- Initialize Lucide icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            lucide.createIcons();
+        });
+    </script>
+
+    
+
+</body></html>
