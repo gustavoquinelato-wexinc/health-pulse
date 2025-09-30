@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface EditField {
   name: string
@@ -11,6 +12,12 @@ interface EditField {
   options?: { value: any; label: string }[]
   placeholder?: string
   disabled?: boolean
+  customRender?: (
+    field: EditField,
+    formData: Record<string, any>,
+    handleInputChange: (name: string, value: any) => void,
+    errors: Record<string, string>
+  ) => React.ReactNode
 }
 
 interface EditModalProps {
@@ -30,6 +37,7 @@ export default function EditModal({
   fields,
   loading = false
 }: EditModalProps) {
+  const { theme } = useTheme()
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -102,12 +110,20 @@ export default function EditModal({
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-md bg-secondary rounded-lg shadow-xl border border-default"
+          className="relative w-full max-w-2xl bg-primary rounded-xl shadow-2xl border border-tertiary overflow-hidden"
           onKeyDown={handleKeyDown}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-default">
-            <h3 className="text-lg font-semibold text-primary">{title}</h3>
+          <div className="flex items-center justify-between p-6 bg-table-header border-b border-tertiary">
+            <div className="flex items-center space-x-3">
+              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-table-header">{title}</h3>
+            </div>
             <button
               onClick={onClose}
               className="p-1 rounded-lg text-secondary hover:bg-tertiary hover:text-primary transition-colors"
@@ -118,15 +134,17 @@ export default function EditModal({
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
+          <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto bg-secondary">
             {fields.map((field) => (
-              <div key={field.name}>
-                <label className="block text-sm font-medium text-primary mb-1">
+              <div key={field.name} className="space-y-3">
+                <label className="block text-sm font-semibold text-primary">
                   {field.label}
                   {field.required && <span className="text-red-500 ml-1">*</span>}
                 </label>
-                
-                {field.type === 'text' && (
+
+                {field.customRender ? (
+                  field.customRender(field, formData, handleInputChange, errors)
+                ) : field.type === 'text' ? (
                   <input
                     type="text"
                     value={formData[field.name] || ''}
@@ -135,9 +153,7 @@ export default function EditModal({
                     disabled={field.disabled || loading}
                     className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
                   />
-                )}
-
-                {field.type === 'number' && (
+                ) : field.type === 'number' ? (
                   <input
                     type="number"
                     value={formData[field.name] !== undefined && formData[field.name] !== null ? formData[field.name] : ''}
@@ -146,9 +162,7 @@ export default function EditModal({
                     disabled={field.disabled || loading}
                     className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
                   />
-                )}
-
-                {field.type === 'textarea' && (
+                ) : field.type === 'textarea' ? (
                   <textarea
                     value={formData[field.name] || ''}
                     onChange={(e) => handleInputChange(field.name, e.target.value)}
@@ -157,9 +171,7 @@ export default function EditModal({
                     rows={3}
                     className={`input w-full resize-none ${errors[field.name] ? 'border-red-500' : ''}`}
                   />
-                )}
-
-                {field.type === 'select' && (
+                ) : field.type === 'select' ? (
                   <select
                     value={formData[field.name] || ''}
                     onChange={(e) => handleInputChange(field.name, e.target.value)}
@@ -173,7 +185,7 @@ export default function EditModal({
                       </option>
                     ))}
                   </select>
-                )}
+                ) : null}
 
                 {field.type === 'checkbox' && (
                   <label className="flex items-center space-x-2">
@@ -196,18 +208,18 @@ export default function EditModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end space-x-3 p-6 border-t border-default">
+          <div className="flex items-center justify-end space-x-4 p-6 bg-tertiary border-t border-tertiary">
             <button
               onClick={onClose}
               disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
+              className="px-6 py-2.5 text-secondary hover:text-primary hover:bg-secondary rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving || loading}
-              className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 font-medium shadow-sm"
             >
               {saving && (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

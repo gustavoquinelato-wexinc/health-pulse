@@ -1093,6 +1093,24 @@ async def admin_page(request: Request, token: Optional[str] = None):
             user = await auth_service.verify_token(auth_token)
 
             if user:
+                # Get color schema using the color schema manager (same as other pages)
+                from app.core.color_schema_manager import get_color_schema_manager
+                color_manager = get_color_schema_manager()
+                color_schema_data = {"mode": "default"}  # Default fallback
+
+                logger.debug(f"Admin Route: Starting color schema fetch, token present: {bool(auth_token)}")
+
+                try:
+                    # Use the color schema manager for consistent color loading
+                    user_id = str(user.get('id')) if user and user.get('id') else "default"
+                    color_schema_data = await color_manager.get_color_schema(auth_token, user_id)
+                    logger.debug(f"Admin Route: Color schema loaded - mode: {color_schema_data.get('mode')}, has colors: {bool(color_schema_data.get('colors'))}")
+                except Exception as e:
+                    logger.debug(f"Could not fetch color schema for admin: {e}")
+
+                # Get tenant information for header
+                tenant_info = await get_user_tenant_info(auth_token)
+
                 # Check if this is an embedded request (iframe)
                 embedded = request.query_params.get("embedded") == "true"
 
@@ -1100,6 +1118,9 @@ async def admin_page(request: Request, token: Optional[str] = None):
                 response = templates.TemplateResponse("admin.html", {
                     "request": request,
                     "user": user,
+                    "color_schema": color_schema_data,
+                    "tenant_logo": tenant_info["tenant_logo"],
+                    "tenant_name": tenant_info["tenant_name"],
                     "token": token if token else None,
                     "embedded": embedded
                 })
@@ -1115,6 +1136,9 @@ async def admin_page(request: Request, token: Optional[str] = None):
         return templates.TemplateResponse("admin.html", {
             "request": request,
             "user": {"email": "Unknown"},
+            "color_schema": {"mode": "default"},
+            "tenant_logo": None,
+            "tenant_name": "Tenant",
             "embedded": embedded
         })
 
@@ -1127,6 +1151,9 @@ async def admin_page(request: Request, token: Optional[str] = None):
         return templates.TemplateResponse("admin.html", {
             "request": request,
             "user": {"email": "Unknown"},
+            "color_schema": {"mode": "default"},
+            "tenant_logo": None,
+            "tenant_name": "Tenant",
             "embedded": embedded
         })
 
@@ -1373,70 +1400,21 @@ async def integrations_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Try to get color schema for authenticated users to prevent flash
-        color_schema_data = None
-        try:
-            if token:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
+        # Get color schema using the color schema manager (same as home page)
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_schema_data = {"mode": "default"}  # Default fallback
 
-                async with httpx.AsyncClient() as client:
-                    response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response_color.status_code == 200:
-                        data = response_color.json()
-                        if data.get("success"):
-                            # Also get user-specific theme mode from backend
-                            theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
+        logger.debug(f"Integrations Route: Starting color schema fetch, token present: {bool(token)}")
 
-                            theme_mode = 'light'  # default
-                            if theme_response.status_code == 200:
-                                theme_data = theme_response.json()
-                                if theme_data.get('success'):
-                                    theme_mode = theme_data.get('mode', 'light')
-
-                            # Process unified color data (same as home page)
-                            color_data = data.get("color_data", [])
-                            color_schema_mode = data.get("color_schema_mode", "default")
-
-                            # Filter by color_schema_mode to get the correct colors
-                            light_regular = next((c for c in color_data if
-                                                c.get('color_schema_mode') == color_schema_mode and
-                                                c.get('theme_mode') == 'light' and
-                                                c.get('accessibility_level') == 'regular'), None)
-                            dark_regular = next((c for c in color_data if
-                                               c.get('color_schema_mode') == color_schema_mode and
-                                               c.get('theme_mode') == 'dark' and
-                                               c.get('accessibility_level') == 'regular'), None)
-
-                            # Use colors based on current theme
-                            current_colors = light_regular if theme_mode == 'light' else dark_regular
-                            if not current_colors:
-                                current_colors = light_regular or dark_regular  # fallback
-
-                            if current_colors:
-                                # Combine color schema and theme data
-                                color_schema_data = {
-                                    "success": True,
-                                    "mode": data.get("color_schema_mode", "default"),
-                                    "colors": {
-                                        "color1": current_colors.get("color1"),
-                                        "color2": current_colors.get("color2"),
-                                        "color3": current_colors.get("color3"),
-                                        "color4": current_colors.get("color4"),
-                                        "color5": current_colors.get("color5")
-                                    },
-                                    "theme": theme_mode
-                                }
-        except Exception as e:
-            logger.debug(f"Could not fetch color schema: {e}")
+        if token:
+            try:
+                # Use the color schema manager for consistent color loading
+                user_id = str(user.get('id')) if user and user.get('id') else "default"
+                color_schema_data = await color_manager.get_color_schema(token, user_id)
+                logger.debug(f"Integrations Route: Color schema loaded - mode: {color_schema_data.get('mode')}, has colors: {bool(color_schema_data.get('colors'))}")
+            except Exception as e:
+                logger.debug(f"Could not fetch color schema for integrations: {e}")
 
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"
@@ -1478,61 +1456,19 @@ async def wits_hierarchies_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Get color schema - use direct backend call for consistency with other pages
+        # Get color schema using the color schema manager (same as home page)
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
         color_schema_data = {"mode": "default"}  # Default fallback
+
+        logger.debug(f"Wits Hierarchies Route: Starting color schema fetch, token present: {bool(token)}")
 
         if token:
             try:
-                async with httpx.AsyncClient() as client:
-                    # Get color schema from backend (unified API)
-                    response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-
-                    if response_color.status_code == 200:
-                        data = response_color.json()
-                        if data.get("success") and data.get("color_data"):
-                            # Also get user-specific theme mode from backend
-                            theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
-
-                            theme_mode = 'light'  # default
-                            if theme_response.status_code == 200:
-                                theme_data = theme_response.json()
-                                if theme_data.get('success'):
-                                    theme_mode = theme_data.get('mode', 'light')
-
-                            # Process unified color data
-                            color_data = data.get("color_data", [])
-                            color_schema_mode = data.get("color_schema_mode", "default")
-
-                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
-                            current_colors = next((c for c in color_data if
-                                                 c.get('color_schema_mode') == color_schema_mode and
-                                                 c.get('theme_mode') == theme_mode and
-                                                 c.get('accessibility_level') == 'regular'), None)
-                            if not current_colors:
-                                current_colors = next((c for c in color_data if
-                                                     c.get('color_schema_mode') == color_schema_mode and
-                                                     c.get('accessibility_level') == 'regular'), None)
-
-                            if current_colors:
-                                # Combine color schema and theme data
-                                color_schema_data = {
-                                    "success": True,
-                                    "mode": data.get("color_schema_mode", "default"),
-                                    "colors": {
-                                        "color1": current_colors.get("color1"),
-                                        "color2": current_colors.get("color2"),
-                                        "color3": current_colors.get("color3"),
-                                        "color4": current_colors.get("color4"),
-                                        "color5": current_colors.get("color5")
-                                    },
-                                    "theme": theme_mode
-                                }
+                # Use the color schema manager for consistent color loading
+                user_id = str(user.id) if user and hasattr(user, 'id') else "default"
+                color_schema_data = await color_manager.get_color_schema(token, user_id)
+                logger.debug(f"Wits Hierarchies Route: Color schema loaded - mode: {color_schema_data.get('mode')}, has colors: {bool(color_schema_data.get('colors'))}")
             except Exception as e:
                 logger.debug(f"Could not fetch color schema for wits hierarchies: {e}")
 
@@ -1581,65 +1517,21 @@ async def workflows_page(request: Request):
         if not user or not user.get("is_admin", False):
             return RedirectResponse(url="/home?error=permission_denied&resource=admin_panel", status_code=302)
 
-        # Try to get color schema for authenticated users to prevent flash
-        color_schema_data = None
-        try:
-            if token:
-                # Fetch color schema from backend
-                import httpx
-                from app.core.config import get_settings
-                settings = get_settings()
+        # Get color schema using the color schema manager (same as home page)
+        from app.core.color_schema_manager import get_color_schema_manager
+        color_manager = get_color_schema_manager()
+        color_schema_data = {"mode": "default"}  # Default fallback
 
-                async with httpx.AsyncClient() as client:
-                    response_color = await client.get(
-                        f"{settings.BACKEND_SERVICE_URL}/api/v1/admin/color-schema/unified",
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                    if response_color.status_code == 200:
-                        data = response_color.json()
-                        if data.get("success") and data.get("color_data"):
-                            # Also get user-specific theme mode from backend
-                            theme_response = await client.get(
-                                f"{settings.BACKEND_SERVICE_URL}/api/v1/user/theme-mode",
-                                headers={"Authorization": f"Bearer {token}"}
-                            )
+        logger.debug(f"Workflows Route: Starting color schema fetch, token present: {bool(token)}")
 
-                            theme_mode = 'light'  # default
-                            if theme_response.status_code == 200:
-                                theme_data = theme_response.json()
-                                if theme_data.get('success'):
-                                    theme_mode = theme_data.get('mode', 'light')
-
-                            # Process unified color data
-                            color_data = data.get("color_data", [])
-                            color_schema_mode = data.get("color_schema_mode", "default")
-
-                            # CRITICAL FIX: Filter by color_schema_mode to get the correct colors
-                            current_colors = next((c for c in color_data if
-                                                 c.get('color_schema_mode') == color_schema_mode and
-                                                 c.get('theme_mode') == theme_mode and
-                                                 c.get('accessibility_level') == 'regular'), None)
-                            if not current_colors:
-                                current_colors = next((c for c in color_data if
-                                                     c.get('color_schema_mode') == color_schema_mode and
-                                                     c.get('accessibility_level') == 'regular'), None)
-
-                            if current_colors:
-                                # Combine color schema and theme data
-                                color_schema_data = {
-                                    "success": True,
-                                    "mode": data.get("color_schema_mode", "default"),
-                                    "colors": {
-                                        "color1": current_colors.get("color1"),
-                                        "color2": current_colors.get("color2"),
-                                        "color3": current_colors.get("color3"),
-                                        "color4": current_colors.get("color4"),
-                                        "color5": current_colors.get("color5")
-                                    },
-                                    "theme": theme_mode
-                                }
-        except Exception as e:
-            logger.debug(f"Could not fetch color schema: {e}")
+        if token:
+            try:
+                # Use the color schema manager for consistent color loading
+                user_id = str(user.get('id')) if user and user.get('id') else "default"
+                color_schema_data = await color_manager.get_color_schema(token, user_id)
+                logger.debug(f"Workflows Route: Color schema loaded - mode: {color_schema_data.get('mode')}, has colors: {bool(color_schema_data.get('colors'))}")
+            except Exception as e:
+                logger.debug(f"Could not fetch color schema: {e}")
 
         # Check if this is an embedded request (iframe)
         embedded = request.query_params.get("embedded") == "true"

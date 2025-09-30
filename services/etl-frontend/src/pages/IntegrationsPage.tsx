@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
+import IntegrationLogo from '../components/IntegrationLogo'
+import EditModal from '../components/EditModal'
+import CreateModal from '../components/CreateModal'
+import ConfirmationModal from '../components/ConfirmationModal'
+import ToastContainer from '../components/ToastContainer'
 import { integrationsApi } from '../services/etlApiService'
+import { useToast } from '../hooks/useToast'
+import { useConfirmation } from '../hooks/useConfirmation'
 
 interface Integration {
   id: number
@@ -19,20 +27,39 @@ const IntegrationsPage: React.FC = () => {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { toasts, removeToast, showSuccess, showError } = useToast()
+  const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
+
+  // Edit modal state
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    integration: null as Integration | null
+  })
+
+  // Create modal state
+  const [createModal, setCreateModal] = useState({
+    isOpen: false
+  })
+
+  // Logo file state
+  const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null)
+
+  // Filter states
+  const [integrationNameFilter, setIntegrationNameFilter] = useState('')
+  const [providerFilter, setProviderFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
 
   // Filtered integrations based on filter states
   const filteredIntegrations = integrations.filter(integration => {
     const matchesName = !integrationNameFilter ||
       integration.name.toLowerCase().includes(integrationNameFilter.toLowerCase())
-    const matchesType = !typeFilter ||
-      integration.integration_type.toLowerCase().includes(typeFilter.toLowerCase())
     const matchesProvider = !providerFilter ||
       integration.name.toLowerCase().includes(providerFilter.toLowerCase())
     const matchesStatus = !statusFilter ||
       (statusFilter === 'active' && integration.active) ||
       (statusFilter === 'inactive' && !integration.active)
 
-    return matchesName && matchesType && matchesProvider && matchesStatus
+    return matchesName && matchesProvider && matchesStatus
   })
 
   useEffect(() => {
@@ -53,13 +80,216 @@ const IntegrationsPage: React.FC = () => {
     fetchIntegrations()
   }, [])
 
+  // Handle logo file selection
+  const handleLogoFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      setSelectedLogoFile(null)
+      return
+    }
+
+    // Validate file type - only SVG allowed
+    if (file.type !== 'image/svg+xml') {
+      showError('Invalid File Type', 'Please select an SVG file only')
+      event.target.value = ''
+      setSelectedLogoFile(null)
+      return
+    }
+
+    // Validate file size (max 1MB for SVG)
+    if (file.size > 1 * 1024 * 1024) {
+      showError('File Too Large', 'SVG file size must be less than 1MB')
+      event.target.value = ''
+      setSelectedLogoFile(null)
+      return
+    }
+
+    setSelectedLogoFile(file)
+  }
+
+  // Handle edit
+  const handleEdit = (integrationId: number) => {
+    const integration = integrations.find(i => i.id === integrationId)
+    if (integration) {
+      setSelectedLogoFile(null) // Reset logo file
+      setEditModal({
+        isOpen: true,
+        integration
+      })
+    }
+  }
+
+  // Handle edit save
+  const handleEditSave = async (formData: Record<string, any>) => {
+    if (!editModal.integration) return
+
+    try {
+      let logoFilename = editModal.integration.logo_filename || null
+
+      // If a new logo file was selected, upload it with the provider name
+      if (selectedLogoFile) {
+        // Rename file to provider name (lowercase) + .svg
+        const providerName = formData.provider || editModal.integration.name
+        const newFileName = `${providerName.toLowerCase()}.svg`
+
+        // Create a new file with the correct name
+        const renamedFile = new File([selectedLogoFile], newFileName, { type: selectedLogoFile.type })
+
+        const uploadResponse = await integrationsApi.uploadLogo(renamedFile)
+        logoFilename = uploadResponse.data.filename
+      }
+
+      const updateData: any = {
+        base_url: formData.base_url || null,
+        username: formData.username || null,
+        ai_model: formData.ai_model || null,
+        logo_filename: logoFilename
+      }
+
+      // Only include password if it was provided
+      if (formData.password && formData.password.trim() !== '') {
+        updateData.password = formData.password
+      }
+
+      await integrationsApi.updateIntegration(editModal.integration.id, updateData)
+
+      // Refresh the integrations list to get updated data
+      const refreshResponse = await integrationsApi.getIntegrations()
+
+      // Force image cache refresh by updating the state with new timestamp
+      const updatedIntegrations = refreshResponse.data.map((integration: Integration) => ({
+        ...integration,
+        // Add timestamp to force logo reload if it was updated
+        logo_filename: integration.logo_filename && integration.id === editModal.integration?.id && selectedLogoFile
+          ? `${integration.logo_filename}?t=${Date.now()}`
+          : integration.logo_filename
+      }))
+
+      setIntegrations(updatedIntegrations)
+
+      showSuccess('Integration Updated', 'The integration has been updated successfully.')
+      setEditModal({ isOpen: false, integration: null })
+      setSelectedLogoFile(null)
+    } catch (error: any) {
+      console.error('Error updating integration:', error)
+      const errorMessage = error.response?.data?.detail || 'Failed to update integration. Please try again.'
+      showError('Update Failed', errorMessage)
+    }
+  }
+
+  // Handle create save
+  const handleCreateSave = async (formData: Record<string, any>) => {
+    try {
+      let logoFilename = null
+
+      // If a logo file was selected, upload it with the provider name
+      if (selectedLogoFile) {
+        // Rename file to provider name (lowercase) + .svg
+        const providerName = formData.provider
+        const newFileName = `${providerName.toLowerCase()}.svg`
+
+        // Create a new file with the correct name
+        const renamedFile = new File([selectedLogoFile], newFileName, { type: selectedLogoFile.type })
+
+        const uploadResponse = await integrationsApi.uploadLogo(renamedFile)
+        logoFilename = uploadResponse.data.filename
+      }
+
+      const createData: any = {
+        provider: formData.provider,
+        type: formData.type,
+        base_url: formData.base_url || null,
+        username: formData.username || null,
+        password: formData.password || null,
+        ai_model: formData.ai_model || null,
+        logo_filename: logoFilename,
+        active: true
+      }
+
+      await integrationsApi.createIntegration(createData)
+
+      // Refresh the integrations list
+      const refreshResponse = await integrationsApi.getIntegrations()
+
+      // Add timestamp to new logo to force cache refresh
+      const updatedIntegrations = refreshResponse.data.map((integration: Integration) => ({
+        ...integration,
+        logo_filename: integration.logo_filename && integration.name.toLowerCase() === formData.provider.toLowerCase() && selectedLogoFile
+          ? `${integration.logo_filename}?t=${Date.now()}`
+          : integration.logo_filename
+      }))
+
+      setIntegrations(updatedIntegrations)
+
+      showSuccess('Integration Created', 'The integration has been created successfully.')
+      setCreateModal({ isOpen: false })
+      setSelectedLogoFile(null)
+    } catch (error: any) {
+      console.error('Error creating integration:', error)
+      const errorMessage = error.response?.data?.detail || 'Failed to create integration. Please try again.'
+      showError('Create Failed', errorMessage)
+    }
+  }
+
+  // Handle toggle active/inactive
+  const handleToggleActive = async (integrationId: number, currentActive: boolean) => {
+    try {
+      const integration = integrations.find(i => i.id === integrationId)
+      if (!integration) return
+
+      const updateData = {
+        base_url: integration.base_url || null,
+        username: integration.username || null,
+        ai_model: integration.ai_model || null,
+        logo_filename: integration.logo_filename || null,
+        active: !currentActive
+      }
+
+      await integrationsApi.updateIntegration(integrationId, updateData)
+
+      // Update local state
+      setIntegrations(prev => prev.map(i =>
+        i.id === integrationId ? { ...i, active: !currentActive } : i
+      ))
+
+      showSuccess(
+        'Integration Updated',
+        `Integration ${!currentActive ? 'activated' : 'deactivated'} successfully.`
+      )
+    } catch (error: any) {
+      console.error('Error toggling integration:', error)
+      const errorMessage = error.response?.data?.detail || 'Failed to update integration. Please try again.'
+      showError('Update Failed', errorMessage)
+    }
+  }
+
+  // Handle delete
+  const handleDelete = async (integrationId: number) => {
+    const integration = integrations.find(i => i.id === integrationId)
+    if (!integration) return
+
+    confirmDelete(
+      integration.name,
+      async () => {
+        try {
+          await integrationsApi.deleteIntegration(integrationId)
+          setIntegrations(prev => prev.filter(i => i.id !== integrationId))
+          showSuccess('Integration Deleted', 'The integration has been deleted successfully.')
+        } catch (error) {
+          console.error('Error deleting integration:', error)
+          showError('Delete Failed', 'Failed to delete integration. Please try again.')
+        }
+      }
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       <Header />
       <div className="flex">
         <CollapsedSidebar />
-        <main className="flex-1 ml-16 p-8">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 ml-16 py-8">
+          <div className="ml-20 mr-12">
             {/* Page Header */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
@@ -106,7 +336,7 @@ const IntegrationsPage: React.FC = () => {
             <div className="bg-secondary rounded-lg shadow-sm p-6">
               {loading ? (
                 <div className="text-center py-12">
-                  <div className="text-6xl mb-4">⏳</div>
+                  <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
                   <h2 className="text-2xl font-semibold text-primary mb-2">
                     Loading...
                   </h2>
@@ -142,9 +372,21 @@ const IntegrationsPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  {/* Filters Section */}
-                  <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* Filters and Table Card */}
+                  <div
+                    className="mb-6 p-6 rounded-lg bg-secondary shadow-md border border-transparent"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'transparent'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
+                    {/* Filters Section - Internal Card */}
+                    <div className="mb-6 p-6 rounded-lg bg-primary shadow-md">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {/* Integration Name Filter */}
                       <div>
                         <label className="block text-sm font-medium mb-2 text-primary">Integration Name</label>
@@ -155,21 +397,6 @@ const IntegrationsPage: React.FC = () => {
                           onChange={(e) => setIntegrationNameFilter(e.target.value)}
                           className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
                         />
-                      </div>
-
-                      {/* Type Filter */}
-                      <div>
-                        <label className="block text-sm font-medium mb-2 text-primary">Type</label>
-                        <select
-                          value={typeFilter}
-                          onChange={(e) => setTypeFilter(e.target.value)}
-                          className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                        >
-                          <option value="">All Types</option>
-                          <option value="data">Data</option>
-                          <option value="ai">AI</option>
-                          <option value="embedding">Embedding</option>
-                        </select>
                       </div>
 
                       {/* Provider Filter */}
@@ -200,13 +427,16 @@ const IntegrationsPage: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                  </div>
+                    </div>
 
-                  {/* Integrations Table */}
-                  <div className="rounded-lg overflow-hidden bg-secondary border border-tertiary/20">
-                    <div className="px-6 py-4 border-b border-tertiary/20 bg-tertiary/10 flex justify-between items-center">
-                      <h2 className="text-lg font-semibold text-primary">Integrations</h2>
-                      <button className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors flex items-center space-x-2">
+                    {/* Integrations Table - Internal Card */}
+                    <div className="rounded-lg bg-table-container shadow-md overflow-hidden">
+                      <div className="px-6 py-5 flex justify-between items-center bg-table-header">
+                        <h2 className="text-lg font-semibold text-table-header">Integrations</h2>
+                      <button
+                        onClick={() => setCreateModal({ isOpen: true })}
+                        className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm"
+                      >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M5 12h14"></path>
                           <path d="M12 5v14"></path>
@@ -215,63 +445,66 @@ const IntegrationsPage: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-tertiary/10">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">Name</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Type</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Provider</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">URL</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Active</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-secondary">
-                          {filteredIntegrations.map((integration) => (
-                            <tr key={integration.id} className="border-b hover:bg-gray-50" style={{borderColor: 'var(--border-color)'}}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-primary">
-                                <div className="flex items-center space-x-3">
-                                  {integration.logo_filename ? (
-                                    <img
-                                      src={`/assets/integrations/${integration.logo_filename}`}
-                                      alt={integration.name}
-                                      className="h-6 w-auto max-w-16 object-contain"
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                        if (e.currentTarget.nextElementSibling) {
-                                          (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
-                                        }
-                                      }}
-                                    />
-                                  ) : null}
-                                  <div className="w-6 h-6 bg-accent rounded flex items-center justify-center text-on-accent font-semibold text-xs" style={{ display: integration.logo_filename ? 'none' : 'flex' }}>
-                                    {integration.name.charAt(0).toUpperCase()}
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="bg-table-column-header">
+                              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">Name</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Logo</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Provider</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">URL</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Active</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredIntegrations.map((integration, index) => (
+                              <tr
+                                key={integration.id}
+                                className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}`}
+                              >
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row">
+                                  <span className="font-semibold">{integration.name}</span>
+                                </td>
+                                <td className="px-6 py-5 whitespace-nowrap text-center">
+                                  <div className="flex items-center justify-center">
+                                    {integration.logo_filename ? (
+                                      <IntegrationLogo
+                                        logoFilename={integration.logo_filename}
+                                        integrationName={integration.name}
+                                        className="h-8 w-auto max-w-20 object-contain"
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 bg-accent rounded flex items-center justify-center text-on-accent font-semibold text-sm">
+                                        {integration.name.charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
                                   </div>
-                                  <span className="font-medium">{integration.name}</span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{integration.integration_type}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{integration.name}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">
+                                </td>
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">{integration.name}</td>
+                              <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">
                                 {integration.base_url ? (
                                   <a href={integration.base_url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
                                     {integration.base_url.length > 30 ? `${integration.base_url.substring(0, 30)}...` : integration.base_url}
                                   </a>
                                 ) : '-'}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <div className="job-toggle-switch">
+                              <td className="px-6 py-5 whitespace-nowrap text-center">
+                                <div
+                                  className="job-toggle-switch cursor-pointer"
+                                  onClick={() => handleToggleActive(integration.id, integration.active)}
+                                >
                                   <div className={`toggle-switch ${integration.active ? 'active' : ''}`}>
                                     <div className="toggle-slider"></div>
                                   </div>
                                   <span className="toggle-label">{integration.active ? 'On' : 'Off'}</span>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <td className="px-6 py-5 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center space-x-2">
                                   <button
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-primary hover:text-primary transition-colors"
+                                    onClick={() => handleEdit(integration.id)}
+                                    className="p-2 rounded bg-tertiary text-secondary hover:bg-secondary hover:text-accent shadow-sm hover:shadow-md transition-all"
                                     title="Edit"
                                   >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -280,7 +513,8 @@ const IntegrationsPage: React.FC = () => {
                                     </svg>
                                   </button>
                                   <button
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-red-500 hover:text-white transition-colors"
+                                    onClick={() => handleDelete(integration.id)}
+                                    className="p-2 rounded bg-tertiary text-secondary hover:bg-secondary hover:text-red-500 shadow-sm hover:shadow-md transition-all"
                                     title="Delete"
                                   >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -297,6 +531,7 @@ const IntegrationsPage: React.FC = () => {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 </>
@@ -305,6 +540,268 @@ const IntegrationsPage: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Edit Modal */}
+      {editModal.integration && (
+        <EditModal
+          isOpen={editModal.isOpen}
+          onClose={() => {
+            setEditModal({ isOpen: false, integration: null })
+            setSelectedLogoFile(null)
+          }}
+          onSave={handleEditSave}
+          title="Edit Integration"
+          fields={[
+            {
+              name: 'provider',
+              label: 'Provider',
+              type: 'text',
+              value: editModal.integration.name,
+              disabled: true
+            },
+            {
+              name: 'type',
+              label: 'Type',
+              type: 'text',
+              value: editModal.integration.integration_type,
+              disabled: true
+            },
+            {
+              name: 'base_url',
+              label: 'Base URL',
+              type: 'text',
+              value: editModal.integration.base_url || '',
+              placeholder: 'https://example.com'
+            },
+            {
+              name: 'logo_file',
+              label: 'Integration Logo',
+              type: 'text',
+              value: editModal.integration.logo_filename || '',
+              placeholder: 'Upload SVG logo',
+              customRender: (field: any, formData: any, handleInputChange: any, errors: any) => {
+                const currentLogo = selectedLogoFile
+                  ? URL.createObjectURL(selectedLogoFile)
+                  : editModal.integration.logo_filename
+                    ? `/assets/integrations/${editModal.integration.logo_filename}`
+                    : null
+
+                return (
+                  <div className="space-y-3">
+                    {/* Logo Preview */}
+                    <div className="flex items-center space-x-4">
+                      <div className="w-16 h-16 rounded-lg border-2 border-border bg-tertiary flex items-center justify-center overflow-hidden">
+                        {currentLogo ? (
+                          <img
+                            src={currentLogo}
+                            alt="Integration logo"
+                            className="w-12 h-12 object-contain"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                              e.currentTarget.parentElement!.innerHTML = '<span class="text-2xl text-muted">?</span>'
+                            }}
+                          />
+                        ) : (
+                          <span className="text-2xl text-muted">?</span>
+                        )}
+                      </div>
+
+                      {/* Upload Button */}
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/svg+xml"
+                          onChange={(e) => {
+                            handleLogoFileSelect(e)
+                          }}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <button
+                          type="button"
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" x2="12" y1="3" y2="15"></line>
+                          </svg>
+                          <span>{currentLogo ? 'Change Logo' : 'Upload Logo'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Status Message */}
+                    {selectedLogoFile && (
+                      <p className="text-xs text-green-600">
+                        ✓ New logo selected
+                      </p>
+                    )}
+                    <p className="text-xs text-secondary">
+                      SVG format only, max 1MB
+                    </p>
+                  </div>
+                )
+              }
+            },
+            {
+              name: 'username',
+              label: 'Username',
+              type: 'text',
+              value: editModal.integration.username || '',
+              placeholder: 'Enter username'
+            },
+            {
+              name: 'password',
+              label: 'Password/Token',
+              type: 'text',
+              value: '',
+              placeholder: 'Leave blank to keep current password'
+            },
+            {
+              name: 'ai_model',
+              label: 'Model',
+              type: 'text',
+              value: editModal.integration.ai_model || '',
+              placeholder: 'e.g., all-MiniLM-L6-v2, gpt-4o-mini'
+            }
+          ]}
+        />
+      )}
+
+      {/* Create Modal */}
+      <CreateModal
+        isOpen={createModal.isOpen}
+        onClose={() => {
+          setCreateModal({ isOpen: false })
+          setSelectedLogoFile(null)
+        }}
+        onSave={handleCreateSave}
+        title="Create Integration"
+        fields={[
+          {
+            name: 'provider',
+            label: 'Provider',
+            type: 'text',
+            required: true,
+            placeholder: 'e.g., jira, github, local_embeddings'
+          },
+          {
+            name: 'type',
+            label: 'Type',
+            type: 'select',
+            required: true,
+            defaultValue: 'Data',
+            options: [
+              { value: 'Data', label: 'Data' },
+              { value: 'AI', label: 'AI' },
+              { value: 'Embedding', label: 'Embedding' }
+            ]
+          },
+          {
+            name: 'base_url',
+            label: 'Base URL',
+            type: 'text',
+            placeholder: 'https://example.com'
+          },
+          {
+            name: 'logo_file',
+            label: 'Integration Logo',
+            type: 'text',
+            placeholder: 'Upload SVG logo',
+            customRender: (field: any, formData: any, handleInputChange: any, errors: any) => {
+              const currentLogo = selectedLogoFile
+                ? URL.createObjectURL(selectedLogoFile)
+                : null
+
+              return (
+                <div className="space-y-3">
+                  {/* Logo Preview */}
+                  <div className="flex items-center space-x-4">
+                    <div className="w-16 h-16 rounded-lg border-2 border-border bg-tertiary flex items-center justify-center overflow-hidden">
+                      {currentLogo ? (
+                        <img
+                          src={currentLogo}
+                          alt="Integration logo"
+                          className="w-12 h-12 object-contain"
+                        />
+                      ) : (
+                        <span className="text-2xl text-muted">?</span>
+                      )}
+                    </div>
+
+                    {/* Upload Button */}
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/svg+xml"
+                        onChange={(e) => {
+                          handleLogoFileSelect(e)
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <button
+                        type="button"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="17 8 12 3 7 8"></polyline>
+                          <line x1="12" x2="12" y1="3" y2="15"></line>
+                        </svg>
+                        <span>Upload Logo</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Status Message */}
+                  {selectedLogoFile && (
+                    <p className="text-xs text-green-600">
+                      ✓ Logo selected
+                    </p>
+                  )}
+                  <p className="text-xs text-secondary">
+                    SVG format only, max 1MB
+                  </p>
+                </div>
+              )
+            }
+          },
+          {
+            name: 'username',
+            label: 'Username',
+            type: 'text',
+            placeholder: 'Enter username'
+          },
+          {
+            name: 'password',
+            label: 'Password/Token',
+            type: 'text',
+            placeholder: 'Enter password or token'
+          },
+          {
+            name: 'ai_model',
+            label: 'Model',
+            type: 'text',
+            placeholder: 'e.g., all-MiniLM-L6-v2, gpt-4o-mini'
+          }
+        ]}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmation.isOpen}
+        onClose={hideConfirmation}
+        onConfirm={confirmation.onConfirm}
+        title={confirmation.title}
+        message={confirmation.message}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        type={confirmation.type}
+        icon={confirmation.icon}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
     </div>
   )
 }

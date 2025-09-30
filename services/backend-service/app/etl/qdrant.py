@@ -6,91 +6,157 @@ Handles Qdrant vector database operations
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import func
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
-from app.models.unified_models import User
+from app.models.unified_models import (
+    User, WorkItem, Changelog, Project, Status, Wit,
+    WitHierarchy, WitMapping, StatusMapping, Workflow,
+    Pr, PrComment, PrReview, PrCommit, Repository,
+    WitPrLinks, VectorizationQueue
+)
 
 router = APIRouter()
 
 
-class QdrantCollectionInfo(BaseModel):
+class EntityStats(BaseModel):
     name: str
-    vectors_count: int
-    indexed_vectors_count: int
-    points_count: int
-    segments_count: int
-    status: str
-    optimizer_status: Dict[str, Any]
-    disk_data_size: int
-    ram_data_size: int
+    database_count: int
+    qdrant_count: int
+    completion: int
 
 
-class QdrantResponse(BaseModel):
-    collections: List[QdrantCollectionInfo]
-    total_collections: int
-    total_vectors: int
-    total_points: int
+class IntegrationGroup(BaseModel):
+    title: str
+    logo_filename: str
+    entities: List[EntityStats]
 
 
-@router.get("/qdrant/collections", response_model=QdrantResponse)
-async def get_qdrant_collections(
+class QdrantDashboardResponse(BaseModel):
+    total_database: int
+    total_vectorized: int
+    overall_completion: int
+    integration_groups: List[IntegrationGroup]
+    queue_pending: int
+    queue_failed: int
+
+
+@router.get("/qdrant/dashboard", response_model=QdrantDashboardResponse)
+async def get_qdrant_dashboard(
     user: User = Depends(require_authentication)
 ):
-    """Get Qdrant database collections information"""
+    """Get Qdrant dashboard data with real database counts and vectorization status"""
     try:
-        # TODO: Implement actual Qdrant client integration
-        # For now, return mock data
-        mock_collections = [
-            QdrantCollectionInfo(
-                name=f"tenant_{user.tenant_id}_work_items",
-                vectors_count=1250,
-                indexed_vectors_count=1250,
-                points_count=1250,
-                segments_count=2,
-                status="green",
-                optimizer_status={"status": "ok"},
-                disk_data_size=52428800,  # 50MB
-                ram_data_size=10485760   # 10MB
-            ),
-            QdrantCollectionInfo(
-                name=f"tenant_{user.tenant_id}_pull_requests",
-                vectors_count=850,
-                indexed_vectors_count=850,
-                points_count=850,
-                segments_count=1,
-                status="green",
-                optimizer_status={"status": "ok"},
-                disk_data_size=35651584,  # 34MB
-                ram_data_size=7340032    # 7MB
-            ),
-            QdrantCollectionInfo(
-                name=f"tenant_{user.tenant_id}_repositories",
-                vectors_count=45,
-                indexed_vectors_count=45,
-                points_count=45,
-                segments_count=1,
-                status="green",
-                optimizer_status={"status": "ok"},
-                disk_data_size=1887436,  # 1.8MB
-                ram_data_size=524288     # 512KB
+        database = get_database()
+        tenant_id = user.tenant_id
+
+        with database.get_read_session_context() as session:
+            # Helper function to get count and vectorized count for a table
+            def get_entity_stats(model, name: str) -> EntityStats:
+                try:
+                    # Get database count
+                    db_count = session.query(func.count(model.id)).filter(
+                        model.tenant_id == tenant_id
+                    ).scalar() or 0
+
+                    # Get vectorized count (completed in vectorization queue)
+                    # For now, we'll assume all records are vectorized (100%)
+                    # TODO: Query Qdrant directly or check vectorization_queue table
+                    vectorized_count = session.query(func.count(VectorizationQueue.id)).filter(
+                        VectorizationQueue.tenant_id == tenant_id,
+                        VectorizationQueue.table_name == model.__tablename__,
+                        VectorizationQueue.status == 'completed'
+                    ).scalar() or 0
+
+                    # Calculate completion percentage
+                    completion = int((vectorized_count / db_count * 100)) if db_count > 0 else 0
+
+                    return EntityStats(
+                        name=name,
+                        database_count=db_count,
+                        qdrant_count=vectorized_count,
+                        completion=completion
+                    )
+                except Exception as e:
+                    print(f"Error getting stats for {name}: {str(e)}")
+                    # Return zero stats if there's an error
+                    return EntityStats(
+                        name=name,
+                        database_count=0,
+                        qdrant_count=0,
+                        completion=0
+                    )
+
+            # Jira entities
+            jira_entities = [
+                get_entity_stats(WorkItem, "Work Items"),
+                get_entity_stats(Changelog, "Changelogs"),
+                get_entity_stats(Project, "Projects"),
+                get_entity_stats(Status, "Statuses"),
+                get_entity_stats(Wit, "Work Item Types"),
+                get_entity_stats(WitHierarchy, "WIT Hierarchies"),
+                get_entity_stats(WitMapping, "WIT Mappings"),
+                get_entity_stats(WitPrLinks, "WIT PR Links"),
+                get_entity_stats(StatusMapping, "Status Mappings"),
+                get_entity_stats(Workflow, "Workflows"),
+            ]
+
+            # GitHub entities
+            github_entities = [
+                get_entity_stats(Pr, "Pull Requests"),
+                get_entity_stats(PrComment, "PR Comments"),
+                get_entity_stats(PrReview, "PR Reviews"),
+                get_entity_stats(PrCommit, "PR Commits"),
+                get_entity_stats(Repository, "Repositories"),
+            ]
+
+            # Create integration groups
+            integration_groups = [
+                IntegrationGroup(
+                    title="Jira",
+                    logo_filename="jira.svg",
+                    entities=jira_entities
+                ),
+                IntegrationGroup(
+                    title="GitHub",
+                    logo_filename="github.svg",
+                    entities=github_entities
+                )
+            ]
+
+            # Calculate totals
+            total_database = sum(e.database_count for group in integration_groups for e in group.entities)
+            total_vectorized = sum(e.qdrant_count for group in integration_groups for e in group.entities)
+            overall_completion = int((total_vectorized / total_database * 100)) if total_database > 0 else 0
+
+            # Get queue stats
+            queue_pending = session.query(func.count(VectorizationQueue.id)).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'pending'
+            ).scalar() or 0
+
+            queue_failed = session.query(func.count(VectorizationQueue.id)).filter(
+                VectorizationQueue.tenant_id == tenant_id,
+                VectorizationQueue.status == 'failed'
+            ).scalar() or 0
+
+            return QdrantDashboardResponse(
+                total_database=total_database,
+                total_vectorized=total_vectorized,
+                overall_completion=overall_completion,
+                integration_groups=integration_groups,
+                queue_pending=queue_pending,
+                queue_failed=queue_failed
             )
-        ]
-
-        total_vectors = sum(col.vectors_count for col in mock_collections)
-        total_points = sum(col.points_count for col in mock_collections)
-
-        return QdrantResponse(
-            collections=mock_collections,
-            total_collections=len(mock_collections),
-            total_vectors=total_vectors,
-            total_points=total_points
-        )
 
     except Exception as e:
+        import traceback
+        error_detail = f"Failed to fetch Qdrant dashboard data: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch Qdrant collections: {str(e)}"
+            detail=f"Failed to fetch Qdrant dashboard data: {str(e)}"
         )
 
 

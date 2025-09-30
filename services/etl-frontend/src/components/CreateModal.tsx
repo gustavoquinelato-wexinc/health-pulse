@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import { X } from 'lucide-react'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface CreateField {
   name: string
@@ -8,6 +11,12 @@ interface CreateField {
   placeholder?: string
   options?: { value: string | number; label: string }[]
   defaultValue?: any
+  customRender?: (
+    field: CreateField,
+    formData: Record<string, any>,
+    handleInputChange: (name: string, value: any) => void,
+    errors: Record<string, string>
+  ) => React.ReactNode
 }
 
 interface CreateModalProps {
@@ -25,6 +34,7 @@ const CreateModal: React.FC<CreateModalProps> = ({
   title,
   fields
 }) => {
+  const { theme } = useTheme()
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
@@ -94,79 +104,83 @@ const CreateModal: React.FC<CreateModalProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onKeyDown={handleKeyDown}>
-      <div className="bg-primary rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-tertiary/20">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-primary">{title}</h3>
+    <div className="fixed inset-0 z-[9999] overflow-y-auto">
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="flex min-h-full items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          className="relative w-full max-w-2xl bg-primary rounded-xl shadow-2xl border border-tertiary overflow-hidden"
+          onKeyDown={handleKeyDown}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 bg-table-header border-b border-tertiary">
+            <div className="flex items-center space-x-3">
+              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                  <path d="M5 12h14"></path>
+                  <path d="M12 5v14"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-table-header">{title}</h3>
+            </div>
             <button
               onClick={onClose}
-              className="text-secondary hover:text-primary transition-colors"
+              className="p-1 rounded-lg text-secondary hover:bg-tertiary hover:text-primary transition-colors"
               aria-label="Close modal"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6L6 18"></path>
-                <path d="M6 6l12 12"></path>
-              </svg>
+              <X className="w-5 h-5" />
             </button>
           </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          {fields.map((field) => (
-            <div key={field.name}>
-              <label htmlFor={field.name} className="block text-sm font-medium text-primary mb-1">
-                {field.label}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
+          {/* Content */}
+          <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto bg-secondary">
+            {fields.map((field) => (
+              <div key={field.name} className="space-y-3">
+                <label htmlFor={field.name} className="block text-sm font-semibold text-primary">
+                  {field.label}
+                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                </label>
 
-              {field.type === 'text' && (
+              {field.customRender ? (
+                field.customRender(field, formData, handleInputChange, errors)
+              ) : field.type === 'text' ? (
                 <input
                   type="text"
                   id={field.name}
                   value={formData[field.name] || ''}
                   onChange={(e) => handleInputChange(field.name, e.target.value)}
                   placeholder={field.placeholder}
-                  className={`w-full px-3 py-2 border rounded-lg bg-primary text-primary placeholder-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent ${
-                    errors[field.name] ? 'border-red-500' : 'border-tertiary/20'
-                  }`}
+                  className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
                 />
-              )}
-
-              {field.type === 'number' && (
+              ) : field.type === 'number' ? (
                 <input
                   type="number"
                   id={field.name}
                   value={formData[field.name] || ''}
                   onChange={(e) => handleInputChange(field.name, e.target.value)}
                   placeholder={field.placeholder}
-                  className={`w-full px-3 py-2 border rounded-lg bg-primary text-primary placeholder-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent ${
-                    errors[field.name] ? 'border-red-500' : 'border-tertiary/20'
-                  }`}
+                  className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
                 />
-              )}
-
-              {field.type === 'textarea' && (
+              ) : field.type === 'textarea' ? (
                 <textarea
                   id={field.name}
                   value={formData[field.name] || ''}
                   onChange={(e) => handleInputChange(field.name, e.target.value)}
                   placeholder={field.placeholder}
                   rows={3}
-                  className={`w-full px-3 py-2 border rounded-lg bg-primary text-primary placeholder-secondary/60 focus:outline-none focus:ring-2 focus:ring-accent resize-vertical ${
-                    errors[field.name] ? 'border-red-500' : 'border-tertiary/20'
-                  }`}
+                  className={`input w-full resize-vertical ${errors[field.name] ? 'border-red-500' : ''}`}
                 />
-              )}
-
-              {field.type === 'select' && (
+              ) : field.type === 'select' ? (
                 <select
                   id={field.name}
                   value={formData[field.name] || ''}
                   onChange={(e) => handleInputChange(field.name, e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-lg bg-primary text-primary focus:outline-none focus:ring-2 focus:ring-accent ${
-                    errors[field.name] ? 'border-red-500' : 'border-tertiary/20'
-                  }`}
+                  className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
                 >
                   {field.options?.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -174,7 +188,7 @@ const CreateModal: React.FC<CreateModalProps> = ({
                     </option>
                   ))}
                 </select>
-              )}
+              ) : null}
 
               {field.type === 'checkbox' && (
                 <div className="flex items-center">
@@ -196,31 +210,30 @@ const CreateModal: React.FC<CreateModalProps> = ({
               )}
             </div>
           ))}
-        </form>
+          </div>
 
-        <div className="px-6 py-4 border-t border-tertiary/20 flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-secondary hover:text-primary transition-colors"
-            disabled={isLoading}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isLoading}
-            className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            {isLoading && (
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            )}
-            <span>{isLoading ? 'Creating...' : 'Create'}</span>
-          </button>
-        </div>
+          {/* Footer */}
+          <div className="flex items-center justify-end space-x-4 p-6 bg-tertiary border-t border-tertiary">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isLoading}
+              className="px-6 py-2.5 text-secondary hover:text-primary hover:bg-secondary rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 font-medium shadow-sm"
+            >
+              {isLoading && (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
+              <span>{isLoading ? 'Creating...' : 'Create'}</span>
+            </button>
+          </div>
+        </motion.div>
       </div>
     </div>
   )

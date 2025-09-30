@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DependencyModal from '../components/DependencyModal'
@@ -6,9 +7,10 @@ import ConfirmationModal from '../components/ConfirmationModal'
 import EditModal from '../components/EditModal'
 import CreateModal from '../components/CreateModal'
 import ToastContainer from '../components/ToastContainer'
+import IntegrationLogo from '../components/IntegrationLogo'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { statusesApi } from '../services/etlApiService'
+import { statusesApi, integrationsApi } from '../services/etlApiService'
 
 interface StatusMapping {
   id: number
@@ -24,8 +26,17 @@ interface StatusMapping {
   active: boolean
 }
 
+interface Integration {
+  id: number
+  name: string
+  integration_type: string
+  logo_filename?: string
+  active: boolean
+}
+
 const StatusesMappingsPage: React.FC = () => {
   const [mappings, setMappings] = useState<StatusMapping[]>([])
+  const [integrations, setIntegrations] = useState<Integration[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
@@ -151,12 +162,21 @@ const StatusesMappingsPage: React.FC = () => {
         integration_id: formData.integration_id ? parseInt(formData.integration_id) : null
       }
 
-      await statusesApi.updateStatusMapping(editModal.mapping.id, updateData)
+      const response = await statusesApi.updateStatusMapping(editModal.mapping.id, updateData)
 
-      // Update local state
+      // Get integration info from the frontend state (already loaded)
+      const selectedIntegration = integrations.find(i => i.id === updateData.integration_id)
+
+      // Update local state with response data plus integration info from frontend
+      const updatedMapping = {
+        ...(response.data || response),
+        integration_name: selectedIntegration?.name || null,
+        integration_logo: selectedIntegration?.logo_filename || null
+      }
+
       setMappings(prev => prev.map(m =>
         m.id === editModal.mapping!.id
-          ? { ...m, ...updateData }
+          ? updatedMapping
           : m
       ))
 
@@ -181,8 +201,17 @@ const StatusesMappingsPage: React.FC = () => {
 
       const response = await statusesApi.createStatusMapping(createData)
 
-      // Add new mapping to local state
-      setMappings(prev => [...prev, response.data])
+      // Get integration info from the frontend state (already loaded)
+      const selectedIntegration = integrations.find(i => i.id === createData.integration_id)
+
+      // Add new mapping to local state with integration info from frontend
+      const newMapping = {
+        ...(response.data || response),
+        integration_name: selectedIntegration?.name || null,
+        integration_logo: selectedIntegration?.logo_filename || null
+      }
+
+      setMappings(prev => [...prev, newMapping])
 
       showSuccess('Mapping Created', 'The status mapping has been created successfully.')
       setCreateModal({ isOpen: false })
@@ -232,31 +261,53 @@ const StatusesMappingsPage: React.FC = () => {
     return matchesSourceStatus && matchesTargetStatus && matchesIntegration && matchesStatus
   })
 
+  // Load integrations data
+  const loadIntegrations = async () => {
+    try {
+      const response = await integrationsApi.getIntegrations()
+      // Filter to only show data-type integrations (not AI providers) - case insensitive
+      const dataIntegrations = response.data.filter((integration: Integration) =>
+        integration.integration_type?.toLowerCase() === 'data' && integration.active
+      )
+      setIntegrations(dataIntegrations)
+    } catch (err) {
+      console.error('Error fetching integrations:', err)
+      // Set fallback integrations if API fails
+      setIntegrations([])
+    }
+  }
+
   useEffect(() => {
-    const fetchMappings = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true)
-        const response = await statusesApi.getStatusMappings()
-        setMappings(response.data)
+        // Load both mappings and integrations in parallel
+        await Promise.all([
+          (async () => {
+            const response = await statusesApi.getStatusMappings()
+            setMappings(response.data)
+          })(),
+          loadIntegrations()
+        ])
         setError(null)
       } catch (err) {
-        console.error('Error fetching status mappings:', err)
+        console.error('Error fetching data:', err)
         setError('Failed to load status mappings')
       } finally {
         setLoading(false)
       }
     }
 
-    fetchMappings()
+    fetchData()
   }, [])
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       <Header />
       <div className="flex">
         <CollapsedSidebar />
-        <main className="flex-1 ml-16 p-8">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 ml-16 py-8">
+          <div className="ml-20 mr-12">
             {/* Page Header */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
@@ -272,7 +323,17 @@ const StatusesMappingsPage: React.FC = () => {
             </div>
 
             {/* Vectorization Status Card */}
-            <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
+            <div
+              className="mb-6 p-6 rounded-lg bg-secondary shadow-md border border-transparent"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-1)'
+                e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'transparent'
+                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+              }}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -303,7 +364,7 @@ const StatusesMappingsPage: React.FC = () => {
             <div className="bg-secondary rounded-lg shadow-sm p-6">
               {loading ? (
                 <div className="text-center py-12">
-                  <div className="text-6xl mb-4">⏳</div>
+                  <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
                   <h2 className="text-2xl font-semibold text-primary mb-2">
                     Loading...
                   </h2>
@@ -339,8 +400,20 @@ const StatusesMappingsPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  {/* Filters Section */}
-                  <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
+                  {/* Filters and Table Card */}
+                  <div
+                    className="mb-6 p-6 rounded-lg bg-secondary shadow-md border border-transparent"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'transparent'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
+                    {/* Filters Section - Internal Card */}
+                    <div className="mb-6 p-6 rounded-lg bg-primary shadow-md">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       {/* Source Status Filter */}
                       <div>
@@ -394,15 +467,21 @@ const StatusesMappingsPage: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                  </div>
+                    </div>
 
-                  {/* Status Mappings Table */}
-                  <div className="rounded-lg overflow-hidden bg-secondary border border-tertiary/20">
-                    <div className="px-6 py-4 border-b border-tertiary/20 bg-tertiary/10 flex justify-between items-center">
-                      <h2 className="text-lg font-semibold text-primary">Status Mappings</h2>
+                    {/* Status Mappings Table - Internal Card */}
+                    <div className="rounded-lg bg-table-container shadow-md overflow-hidden">
+                      <div className="px-6 py-5 flex justify-between items-center bg-table-header">
+                        <h2 className="text-lg font-semibold text-table-header">Status Mappings</h2>
                       <button
-                        onClick={() => setCreateModal({ isOpen: true })}
-                        className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors flex items-center space-x-2"
+                        onClick={() => {
+                          if (integrations.length === 0) {
+                            showError('No Integrations Available', 'Please configure at least one data integration before creating status mappings.')
+                            return
+                          }
+                          setCreateModal({ isOpen: true })
+                        }}
+                        className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M5 12h14"></path>
@@ -412,47 +491,43 @@ const StatusesMappingsPage: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-tertiary/10">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">From Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">To Status</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Category</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Workflow Step</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Integration</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Active</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-secondary">
-                          {filteredMappings.map((mapping) => (
-                            <tr key={mapping.id} className="border-b hover:bg-gray-50" style={{borderColor: 'var(--border-color)'}}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-primary font-medium">{mapping.status_from}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-primary">{mapping.status_to}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{mapping.status_category || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{mapping.workflow_step_name || '-'}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="bg-table-column-header">
+                              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">From Status</th>
+                              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">To Status</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Category</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Workflow Step</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Integration</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Active</th>
+                              <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredMappings.map((mapping, index) => (
+                              <tr
+                                key={mapping.id}
+                                className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}`}
+                              >
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row font-semibold">{mapping.status_from}</td>
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row font-semibold">{mapping.status_to}</td>
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">{mapping.status_category || '-'}</td>
+                                <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">{mapping.workflow_step_name || '-'}</td>
+                              <td className="px-6 py-5 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center">
-                                  {mapping.integration_logo ? (
-                                    <img
-                                      src={`/assets/integrations/${mapping.integration_logo}`}
-                                      alt={mapping.integration_name}
-                                      className="h-6 w-auto max-w-16 object-contain"
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                        if (e.currentTarget.nextElementSibling) {
-                                          (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline';
-                                        }
-                                      }}
-                                    />
-                                  ) : null}
-                                  <span className="text-sm text-primary" style={{ display: mapping.integration_logo ? 'none' : 'inline' }}>
-                                    {mapping.integration_name || '-'}
-                                  </span>
+                                  <IntegrationLogo
+                                    logoFilename={mapping.integration_logo}
+                                    integrationName={mapping.integration_name}
+                                  />
+                                  {!mapping.integration_logo && (
+                                    <span className="text-sm text-table-row">
+                                      {mapping.integration_name || '-'}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <td className="px-6 py-5 whitespace-nowrap text-center">
                                 <div
                                   className="job-toggle-switch cursor-pointer"
                                   onClick={() => handleToggleActive(mapping.id, mapping.active)}
@@ -463,11 +538,11 @@ const StatusesMappingsPage: React.FC = () => {
                                   <span className="toggle-label">{mapping.active ? 'On' : 'Off'}</span>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <td className="px-6 py-5 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center space-x-2">
                                   <button
                                     onClick={() => handleEdit(mapping.id)}
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-primary hover:text-primary transition-colors"
+                                    className="p-2 rounded bg-tertiary text-secondary hover:bg-secondary hover:text-accent shadow-sm hover:shadow-md transition-all"
                                     title="Edit"
                                   >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -477,7 +552,7 @@ const StatusesMappingsPage: React.FC = () => {
                                   </button>
                                   <button
                                     onClick={() => handleDelete(mapping.id)}
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-red-500 hover:text-white transition-colors"
+                                    className="p-2 rounded bg-tertiary text-secondary hover:bg-secondary hover:text-red-500 shadow-sm hover:shadow-md transition-all"
                                     title="Delete"
                                   >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -494,6 +569,7 @@ const StatusesMappingsPage: React.FC = () => {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 </>
@@ -575,12 +651,57 @@ const StatusesMappingsPage: React.FC = () => {
               label: 'Integration',
               type: 'select',
               value: editModal.mapping.integration_id || '',
-              options: [
-                { value: '', label: 'No Integration' },
-                // TODO: Load actual integrations
-                { value: '1', label: 'Jira' },
-                { value: '2', label: 'GitHub' }
-              ]
+              required: true,
+              options: integrations.map(integration => ({
+                value: integration.id.toString(),
+                label: integration.name
+              })),
+              customRender: (field: any, formData: any, handleInputChange: any, errors: any) => {
+                const selectedIntegrationId = formData[field.name] || field.value
+                const selectedIntegration = integrations.find(i => i.id.toString() === selectedIntegrationId?.toString())
+
+                return (
+                  <div className="space-y-3">
+                    <select
+                      id={field.name}
+                      value={formData[field.name] || field.value || ''}
+                      onChange={(e) => handleInputChange(field.name, e.target.value)}
+                      className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
+                    >
+                      <option value="">Select {field.label}</option>
+                      {field.options?.map((option: any) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedIntegration && (
+                      <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                        {selectedIntegration.logo_filename ? (
+                          <img
+                            src={`/assets/integrations/${selectedIntegration.logo_filename}`}
+                            alt={selectedIntegration.name}
+                            className="h-8 w-8 object-contain"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="h-8 w-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                            <span className="text-sm text-blue-600 font-semibold">
+                              {selectedIntegration.name.charAt(0)}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{selectedIntegration.name}</p>
+                          <p className="text-xs text-gray-500">Integration Provider</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
             }
           ]}
         />
@@ -612,6 +733,7 @@ const StatusesMappingsPage: React.FC = () => {
             label: 'Status Category',
             type: 'select',
             required: true,
+            defaultValue: 'To Do',
             options: [
               { value: 'To Do', label: 'To Do' },
               { value: 'In Progress', label: 'In Progress' },
@@ -634,12 +756,57 @@ const StatusesMappingsPage: React.FC = () => {
             name: 'integration_id',
             label: 'Integration',
             type: 'select',
-            options: [
-              { value: '', label: 'No Integration' },
-              // TODO: Load actual integrations
-              { value: '1', label: 'Jira' },
-              { value: '2', label: 'GitHub' }
-            ]
+            required: true,
+            defaultValue: integrations.length > 0 ? integrations[0].id.toString() : '',
+            options: integrations.map(integration => ({
+              value: integration.id.toString(),
+              label: integration.name
+            })),
+            customRender: (field: any, formData: any, handleInputChange: any, errors: any) => {
+              const selectedIntegrationId = formData[field.name] || field.defaultValue
+              const selectedIntegration = integrations.find(i => i.id.toString() === selectedIntegrationId)
+
+              return (
+                <div className="space-y-3">
+                  <select
+                    id={field.name}
+                    value={formData[field.name] || ''}
+                    onChange={(e) => handleInputChange(field.name, e.target.value)}
+                    className={`input w-full ${errors[field.name] ? 'border-red-500' : ''}`}
+                  >
+                    {field.options?.map((option: any) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedIntegration && (
+                    <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                      {selectedIntegration.logo_filename ? (
+                        <img
+                          src={`/assets/integrations/${selectedIntegration.logo_filename}`}
+                          alt={selectedIntegration.name}
+                          className="h-8 w-8 object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="h-8 w-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <span className="text-sm text-blue-600 font-semibold">
+                            {selectedIntegration.name.charAt(0)}
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{selectedIntegration.name}</p>
+                        <p className="text-xs text-gray-500">Integration Provider</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            }
           }
         ]}
       />

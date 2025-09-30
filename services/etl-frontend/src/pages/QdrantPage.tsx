@@ -1,57 +1,43 @@
 import React, { useState, useEffect } from 'react'
+import { Loader2, Database, Eye, Play, Trash2, Zap, Download } from 'lucide-react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
+import IntegrationLogo from '../components/IntegrationLogo'
 import { qdrantApi } from '../services/etlApiService'
 
-interface QdrantCollection {
+interface EntityData {
   name: string
-  vectors_count: number
-  indexed_vectors_count: number
-  points_count: number
-  segments_count: number
-  status: string
-  optimizer_status: any
-  disk_data_size: number
-  ram_data_size: number
+  database_count: number
+  qdrant_count: number
+  completion: number
 }
 
-interface QdrantData {
-  collections: QdrantCollection[]
-  total_collections: number
-  total_vectors: number
-  total_points: number
+interface EntityGroup {
+  title: string
+  logo_filename: string
+  entities: EntityData[]
 }
 
-interface QdrantHealth {
-  status: string
-  version: string
-  uptime_seconds: number
-  memory_usage: {
-    used_bytes: number
-    available_bytes: number
-  }
-  disk_usage: {
-    used_bytes: number
-    available_bytes: number
-  }
+interface DashboardData {
+  total_database: number
+  total_vectorized: number
+  overall_completion: number
+  integration_groups: EntityGroup[]
+  queue_pending: number
+  queue_failed: number
 }
 
 const QdrantPage: React.FC = () => {
-  const [qdrantData, setQdrantData] = useState<QdrantData | null>(null)
-  const [healthData, setHealthData] = useState<QdrantHealth | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
 
   useEffect(() => {
     const fetchQdrantData = async () => {
       try {
         setLoading(true)
-        const [collectionsResponse, healthResponse] = await Promise.all([
-          qdrantApi.getCollections(),
-          qdrantApi.getHealth()
-        ])
-        setQdrantData(collectionsResponse.data)
-        setHealthData(healthResponse.data)
+        const response = await qdrantApi.getDashboard()
+        setDashboardData(response.data)
         setError(null)
       } catch (err) {
         console.error('Error fetching Qdrant data:', err)
@@ -64,75 +50,60 @@ const QdrantPage: React.FC = () => {
     fetchQdrantData()
   }, [])
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  const getEntityIcon = (entityName: string) => {
+    const iconMap: Record<string, string> = {
+      'Work Items': 'file-text',
+      'Changelogs': 'git-commit',
+      'Projects': 'folder',
+      'Statuses': 'tag',
+      'Work Item Types': 'layers',
+      'WIT Hierarchies': 'git-branch',
+      'WIT Mappings': 'link',
+      'WIT PR Links': 'git-pull-request',
+      'Status Mappings': 'shuffle',
+      'Workflows': 'workflow',
+      'Pull Requests': 'git-pull-request',
+      'PR Comments': 'message-square',
+      'PR Reviews': 'eye',
+      'PR Commits': 'git-commit',
+      'Repositories': 'database',
+    }
+    return iconMap[entityName] || 'circle'
   }
 
-  const formatUptime = (seconds: number) => {
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    return `${days}d ${hours}h ${minutes}m`
-  }
+  // Use real data from API or defaults
+  const totals = dashboardData ? {
+    totalDatabase: dashboardData.total_database,
+    totalVectorized: dashboardData.total_vectorized,
+    overallCompletion: dashboardData.overall_completion
+  } : { totalDatabase: 0, totalVectorized: 0, overallCompletion: 0 }
+
+  const entityGroups = dashboardData?.integration_groups || []
+  const queuePending = dashboardData?.queue_pending || 0
+  const queueFailed = dashboardData?.queue_failed || 0
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       <Header />
       <div className="flex">
         <CollapsedSidebar />
-        <main className="flex-1 ml-16 p-8">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 ml-16 py-8">
+          <div className="ml-20 mr-12">
             {/* Page Header */}
             <div className="mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h1 className="text-3xl font-bold text-primary">
-                    Qdrant Database
-                  </h1>
-                  <p className="text-lg text-secondary">
-                    Manage vector database collections and operations
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Vectorization Status Card */}
-            <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                      <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-primary">Vectorization Status</h3>
-                    <p className="text-sm text-secondary">Real-time processing status</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <button className="px-3 py-1.5 text-xs rounded-md border border-tertiary/20 text-secondary bg-primary">
-                    Details
-                  </button>
-                  <button className="px-3 py-1.5 text-xs rounded-md text-white bg-blue-500">
-                    Execute
-                  </button>
-                </div>
-              </div>
+              <h1 className="text-3xl font-bold text-primary">
+                Qdrant Database
+              </h1>
+              <p className="text-lg text-secondary">
+                Vector database collections and vectorization status
+              </p>
             </div>
 
             {/* Content */}
             {loading ? (
               <div className="bg-secondary rounded-lg shadow-sm p-6">
                 <div className="text-center py-12">
-                  <div className="text-6xl mb-4">⏳</div>
+                  <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
                   <h2 className="text-2xl font-semibold text-primary mb-2">
                     Loading...
                   </h2>
@@ -160,170 +131,186 @@ const QdrantPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <>
-                {/* Filters Section */}
-                <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {/* Collection Name Filter */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-primary">Collection Name</label>
-                      <input
-                        type="text"
-                        placeholder="Filter by collection name..."
-                        className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                      />
+              <div className="space-y-6">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Total Records Card */}
+                  <div 
+                    className="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300"
+                    style={{ 
+                      background: 'linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 100%)',
+                      color: 'var(--on-gradient-1-2)'
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium opacity-90">Total Records</h3>
+                      <div className="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
                     </div>
-
-                    {/* Status Filter */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-primary">Status</label>
-                      <select className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary">
-                        <option value="">All Statuses</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold">{totals.totalDatabase.toLocaleString()}</div>
+                      <div className="text-xs opacity-80">In Database</div>
                     </div>
+                  </div>
 
-                    {/* Vector Count Filter */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-primary">Vector Count</label>
-                      <input
-                        type="text"
-                        placeholder="Filter by vector count..."
-                        className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                      />
+                  {/* Vectorized Card */}
+                  <div 
+                    className="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300"
+                    style={{ 
+                      background: 'linear-gradient(135deg, var(--color-2) 0%, var(--color-3) 100%)',
+                      color: 'var(--on-gradient-2-3)'
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium opacity-90">Vectorized</h3>
+                      <div className="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
                     </div>
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold">{totals.totalVectorized.toLocaleString()}</div>
+                      <div className="text-xs opacity-80">In Qdrant</div>
+                    </div>
+                  </div>
 
-                    {/* Size Filter */}
-                    <div>
-                      <label className="block text-sm font-medium mb-2 text-primary">Size</label>
-                      <input
-                        type="text"
-                        placeholder="Filter by size..."
-                        className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                      />
+                  {/* Completion Card */}
+                  <div 
+                    className="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300"
+                    style={{ 
+                      background: 'linear-gradient(135deg, var(--color-3) 0%, var(--color-4) 100%)',
+                      color: 'var(--text-primary)'
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium opacity-90">Completion</h3>
+                      <div className="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold">{totals.overallCompletion}%</div>
+                      <div className="text-xs opacity-80">Overall Progress</div>
                     </div>
                   </div>
                 </div>
 
-                {/* Database Health Status */}
-                {healthData && (
-                  <div className="rounded-lg overflow-hidden bg-secondary border border-tertiary/20 mb-6">
-                    <div className="px-6 py-4 border-b border-tertiary/20 bg-tertiary/10">
-                      <h2 className="text-lg font-semibold text-primary">Database Health</h2>
-                    </div>
-                    <div className="p-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-primary border border-tertiary/20 rounded-lg p-4">
-                          <div className="text-sm text-tertiary">Status</div>
-                          <div className={`text-lg font-semibold ${
-                            healthData.status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {healthData.status}
-                          </div>
+                {/* Entity Breakdown by Integration */}
+                <div className="space-y-6">
+                  {entityGroups.map((group, groupIndex) => (
+                    <div
+                      key={groupIndex}
+                      className="rounded-lg bg-secondary shadow-md border border-transparent hover:border-blue-200 transition-all duration-300 overflow-hidden"
+                    >
+                      {/* Group Header */}
+                      <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200 flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-lg bg-white border-2 border-blue-200 flex items-center justify-center overflow-hidden">
+                          <IntegrationLogo
+                            logoFilename={group.logo_filename}
+                            integrationName={group.title}
+                            className="h-6 w-6 object-contain"
+                          />
                         </div>
-                        <div className="bg-primary border border-tertiary/20 rounded-lg p-4">
-                          <div className="text-sm text-tertiary">Version</div>
-                          <div className="text-lg font-semibold text-primary">{healthData.version}</div>
-                        </div>
-                        <div className="bg-primary border border-tertiary/20 rounded-lg p-4">
-                          <div className="text-sm text-tertiary">Uptime</div>
-                          <div className="text-lg font-semibold text-primary">{formatUptime(healthData.uptime_seconds)}</div>
-                        </div>
-                        <div className="bg-primary border border-tertiary/20 rounded-lg p-4">
-                          <div className="text-sm text-tertiary">Memory Usage</div>
-                          <div className="text-lg font-semibold text-primary">
-                            {formatBytes(healthData.memory_usage.used_bytes)}
-                          </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">{group.title}</h3>
+                          <p className="text-xs text-gray-500">{group.entities.length} entities</p>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                )}
 
-                {/* Collections Table */}
-                {qdrantData && (
-                  <div className="rounded-lg overflow-hidden bg-secondary border border-tertiary/20">
-                    <div className="px-6 py-4 border-b border-tertiary/20 bg-tertiary/10 flex justify-between items-center">
-                      <h2 className="text-lg font-semibold text-primary">Vector Collections</h2>
-                      <div className="flex items-center space-x-4">
-                        <div className="text-sm text-secondary">
-                          <span className="font-medium">{qdrantData.total_collections}</span> Collections •
-                          <span className="font-medium">{qdrantData.total_vectors.toLocaleString()}</span> Vectors
-                        </div>
-                        <button className="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent/90 transition-colors flex items-center space-x-2">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M5 12h14"></path>
-                            <path d="M12 5v14"></path>
-                          </svg>
-                          <span>Create Collection</span>
-                        </button>
-                      </div>
-                    </div>
+                      {/* Entity Tiles */}
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                          {group.entities.map((entity, entityIndex) => {
+                            const statusClass = entity.completion >= 100 ? 'complete' : entity.completion > 0 ? 'partial' : 'empty'
+                            const completionClass = entity.completion >= 100 ? 'bg-green-100 text-green-700' : entity.completion > 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'
+                            const dotClass = entity.completion >= 100 ? 'bg-green-500' : entity.completion > 0 ? 'bg-yellow-500' : 'bg-gray-300'
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-tertiary/10">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">Collection Name</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Vectors Count</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Vector Size</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Distance</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Status</th>
-                            <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-secondary">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-secondary">
-                          {qdrantData.collections.map((collection) => (
-                            <tr key={collection.name} className="border-b hover:bg-gray-50" style={{borderColor: 'var(--border-color)'}}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-primary font-medium">{collection.name}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{collection.vectors_count.toLocaleString()}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{collection.config.params.vectors.size}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-primary">{collection.config.params.vectors.distance}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  collection.status === 'green'
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                                    : collection.status === 'yellow'
-                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400'
-                                    : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
-                                }`}>
-                                  {collection.status}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                <div className="flex items-center justify-center space-x-2">
-                                  <button
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-primary hover:text-primary transition-colors"
-                                    title="View Details"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
-                                      <circle cx="12" cy="12" r="3"></circle>
-                                    </svg>
-                                  </button>
-                                  <button
-                                    className="p-2 bg-tertiary border border-tertiary/20 rounded-lg text-secondary hover:bg-red-500 hover:text-white transition-colors"
-                                    title="Delete Collection"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M10 11v6"></path>
-                                      <path d="M14 11v6"></path>
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
-                                      <path d="M3 6h18"></path>
-                                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                    </svg>
-                                  </button>
+                            return (
+                              <div
+                                key={entityIndex}
+                                className="bg-primary border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 flex flex-col justify-between"
+                              >
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex items-center space-x-2">
+                                    <Database className="w-4 h-4 text-secondary" />
+                                    <span className="text-sm font-semibold text-primary">{entity.name}</span>
+                                  </div>
+                                  <div className={`w-2 h-2 rounded-full ${dotClass}`}></div>
                                 </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                <div className="space-y-2">
+                                  <div className="text-xs text-secondary">
+                                    {entity.qdrant_count}/{entity.database_count} vectorized
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-xs px-2 py-1 rounded font-medium ${completionClass}`}>
+                                      {entity.completion}%
+                                    </span>
+                                    <button
+                                      className="p-1 hover:bg-tertiary rounded transition-colors"
+                                      title="View Details"
+                                    >
+                                      <Eye className="w-3 h-3 text-secondary" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
                     </div>
+                  ))}
+                </div>
+
+                {/* Quick Actions */}
+                <div className="rounded-lg bg-secondary shadow-md p-6">
+                  <h4 className="font-semibold mb-4 text-primary">Quick Actions</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      className="p-4 rounded-lg border text-left hover:opacity-80 transition-colors text-white"
+                      style={{ backgroundColor: 'var(--color-1)', borderColor: 'var(--color-1)' }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Play className="w-5 h-5" />
+                        <div>
+                          <div className="font-medium">Start Vectorization</div>
+                          <div className="text-sm opacity-80">{queuePending} pending items to process</div>
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      className="p-4 rounded-lg border text-left hover:opacity-80 transition-colors text-white"
+                      style={{ backgroundColor: 'var(--status-warning)', borderColor: 'var(--status-warning)' }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Trash2 className="w-5 h-5" />
+                        <div>
+                          <div className="font-medium">Cleanup Failed Items</div>
+                          <div className="text-sm opacity-80">{queueFailed} failed items to clean</div>
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      className="p-4 rounded-lg border text-left hover:opacity-80 transition-colors text-white"
+                      style={{ backgroundColor: 'var(--color-3)', borderColor: 'var(--color-3)' }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Zap className="w-5 h-5" />
+                        <div>
+                          <div className="font-medium">Optimize Collections</div>
+                          <div className="text-sm opacity-80">Improve query performance</div>
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      className="p-4 rounded-lg border text-left hover:opacity-80 transition-colors text-white"
+                      style={{ backgroundColor: 'var(--color-4)', borderColor: 'var(--color-4)' }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Download className="w-5 h-5" />
+                        <div>
+                          <div className="font-medium">Export Data</div>
+                          <div className="text-sm opacity-80">Download vector collections</div>
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                )}
-              </>
+                </div>
+              </div>
             )}
           </div>
         </main>
@@ -333,3 +320,4 @@ const QdrantPage: React.FC = () => {
 }
 
 export default QdrantPage
+

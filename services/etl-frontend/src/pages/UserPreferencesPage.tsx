@@ -7,7 +7,7 @@ export default function UserPreferencesPage() {
   const { user } = useAuth()
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       <Header />
       <div className="flex">
         <CollapsedSidebar />

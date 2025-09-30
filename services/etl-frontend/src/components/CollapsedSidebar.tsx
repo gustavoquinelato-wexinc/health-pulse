@@ -13,6 +13,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface NavigationItem {
   id: string
@@ -74,6 +75,7 @@ const adminItems: NavigationItem[] = [
 
 export default function CollapsedSidebar() {
   const { isAdmin } = useAuth()
+  const { theme } = useTheme()
   const location = useLocation()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
@@ -180,11 +182,17 @@ export default function CollapsedSidebar() {
       {/* Collapsed Sidebar */}
       <aside
         ref={sidebarRef}
-        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 sidebar-container z-40 overflow-visible flex flex-col"
+        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 z-40 overflow-visible flex flex-col"
+        style={{ background: 'transparent' }}
       >
         {/* Main Navigation */}
-        <div className="flex-1 flex flex-col justify-center space-y-3 px-2">
-          {navigationItems
+        <div className="flex-1 flex flex-col justify-center">
+          <div className="flex flex-col space-y-3 py-4 w-full" style={{
+            boxShadow: theme === 'dark'
+              ? '0 -4px 6px -1px rgba(255, 255, 255, 0.1), 4px 0 6px -1px rgba(255, 255, 255, 0.1), 0 4px 6px -1px rgba(255, 255, 255, 0.1)'
+              : '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 4px 0 6px -1px rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          }}>
+            {navigationItems
             .filter(item => !item.adminOnly || isAdmin)
             .map((item) => (
               <div key={item.id} className="relative">
@@ -202,17 +210,28 @@ export default function CollapsedSidebar() {
                       background: 'var(--gradient-1-2)',
                       color: 'var(--on-gradient-1-2)'
                     } : {}}
+                    onMouseEnter={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = 'none'
+                      }
+                    }}
                   >
                     <item.icon className="w-5 h-5" />
                   </Link>
                 </motion.div>
               </div>
             ))}
+          </div>
         </div>
 
         {/* Admin Settings */}
         {isAdmin && (
-          <div className="border-t border-default px-2 py-4">
+          <div className="px-2 py-4">
             {adminItems.map((item) => (
               <div key={item.id} className="relative">
                 <motion.div
@@ -229,6 +248,16 @@ export default function CollapsedSidebar() {
                       background: 'var(--gradient-1-2)',
                       color: 'var(--on-gradient-1-2)'
                     } : {}}
+                    onMouseEnter={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = 'none'
+                      }
+                    }}
                   >
                     <item.icon className="w-5 h-5" />
                   </Link>

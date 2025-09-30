@@ -106,12 +106,33 @@ export const integrationsApi = {
   getIntegrations: async () => {
     return await etlApi.get('/integrations')
   },
+  getIntegration: async (integrationId: number) => {
+    return await etlApi.get(`/integrations/${integrationId}`)
+  },
+  createIntegration: async (data: any) => {
+    return await etlApi.post('/integrations', data)
+  },
+  updateIntegration: async (integrationId: number, data: any) => {
+    return await etlApi.put(`/integrations/${integrationId}`, data)
+  },
+  deleteIntegration: async (integrationId: number) => {
+    return await etlApi.delete(`/integrations/${integrationId}`)
+  },
+  uploadLogo: async (file: File) => {
+    const formData = new FormData()
+    formData.append('logo', file)
+    return await etlApi.post('/integrations/upload-logo', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+  },
 }
 
 // Qdrant API
 export const qdrantApi = {
-  getCollections: async () => {
-    return await etlApi.get('/qdrant/collections')
+  getDashboard: async () => {
+    return await etlApi.get('/qdrant/dashboard')
   },
   getHealth: async () => {
     return await etlApi.get('/qdrant/health')

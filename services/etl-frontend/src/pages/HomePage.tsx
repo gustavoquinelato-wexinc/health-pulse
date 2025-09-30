@@ -7,7 +7,7 @@ export default function HomePage() {
   const { user } = useAuth()
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       {/* Header */}
       <Header />
 
@@ -17,6 +17,17 @@ export default function HomePage() {
 
         {/* Main Content */}
         <main className="flex-1 p-6 ml-16">
+          {/* Style Navigation Link */}
+          <div className="mb-6 flex flex-wrap gap-4">
+            <a
+              href="/home5.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-colors"
+            >
+              Collapsed Sidebar Style
+            </a>
+          </div>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

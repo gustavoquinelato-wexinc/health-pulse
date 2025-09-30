@@ -2,7 +2,6 @@ import axios from 'axios'
 import { motion } from 'framer-motion'
 import {
   ChevronDown,
-  Database,
   LogOut,
   Moon,
   Sun,
@@ -148,44 +147,49 @@ export default function Header() {
         })()
 
   return (
-    <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
-      {/* Logo and Title */}
-      <div className="flex items-center">
+    <header className="py-4 px-8 flex items-center justify-between sticky top-0 z-50 bg-primary" style={{
+      boxShadow: theme === 'dark'
+        ? '0 4px 6px -1px rgba(255, 255, 255, 0.1), 0 2px 4px -1px rgba(255, 255, 255, 0.06)'
+        : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+    }}>
+      {/* Left Side - Logo and Title */}
+      <div className="flex items-center space-x-4">
         {/* Tenant Logo */}
-        <div className="h-8 flex items-center mr-4" style={{ minWidth: '32px', maxWidth: '120px' }}>
+        <div className="h-10 flex items-center" style={{ minWidth: '40px', maxWidth: '150px' }}>
           {tenantLoading ? (
             // Loading placeholder - subtle animation
-            <div className="h-6 w-20 bg-gray-200 rounded animate-pulse"></div>
+            <div className="h-6 w-20 bg-white bg-opacity-20 rounded animate-pulse"></div>
           ) : getLogoUrl() ? (
             <img
-              src={getLogoUrl()}
+              src={getLogoUrl() || undefined}
               alt={`${currentTenant?.name || 'Tenant'} Logo`}
               className="h-full max-w-full object-contain"
+              style={{ filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none' }}
             />
           ) : (
             // Fallback text when no logo is available
-            <span className="text-sm font-medium text-primary whitespace-nowrap">
+            <span className="text-sm font-medium text-blue-700 whitespace-nowrap">
               {currentTenant?.name || 'Tenant'}
             </span>
           )}
         </div>
 
-        {/* ETL Brand */}
-        <div className="flex items-center space-x-3">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'var(--gradient-1-2)' }}
-          >
-            <Database className="w-5 h-5" style={{ color: 'var(--on-gradient-1-2)' }} />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-primary">ETL Management</h1>
-          </div>
+        {/* Vertical Divisor */}
+        <div className="h-8 w-px" style={{
+          backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'
+        }}></div>
+
+        {/* Title Badge */}
+        <div className="px-4 py-2 rounded text-sm font-medium" style={{
+          background: 'var(--gradient-1-2)',
+          color: 'var(--on-gradient-1-2)'
+        }}>
+          PULSE - ETL MANAGEMENT
         </div>
       </div>
 
       {/* Right Side Actions */}
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-2">
         {/* Analytics Dashboard Link */}
         <motion.a
           href={`${import.meta.env.VITE_API_BASE_URL?.replace(':3001', ':3000') || 'http://localhost:3000'}/home`}
@@ -208,7 +212,10 @@ export default function Header() {
               return false
             }
           }}
-          className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all inline-block"
+          className="w-12 h-12 flex items-center justify-center mx-auto nav-item text-secondary hover:bg-tertiary hover:text-primary"
+          style={{
+            border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+          }}
           aria-label="Analytics Dashboard"
           title="Analytics Dashboard (Ctrl+Click for new tab)"
         >
@@ -220,7 +227,10 @@ export default function Header() {
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
-          className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
+          className="w-12 h-12 flex items-center justify-center mx-auto nav-item text-secondary hover:bg-tertiary hover:text-primary"
+          style={{
+            border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+          }}
           aria-label="Toggle theme"
           title="Toggle Theme"
         >
@@ -231,14 +241,17 @@ export default function Header() {
         <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
+            className="h-12 rounded-lg flex items-center space-x-2 px-3 nav-item text-secondary hover:bg-tertiary hover:text-primary"
+            style={{
+              border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+            }}
           >
             <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-3), var(--color-4))' }}>
               <span className="text-sm font-medium" style={{ color: 'var(--on-gradient-3-4)' }}>
                 {getUserInitials(user)}
               </span>
             </div>
-            <span className="text-sm font-medium text-primary hidden md:block">
+            <span className="text-sm font-medium hidden md:block text-secondary">
               {displayName}
             </span>
             <ChevronDown className="w-4 h-4 text-secondary" />

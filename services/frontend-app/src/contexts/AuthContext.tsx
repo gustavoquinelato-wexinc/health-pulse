@@ -733,6 +733,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' }
         }).catch(() => { })
+
+        // ETL frontend logout notification (best-effort, do not block)
+        const etlFrontendUrl = import.meta.env.VITE_ETL_FRONTEND_URL || 'http://localhost:3333'
+        fetch(`${etlFrontendUrl}/api/logout-notification`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(() => { })
       }
     } catch (error) {
       // Silently handle any logout API errors
@@ -743,6 +751,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
       clearAllAuthenticationData()
     } catch (error) {
       // Silently handle any auth data clearing errors
+    }
+
+    // Broadcast logout to other tabs/windows on same origin
+    try {
+      localStorage.setItem('pulse_logout_event', Date.now().toString())
+      localStorage.removeItem('pulse_logout_event')
+    } catch (error) {
+      // Ignore localStorage errors
+    }
+
+    // Broadcast to other origins via postMessage (if in iframe or popup)
+    try {
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'LOGOUT_EVENT', source: 'frontend-app' }, '*')
+      }
+      if (window.opener) {
+        window.opener.postMessage({ type: 'LOGOUT_EVENT', source: 'frontend-app' }, '*')
+      }
+    } catch (error) {
+      // Ignore postMessage errors
     }
 
     // Clear browser cache asynchronously (don't block redirect)
@@ -886,6 +914,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // Validate the token to get user data
           validateToken();
         }
+      } else if (event.data.type === 'LOGOUT_EVENT' && event.data.source !== 'frontend-app') {
+        // Another frontend logged out, logout this one too
+        setUser(null)
+        clearAllAuthenticationData()
+        window.location.replace('/login')
       }
     };
 
@@ -894,6 +927,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.removeEventListener('message', handleCrossServiceAuth);
     };
   }, []);
+
+  // Listen for logout events from other frontends via localStorage
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'pulse_logout_event') {
+        // Another tab/window logged out, logout this one too
+        setUser(null)
+        clearAllAuthenticationData()
+        window.location.replace('/login')
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [])
 
   // Set up WebSocket for real-time color updates
   useEffect(() => {

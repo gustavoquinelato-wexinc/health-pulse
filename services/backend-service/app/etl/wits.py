@@ -52,6 +52,10 @@ class HierarchyDeletionRequest(BaseModel):
 
 
 class HierarchyUpdateRequest(BaseModel):
+    level_name: Optional[str] = None
+    level_number: Optional[int] = None
+    description: Optional[str] = None
+    integration_id: Optional[int] = None
     active: Optional[bool] = None
     target_hierarchy_id: Optional[int] = None
 
@@ -199,7 +203,7 @@ async def get_wits_hierarchies(
         )
 
 
-@router.put("/wits-hierarchies/{hierarchy_id}")
+@router.put("/wits-hierarchies/{hierarchy_id}", response_model=WitHierarchyResponse)
 async def update_wit_hierarchy(
     hierarchy_id: int,
     hierarchy_update: HierarchyUpdateRequest,
@@ -250,12 +254,37 @@ async def update_wit_hierarchy(
                         mapping.wit_to = target_hierarchy.level_name
 
             # Update fields if provided
+            if hierarchy_update.level_name is not None:
+                hierarchy.level_name = hierarchy_update.level_name
+            if hierarchy_update.level_number is not None:
+                hierarchy.level_number = hierarchy_update.level_number
+            if hierarchy_update.description is not None:
+                hierarchy.description = hierarchy_update.description
+            if hierarchy_update.integration_id is not None:
+                hierarchy.integration_id = hierarchy_update.integration_id
             if hierarchy_update.active is not None:
                 hierarchy.active = hierarchy_update.active
-                # Update the last_updated_at timestamp using configured timezone
-                hierarchy.last_updated_at = DateTimeHelper.now_default()
 
-            return {"message": "Hierarchy updated successfully", "id": hierarchy_id, "active": hierarchy.active}
+            # Update the last_updated_at timestamp using configured timezone
+            hierarchy.last_updated_at = DateTimeHelper.now_default()
+            session.commit()
+
+            # Get integration info for response
+            integration = session.query(Integration).filter(
+                Integration.id == hierarchy.integration_id
+            ).first() if hierarchy.integration_id else None
+
+            # Return updated hierarchy data with integration info
+            return WitHierarchyResponse(
+                id=hierarchy.id,
+                level_number=hierarchy.level_number,
+                level_name=hierarchy.level_name,
+                description=hierarchy.description,
+                integration_id=hierarchy.integration_id,
+                integration_name=integration.provider if integration else None,
+                integration_logo=integration.logo_filename if integration else None,
+                active=hierarchy.active
+            )
 
     except HTTPException:
         raise

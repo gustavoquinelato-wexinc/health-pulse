@@ -241,7 +241,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       const fallbackColors = theme === 'light' ? defaultLightColorSchema : defaultDarkColorSchema
       setColorSchema(fallbackColors, true)
     }
-  }, [user?.colorSchemaData, isLoading, theme])
+  }, [user?.colorSchemaData, isLoading])
 
   // Handle theme changes
   useEffect(() => {
@@ -264,8 +264,30 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     localStorage.setItem('pulse_color_schema_mode', colorSchemaMode)
   }, [colorSchemaMode])
 
+  // Listen for theme changes from other frontends
+  useEffect(() => {
+    const handleThemeChange = (event: CustomEvent) => {
+      const newTheme = event.detail.theme as Theme
+      if (newTheme !== theme) {
+        setTheme(newTheme)
+
+        if (unifiedColorData) {
+          const newColors = getCurrentActiveColors(unifiedColorData, newTheme)
+          setColorSchema(newColors)
+        }
+      }
+    }
+
+    window.addEventListener('themeChanged', handleThemeChange as EventListener)
+    return () => window.removeEventListener('themeChanged', handleThemeChange as EventListener)
+  }, [theme, unifiedColorData])
+
   const toggleTheme = async () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
+
+    // Dispatch event to prevent immediate sync in AuthContext
+    window.dispatchEvent(new CustomEvent('themeToggled'))
+
     setTheme(newTheme)
 
     if (unifiedColorData) {
