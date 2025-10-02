@@ -23,8 +23,8 @@ JIRA_TOKEN=<your-api-token>
 
 # Project Configuration
 JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT=BST
-JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT=Agile Team[Dropdown]
-JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT=Research & Innovation Team
+JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT=customfield_10128
+JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT=Research & Innovation Team  # Can be name or numeric ID
 
 # Workflow Configuration
 JIRA_SUBTASK_WORKFLOW=Backlog,Development,Released
@@ -38,6 +38,18 @@ JIRA_ABANDONED_RESOLUTION=Won't Do
 ```
 
 **Reference**: See root `.env` file for actual values and current configuration.
+
+**Team Field Configuration**:
+- `JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT`: Must be the custom field ID (e.g., `customfield_10128`)
+- `JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT`: Can be either team name OR numeric ID
+  - **Team Name** (recommended): `Research & Innovation Team` - User-friendly, automatically resolved to ID
+  - **Numeric ID**: `19601` - Direct ID, no resolution needed
+
+**How It Works**:
+- The Jira client automatically detects if the value is numeric or a name
+- If numeric: Uses the ID directly
+- If name: Queries Jira API to resolve the team name to its ID
+- This makes configuration more user-friendly while maintaining flexibility
 
 ### API Authentication
 - **Method**: Basic Authentication using JIRA_USERNAME + JIRA_TOKEN
@@ -149,14 +161,31 @@ When AI agents use task management tools for complex work without Jira integrati
 - **Include**: Technical work (database changes, code updates, API development, etc.)
 - **Exclude**: Jira management tasks (creation, transitions, comments)
 - **Exclude**: Objectives, acceptance criteria, definition of done
-- **Format**: Simple numbered list: "# Task description"
+- **Format**: Use proper Jira markup with headers and numbered lists
+  - Headers: `h3.` for section grouping
+  - Lists: `#` for numbered items (NOT `1.`, `2.`, `-`)
+  - Example:
+    ```
+    h3. Database Tasks
+    # Add table to migration
+    # Execute migration
+
+    h3. API Tasks
+    # Create endpoint
+    # Add validation
+    ```
 - **Purpose**: Subtask is a checklist, not a comprehensive specification
 
 **Subtask Comments**:
 - **Content**: Simple completion summary with key deliverables
 - **Avoid**: Excessive detail, comprehensive documentation
 - **Focus**: Key results and deliverables only
-- **Format**: Brief, focused summary without extensive formatting
+- **Format**: Use proper Jira markup for readability
+  - Headers: `h2.`, `h3.` (NOT markdown `##`, `###`)
+  - Numbered lists: `#` (NOT `1.`, `2.`, `-`)
+  - Bullet lists: `*` (NOT `-`)
+  - Bold text: `*text*` (NOT `**text**`)
+  - Organize with headers and lists for clarity
 
 - **Create comprehensive task lists** that include both Jira management and implementation work
 - **Update task status** as work progresses through different phases
@@ -165,12 +194,42 @@ When AI agents use task management tools for complex work without Jira integrati
 ## 🎨 Jira Formatting Standards
 
 ### Markup Guidelines
-Use proper Jira markup for all descriptions and comments:
+**CRITICAL**: Always use proper Jira markup (NOT Markdown) for all descriptions and comments:
 
-- **Headers**: `h2.` for main sections, `h3.` for subsections
-- **Lists**: `#` for numbered lists, `*` for bullet points
-- **Emphasis**: `*text*` for bold/italics
-- **Code**: `{code}` blocks for code snippets
+- **Headers**: `h2.` for main sections, `h3.` for subsections, `h4.` for sub-subsections
+  - ❌ WRONG: `## Header`, `### Subheader`
+  - ✅ CORRECT: `h2. Header`, `h3. Subheader`
+- **Numbered Lists**: `#` at the start of each line
+  - ❌ WRONG: `1. Item`, `2. Item`, `- Item`
+  - ✅ CORRECT: `# Item`, `# Item`
+- **Bullet Lists**: `*` at the start of each line
+  - ❌ WRONG: `- Item`, `• Item`
+  - ✅ CORRECT: `* Item`, `* Item`
+- **Bold Text**: `*text*` for bold/italics
+  - ❌ WRONG: `**text**`, `__text__`
+  - ✅ CORRECT: `*text*`
+- **Code Blocks**: `{code}` blocks for code snippets
+  - ❌ WRONG: ` ```code``` `
+  - ✅ CORRECT: `{code}code{code}`
+
+**Example of Proper Jira Markup**:
+```
+h2. Main Section
+
+*This is bold text*
+
+h3. Subsection
+
+# First numbered item
+# Second numbered item
+# Third numbered item
+
+h3. Another Subsection
+
+* First bullet point
+* Second bullet point
+* Third bullet point
+```
 
 ### Content Structure
 - **Epics**: Comprehensive business objectives with acceptance criteria and risk assessment

@@ -786,10 +786,15 @@ def apply(connection):
             salt = bcrypt.gensalt()
             return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
+        # Get user passwords from environment variables
+        admin_password = os.getenv('ADMIN_USER_PASSWORD', 'pulse')
+        system_password = os.getenv('SYSTEM_USER_PASSWORD', 'etl_system_secure_2024')
+        default_password = os.getenv('DEFAULT_USER_PASSWORD', 'pulse')
+
         default_users_data = [
             {
                 "email": "gustavo.quinelato@wexinc.com",
-                "password_hash": hash_password("pulse"),
+                "password_hash": hash_password(admin_password),
                 "first_name": "Gustavo",
                 "last_name": "Quinelato",
                 "role": "admin",
@@ -798,7 +803,7 @@ def apply(connection):
             },
             {
                 "email": "admin@pulse.com",
-                "password_hash": hash_password("pulse"),
+                "password_hash": hash_password(admin_password),
                 "first_name": "System",
                 "last_name": "Administrator",
                 "role": "admin",
@@ -807,7 +812,7 @@ def apply(connection):
             },
             {
                 "email": "system@etl.pulse.local",
-                "password_hash": hash_password("etl_system_secure_2024"),
+                "password_hash": hash_password(system_password),
                 "first_name": "ETL",
                 "last_name": "System Service",
                 "role": "system",
@@ -816,7 +821,7 @@ def apply(connection):
             },
             {
                 "email": "user@pulse.com",
-                "password_hash": hash_password("pulse"),
+                "password_hash": hash_password(default_password),
                 "first_name": "Test",
                 "last_name": "User",
                 "role": "user",

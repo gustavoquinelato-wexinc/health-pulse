@@ -17,6 +17,7 @@ import asyncio
 from app.core.config import get_settings
 from app.core.database import get_database
 from app.core.logging_config import get_logger
+from app.core.utils import DateTimeHelper
 from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
     RateLimitingMiddleware, HealthCheckMiddleware
@@ -98,7 +99,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip authentication for API routes (they handle their own auth)
-        if path.startswith("/api/") or path.startswith("/auth/"):
+        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/"):
             logger.debug(f"API/Auth route {path} - skipping middleware auth")
             return await call_next(request)
 
@@ -347,6 +348,10 @@ app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", t
 from app.api.ai_query_routes import router as ai_query_router
 app.include_router(ai_query_router, prefix="/api/v1", tags=["AI Query Interface"])
 
+# Include ETL routes
+from app.etl.router import router as etl_router
+app.include_router(etl_router, prefix="/app/etl", tags=["ETL Management"])
+
 # Backend Service - API only, no static files or web routes
 
 
@@ -430,7 +435,7 @@ async def not_found_handler(request, _):
         content={
             "error": "Not Found",
             "detail": f"The requested resource '{request.url.path}' was not found",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
     )
 
@@ -443,7 +448,7 @@ async def forbidden_handler(_request, _exc):
         content={
             "error": "Forbidden",
             "detail": "You don't have permission to access this resource",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
     )
 
@@ -467,7 +472,7 @@ async def global_exception_handler(request, exc):
             "error": "Internal server error",
             "detail": str(exc) if settings.DEBUG else "An unexpected error occurred",
             "error_id": error_id,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
     )
 
@@ -516,7 +521,7 @@ async def clear_all_user_sessions():
             # Note: This is intentional on startup for security - all clients get fresh sessions
             session.query(UserSession).update({
                 'active': False,
-                'last_updated_at': datetime.now()
+                'last_updated_at': DateTimeHelper.now_default()
             })
             session.commit()
 

@@ -367,15 +367,15 @@ class DateTimeHelper:
     @staticmethod
     def now_utc() -> datetime:
         """
-        Get current datetime as timezone-naive UTC.
+        Get current datetime in the configured timezone (America/New_York).
 
         CRITICAL: This is the ONLY method that should be used for database timestamps
-        to ensure consistency with PostgreSQL's UTC timezone setting.
+        to ensure consistency with PostgreSQL's timezone setting.
 
         Returns:
-            Current datetime in timezone-naive UTC format
+            Current datetime in configured timezone format (timezone-naive)
         """
-        return datetime.now(timezone.utc).replace(tzinfo=None)
+        return DateTimeHelper.now_default()
 
     @staticmethod
     def now_central() -> datetime:
@@ -383,7 +383,7 @@ class DateTimeHelper:
         Get current datetime in Central Time (America/Chicago) as timezone-naive.
 
         WARNING: This should ONLY be used for display purposes, NOT for database storage.
-        All database operations should use now_utc() for consistency.
+        All database operations should use now_default() for consistency.
 
         Returns:
             datetime: Current Central Time without timezone info
@@ -425,16 +425,16 @@ class DateTimeHelper:
 
 
     @staticmethod
-    def now_utc_iso() -> str:
+    def now_default_iso() -> str:
         """
-        Get current datetime as ISO format string.
+        Get current datetime as ISO format string in configured timezone.
 
         Useful for API responses and logging timestamps.
 
         Returns:
             Current datetime in ISO format string
         """
-        return DateTimeHelper.now_utc().isoformat()
+        return DateTimeHelper.now_default().isoformat()
 
     @staticmethod
     def to_iso_string(dt: Optional[datetime]) -> Optional[str]:

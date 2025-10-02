@@ -24,26 +24,28 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 └─────────────────────────────────────────────────────────────────┘
                     │                       │
                     ▼                       ▼
-┌─────────────────┐              ┌─────────────────┐
-│  Backend        │              │  ETL Service    │
-│  Service        │◄────────────►│  (FastAPI)      │
-│  (FastAPI)      │              │  Port: 8002     │
-│  Port: 3001     │              │                 │
-│                 │              │ • Data Extract  │
-│ • Authentication│              │ • Job Control   │
-│ • User Mgmt     │              │ • Orchestration │
-│ • Session Mgmt  │              │ • Recovery      │
-│ • API Gateway   │              │ • Admin APIs    │
-│ • Client Mgmt   │              │ • ML Data Prep  │
-│ • ML Monitoring │              │ • Integration   │
-│ • AI Operations │              │ • Calls Backend │
-│ • Flexible AI   │              │   for AI        │
-│ • Embeddings    │              │                 │
-│ • Chat Agents   │              │                 │
-│ • Vector Ops    │              │                 │
-│ • JSON Routing  │              │                 │
-│ • RBAC & JWT    │              │                 │
-└─────────────────┘              └─────────────────┘
+┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
+│  Backend        │              │  ETL Frontend   │              │  ETL Service    │
+│  Service        │◄────────────►│  (React/TS)     │              │  (LEGACY)       │
+│  (FastAPI)      │              │  Port: 5174     │              │  Port: 8002     │
+│  Port: 3001     │              │                 │              │                 │
+│                 │              │ • Job Cards     │              │ ⚠️ DO NOT USE   │
+│ • Authentication│              │ • WIT Mgmt      │              │ • Old Monolith  │
+│ • User Mgmt     │              │ • Status Mgmt   │              │ • Jinja2 HTML   │
+│ • Session Mgmt  │              │ • Integrations  │              │ • Legacy Backup │
+│ • API Gateway   │              │ • Dark Mode     │              │ • Reference Only│
+│ • Client Mgmt   │              │ • Responsive    │              │                 │
+│ • ML Monitoring │              │                 │              │ See NEW_ETL_    │
+│ • AI Operations │              │                 │              │ ARCHITECTURE.md │
+│ • Flexible AI   │              │                 │              │ for migration   │
+│ • Embeddings    │              │                 │              │ details         │
+│ • Chat Agents   │              │                 │              │                 │
+│ • Vector Ops    │              │                 │              │                 │
+│ • JSON Routing  │              │                 │              │                 │
+│ • RBAC & JWT    │              │                 │              │                 │
+│ • ETL Endpoints │              │                 │              │                 │
+│   /app/etl/*    │              │                 │              │                 │
+└─────────────────┘              └─────────────────┘              └─────────────────┘
                     │                       │
                     └───────────────────────┼─────┐
                                            │     │
@@ -97,6 +99,21 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **API Gateway**: Central API routing and request handling
 - **Client Management**: Multi-tenant client configuration and isolation
 - **ML Monitoring**: AI performance tracking and analytics integration
+- **ETL Endpoints**: New ETL backend APIs at `/app/etl/*` (see `docs/etl/NEW_ETL_ARCHITECTURE.md`)
+
+#### ETL Frontend (Port 5174) - **NEW ARCHITECTURE**
+- **Modern React UI**: TypeScript + Vite + Tailwind CSS
+- **Job Management**: Job cards, status tracking, execution controls
+- **Configuration**: WITs, statuses, hierarchies, workflows, integrations
+- **Dark Mode**: Full theme support with auto-inverting logos
+- **Real-time Updates**: Job progress and status monitoring
+- **⚠️ Note**: Replaces old ETL service (port 8002) - see migration guide
+
+#### ETL Service (Port 8002) - **⚠️ LEGACY - DO NOT USE**
+- **Status**: Legacy monolithic service kept as reference/backup only
+- **DO NOT**: Modify or add new features to this service
+- **Migration**: All new ETL development goes to `etl-frontend` + `backend-service/app/etl/`
+- **Documentation**: See `docs/etl/NEW_ETL_ARCHITECTURE.md` for full migration guide
 
 #### Qdrant Vector Database (Port 6333)
 - **Vector Storage**: High-performance vector database for embeddings

@@ -367,15 +367,15 @@ class DateTimeHelper:
     @staticmethod
     def now_utc() -> datetime:
         """
-        Get current datetime as timezone-naive UTC.
+        Get current datetime in the configured timezone (America/New_York).
 
         CRITICAL: This is the ONLY method that should be used for database timestamps
-        to ensure consistency with PostgreSQL's UTC timezone setting.
+        to ensure consistency with PostgreSQL's timezone setting.
 
         Returns:
-            Current datetime in timezone-naive UTC format
+            Current datetime in configured timezone format (timezone-naive)
         """
-        return datetime.now(timezone.utc).replace(tzinfo=None)
+        return DateTimeHelper.now_default()
 
     @staticmethod
     def now_default() -> datetime:

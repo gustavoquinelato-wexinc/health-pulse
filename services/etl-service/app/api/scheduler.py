@@ -46,7 +46,7 @@ async def get_scheduler_status():
             ],
             "note": "Individual jobs (Jira, GitHub) are not scheduled - they are triggered by the orchestrator",
             "configuration": {
-                "timezone": "UTC",
+                "timezone": "America/New_York",
                 "max_workers": 4,
                 "job_defaults": {
                     "coalesce": True,

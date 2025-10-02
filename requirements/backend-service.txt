@@ -14,6 +14,9 @@ redis
 pandas
 numpy
 
+# Timezone support
+pytz
+
 # System monitoring
 psutil
 

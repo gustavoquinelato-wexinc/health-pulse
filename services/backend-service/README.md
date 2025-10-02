@@ -202,7 +202,7 @@ CORS_ORIGINS=["http://localhost:5173"]
 - **DORA Metrics**: `/api/v1/metrics/dora/*`
 - **GitHub Analytics**: `/api/v1/analytics/github/*`
 - **Portfolio Data**: `/api/v1/portfolio/*`
-- **ETL Management**: `/api/v1/etl/*`
+- **ETL Management**: `/app/etl/*`
 - **ML Monitoring**: `/api/v1/ml/*` *(Phase 1)*
 - **Health Checks**: `/health/database`, `/health/ml` *(Phase 1)*
 

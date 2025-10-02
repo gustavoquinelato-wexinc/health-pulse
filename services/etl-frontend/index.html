@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ETL Management - Pulse</title>
+    
+    <!-- Preload Inter font for better performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Theme and color initialization script to prevent flash -->
+    <script>
+      (function() {
+        try {
+          // Disable transitions during initial apply to prevent visual flash
+          document.documentElement.classList.add('no-transitions');
+
+          // Apply theme - check for user preference first, then localStorage, then default
+          var theme = localStorage.getItem('pulse_theme');
+
+          // If no theme in localStorage, check if we have a user token (indicating logged in user)
+          if (!theme) {
+            var token = localStorage.getItem('pulse_token');
+            if (token) {
+              // User is logged in but no theme preference cached - start with dark to avoid flash
+              // The actual preference will be loaded from API and corrected if needed
+              theme = 'dark';
+            } else {
+              // No user logged in, use light as default
+              theme = 'light';
+            }
+          }
+
+          document.documentElement.setAttribute('data-theme', theme);
+
+          // Apply color schema mode
+          var mode = localStorage.getItem('pulse_color_schema_mode') || 'default';
+          document.documentElement.setAttribute('data-color-schema', mode);
+
+          // Apply colors from complete color data (instant, no flash)
+          var completeColorData = localStorage.getItem('pulse_complete_color_data');
+          if (completeColorData) {
+            try {
+              var allColors = JSON.parse(completeColorData);
+              var targetColors = allColors.find(function(c) {
+                return c.color_schema_mode === mode &&
+                       c.theme_mode === theme &&
+                       c.accessibility_level === 'regular';
+              });
+
+              if (targetColors) {
+                var root = document.documentElement.style;
+                root.setProperty('--color-1', targetColors.color1);
+                root.setProperty('--color-2', targetColors.color2);
+                root.setProperty('--color-3', targetColors.color3);
+                root.setProperty('--color-4', targetColors.color4);
+                root.setProperty('--color-5', targetColors.color5);
+
+                // Helper function to convert hex to RGB values
+                function hexToRgb(hex) {
+                  try {
+                    var h = hex.replace('#', '');
+                    var r = parseInt(h.slice(0, 2), 16);
+                    var g = parseInt(h.slice(2, 4), 16);
+                    var b = parseInt(h.slice(4, 6), 16);
+                    return r + ', ' + g + ', ' + b;
+                  } catch (e) {
+                    return '0, 0, 0'; // Fallback to black
+                  }
+                }
+
+                // Set RGB versions for rgba() usage (needed for job icons and other components)
+                root.setProperty('--color-1-rgb', hexToRgb(targetColors.color1));
+                root.setProperty('--color-2-rgb', hexToRgb(targetColors.color2));
+                root.setProperty('--color-3-rgb', hexToRgb(targetColors.color3));
+                root.setProperty('--color-4-rgb', hexToRgb(targetColors.color4));
+                root.setProperty('--color-5-rgb', hexToRgb(targetColors.color5));
+
+                // Set gradient variables
+                root.setProperty('--gradient-1-2', 'linear-gradient(135deg, ' + targetColors.color1 + ' 0%, ' + targetColors.color2 + ' 100%)');
+                root.setProperty('--gradient-2-3', 'linear-gradient(135deg, ' + targetColors.color2 + ' 0%, ' + targetColors.color3 + ' 100%)');
+                root.setProperty('--gradient-3-4', 'linear-gradient(135deg, ' + targetColors.color3 + ' 0%, ' + targetColors.color4 + ' 100%)');
+                root.setProperty('--gradient-4-5', 'linear-gradient(135deg, ' + targetColors.color4 + ' 0%, ' + targetColors.color5 + ' 100%)');
+                root.setProperty('--gradient-5-1', 'linear-gradient(135deg, ' + targetColors.color5 + ' 0%, ' + targetColors.color1 + ' 100%)');
+              }
+            } catch (e) {
+              // Silently handle parsing errors
+            }
+          }
+
+          // Store the initial theme for React to check
+          window.__INITIAL_THEME__ = theme;
+
+          // Re-enable transitions on next frame
+          requestAnimationFrame(function() {
+            document.documentElement.classList.remove('no-transitions');
+          });
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

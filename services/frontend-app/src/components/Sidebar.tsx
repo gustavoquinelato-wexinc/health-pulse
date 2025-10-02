@@ -50,7 +50,7 @@ const recentItems = [
 export default function Sidebar() {
 
   return (
-    <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 bg-secondary border-r border-default overflow-y-auto">
+    <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 sidebar-container border-r border-default overflow-y-auto">
       <div className="p-4 space-y-6">
         {/* Navigation */}
         <div className="space-y-2">
