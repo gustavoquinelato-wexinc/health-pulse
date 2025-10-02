@@ -290,60 +290,35 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-secondary border-b border-default h-16 flex items-center justify-between px-6 sticky top-0 z-50">
-      {/* Logo and Title */}
+    <header className="border-b border-default py-4 px-8 flex items-center justify-between sticky top-0 z-50" style={{ background: 'var(--gradient-1-2)' }}>
+      {/* Left Side - Tenant Logo */}
       <div className="flex items-center">
-        {/* Tenant Logo */}
         <div className="h-8 flex items-center" style={{ minWidth: '32px', maxWidth: '120px' }}>
           {tenantLoading ? (
             // Loading placeholder - subtle animation
-            <div className="h-6 w-20 bg-gray-200 rounded animate-pulse"></div>
+            <div className="h-6 w-20 bg-white bg-opacity-20 rounded animate-pulse"></div>
           ) : getLogoUrl() ? (
             <img
               src={getLogoUrl()}
               alt={`${currentTenant?.name || 'Tenant'} Logo`}
               className="h-full max-w-full object-contain"
+              style={{ filter: 'brightness(0) invert(1)' }}
             />
           ) : (
             // Fallback text when no logo is available
-            <span className="text-sm font-medium text-primary whitespace-nowrap">
+            <span className="text-sm font-medium text-white whitespace-nowrap">
               {currentTenant?.name || 'Tenant'}
             </span>
           )}
         </div>
-
-        {/* Adaptive Divider - closer spacing */}
-        <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-3"></div>
-
-        {/* Pulse Brand - closer spacing */}
-        <div className="flex items-center space-x-2">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'var(--gradient-1-2)' }}
-          >
-            <span className="text-sm font-bold" style={{ color: 'var(--on-gradient-1-2)' }}>P</span>
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-primary">PULSE</h1>
-          </div>
-        </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="flex-1 max-w-md mx-8">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search analytics... (Cmd+K)"
-            className="input w-full pl-10 pr-4 py-2"
-          />
-          <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-            <svg className="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-        </div>
+      {/* Center - PULSE Title */}
+      <div className="absolute left-1/2 transform -translate-x-1/2">
+        <h1 className="text-xl font-bold text-white">PULSE</h1>
       </div>
+
+
 
       {/* Right Side Actions */}
       <div className="flex items-center space-x-4">
@@ -351,11 +326,11 @@ export default function Header() {
         <div className="relative" ref={quickActionsRef}>
           <motion.button
             onClick={() => setShowQuickActions(!showQuickActions)}
-            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
+            className="p-2 rounded-lg bg-white bg-opacity-20 hover:bg-white hover:bg-opacity-30 text-white transition-all"
             aria-label="Quick Actions"
             title="Quick Actions"
           >
-            <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </motion.button>
@@ -391,14 +366,14 @@ export default function Header() {
         <div className="relative" ref={recentItemsRef}>
           <motion.button
             onClick={() => setShowRecentItems(!showRecentItems)}
-            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all relative"
+            className="p-2 rounded-lg bg-white bg-opacity-20 hover:bg-white hover:bg-opacity-30 text-white transition-all relative"
             aria-label="Recent Items"
             title="Recent Items"
           >
-            <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-white rounded-full"></span>
           </motion.button>
 
           {/* Recent Items Dropdown */}
@@ -444,8 +419,7 @@ export default function Header() {
                 return false;
               }
             }}
-            className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all inline-block"
-
+            className="p-2 rounded-lg bg-white bg-opacity-20 hover:bg-white hover:bg-opacity-30 text-white transition-all inline-block"
             aria-label="ETL Management"
             title="ETL Management (Ctrl+Click for new tab)"
           >
@@ -456,8 +430,7 @@ export default function Header() {
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
-          className="p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
-
+          className="p-2 rounded-lg bg-white bg-opacity-20 hover:bg-white hover:bg-opacity-30 text-white transition-all"
           aria-label="Toggle theme"
           title="Toggle Theme"
         >
@@ -468,13 +441,13 @@ export default function Header() {
         <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2 p-2 rounded-lg nav-item bg-tertiary hover:bg-tertiary hover:text-primary transition-all"
+            className="flex items-center space-x-2 p-2 rounded-lg bg-white bg-opacity-20 hover:bg-white hover:bg-opacity-30 text-white transition-all"
           >
             {userProfileImage ? (
               <img
                 src={userProfileImage}
                 alt="Profile"
-                className="w-8 h-8 rounded-full object-cover border border-tertiary"
+                className="w-8 h-8 rounded-full object-cover border border-white border-opacity-30"
               />
             ) : (
               <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-3), var(--color-4))' }}>
@@ -483,10 +456,10 @@ export default function Header() {
                 </span>
               </div>
             )}
-            <span className="text-sm font-medium text-primary hidden md:block">
+            <span className="text-sm font-medium text-white hidden md:block">
               {displayName}
             </span>
-            <ChevronDown className="w-4 h-4 text-secondary" />
+            <ChevronDown className="w-4 h-4 text-white" />
           </motion.button>
 
           {/* User Dropdown */}

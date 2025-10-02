@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from app.core.config import get_settings
+from app.core.utils import DateTimeHelper
 
 # Import pgvector for PostgreSQL vector type support
 try:
@@ -198,7 +199,7 @@ class DatabaseRouter:
         if not self.replica_available:
             # Check if we should retry replica
             if self.last_health_check:
-                time_since_check = datetime.utcnow() - self.last_health_check
+                time_since_check = DateTimeHelper.now_default() - self.last_health_check
                 if time_since_check.total_seconds() < 60:  # Don't retry for 1 minute
                     return False
         
@@ -226,7 +227,7 @@ class DatabaseRouter:
             lag_acceptable = True  # For now, assume lag is acceptable
             
             self.replica_available = lag_acceptable
-            self.last_health_check = datetime.utcnow()
+            self.last_health_check = DateTimeHelper.now_default()
             
             if not lag_acceptable:
                 logger.warning("Replica lag detected, falling back to primary")
@@ -236,7 +237,7 @@ class DatabaseRouter:
         except Exception as e:
             logger.error(f"Replica health check failed: {e}")
             self.replica_available = False
-            self.last_health_check = datetime.utcnow()
+            self.last_health_check = DateTimeHelper.now_default()
             return False
     
     def get_connection_pool_stats(self) -> dict:
@@ -267,7 +268,7 @@ class DatabaseRouter:
             'primary': primary_stats,
             'replica': replica_stats,
             'replica_available': self.replica_available,
-            'timestamp': datetime.utcnow()
+            'timestamp': DateTimeHelper.now_default()
         }
 
 

@@ -1,53 +1,42 @@
 <!-- Modern Header Component -->
-{% macro header(title='Pulse ETL Management', show_user_menu=true, show_theme_toggle=true, tenant_logo=none, tenant_name='Tenant') %}
+{% macro header(title='ETL', show_user_menu=true, show_theme_toggle=true, tenant_logo=none, tenant_name='Tenant') %}
 <header class="modern-header header-enhanced flex items-center justify-between px-6">
-    <!-- Logo and Title -->
+    <!-- Left Side - Logo -->
     <div class="flex items-center space-x-4">
-        <!-- Tenant Logo -->
-        <div class="h-8">
-            {% if tenant_logo %}
-                <img src="/static/assets/{{ tenant_logo }}" alt="{{ tenant_name }} Logo" class="h-full object-contain">
-            {% else %}
-                <img src="/static/logo.png" alt="{{ tenant_name }} Logo" class="h-full object-contain">
-            {% endif %}
-        </div>
+        {% if tenant_logo %}
+            <img src="/static/assets/{{ tenant_logo }}" alt="{{ tenant_name }} Logo" class="h-8 object-contain" style="filter: brightness(0) invert(1);">
+        {% else %}
+            <img src="/static/logo.png" alt="{{ tenant_name }} Logo" class="h-8 object-contain" style="filter: brightness(0) invert(1);">
+        {% endif %}
+    </div>
 
-        <!-- Divider -->
-        <div class="h-6 w-px" style="background-color: var(--border-color);"></div>
-
-        <!-- Pulse Brand -->
-        <div class="flex items-center space-x-2">
-            <div class="w-12 h-8 flex items-center justify-center" style="background: var(--gradient-1-2);">
-                <span class="text-xs font-bold" style="color: var(--on-gradient-1-2)">PEM</span>
-            </div>
-            <div>
-                <h1 class="text-lg font-semibold" style="color: var(--text-primary);">{{ title }}</h1>
-            </div>
-        </div>
+    <!-- Center - Title -->
+    <div class="flex-1 flex justify-center">
+        <h1 class="text-xl font-bold text-white">{{ title }}</h1>
     </div>
 
     <!-- Right Side Actions -->
     <div class="flex items-center space-x-4">
         <!-- Pulse Icon -->
-        <a id="pulse-link" href="http://localhost:3000/home" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg nav-item transition-colors inline-block" style="background-color: var(--bg-tertiary);" title="Pulse" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
-            <img src="/static/heart-pulse-fill-svgrepo-com.svg" alt="Pulse" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%);">
+        <a id="pulse-link" href="http://localhost:3000/home" onclick="returnToDashboard(); return false;" class="p-2 rounded-lg transition-colors inline-block" style="background-color: rgba(255, 255, 255, 0.1);" title="Pulse" onmouseover="this.style.backgroundColor='rgba(255, 255, 255, 0.2)'" onmouseout="this.style.backgroundColor='rgba(255, 255, 255, 0.1)'">
+            <img src="/static/heart-pulse-fill-svgrepo-com.svg" alt="Pulse" width="20" height="20" style="filter: brightness(0) invert(1);">
         </a>
 
         {% if show_theme_toggle %}
         <!-- Theme Toggle -->
-        <button onclick="toggleTheme()" class="p-2 rounded-lg nav-item transition-colors" style="background-color: var(--bg-tertiary);" title="Toggle Theme" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
-            <i id="theme-icon" data-lucide="moon" class="w-5 h-5"></i>
+        <button onclick="toggleTheme()" class="p-2 rounded-lg transition-colors" style="background-color: rgba(255, 255, 255, 0.1);" title="Toggle Theme" onmouseover="this.style.backgroundColor='rgba(255, 255, 255, 0.2)'" onmouseout="this.style.backgroundColor='rgba(255, 255, 255, 0.1)'">
+            <i id="theme-icon" data-lucide="moon" class="w-5 h-5 text-white"></i>
         </button>
         {% endif %}
 
         {% if show_user_menu %}
         <!-- User Menu -->
         <div class="relative">
-            <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 nav-item transition-colors" style="background-color: var(--bg-tertiary); border-radius: 0.5rem;" onmouseover="this.style.backgroundColor='var(--bg-primary)'" onmouseout="this.style.backgroundColor='var(--bg-tertiary)'">
+            <button onclick="toggleUserMenu(event)" class="flex items-center space-x-2 p-2 transition-colors rounded-lg" style="background-color: rgba(255, 255, 255, 0.1);" onmouseover="this.style.backgroundColor='rgba(255, 255, 255, 0.2)'" onmouseout="this.style.backgroundColor='rgba(255, 255, 255, 0.1)'">
                 <div class="w-8 h-8 flex items-center justify-center" style="background: linear-gradient(135deg, var(--color-3), var(--color-4)); border-radius: 9999px;">
                     <span class="text-sm font-medium" id="user-initials" style="color: var(--on-gradient-3-4);">U</span>
                 </div>
-                <span class="text-sm font-medium hidden md:block" style="color: var(--text-primary);" id="user-name">User</span>
+                <span class="text-sm font-medium hidden md:block text-white" id="user-name">User</span>
             </button>
 
             <!-- User Dropdown -->

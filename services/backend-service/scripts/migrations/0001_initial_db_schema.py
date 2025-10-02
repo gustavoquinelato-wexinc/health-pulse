@@ -621,6 +621,61 @@ def apply(connection):
             );
         """)
 
+        # 24.1. Raw extraction data storage - Phase 1 Queue Infrastructure
+        # Stores complete API responses for debugging/reprocessing/audit trail
+        # This table stores BATCHES of data (e.g., 1000 Jira issues in one record)
+        # RabbitMQ queues just reference the ID of this record
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS raw_extraction_data (
+                id SERIAL,
+                tenant_id INTEGER NOT NULL,
+                integration_id INTEGER NOT NULL,
+
+                -- Batch metadata
+                entity_type VARCHAR(50) NOT NULL,  -- 'jira_issues_batch', 'github_prs_batch', etc.
+                external_id VARCHAR(255),          -- 'batch_1', 'batch_2', etc.
+
+                -- Complete API response (ALL items in batch)
+                raw_data JSONB NOT NULL,           -- { "issues": [...1000 issues...], "total": 1000 }
+
+                -- Extraction context (JQL, cursor, batch number, etc.)
+                extraction_metadata JSONB,         -- { "jql": "...", "cursor": "...", "batch_number": 1 }
+
+                -- Processing status
+                processing_status VARCHAR(20) DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed'
+                error_details JSONB,               -- Error information if processing failed
+
+                -- Timestamps
+                created_at TIMESTAMP DEFAULT NOW(),
+                processed_at TIMESTAMP,
+
+                -- Soft delete
+                active BOOLEAN DEFAULT TRUE
+            );
+        """)
+
+        # Create indexes for raw_extraction_data
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_tenant
+            ON raw_extraction_data(tenant_id);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_integration
+            ON raw_extraction_data(integration_id);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_entity_type
+            ON raw_extraction_data(entity_type);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_status
+            ON raw_extraction_data(processing_status);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_created_at
+            ON raw_extraction_data(created_at DESC);
+        """)
+
         # 25. Migration history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS migration_history (
@@ -1256,6 +1311,7 @@ def rollback(connection):
 
             # Junction and link tables (depend on main tables)
             'wits_prs_links',
+            'raw_extraction_data',  # Phase 1: Raw data storage
             'etl_jobs',
             'system_settings',
 

@@ -63,7 +63,7 @@ class JiraAgentTenant:
         self.token = os.getenv('JIRA_TOKEN')
         self.project_key = os.getenv('JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT')
         self.team_field = os.getenv('JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT')
-        self.team_value = os.getenv('JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT')
+        self.team_value_raw = os.getenv('JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT')
 
         # Load workflow configurations
         self.subtask_workflow = os.getenv('JIRA_SUBTASK_WORKFLOW', '').split(',') if os.getenv('JIRA_SUBTASK_WORKFLOW') else []
@@ -81,13 +81,16 @@ class JiraAgentTenant:
 
         if missing_vars:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
-        
+
         # Setup authentication (like health-gustractor)
         self.auth = HTTPBasicAuth(self.username, self.token)
         self.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
+
+        # Resolve team value to ID if it's a name (not numeric)
+        self.team_value = self._resolve_team_value()
     
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
         """Make a request to the Jira API with error handling."""
@@ -134,6 +137,55 @@ class JiraAgentTenant:
             if self.debug:
                 print(f"DEBUG - Request Exception: {e}")
             raise Exception(f"Request failed: {str(e)}")
+
+    def _resolve_team_value(self) -> Optional[str]:
+        """
+        Resolve team value to ID.
+        If team_value_raw is numeric, use it directly.
+        If it's a string (team name), query Jira to get the ID.
+        """
+        if not self.team_value_raw or not self.team_field:
+            return None
+
+        # Check if it's already a numeric ID
+        if self.team_value_raw.isdigit():
+            if self.debug:
+                print(f"DEBUG - Team value is already numeric ID: {self.team_value_raw}")
+            return self.team_value_raw
+
+        # It's a team name, need to resolve to ID
+        if self.debug:
+            print(f"DEBUG - Resolving team name '{self.team_value_raw}' to ID...")
+
+        try:
+            # Use createmeta API to get field options for the project
+            # This works for all issue types (Story, Sub-task, Epic)
+            createmeta = self._make_request('GET',
+                f'issue/createmeta?projectKeys={self.project_key}&expand=projects.issuetypes.fields')
+
+            # Navigate through the response to find the team field options
+            for project in createmeta.get('projects', []):
+                for issuetype in project.get('issuetypes', []):
+                    fields = issuetype.get('fields', {})
+                    if self.team_field in fields:
+                        allowed_values = fields[self.team_field].get('allowedValues', [])
+                        for option in allowed_values:
+                            if option.get('value') == self.team_value_raw:
+                                team_id = option.get('id')
+                                if self.debug:
+                                    print(f"DEBUG - Resolved team '{self.team_value_raw}' to ID: {team_id}")
+                                return team_id
+
+            # If not found, log warning and return None
+            if self.debug:
+                print(f"DEBUG - Could not resolve team name '{self.team_value_raw}' to ID")
+                print(f"DEBUG - Available teams: {[opt.get('value') for project in createmeta.get('projects', []) for issuetype in project.get('issuetypes', []) for opt in issuetype.get('fields', {}).get(self.team_field, {}).get('allowedValues', [])]}")
+            return None
+
+        except Exception as e:
+            if self.debug:
+                print(f"DEBUG - Error resolving team value: {e}")
+            return None
 
     def get_user_account_id(self, email_or_username: str) -> str:
         """Get Jira user accountId from email or username."""
@@ -378,7 +430,7 @@ class JiraAgentTenant:
 
         # Add team field if configured
         if self.team_field and self.team_value:
-            issue_data["fields"]["customfield_10128"] = {"value": self.team_value}
+            issue_data["fields"]["customfield_10128"] = {"id": self.team_value}
 
         result = self._make_request('POST', 'issue', issue_data)
         return {

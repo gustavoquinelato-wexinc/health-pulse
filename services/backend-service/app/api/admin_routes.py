@@ -540,7 +540,7 @@ async def get_system_stats(
             # Calculate time-based user activity metrics
             from datetime import timedelta
             from app.core.utils import DateTimeHelper
-            now_utc = DateTimeHelper.now_utc()
+            now_default = DateTimeHelper.now_default()
 
             # Initialize time-based metrics with safe defaults
             today_active = 0
@@ -721,8 +721,8 @@ async def get_system_stats(
                 from sqlalchemy import and_
                 from app.core.utils import DateTimeHelper
 
-                # Get current month and last month date ranges in UTC (database timezone)
-                now = DateTimeHelper.now_utc()
+                # Get current month and last month date ranges in configured timezone
+                now = DateTimeHelper.now_default()
                 current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 last_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
 

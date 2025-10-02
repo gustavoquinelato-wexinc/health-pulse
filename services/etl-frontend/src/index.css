@@ -1,0 +1,667 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Variables matching old ETL service */
+:root {
+    --crud-create: #059669; /* Green for active/create states */
+    --status-neutral: #6b7280; /* Gray for inactive/neutral states */
+}
+
+/* Enhanced toggle switches matching old ETL service style */
+.job-toggle-switch {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    justify-content: center;
+}
+
+.toggle-switch {
+    position: relative;
+    width: 36px !important;
+    height: 18px !important;
+    background-color: var(--status-neutral) !important; /* Gray for OFF state */
+    border-radius: 9px !important;
+    transition: background-color 0.3s ease !important;
+    cursor: pointer !important;
+    margin-right: 6px !important;
+}
+
+.toggle-switch input {
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+.toggle-slider {
+    position: absolute !important;
+    top: 1px !important;
+    left: 1px !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-color: white !important;
+    border-radius: 50% !important;
+    transition: transform 0.3s ease !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    transform: translateX(18px) !important;
+}
+
+.toggle-switch.active {
+    background-color: var(--crud-create) !important; /* Green for ON state - matches old ETL */
+}
+
+.toggle-switch.active .toggle-slider {
+    transform: translateX(18px) !important;
+}
+
+.toggle-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 6px;
+}
+
+/* Table row hover effects - border color change only */
+tbody tr:hover {
+    box-shadow: inset 0 0 0 2px var(--color-1) !important; /* Colorful border on hover */
+    position: relative !important; /* Ensure visibility above other rows */
+    z-index: 1 !important; /* Bring hovered row to front */
+    transition: box-shadow 0.15s ease-in-out !important;
+}
+
+/* CSS Custom Properties - Enterprise Color System */
+:root {
+  /* Universal System Colors - Never change regardless of theme/client */
+  /* CRUD Operations - Universal Standards */
+  --crud-create: #059669;
+  /* Green - Create/Add/Save */
+  --crud-edit: #0ea5e9;
+  /* Blue - Edit/Modify */
+  --crud-delete: #dc2626;
+  /* Red - Delete/Remove */
+  --crud-cancel: #6b7280;
+  /* Gray - Cancel/Neutral */
+
+  /* System Status - Universal Standards */
+  --status-success: #10b981;
+  /* Success states */
+  --status-warning: #f59e0b;
+  /* Warning states */
+  --status-error: #ef4444;
+  /* Error states */
+  --status-info: #3b82f6;
+  /* Information states */
+
+  /* Enterprise Neutrals - Professional UI Elements */
+  --neutral-primary: #374151;
+  /* Primary neutral actions */
+  --neutral-secondary: #6b7280;
+  /* Secondary neutral actions */
+  --neutral-tertiary: #9ca3af;
+  /* Tertiary neutral elements */
+
+  /* 5-Color Schema System - Reserved for valuable items only */
+  --color-1: #2862EB;
+  /* Blue - Primary brand/data */
+  --color-2: #763DED;
+  /* Purple - Secondary brand/data */
+  --color-3: #059669;
+  /* Emerald - Success metrics/data */
+  --color-4: #0EA5E9;
+  /* Sky Blue - Info metrics/data */
+  --color-5: #F59E0B;
+  /* Amber - Warning metrics/data */
+
+  /* Light Theme Variables */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Table-specific Variables - Light Theme */
+  --table-container: #334155;
+  --table-header: #1a2332;
+  --table-header-text: #ffffff;
+  --table-column-header: #253746;
+  --table-column-header-text: #ffffff;
+  --table-row-even: #f9fafb;
+  --table-row-odd: #e5e7eb;
+  --table-row-text: #111827;
+}
+
+/* Dark Theme Variables - VS Code Theme */
+[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --text-primary: #cccccc;
+  --text-secondary: #cccccc;
+  --text-muted: #858585;
+  --border-color: #3e3e42;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+
+  /* Table-specific Variables - Dark Theme (VS Code) */
+  --table-container: #252526;
+  --table-header: #002925;
+  --table-header-text: #ffffff;
+  --table-column-header: #10544c;
+  --table-column-header-text: #ffffff;
+  --table-row-even: #1e1e1e;
+  --table-row-odd: #252526;
+  --table-row-text: #cccccc;
+}
+
+/* Custom Color Schema Override removed. Colors are applied dynamically via ThemeContext. */
+
+/* Base Styles */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* Disable transitions during first paint when the class is present */
+  .no-transitions *,
+  .no-transitions body {
+    transition: none !important;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Component Styles */
+@layer components {
+
+  /* Card Components - Enhanced Enterprise Style */
+  .card {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Enhanced Card Variants */
+  .card-elevated {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .card-elevated:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Enhanced Button Styles - Enterprise Grade */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg font-medium transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply shadow-sm hover:shadow-md;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+  }
+
+  .btn:hover::before {
+    left: 100%;
+  }
+
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: white;
+    @apply hover:opacity-90 focus:ring-blue-500;
+    @apply active:scale-95;
+  }
+
+  .btn-secondary {
+    background-color: var(--color-secondary);
+    color: white;
+    @apply hover:opacity-90 focus:ring-violet-500;
+    @apply active:scale-95;
+  }
+
+  .btn-accent {
+    background-color: var(--color-accent);
+    color: white;
+    @apply hover:opacity-90 focus:ring-emerald-500;
+    @apply active:scale-95;
+  }
+
+  /* Enhanced CRUD Button Styles */
+  .btn-crud-create {
+    background-color: var(--crud-create);
+    color: white;
+    @apply hover:opacity-90 focus:ring-green-500;
+    @apply active:scale-95 shadow-sm hover:shadow-md;
+  }
+
+  .btn-crud-edit {
+    background-color: var(--crud-edit);
+    color: white;
+    @apply hover:opacity-90 focus:ring-blue-500;
+    @apply active:scale-95 shadow-sm hover:shadow-md;
+  }
+
+  .btn-crud-delete {
+    background-color: var(--crud-delete);
+    color: white;
+    @apply hover:opacity-90 focus:ring-red-500;
+    @apply active:scale-95 shadow-sm hover:shadow-md;
+  }
+
+  .btn-crud-cancel {
+    background-color: var(--crud-cancel);
+    color: white;
+    @apply hover:opacity-90 focus:ring-gray-500;
+    @apply active:scale-95 shadow-sm hover:shadow-md;
+  }
+
+  /* Input Styles */
+  .input {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    @apply rounded-lg px-3 py-2 transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+
+  .input:disabled {
+    background-color: var(--bg-tertiary);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  /* Navigation Styles */
+  .nav-link {
+    color: var(--text-secondary);
+    @apply transition-colors duration-200 hover:text-blue-600;
+  }
+
+  .nav-link.active {
+    color: var(--color-primary);
+    @apply font-medium;
+  }
+}
+
+/* Utility Classes */
+@layer utilities {
+  .text-primary {
+    color: var(--text-primary);
+  }
+
+  .text-secondary {
+    color: var(--text-secondary);
+  }
+
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .bg-primary {
+    background-color: var(--bg-primary);
+  }
+
+  .bg-secondary {
+    background-color: var(--bg-secondary);
+  }
+
+  .bg-tertiary {
+    background-color: var(--bg-tertiary);
+  }
+
+  .border-default {
+    border-color: var(--border-color);
+  }
+
+  /* Table-specific utility classes */
+  .bg-table-container {
+    background-color: var(--table-container);
+  }
+
+  .bg-table-header {
+    background-color: var(--table-header);
+  }
+
+  .text-table-header {
+    color: var(--table-header-text);
+  }
+
+  .bg-table-column-header {
+    background-color: var(--table-column-header);
+  }
+
+  .text-table-column-header {
+    color: var(--table-column-header-text);
+  }
+
+  .bg-table-row-even {
+    background-color: var(--table-row-even);
+  }
+
+  .bg-table-row-odd {
+    background-color: var(--table-row-odd);
+  }
+
+  .text-table-row {
+    color: var(--table-row-text);
+  }
+
+  /* Custom Color Utilities */
+  .text-color-1 {
+    color: var(--color-1);
+  }
+
+  .text-color-2 {
+    color: var(--color-2);
+  }
+
+  .text-color-3 {
+    color: var(--color-3);
+  }
+
+  .text-color-4 {
+    color: var(--color-4);
+  }
+
+  .text-color-5 {
+    color: var(--color-5);
+  }
+
+  .bg-color-1 {
+    background-color: var(--color-1);
+  }
+
+  .bg-color-2 {
+    background-color: var(--color-2);
+  }
+
+  /* Contrast-aware text utilities (solids) */
+  .text-on-color-1 {
+    color: var(--on-color-1);
+  }
+
+  .text-on-color-2 {
+    color: var(--on-color-2);
+  }
+
+  .text-on-color-3 {
+    color: var(--on-color-3);
+  }
+
+  .text-on-color-4 {
+    color: var(--on-color-4);
+  }
+
+  .text-on-color-5 {
+    color: var(--on-color-5);
+  }
+
+  .text-on-color-1-80 {
+    color: var(--on-color-1);
+    opacity: .8;
+  }
+
+  .text-on-color-1-60 {
+    color: var(--on-color-1);
+    opacity: .6;
+  }
+
+  /* Contrast-aware text utilities (gradients) */
+  .text-on-gradient-1-2 {
+    color: var(--on-gradient-1-2);
+  }
+
+  .text-on-gradient-2-3 {
+    color: var(--on-gradient-2-3);
+  }
+
+  .text-on-gradient-3-4 {
+    color: var(--on-gradient-3-4);
+  }
+
+  .text-on-gradient-4-5 {
+    color: var(--on-gradient-4-5);
+  }
+
+  .text-on-gradient-1-2-80 {
+    color: var(--on-gradient-1-2);
+    opacity: .8;
+  }
+
+  .text-on-gradient-1-2-60 {
+    color: var(--on-gradient-1-2);
+    opacity: .6;
+  }
+
+  .text-on-gradient-2-3-80 {
+    color: var(--on-gradient-2-3);
+    opacity: .8;
+  }
+
+  .text-on-gradient-3-4-80 {
+    color: var(--on-gradient-3-4);
+    opacity: .8;
+  }
+
+  .text-on-gradient-4-5-80 {
+    color: var(--on-gradient-4-5);
+    opacity: .8;
+  }
+
+  .bg-color-3 {
+    background-color: var(--color-3);
+  }
+
+  .bg-color-4 {
+    background-color: var(--color-4);
+  }
+
+  .bg-color-5 {
+    background-color: var(--color-5);
+  }
+
+  /* Universal CRUD Button Classes - Compact Enterprise Standard */
+  .btn-crud-create {
+    @apply bg-[var(--crud-create)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-edit {
+    @apply bg-[var(--crud-edit)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-delete {
+    @apply bg-[var(--crud-delete)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-crud-cancel {
+    @apply bg-[var(--crud-cancel)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  /* Enterprise Neutral Button Classes */
+  .btn-neutral-primary {
+    @apply bg-[var(--neutral-primary)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:bg-[var(--neutral-secondary)] hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-neutral-secondary {
+    @apply bg-[var(--neutral-secondary)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:bg-[var(--neutral-primary)] hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-neutral-tertiary {
+    @apply bg-gray-400 text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:bg-gray-500 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  /* Universal Status Button Classes */
+  .btn-status-warning {
+    @apply bg-[var(--status-warning)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-success {
+    @apply bg-[var(--status-success)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-error {
+    @apply bg-[var(--status-error)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  .btn-status-info {
+    @apply bg-[var(--status-info)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;
+    font-size: 0.8125rem;
+    min-height: 2rem;
+  }
+
+  /* Enhanced Navigation & Sidebar Styles */
+  .nav-item {
+    @apply relative overflow-hidden rounded-lg transition-all duration-200;
+    @apply hover:shadow-md;
+  }
+
+  .nav-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.3s ease;
+  }
+
+  .nav-item:hover::before {
+    left: 100%;
+  }
+
+  .nav-item-active {
+    @apply shadow-lg;
+    background: var(--gradient-1-2);
+    color: var(--on-gradient-1-2);
+  }
+
+  /* Professional Sidebar Container */
+  .sidebar-container {
+    @apply bg-gradient-to-b from-gray-50 to-gray-100;
+    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  }
+
+  [data-theme="dark"] .sidebar-container {
+    @apply bg-gradient-to-b from-gray-800 to-gray-900;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Enhanced Form Elements */
+  .form-input {
+    @apply transition-all duration-200;
+    @apply focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    @apply hover:border-gray-400;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .form-input:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Animation Classes */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

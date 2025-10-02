@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import redis
 from app.core.config import get_settings
+from app.core.utils import DateTimeHelper
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,8 @@ class RedisSessionManager:
                 "role": user_data.get("role"),
                 "is_admin": user_data.get("is_admin"),
                 "tenant_id": user_data.get("tenant_id"),
-                "created_at": datetime.utcnow().isoformat(),
-                "expires_at": (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
+                "created_at": DateTimeHelper.now_default().isoformat(),
+                "expires_at": (DateTimeHelper.now_default() + timedelta(seconds=ttl)).isoformat()
             }
             
             # Store in Redis with expiration
@@ -127,7 +128,7 @@ class RedisSessionManager:
             
             # Check if session has expired (double-check)
             expires_at = datetime.fromisoformat(session_data.get("expires_at"))
-            if datetime.utcnow() > expires_at:
+            if DateTimeHelper.now_default() > expires_at:
                 logger.debug(f"Session expired for user {session_data.get('email')}")
                 await self.invalidate_session(token_hash)
                 return None

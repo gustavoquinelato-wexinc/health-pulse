@@ -1,4 +1,4 @@
-/* Pulse ETL Service - Enterprise Design System */
+/* Pulse ETL Service - Enterprise Design System - Updated 2024.12.29 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* CSS Custom Properties - Enterprise Color System */
@@ -1511,12 +1511,14 @@ textarea:disabled {
 .modern-sidebar {
     position: fixed !important;
     left: 0 !important;
-    top: 4rem !important;
-    /* Start below header (64px) */
+    top: 0 !important;
+    /* Start from top, header will overlay */
     bottom: 0 !important;
     /* Extend to bottom of viewport - this ensures full height */
     width: 4rem !important;
     /* 64px - collapsed width */
+    padding-top: calc(2rem + 2rem) !important;
+    /* Account for header height: content + py-4 padding */
     background-color: var(--bg-secondary) !important;
     border-right: 1px solid var(--border-color) !important;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
@@ -1579,12 +1581,12 @@ textarea:disabled {
     right: 0 !important;
     width: 100vw !important;
     /* Full viewport width */
-    height: 4rem !important;
-    /* 64px */
-    background-color: var(--bg-secondary) !important;
-    border-bottom: 1px solid var(--border-color) !important;
+    /* Match other services: auto height with py-4 padding */
+    height: auto !important;
+    background: var(--gradient-1-2) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
     z-index: 50 !important;
-    padding: 0 1.5rem !important;
+    padding: 1rem 1.5rem !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
@@ -1625,10 +1627,12 @@ textarea:disabled {
 main {
     margin-left: 4rem !important;
     /* Account for fixed sidebar width */
-    margin-top: 4rem !important;
-    /* Account for fixed header height */
+    margin-top: 0 !important;
+    /* Header is now sticky, no fixed margin needed */
     padding: 1.5rem !important;
     flex: 1 !important;
+    padding-top: calc(2rem + 2rem + 1.5rem) !important;
+    /* Account for header height + normal padding */
 }
 
 /* Embedded mode - Adjust positioning to match frontend layout */
@@ -1719,8 +1723,10 @@ body.embedded main>div:first-child,
 main.ml-16 {
     margin-left: 4rem !important;
     /* Ensure consistent sidebar spacing */
-    margin-top: 4rem !important;
-    /* Ensure consistent header spacing */
+    margin-top: 0 !important;
+    /* Header is now sticky, no fixed margin needed */
+    padding-top: calc(2rem + 2rem + 1.5rem) !important;
+    /* Account for header height + normal padding */
 }
 
 /* Ensure body has proper layout - Match Frontend */
@@ -1766,12 +1772,14 @@ body {
 
 .modern-sidebar {
     left: 0 !important;
-    top: 4rem !important;
-    /* Position below header */
+    top: 0 !important;
+    /* Position from top, header will overlay */
     bottom: 0 !important;
     width: 4rem !important;
-    height: calc(100vh - 4rem) !important;
-    /* Full height minus header */
+    height: 100vh !important;
+    /* Full height, with padding-top for header */
+    padding-top: calc(2rem + 2rem) !important;
+    /* Account for header height */
 }
 
 .modern-header {
@@ -1779,7 +1787,8 @@ body {
     left: 0 !important;
     /* Full width from left edge */
     right: 0 !important;
-    height: 4rem !important;
+    height: auto !important;
+    background: var(--gradient-1-2) !important;
 }
 
 /* Fix any potential z-index issues */
@@ -2214,6 +2223,21 @@ body:not([data-page="home"]) .toggle-label {
 .header-enhanced {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
     backdrop-filter: blur(8px);
+}
+
+/* Force gradient background for modern header - v2024.1 */
+.modern-header.header-enhanced {
+    /* Fallback background in case CSS variables fail */
+    background: linear-gradient(135deg, #2862EB, #763DED) !important;
+    /* Primary gradient using CSS variables */
+    background: var(--gradient-1-2) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    /* Match other services: content height + py-4 (1rem top + 1rem bottom) */
+    padding-top: 1rem !important;
+    padding-bottom: 1rem !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
 }
 
 /* Micro-interaction Classes */

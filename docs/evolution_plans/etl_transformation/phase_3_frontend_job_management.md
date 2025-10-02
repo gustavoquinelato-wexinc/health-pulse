@@ -1,21 +1,37 @@
-# ETL Phase 3: Frontend Migration
+# ETL Phase 3: Frontend Job Management
 
-**Implemented**: NO ❌  
-**Duration**: Weeks 5-6  
-**Priority**: HIGH  
-**Risk Level**: LOW  
+**Implemented**: NO ❌
+**Duration**: 1 week (Week 7 of overall plan)
+**Priority**: HIGH
+**Risk Level**: LOW
+**Last Updated**: 2025-09-30
+
+## 📊 Prerequisites (Must be complete before starting)
+
+1. ✅ **Phase 0 Complete**: ETL Frontend with management pages working
+2. 🔄 **Phase 1 Complete**: RabbitMQ + Raw Data Storage + Queue Manager
+3. 🔄 **Phase 2 Complete**: Extract-only ETL service + Transform/Load workers
+
+**Status**: Cannot start until Phase 1 and Phase 2 are complete.
 
 ## 💼 Business Outcome
 
-**Seamless User Experience**: Migrate frontend to use new ETL APIs while preserving all existing UI/UX patterns, ensuring users experience improved performance and reliability without learning curve.
+**Complete Job Management UI**: Create a comprehensive Jobs page in the ETL frontend that allows users to:
+- View all ETL jobs (Jira, GitHub, etc.)
+- Control job execution (start, pause, stop)
+- Monitor real-time progress
+- View queue status and metrics
+- Access job history and logs
+
+This preserves the UX from the old ETL service while leveraging the new queue-based architecture.
 
 ## 🎯 Objectives
 
-1. **API Migration**: Update frontend to use new backend ETL endpoints
-2. **Real-time Updates**: Enhance progress tracking with queue-based status
-3. **UI/UX Preservation**: Maintain all existing user interface patterns
-4. **WebSocket Enhancement**: Improve real-time job status updates
-5. **Error Handling**: Better error display and user feedback
+1. **Jobs Page Creation**: Build new Jobs management page in etl-frontend
+2. **Job Controls**: Implement start/pause/stop/force-pending controls
+3. **Real-time Progress**: WebSocket integration for live job updates
+4. **Queue Monitoring**: Display queue depth and processing status
+5. **UI/UX Preservation**: Match the look and feel of old ETL service home page
 
 ## 📋 Task Breakdown
 

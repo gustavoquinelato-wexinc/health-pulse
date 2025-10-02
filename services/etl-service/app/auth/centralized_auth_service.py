@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from app.core.logging_config import get_logger
 from app.core.config import get_settings
+from app.core.utils import DateTimeHelper
 
 logger = get_logger(__name__)
 
@@ -26,7 +27,7 @@ class TokenCache:
         async with self._lock:
             if token_hash in self.cache:
                 entry = self.cache[token_hash]
-                if datetime.utcnow() < entry["expires_at"]:
+                if DateTimeHelper.now_default() < entry["expires_at"]:
                     logger.debug(f"[AUTH] Token cache HIT for user_id: {entry['data'].get('id', 'unknown')}")
                     return entry["data"]
                 else:
@@ -56,7 +57,7 @@ class TokenCache:
     async def clear_expired(self):
         """Clean up expired cache entries."""
         async with self._lock:
-            now = datetime.utcnow()
+            now = DateTimeHelper.now_default()
             expired_keys = [
                 key for key, entry in self.cache.items()
                 if now >= entry["expires_at"]
