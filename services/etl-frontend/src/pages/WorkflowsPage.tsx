@@ -37,7 +37,7 @@ const WorkflowsPage: React.FC = () => {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+  const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
 
   // Edit modal state
@@ -284,7 +284,7 @@ const WorkflowsPage: React.FC = () => {
       <div className="flex">
         <CollapsedSidebar />
         <main className="flex-1 ml-16 py-8">
-          <div className="ml-20 mr-12">
+          <div className="ml-12 mr-12">
             {/* Page Header */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
@@ -338,8 +338,8 @@ const WorkflowsPage: React.FC = () => {
             </div>
 
             {/* Content */}
-            <div className="bg-secondary rounded-lg shadow-sm p-6">
-              {loading ? (
+            {loading ? (
+              <div className="bg-secondary rounded-lg shadow-sm p-6">
                 <div className="text-center py-12">
                   <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
                   <h2 className="text-2xl font-semibold text-primary mb-2">
@@ -349,7 +349,9 @@ const WorkflowsPage: React.FC = () => {
                     Fetching workflows
                   </p>
                 </div>
-              ) : error ? (
+              </div>
+            ) : error ? (
+              <div className="bg-secondary rounded-lg shadow-sm p-6">
                 <div className="text-center py-12">
                   <div className="text-6xl mb-4">❌</div>
                   <h2 className="text-2xl font-semibold text-primary mb-2">
@@ -365,7 +367,9 @@ const WorkflowsPage: React.FC = () => {
                     Retry
                   </button>
                 </div>
-              ) : workflows.length === 0 ? (
+              </div>
+            ) : workflows.length === 0 ? (
+              <div className="bg-secondary rounded-lg shadow-sm p-6">
                 <div className="text-center py-12">
                   <div className="text-6xl mb-4">⚡</div>
                   <h2 className="text-2xl font-semibold text-primary mb-2">
@@ -375,11 +379,11 @@ const WorkflowsPage: React.FC = () => {
                     No workflows have been configured yet.
                   </p>
                 </div>
-              ) : (
-                <>
-                  {/* Filters and Table Card */}
-                  <div
-                    className="mb-6 p-6 rounded-lg bg-secondary shadow-md border border-transparent"
+              </div>
+            ) : (
+              <>
+                  {/* Filters Section */}
+                  <div className="mb-6 p-6 rounded-lg shadow-md border border-transparent"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
                       e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -389,8 +393,6 @@ const WorkflowsPage: React.FC = () => {
                       e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
-                    {/* Filters Section - Internal Card */}
-                    <div className="mb-6 p-6 rounded-lg bg-primary shadow-md">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       {/* Workflow Name Filter */}
                       <div>
@@ -432,10 +434,19 @@ const WorkflowsPage: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                    </div>
+                  </div>
 
-                    {/* Workflows Table - Internal Card */}
-                    <div className="rounded-lg bg-table-container shadow-md overflow-hidden">
+                  {/* Workflows Table */}
+                  <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-transparent"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'transparent'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
                       <div className="px-6 py-5 flex justify-between items-center bg-table-header">
                         <h2 className="text-lg font-semibold text-table-header">Workflows</h2>
                       <button
@@ -542,11 +553,9 @@ const WorkflowsPage: React.FC = () => {
                         </tbody>
                       </table>
                       </div>
-                    </div>
                   </div>
-                </>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </main>
       </div>
@@ -555,7 +564,7 @@ const WorkflowsPage: React.FC = () => {
       <DependencyModal
         isOpen={dependencyModal.isOpen}
         onClose={() => setDependencyModal(prev => ({ ...prev, isOpen: false }))}
-        onConfirm={(targetId) => performToggle(dependencyModal.workflowId!, dependencyModal.action === 'activate')}
+        onConfirm={(_targetId) => performToggle(dependencyModal.workflowId!, dependencyModal.action === 'activate')}
         title={`${dependencyModal.action === 'deactivate' ? 'Deactivate' : 'Activate'} Workflow`}
         itemName={dependencyModal.workflowName}
         action={dependencyModal.action}

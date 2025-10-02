@@ -37,7 +37,13 @@ When instructed to follow jira-story-flow, AI agents must execute this exact seq
 2. **Environment Check**: Confirm all required environment variables are loaded
    - JIRA_URL, JIRA_USERNAME, JIRA_TOKEN
    - JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT
+   - JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT (e.g., customfield_10128)
+   - JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT (can be team name or numeric ID - auto-resolved by client)
    - Workflow configurations
+
+   **Note**: The Jira client automatically resolves team names to IDs, so you can use either:
+   - Team name: `Research & Innovation Team` (user-friendly, auto-resolved)
+   - Numeric ID: `19601` (direct, no resolution needed)
 
 3. **Workflow Validation**: Verify story workflow transitions are available
    ```bash
@@ -98,7 +104,20 @@ When instructed to follow jira-story-flow, AI agents must execute this exact seq
    - Include ONLY technical implementation work (database changes, code updates, etc.)
    - Exclude Jira management tasks (creation, transitions, comments)
    - Exclude objectives, acceptance criteria, definition of done
-   - Use simple numbered list format: "# Task description"
+   - Use Jira markup format with proper headers and lists:
+     - Headers: `h2.`, `h3.`, `h4.` for section headers
+     - Numbered lists: `#` at the start of each line (NOT `1.`, `2.`, etc.)
+     - Bullet lists: `*` at the start of each line (NOT `-`)
+     - Example:
+       ```
+       h3. Database Tasks
+       # Add table to migration
+       # Execute migration
+
+       h3. API Tasks
+       # Create endpoint
+       # Add validation
+       ```
 
 ### **Phase 3: Implementation**
 6. **Execute Your Tasks**: Perform all your planned implementation work (can be simulated)
@@ -111,6 +130,12 @@ When instructed to follow jira-story-flow, AI agents must execute this exact seq
      --issue [SUBTASK_KEY] \
      --message "[Simple completion summary with key deliverables - avoid excessive detail]"
    ```
+
+   **IMPORTANT - Jira Markup Format**:
+   - Use `h2.`, `h3.`, `h4.` for headers (NOT markdown `##`, `###`)
+   - Use `#` for numbered lists (NOT `1.`, `2.`, etc.)
+   - Use `*` for bullet lists (NOT `-`)
+   - Always organize content with proper headers and lists for readability
 
 9. **Add Completion Notice to Story**: Notify parent story of subtask completion
    ```bash
@@ -128,6 +153,13 @@ When instructed to follow jira-story-flow, AI agents must execute this exact seq
    # [Key deliverables and outcomes]
    # [Any important notes or follow-up items]"
    ```
+
+   **CRITICAL - Jira Markup Format**:
+   - Headers: `h2.`, `h3.` (NOT markdown `##`, `###`)
+   - Numbered lists: `#` at line start (NOT `1.`, `2.`, `-`)
+   - Bullet lists: `*` at line start (NOT `-`)
+   - Bold text: `*text*` (NOT markdown `**text**`)
+   - This ensures proper formatting in Jira comments
 
 10. **Release Subtask**: Mark subtask as complete
     ```bash
@@ -189,7 +221,12 @@ When instructed to follow jira-story-flow, AI agents must execute this exact seq
 - **Task List Scope**: Include ALL steps from Jira creation through completion
 - **Subtask Description**: Simple checklist of implementation tasks only (no Jira tasks, no objectives/AC/DoD)
 - **Task List Management**: Update task management system throughout entire workflow
-- Format comments with proper numbered lists/bullet points instead of single-row text
+- **Jira Markup Format**: ALWAYS use proper Jira markup in all comments and descriptions:
+  - Headers: `h2.`, `h3.`, `h4.` (NOT markdown `##`, `###`, `####`)
+  - Numbered lists: `#` at line start (NOT `1.`, `2.`, `-`)
+  - Bullet lists: `*` at line start (NOT `-`)
+  - Bold text: `*text*` (NOT markdown `**text**`)
+  - Organize content with headers and lists for readability
 - Always include initial steps (create story, transition to development, create consolidation subtask)
 - Always include final steps (add summary comments to both subtask and parent story, release subtask)
 

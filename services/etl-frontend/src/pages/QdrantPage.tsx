@@ -50,27 +50,6 @@ const QdrantPage: React.FC = () => {
     fetchQdrantData()
   }, [])
 
-  const getEntityIcon = (entityName: string) => {
-    const iconMap: Record<string, string> = {
-      'Work Items': 'file-text',
-      'Changelogs': 'git-commit',
-      'Projects': 'folder',
-      'Statuses': 'tag',
-      'Work Item Types': 'layers',
-      'WIT Hierarchies': 'git-branch',
-      'WIT Mappings': 'link',
-      'WIT PR Links': 'git-pull-request',
-      'Status Mappings': 'shuffle',
-      'Workflows': 'workflow',
-      'Pull Requests': 'git-pull-request',
-      'PR Comments': 'message-square',
-      'PR Reviews': 'eye',
-      'PR Commits': 'git-commit',
-      'Repositories': 'database',
-    }
-    return iconMap[entityName] || 'circle'
-  }
-
   // Use real data from API or defaults
   const totals = dashboardData ? {
     totalDatabase: dashboardData.total_database,
@@ -88,7 +67,7 @@ const QdrantPage: React.FC = () => {
       <div className="flex">
         <CollapsedSidebar />
         <main className="flex-1 ml-16 py-8">
-          <div className="ml-20 mr-12">
+          <div className="ml-12 mr-12">
             {/* Page Header */}
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-primary">
@@ -215,7 +194,6 @@ const QdrantPage: React.FC = () => {
                       <div className="p-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                           {group.entities.map((entity, entityIndex) => {
-                            const statusClass = entity.completion >= 100 ? 'complete' : entity.completion > 0 ? 'partial' : 'empty'
                             const completionClass = entity.completion >= 100 ? 'bg-green-100 text-green-700' : entity.completion > 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'
                             const dotClass = entity.completion >= 100 ? 'bg-green-500' : entity.completion > 0 ? 'bg-yellow-500' : 'bg-gray-300'
 

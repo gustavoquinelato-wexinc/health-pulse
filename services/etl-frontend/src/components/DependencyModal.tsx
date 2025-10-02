@@ -1,10 +1,5 @@
 import React, { useState } from 'react';
 
-interface DependencyInfo {
-  id: number;
-  [key: string]: any;
-}
-
 interface ReassignmentTarget {
   id: number;
   [key: string]: any;
@@ -16,7 +11,7 @@ interface DependencyModalProps {
   onConfirm: (targetId?: number) => void;
   title: string;
   itemName: string;
-  action: 'delete' | 'deactivate';
+  action: 'delete' | 'deactivate' | 'activate';
   dependencyCount: number;
   affectedItemsCount: number;
   dependencyType: string; // e.g., "work item type mapping(s)"

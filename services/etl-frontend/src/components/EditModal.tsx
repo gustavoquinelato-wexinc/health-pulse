@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
-import { useTheme } from '../contexts/ThemeContext'
 
 interface EditField {
   name: string
@@ -37,7 +36,6 @@ export default function EditModal({
   fields,
   loading = false
 }: EditModalProps) {
-  const { theme } = useTheme()
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)

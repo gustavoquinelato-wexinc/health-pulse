@@ -147,24 +147,37 @@ export default function Header() {
         })()
 
   return (
-    <header className="py-4 px-8 flex items-center justify-between sticky top-0 z-50 bg-primary" style={{
-      boxShadow: theme === 'dark'
-        ? '0 4px 6px -1px rgba(255, 255, 255, 0.1), 0 2px 4px -1px rgba(255, 255, 255, 0.06)'
-        : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-    }}>
+    <header
+      className="py-4 px-8 flex items-center justify-between sticky top-0 z-50 bg-primary"
+      style={{
+        boxShadow: theme === 'dark'
+          ? '0 4px 6px -1px rgba(255, 255, 255, 0.03), 0 2px 4px -1px rgba(255, 255, 255, 0.02)'
+          : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        minHeight: '72px' // Fixed height to prevent layout shift
+      }}
+    >
       {/* Left Side - Logo and Title */}
       <div className="flex items-center space-x-4">
-        {/* Tenant Logo */}
-        <div className="h-10 flex items-center" style={{ minWidth: '40px', maxWidth: '150px' }}>
+        {/* Tenant Logo - Fixed width to prevent layout shift */}
+        <div className="h-10 flex items-center justify-center" style={{ width: '120px' }}>
           {tenantLoading ? (
-            // Loading placeholder - subtle animation
+            // Loading placeholder - same size as container
             <div className="h-6 w-20 bg-white bg-opacity-20 rounded animate-pulse"></div>
           ) : getLogoUrl() ? (
             <img
               src={getLogoUrl() || undefined}
               alt={`${currentTenant?.name || 'Tenant'} Logo`}
               className="h-full max-w-full object-contain"
-              style={{ filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none' }}
+              style={{
+                filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none',
+                maxWidth: '120px',
+                opacity: 1,
+                transition: 'none' // Disable transitions to prevent movement
+              }}
+              onError={(e) => {
+                // Hide broken image
+                e.currentTarget.style.display = 'none'
+              }}
             />
           ) : (
             // Fallback text when no logo is available
@@ -179,11 +192,15 @@ export default function Header() {
           backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'
         }}></div>
 
-        {/* Title Badge */}
-        <div className="px-4 py-2 rounded text-sm font-medium" style={{
-          background: 'var(--gradient-1-2)',
-          color: 'var(--on-gradient-1-2)'
-        }}>
+        {/* Title Badge - Fixed to prevent layout shift */}
+        <div
+          className="px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
+          style={{
+            background: 'var(--gradient-1-2)',
+            color: 'var(--on-gradient-1-2)',
+            minWidth: 'fit-content'
+          }}
+        >
           PULSE - ETL MANAGEMENT
         </div>
       </div>

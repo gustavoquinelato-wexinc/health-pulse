@@ -34,7 +34,7 @@ const WitsHierarchiesPage: React.FC = () => {
   const [integrations, setIntegrations] = useState<Integration[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+  const { toasts, removeToast, showSuccess, showError } = useToast()
 
   // Edit modal state
   const [editModal, setEditModal] = useState({
@@ -357,7 +357,7 @@ const WitsHierarchiesPage: React.FC = () => {
       <div className="flex">
         <CollapsedSidebar />
         <main className="flex-1 ml-16 py-8">
-          <div className="ml-20 mr-12">
+          <div className="ml-12 mr-12">
             {/* Page Header */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
@@ -450,9 +450,8 @@ const WitsHierarchiesPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  {/* Filters and Table Card */}
-                  <div
-                    className="mb-6 p-6 rounded-lg bg-secondary shadow-md border border-transparent"
+                  {/* Filters Section */}
+                  <div className="mb-6 p-6 rounded-lg shadow-md border border-transparent"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
                       e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -462,8 +461,6 @@ const WitsHierarchiesPage: React.FC = () => {
                       e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
-                    {/* Filters Section */}
-                    <div className="mb-6 p-6 rounded-lg bg-primary shadow-md">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       {/* Level Number Filter */}
                       <div>
@@ -517,10 +514,19 @@ const WitsHierarchiesPage: React.FC = () => {
                         </select>
                       </div>
                     </div>
-                    </div>
+                  </div>
 
-                    {/* WIT Hierarchies Table */}
-                    <div className="rounded-lg bg-table-container shadow-md overflow-hidden">
+                  {/* WIT Hierarchies Table */}
+                  <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-transparent"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'transparent'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
                     <div className="px-6 py-5 flex justify-between items-center bg-table-header">
                       <h2 className="text-lg font-semibold text-table-header">Work Item Type Hierarchies</h2>
                       <button
@@ -614,7 +620,6 @@ const WitsHierarchiesPage: React.FC = () => {
                           ))}
                         </tbody>
                       </table>
-                    </div>
                     </div>
                   </div>
                 </>

@@ -14,7 +14,7 @@ from app.models.unified_models import (
     User, WorkItem, Changelog, Project, Status, Wit,
     WitHierarchy, WitMapping, StatusMapping, Workflow,
     Pr, PrComment, PrReview, PrCommit, Repository,
-    WitPrLinks, VectorizationQueue
+    WitPrLinks
 )
 
 router = APIRouter()
@@ -60,14 +60,11 @@ async def get_qdrant_dashboard(
                         model.tenant_id == tenant_id
                     ).scalar() or 0
 
-                    # Get vectorized count (completed in vectorization queue)
-                    # For now, we'll assume all records are vectorized (100%)
-                    # TODO: Query Qdrant directly or check vectorization_queue table
-                    vectorized_count = session.query(func.count(VectorizationQueue.id)).filter(
-                        VectorizationQueue.tenant_id == tenant_id,
-                        VectorizationQueue.table_name == model.__tablename__,
-                        VectorizationQueue.status == 'completed'
-                    ).scalar() or 0
+                    # NOTE: vectorization_queue table was removed in migration 0005
+                    # Vectorization is now integrated into transform workers
+                    # TODO: Query Qdrant directly for actual vectorized counts
+                    # For now, set to 0 (no vectorization tracking)
+                    vectorized_count = 0
 
                     # Calculate completion percentage
                     completion = int((vectorized_count / db_count * 100)) if db_count > 0 else 0
@@ -130,16 +127,11 @@ async def get_qdrant_dashboard(
             total_vectorized = sum(e.qdrant_count for group in integration_groups for e in group.entities)
             overall_completion = int((total_vectorized / total_database * 100)) if total_database > 0 else 0
 
-            # Get queue stats
-            queue_pending = session.query(func.count(VectorizationQueue.id)).filter(
-                VectorizationQueue.tenant_id == tenant_id,
-                VectorizationQueue.status == 'pending'
-            ).scalar() or 0
-
-            queue_failed = session.query(func.count(VectorizationQueue.id)).filter(
-                VectorizationQueue.tenant_id == tenant_id,
-                VectorizationQueue.status == 'failed'
-            ).scalar() or 0
+            # NOTE: vectorization_queue table was removed in migration 0005
+            # Vectorization is now integrated into transform workers
+            # Set queue stats to 0 (no separate queue anymore)
+            queue_pending = 0
+            queue_failed = 0
 
             return QdrantDashboardResponse(
                 total_database=total_database,

@@ -63,17 +63,18 @@ const getCurrentActiveColors = (
 }
 
 // API functions for theme mode persistence
-const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
-  try {
-    const response = await axios.get('/api/v1/user/theme-mode')
-    if (response.data.success) {
-      return response.data.mode as Theme
-    }
-  } catch (error) {
-    // Silently handle theme loading errors
-  }
-  return null
-}
+// Commented out - not currently used but kept for future reference
+// const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
+//   try {
+//     const response = await axios.get('/api/v1/user/theme-mode')
+//     if (response.data.success) {
+//       return response.data.mode as Theme
+//     }
+//   } catch (error) {
+//     // Silently handle theme loading errors
+//   }
+//   return null
+// }
 
 const saveThemeModeToAPI = async (mode: Theme): Promise<boolean> => {
   try {

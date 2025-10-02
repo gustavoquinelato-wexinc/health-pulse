@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
-import { useTheme } from '../contexts/ThemeContext'
 
 interface CreateField {
   name: string
@@ -34,7 +33,6 @@ const CreateModal: React.FC<CreateModalProps> = ({
   title,
   fields
 }) => {
-  const { theme } = useTheme()
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)

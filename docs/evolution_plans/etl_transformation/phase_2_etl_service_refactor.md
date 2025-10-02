@@ -1,20 +1,38 @@
 # ETL Phase 2: ETL Service Refactoring
 
-**Implemented**: NO ❌  
-**Duration**: Weeks 3-4  
-**Priority**: HIGH  
-**Risk Level**: MEDIUM  
+**Implemented**: NO ❌
+**Duration**: 2 weeks (Weeks 5-6 of overall plan)
+**Priority**: HIGH
+**Risk Level**: MEDIUM
+**Last Updated**: 2025-09-30
+
+## 📊 Prerequisites (Must be complete before starting)
+
+1. ✅ **Phase 0 Complete**: ETL Frontend + Backend ETL Module working
+2. 🔄 **Phase 1 Complete**: RabbitMQ + Raw Data Storage + Queue Manager
+   - RabbitMQ container running
+   - Database tables created (`raw_extraction_data`, `etl_job_queue`)
+   - Queue manager implemented in backend-service
+   - Raw data APIs functional
+
+**Status**: Cannot start until Phase 1 is complete.
 
 ## 💼 Business Outcome
 
-**Extract-Only ETL Service**: Transform the current monolithic ETL service into a focused extraction service that stores raw data and publishes jobs to the queue system, creating true separation between Extract and Transform/Load operations.
+**Extract-Only ETL Service**: Transform the current monolithic ETL service (`services/etl-service`) into a focused extraction service that:
+- Extracts raw data from external systems (Jira, GitHub, etc.)
+- Stores complete API responses in `raw_extraction_data` table
+- Publishes transform jobs to RabbitMQ queue
+- NO transformation or loading logic (moved to backend-service workers)
+
+This creates true separation between Extract and Transform/Load operations.
 
 ## 🎯 Objectives
 
-1. **Service Refactoring**: Convert ETL service to extract-only operations
-2. **Raw Data Storage**: Store complete API responses for debugging/reprocessing
-3. **Queue Workers**: Implement RabbitMQ consumers for job processing
-4. **Integration Framework**: Create pluggable pattern for new data sources
+1. **Service Refactoring**: Convert ETL service jobs to extract-only pattern
+2. **Raw Data Storage**: Store complete API responses after extraction
+3. **Queue Publishing**: Publish transform jobs to RabbitMQ after extraction
+4. **Worker Implementation**: Create transform/load workers in backend-service
 5. **Job Orchestration**: Update orchestrator for queue-based processing
 
 ## 📋 Task Breakdown

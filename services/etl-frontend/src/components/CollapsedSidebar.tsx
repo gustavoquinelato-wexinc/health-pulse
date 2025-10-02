@@ -1,14 +1,10 @@
 import { motion } from 'framer-motion'
 import {
-  ArrowLeftRight,
   Database,
   Home,
-  Layers,
   List,
   Plug,
-  RefreshCw,
-  Settings,
-  Workflow
+  RefreshCw
 } from 'lucide-react'
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -81,7 +77,7 @@ export default function CollapsedSidebar() {
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const [isHoveringSubmenu, setIsHoveringSubmenu] = useState(false)
-  const hoverTimeoutRef = useRef<number | null>(null)
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const submenuRef = useRef<HTMLDivElement>(null)
 
@@ -189,7 +185,7 @@ export default function CollapsedSidebar() {
         <div className="flex-1 flex flex-col justify-center">
           <div className="flex flex-col space-y-3 py-4 w-full" style={{
             boxShadow: theme === 'dark'
-              ? '0 -4px 6px -1px rgba(255, 255, 255, 0.1), 4px 0 6px -1px rgba(255, 255, 255, 0.1), 0 4px 6px -1px rgba(255, 255, 255, 0.1)'
+              ? '0 -4px 6px -1px rgba(255, 255, 255, 0.03), 4px 0 6px -1px rgba(255, 255, 255, 0.03), 0 4px 6px -1px rgba(255, 255, 255, 0.03)'
               : '0 -4px 6px -1px rgba(0, 0, 0, 0.1), 4px 0 6px -1px rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1)'
           }}>
             {navigationItems

@@ -4,6 +4,11 @@
 
 This document covers all aspects of job management in the Pulse Platform, including the orchestrator system, individual job types, recovery strategies, and integration management.
 
+**⚠️ IMPORTANT**: This document describes the conceptual job orchestration system. For implementation details:
+- **Old ETL Service** (Legacy): `services/etl-service/` - DO NOT MODIFY
+- **New ETL Architecture** (Current): `services/etl-frontend/` + `services/backend-service/app/etl/`
+- **Migration Guide**: See `docs/etl/NEW_ETL_ARCHITECTURE.md` for detailed migration information
+
 ## 🎯 Job Orchestration Overview
 
 ### Orchestrator Architecture

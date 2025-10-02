@@ -125,15 +125,6 @@ export async function getLogoFilter(
     // Calculate luminance
     const luminance = calculateLuminance(color.r, color.g, color.b)
 
-    // Log for debugging (includes image name)
-    const imageName = imgElement.src.split('/').pop()?.split('?')[0] || 'unknown'
-    console.log(`🎨 Logo Analysis: ${imageName}`, {
-      dominantColor: `rgb(${color.r}, ${color.g}, ${color.b})`,
-      luminance: luminance.toFixed(3),
-      threshold: luminanceThreshold,
-      willInvert: luminance < luminanceThreshold
-    })
-
     // Determine if we should invert to white
     if (shouldInvertToWhite(luminance, luminanceThreshold)) {
       return getWhiteFilter()

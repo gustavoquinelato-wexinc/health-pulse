@@ -1,0 +1,27 @@
+{
+  "recommendations": [
+    // JavaScript/TypeScript
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    
+    // Tailwind CSS
+    "bradlc.vscode-tailwindcss",
+    
+    // Python
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    
+    // Git
+    "eamodio.gitlens",
+    
+    // Docker
+    "ms-azuretools.vscode-docker",
+    
+    // General utilities
+    "christian-kohler.path-intellisense",
+    "formulahendry.auto-rename-tag",
+    "naumovs.color-highlight"
+  ],
+  "unwantedRecommendations": []
+}
+
