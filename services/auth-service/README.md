@@ -6,9 +6,10 @@ Pure backend authentication validation service for the Pulse Platform. **No user
 
 The Authentication Service is a backend API that validates credentials and generates tokens:
 
-- **Frontend Service** (Port 3000) → Backend Service → Auth Service (API)
-- **ETL Service** (Port 8000) → Backend Service → Auth Service (API)
+- **Frontend Service** (Port 5173) → Backend Service → Auth Service (API)
+- **ETL Frontend** (Port 3333) → Backend Service → Auth Service (API)
 - **Backend Service** (Port 3001) → Calls Auth Service for validation
+- **Legacy ETL Service** (Port 8000) → ⚠️ DEPRECATED - Reference only
 
 ## 🔐 Secure Authentication Flow
 
@@ -24,12 +25,12 @@ Backend Service → Auth Service API → Credential Validation
 
 ### 3. Token Generation
 ```
-Auth Service → JWT Token → Backend Service → Frontend/ETL
+Auth Service → JWT Token → Backend Service → Frontend/ETL Frontend
 ```
 
 ### 4. API Access
 ```
-Frontend/ETL → Backend Service (with token) → Auth Service Validation
+Frontend/ETL Frontend → Backend Service (with token) → Auth Service Validation
 ```
 
 ## 🚀 Getting Started
@@ -152,10 +153,10 @@ REGISTERED_SERVICES = {
         ],
         "allowed_scopes": ["read", "write", "admin"]
     },
-    "etl": {
-        "name": "Pulse ETL Service",
+    "etl-frontend": {
+        "name": "Pulse ETL Frontend",
         "redirect_uris": [
-            "http://localhost:8000/auth/callback", 
+            "http://localhost:3333/auth/callback",
             "https://etl.company.com/auth/callback"
         ],
         "allowed_scopes": ["read", "write", "admin"]

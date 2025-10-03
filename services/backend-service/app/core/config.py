@@ -26,11 +26,11 @@ class Settings(BaseSettings):
     PORT: int = Field(default=3001, env="BACKEND_PORT")
     
     # PostgreSQL Configuration
-    POSTGRES_HOST: str
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DATABASE: str
+    POSTGRES_HOST: str = Field(default="localhost", env="POSTGRES_HOST")
+    POSTGRES_PORT: int = Field(default=5432, env="POSTGRES_PORT")
+    POSTGRES_USER: str = Field(default="postgres", env="POSTGRES_USER")
+    POSTGRES_PASSWORD: str = Field(default="password", env="POSTGRES_PASSWORD")
+    POSTGRES_DATABASE: str = Field(default="health_pulse", env="POSTGRES_DATABASE")
     
     # Read Replica Configuration
     POSTGRES_REPLICA_HOST: Optional[str] = Field(default=None, env="POSTGRES_REPLICA_HOST")
@@ -77,7 +77,6 @@ class Settings(BaseSettings):
 
     # Service Communication URLs
     ETL_SERVICE_URL: str = Field(default="http://localhost:8000", env="ETL_SERVICE_URL")
-    AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
     FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
     AUTH_SERVICE_URL: str = Field(default="http://localhost:4000", env="AUTH_SERVICE_URL")
     ETL_INTERNAL_SECRET: str = Field(default="dev-internal-secret-change", env="ETL_INTERNAL_SECRET")

@@ -49,15 +49,7 @@ from app.api.web_routes import router as web_router
 from app.api.websocket_routes import router as websocket_router
 
 
-# Suppress ALL noisy logs immediately to reduce terminal noise
-import logging
-
-# Disable SQLAlchemy logging completely
-logging.getLogger("sqlalchemy").setLevel(logging.CRITICAL)
-logging.getLogger("sqlalchemy.engine").setLevel(logging.CRITICAL)
-logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.CRITICAL)
-logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
-logging.getLogger("sqlalchemy.dialects").setLevel(logging.CRITICAL)
+# Logging is now handled by clean logging config
 logging.getLogger("sqlalchemy.orm").setLevel(logging.CRITICAL)
 logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
@@ -261,15 +253,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
-    # Force reconfigure logging to override uvicorn's configuration
-    from app.core.logging_config import setup_logging
+    # Setup clean logging
+    from app.core.logging_config import setup_logging, get_logger
     setup_logging(force_reconfigure=True)
 
-    # Test logging immediately
-    import logging
-    test_logger = logging.getLogger("startup_test")
-    test_logger.info("[TEST] STARTUP TEST: Console logging should be working now!")
-
+    logger = get_logger(__name__)
     logger.info("Starting ETL Service...")
 
     try:

@@ -147,7 +147,7 @@ async def store_raw_data(
             'extraction_metadata': json.dumps(request.extraction_metadata) if request.extraction_metadata else None
         })
         
-        raw_data_id = result.fetchone()[0]
+        raw_data_id = result.fetchone()[0]  # type: ignore
         db.commit()
         
         logger.info(f"Raw data stored: ID={raw_data_id}, tenant={tenant_id}, type={request.entity_type}")
@@ -161,7 +161,7 @@ async def store_raw_data(
                     tenant_id=tenant_id,
                     integration_id=request.integration_id,
                     raw_data_id=raw_data_id,
-                    entity_type=request.entity_type
+                    data_type=request.entity_type
                 )
                 if queued:
                     logger.info(f"Transform job queued for raw_data_id={raw_data_id}")
@@ -216,11 +216,11 @@ async def get_raw_data_list(
         
         if entity_type:
             where_clauses.append("entity_type = :entity_type")
-            params['entity_type'] = entity_type
+            params['entity_type'] = entity_type  # type: ignore
         
         if processing_status:
             where_clauses.append("processing_status = :processing_status")
-            params['processing_status'] = processing_status
+            params['processing_status'] = processing_status  # type: ignore
         
         where_clause = " AND ".join(where_clauses)
         
@@ -265,7 +265,7 @@ async def get_raw_data_list(
         
         return RawDataListResponse(
             raw_data_records=records,
-            total_count=total_count,
+            total_count=total_count or 0,
             limit=limit,
             offset=offset
         )
@@ -321,7 +321,7 @@ async def update_raw_data_status(
             'error_details': json.dumps(request.error_details) if request.error_details else None
         })
         
-        if result.rowcount == 0:
+        if hasattr(result, 'rowcount') and getattr(result, 'rowcount', 1) == 0:
             raise HTTPException(
                 status_code=404,
                 detail=f"Raw data record {raw_data_id} not found for tenant {tenant_id}"

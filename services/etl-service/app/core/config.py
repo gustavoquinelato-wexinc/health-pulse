@@ -87,7 +87,6 @@ class Settings(BaseSettings):
 
     # Service Communication URLs
     BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
-    AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
     FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
 
     # CORS Configuration

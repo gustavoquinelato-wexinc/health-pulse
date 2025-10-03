@@ -68,7 +68,7 @@ class OrchestratorSettingsUpdateRequest(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def get_orchestrator_setting(db: Session, tenant_id: int, setting_key: str, default_value: str) -> str:
+def get_orchestrator_setting(db: Session, tenant_id: int, setting_key: str, default_value: str | None) -> str | None:
     """Get orchestrator setting from system_settings table."""
     from sqlalchemy import text
     
@@ -84,7 +84,7 @@ def get_orchestrator_setting(db: Session, tenant_id: int, setting_key: str, defa
     return default_value
 
 
-def set_orchestrator_setting(db: Session, tenant_id: int, setting_key: str, setting_value: str, description: str = None):
+def set_orchestrator_setting(db: Session, tenant_id: int, setting_key: str, setting_value: str, description: str | None = None):
     """Set orchestrator setting in system_settings table."""
     from sqlalchemy import text
     
@@ -140,9 +140,9 @@ async def get_orchestrator_status(
     """
     try:
         # Get settings from database
-        enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_enabled', 'true')
-        interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60')
-        
+        enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_enabled', 'true') or 'true'
+        interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60') or '60'
+
         enabled = enabled_str.lower() == 'true'
         interval_minutes = int(interval_str)
         
@@ -179,7 +179,7 @@ async def get_orchestrator_status(
             """)
             running_count = db.execute(running_query, {'tenant_id': tenant_id}).scalar()
 
-            if running_count > 0:
+            if running_count and running_count > 0:
                 status = 'running'
             else:
                 status = 'paused'
@@ -187,8 +187,8 @@ async def get_orchestrator_status(
         return OrchestratorStatusResponse(
             enabled=enabled,
             interval_minutes=interval_minutes,
-            last_run=last_run,
-            next_run=next_run,
+            last_run=last_run,  # type: ignore
+            next_run=next_run,  # type: ignore
             status=status
         )
         
@@ -252,7 +252,7 @@ async def start_orchestrator(
         import asyncio
 
         # Check if orchestrator is enabled
-        enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_enabled', 'true')
+        enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_enabled', 'true') or 'true'
         enabled = enabled_str.lower() == 'true'
 
         if not enabled:
@@ -409,10 +409,10 @@ async def get_orchestrator_settings(
     """
     try:
         # Get settings from database with defaults
-        interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60')
-        retry_enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_enabled', 'true')
-        retry_interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_interval', '15')
-        max_retry_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_max_retry_attempts', '3')
+        interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60') or '60'
+        retry_enabled_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_enabled', 'true') or 'true'
+        retry_interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_interval', '15') or '15'
+        max_retry_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_max_retry_attempts', '3') or '3'
 
         return OrchestratorSettingsResponse(
             interval_minutes=int(interval_str),
@@ -575,8 +575,19 @@ async def execute_mock_job(job_id: int, job_name: str, tenant_id: int):
             logger.info(f"[MOCK] Job {job_name} (ID: {job_id}) marked as FINISHED")
 
             # Find next ready job (skips paused jobs)
-            from app.etl.jobs import find_next_ready_job
-            next_job = find_next_ready_job(db, tenant_id, execution_order)
+            next_job_query = text("""
+                SELECT id, job_name, execution_order
+                FROM etl_jobs
+                WHERE tenant_id = :tenant_id
+                AND execution_order > :current_order
+                AND active = TRUE
+                ORDER BY execution_order ASC
+                LIMIT 1
+            """)
+            next_job = db.execute(next_job_query, {
+                'tenant_id': tenant_id,
+                'current_order': execution_order
+            }).fetchone()
 
             if next_job:
                 next_job_id, next_job_name, next_job_order = next_job
@@ -610,12 +621,13 @@ async def execute_mock_job(job_id: int, job_name: str, tenant_id: int):
 
                 if is_cycle_restart:
                     # Cycle restart - use normal interval (60 min)
-                    interval_minutes = int(get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60'))
+                    interval_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_interval', '60') or '60'
+                    interval_minutes = int(interval_str)
                     logger.info(f"[MOCK] Next job is cycle restart ({next_job_name}) - using normal interval ({interval_minutes} min)")
                 else:
                     # Job-to-job transition - use fast retry interval (15 min)
-                    retry_interval = int(get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_interval', '15'))
-                    interval_minutes = retry_interval
+                    retry_str = get_orchestrator_setting(db, tenant_id, 'orchestrator_retry_interval', '15') or '15'
+                    interval_minutes = int(retry_str)
                     logger.info(f"[MOCK] Next job is in sequence ({next_job_name}) - using fast retry ({interval_minutes} min)")
 
                 # Update orchestrator next_run time

@@ -139,4 +139,35 @@ export const qdrantApi = {
   },
 }
 
+// Projects API
+export const projectsApi = {
+  getProjects: async (integrationId?: number) => {
+    const params = integrationId ? `?integration_id=${integrationId}` : '';
+    return await etlApi.get(`/projects${params}`);
+  },
+  getProject: async (projectId: number) => {
+    return await etlApi.get(`/projects/${projectId}`);
+  }
+}
+
+// Custom Fields API (Phase 2.1)
+export const customFieldsApi = {
+  // Get custom field mappings for an integration
+  getMappings: async (integrationId: number) => {
+    return await etlApi.get(`/custom-fields/mappings/${integrationId}`)
+  },
+
+  // Save custom field mappings for an integration
+  saveMappings: async (integrationId: number, mappings: Record<string, any>) => {
+    return await etlApi.put(`/custom-fields/mappings/${integrationId}`, {
+      custom_field_mappings: mappings
+    })
+  },
+
+  // Sync custom fields from Jira using createmeta API
+  syncCustomFields: async (integrationId: number) => {
+    return await etlApi.post(`/custom-fields/sync/${integrationId}`)
+  },
+}
+
 export default etlApi

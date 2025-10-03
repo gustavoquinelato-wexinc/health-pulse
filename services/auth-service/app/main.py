@@ -18,9 +18,10 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure clean logging
+from app.core.logging_config import setup_logging, get_logger
+setup_logging()
+logger = get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(

@@ -282,9 +282,9 @@ class AIPredictionManager:
         try:
             prediction = db.query(AIPrediction).filter(AIPrediction.id == prediction_id).first()
             if prediction:
-                prediction.actual_outcome = json.dumps(actual_outcome)
-                prediction.accuracy_score = accuracy_score
-                prediction.validated_at = datetime.utcnow()
+                prediction.actual_outcome = json.dumps(actual_outcome)  # type: ignore
+                prediction.accuracy_score = accuracy_score  # type: ignore
+                prediction.validated_at = datetime.utcnow()  # type: ignore
                 
                 db.commit()
                 logger.info(f"Updated prediction accuracy for prediction {prediction_id}")

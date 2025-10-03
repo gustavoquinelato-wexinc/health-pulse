@@ -108,7 +108,7 @@ def apply(connection):
         # 1. Tenants table (foundation) - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenants (
-                id SERIAL,
+                id SERIAL PRIMARY KEY,
                 name VARCHAR NOT NULL UNIQUE,
                 website VARCHAR,
                 assets_folder VARCHAR(100),
@@ -183,23 +183,22 @@ def apply(connection):
         print("✅ Core tables created")
         print("📋 Creating integration and project tables...")
         
-        # 5. Clean integrations table (Phase 3-1)
+        # 5. Clean integrations table (Phase 3-1) - Unified Settings Architecture
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS integrations (
-                id SERIAL,
-                provider VARCHAR(50) NOT NULL, -- 'jira', 'github', 'openai', 'wex_ai_gateway'
-                type VARCHAR(50) NOT NULL, -- 'data_source', 'ai_provider', 'notification'
+                id SERIAL PRIMARY KEY,
+                provider VARCHAR(50) NOT NULL, -- 'Jira', 'GitHub', 'WEX AI Gateway', etc.
+                type VARCHAR(50) NOT NULL, -- 'Data', 'AI', 'Embedding', 'System'
                 username VARCHAR,
-                password VARCHAR,
+                password VARCHAR, -- Encrypted tokens/passwords
                 base_url TEXT,
-                base_search VARCHAR,
-                ai_model VARCHAR(100), -- AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-                -- JSON configuration columns for AI providers
-                ai_model_config JSONB DEFAULT '{}', -- AI model configuration
-                cost_config JSONB DEFAULT '{}', -- Cost tracking and limits
+                -- Unified settings JSON for all integration-specific configuration
+                settings JSONB DEFAULT '{}', -- Type-specific settings (projects, models, costs, etc.)
+
                 fallback_integration_id INTEGER, -- FK to another integration for fallback
                 logo_filename VARCHAR(255), -- Filename of integration logo (stored in tenant assets folder)
+                custom_field_mappings JSONB DEFAULT '{}', -- Custom field mappings for Jira integrations
 
                 -- BaseEntity fields
                 tenant_id INTEGER NOT NULL,
@@ -331,7 +330,8 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS projects_wits (
                 project_id INTEGER NOT NULL,
-                wit_id INTEGER NOT NULL
+                wit_id INTEGER NOT NULL,
+                PRIMARY KEY (project_id, wit_id)
             );
         """)
 
@@ -339,7 +339,8 @@ def apply(connection):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS projects_statuses (
                 project_id INTEGER NOT NULL,
-                status_id INTEGER NOT NULL
+                status_id INTEGER NOT NULL,
+                PRIMARY KEY (project_id, status_id)
             );
         """)
 
@@ -349,7 +350,7 @@ def apply(connection):
         # 15. Work items table (complete with all custom fields and workflow columns)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS work_items (
-                id SERIAL,
+                id SERIAL PRIMARY KEY,
                 external_id VARCHAR,
                 key VARCHAR,
                 project_id INTEGER,
@@ -363,6 +364,8 @@ def apply(connection):
                 story_points INTEGER,
                 assignee VARCHAR,
                 labels VARCHAR,
+                priority VARCHAR,
+                parent_external_id VARCHAR,
                 created TIMESTAMP,
                 updated TIMESTAMP,
                 work_first_committed_at TIMESTAMP,
@@ -370,9 +373,6 @@ def apply(connection):
                 work_last_started_at TIMESTAMP,
                 work_first_completed_at TIMESTAMP,
                 work_last_completed_at TIMESTAMP,
-                priority VARCHAR,
-                parent_external_id VARCHAR,
-                code_changed BOOLEAN,
                 total_work_starts INTEGER DEFAULT 0,
                 total_completions INTEGER DEFAULT 0,
                 total_backlog_returns INTEGER DEFAULT 0,
@@ -383,6 +383,7 @@ def apply(connection):
                 workflow_complexity_score INTEGER DEFAULT 0,
                 rework_indicator BOOLEAN DEFAULT FALSE,
                 direct_completion BOOLEAN DEFAULT FALSE,
+                code_changed BOOLEAN,
                 custom_field_01 VARCHAR,
                 custom_field_02 VARCHAR,
                 custom_field_03 VARCHAR,
@@ -403,6 +404,7 @@ def apply(connection):
                 custom_field_18 VARCHAR,
                 custom_field_19 VARCHAR,
                 custom_field_20 VARCHAR,
+                custom_fields_overflow JSONB,
                 integration_id INTEGER NOT NULL,
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -430,6 +432,8 @@ def apply(connection):
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
+
+
 
         # 17. Repositories table - NO vector column
         cursor.execute("""
@@ -574,33 +578,30 @@ def apply(connection):
             );
         """)
 
-        # 23. ETL jobs table - NO vector column
+        # 23. ETL jobs table - Autonomous Architecture (from migration 0005)
+        print("   🏗️ Creating etl_jobs table...")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS etl_jobs (
-                id SERIAL,
+                id SERIAL PRIMARY KEY,
                 job_name VARCHAR NOT NULL,
-                execution_order INTEGER NOT NULL,
-                status VARCHAR NOT NULL DEFAULT 'PENDING',
-                last_repo_sync_checkpoint TIMESTAMP,
-                repo_processing_queue TEXT,
-                last_pr_cursor VARCHAR,
-                current_pr_node_id VARCHAR,
-                last_commit_cursor VARCHAR,
-                last_review_cursor VARCHAR,
-                last_comment_cursor VARCHAR,
-                last_review_thread_cursor VARCHAR,
+                status VARCHAR(20) NOT NULL DEFAULT 'READY',
+                schedule_interval_minutes INTEGER NOT NULL DEFAULT 360,
+                retry_interval_minutes INTEGER NOT NULL DEFAULT 15,
                 last_run_started_at TIMESTAMP,
-                last_success_at TIMESTAMP,
+                last_run_finished_at TIMESTAMP,
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
+                checkpoint_data JSONB,
                 integration_id INTEGER,
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(job_name, tenant_id)
+                UNIQUE(job_name, tenant_id),
+                CHECK (status IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
             );
         """)
+        print("   ✅ etl_jobs table created")
 
         # 24. Jira PR links table (complete with all columns) - NO vector column
         cursor.execute("""
@@ -623,33 +624,20 @@ def apply(connection):
 
         # 24.1. Raw extraction data storage - Phase 1 Queue Infrastructure
         # Stores complete API responses for debugging/reprocessing/audit trail
-        # This table stores BATCHES of data (e.g., 1000 Jira issues in one record)
-        # RabbitMQ queues just reference the ID of this record
+        # Simplified table with only essential columns
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS raw_extraction_data (
-                id SERIAL,
-                tenant_id INTEGER NOT NULL,
-                integration_id INTEGER NOT NULL,
+                id SERIAL PRIMARY KEY,
+                type VARCHAR(50) NOT NULL,          -- 'jira_custom_fields', 'github_prs', etc.
+                raw_data JSONB NOT NULL,            -- Complete API response (exact payload)
+                status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
+                error_details JSONB,                -- Error information if processing failed
 
-                -- Batch metadata
-                entity_type VARCHAR(50) NOT NULL,  -- 'jira_issues_batch', 'github_prs_batch', etc.
-                external_id VARCHAR(255),          -- 'batch_1', 'batch_2', etc.
-
-                -- Complete API response (ALL items in batch)
-                raw_data JSONB NOT NULL,           -- { "issues": [...1000 issues...], "total": 1000 }
-
-                -- Extraction context (JQL, cursor, batch number, etc.)
-                extraction_metadata JSONB,         -- { "jql": "...", "cursor": "...", "batch_number": 1 }
-
-                -- Processing status
-                processing_status VARCHAR(20) DEFAULT 'pending',  -- 'pending', 'processing', 'completed', 'failed'
-                error_details JSONB,               -- Error information if processing failed
-
-                -- Timestamps
+                -- BaseEntity fields with proper foreign keys
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+                integration_id INTEGER NOT NULL REFERENCES integrations(id),
                 created_at TIMESTAMP DEFAULT NOW(),
-                processed_at TIMESTAMP,
-
-                -- Soft delete
+                updated_at TIMESTAMP DEFAULT NOW(),
                 active BOOLEAN DEFAULT TRUE
             );
         """)
@@ -664,12 +652,12 @@ def apply(connection):
             ON raw_extraction_data(integration_id);
         """)
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_entity_type
-            ON raw_extraction_data(entity_type);
+            CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_type
+            ON raw_extraction_data(type);
         """)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_status
-            ON raw_extraction_data(processing_status);
+            ON raw_extraction_data(status);
         """)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_raw_extraction_data_created_at
@@ -726,38 +714,7 @@ def apply(connection):
             );
         """)
 
-        # 30. Vectorization queue table (async AI processing)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS vectorization_queue (
-                id SERIAL PRIMARY KEY,
-
-                -- Core queue fields
-                table_name VARCHAR(50) NOT NULL,
-                external_id VARCHAR(255) NOT NULL, -- External system ID (GitHub PR number, Jira issue ID, etc.)
-                operation VARCHAR(10) NOT NULL, -- 'insert', 'update', 'delete'
-
-                -- Status tracking
-                status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
-
-                -- Timestamps
-                created_at TIMESTAMP DEFAULT NOW(),
-                started_at TIMESTAMP,
-                completed_at TIMESTAMP,
-
-                -- Error handling
-                error_message TEXT,
-                last_error_at TIMESTAMP,
-
-                -- Embedded data for processing
-                entity_data JSONB, -- Store extracted data directly
-                qdrant_metadata JSONB, -- Pre-computed Qdrant fields
-
-                -- Tenant isolation
-                tenant_id INTEGER NOT NULL,
-
-                CONSTRAINT unique_external_record_operation UNIQUE(table_name, external_id, operation, tenant_id)
-            );
-        """)
+        # 30. Vectorization integrated into transform workers (no separate queue table needed)
 
         # 26. DORA market benchmarks table (global)
         cursor.execute("""
@@ -785,13 +742,14 @@ def apply(connection):
         """)
 
         # 28. Tenant colors table (unified architecture)
-        print("   🗑️ Dropping existing color tables...")
-        cursor.execute("DROP TABLE IF EXISTS tenant_accessibility_colors CASCADE;")
-        cursor.execute("DROP TABLE IF EXISTS tenants_colors CASCADE;")
+        print("   🏗️ Creating unified tenants_colors table...")
 
-        print("   🏗️ Creating new unified tenants_colors table...")
+        # Drop old tenant_colors table if it exists (wrong name)
+        cursor.execute("DROP TABLE IF EXISTS tenant_colors CASCADE;")
+        print("   🗑️ Dropped old tenant_colors table")
+
         cursor.execute("""
-            CREATE TABLE tenants_colors (
+            CREATE TABLE IF NOT EXISTS tenants_colors (
                 id SERIAL PRIMARY KEY,
 
                 -- === IDENTIFIERS ===
@@ -829,6 +787,8 @@ def apply(connection):
             );
         """)
 
+
+
         print("✅ Development and system tables created")
 
         print("📋 Creating primary key constraints...")
@@ -844,11 +804,11 @@ def apply(connection):
             if not cursor.fetchone():
                 cursor.execute(f"ALTER TABLE {table_name} ADD CONSTRAINT {pk_name} PRIMARY KEY ({column});")
 
-        ensure_primary_key('tenants', 'pk_tenants')
+        # tenants primary key already defined inline
         ensure_primary_key('users', 'pk_users')
         ensure_primary_key('users_sessions', 'pk_users_sessions')
         ensure_primary_key('users_permissions', 'pk_users_permissions')
-        ensure_primary_key('integrations', 'pk_integrations')
+        # integrations primary key already defined inline
         ensure_primary_key('projects', 'pk_projects')
         ensure_primary_key('workflows', 'pk_workflows')
         ensure_primary_key('statuses_mappings', 'pk_statuses_mappings')
@@ -856,7 +816,7 @@ def apply(connection):
         ensure_primary_key('wits_mappings', 'pk_wits_mappings')
         ensure_primary_key('wits', 'pk_wits')
         ensure_primary_key('statuses', 'pk_statuses')
-        ensure_primary_key('work_items', 'pk_work_items')
+        # work_items primary key already defined inline
         ensure_primary_key('changelogs', 'pk_changelogs')
         ensure_primary_key('repositories', 'pk_repositories')
         ensure_primary_key('prs', 'pk_prs')
@@ -864,14 +824,16 @@ def apply(connection):
         ensure_primary_key('prs_commits', 'pk_prs_commits')
         ensure_primary_key('prs_comments', 'pk_prs_comments')
         ensure_primary_key('system_settings', 'pk_system_settings')
-        ensure_primary_key('etl_jobs', 'pk_etl_jobs')
+        # etl_jobs primary key already defined inline
         ensure_primary_key('wits_prs_links', 'pk_wits_prs_links')
+        # raw_extraction_data primary key already defined inline
+        ensure_primary_key('migration_history', 'pk_migration_history')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
         ensure_primary_key('dora_metric_insights', 'pk_dora_metric_insights')
-        ensure_primary_key('tenants_colors', 'pk_tenants_colors')
+        # tenants_colors primary key already defined inline
 
         # Phase 3-1: New table primary keys
-        ensure_primary_key('qdrant_vectors', 'pk_qdrant_vectors')
+        # qdrant_vectors primary key already defined inline
         # Note: AI/ML table primary keys are added after the tables are created
 
         # Check if migration_history table already has a primary key (from migration runner)
@@ -969,12 +931,12 @@ def apply(connection):
         print("✅ ML monitoring tables created")
 
         print("📋 Adding AI/ML table primary key constraints...")
-        # AI/ML monitoring table primary keys (added after tables are created)
-        ensure_primary_key('ai_usage_trackings', 'pk_ai_usage_trackings')
-        ensure_primary_key('ai_learning_memories', 'pk_ai_learning_memories')
-        ensure_primary_key('ai_predictions', 'pk_ai_predictions')
-        ensure_primary_key('ai_performance_metrics', 'pk_ai_performance_metrics')
-        ensure_primary_key('ml_anomaly_alerts', 'pk_ml_anomaly_alerts')
+        # AI/ML monitoring table primary keys (all already defined inline)
+        # ai_usage_trackings primary key already defined inline
+        # ai_learning_memories primary key already defined inline
+        # ai_predictions primary key already defined inline
+        # ai_performance_metrics primary key already defined inline
+        # ml_anomaly_alerts primary key already defined inline
         print("✅ AI/ML table primary key constraints created")
 
         print("📋 Creating foreign key constraints...")
@@ -1041,6 +1003,8 @@ def apply(connection):
         add_constraint_if_not_exists('fk_changelogs_to_status_id', 'changelogs', 'FOREIGN KEY (to_status_id) REFERENCES statuses(id)')
         add_constraint_if_not_exists('fk_changelogs_tenant_id', 'changelogs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
 
+
+
         # Repositories and PRs
         add_constraint_if_not_exists('fk_repositories_tenant_id', 'repositories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_repositories_integration_id', 'repositories', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
@@ -1075,8 +1039,7 @@ def apply(connection):
         add_constraint_if_not_exists('fk_qdrant_vectors_tenant_id', 'qdrant_vectors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         # AI/ML monitoring table foreign key constraints
         add_constraint_if_not_exists('fk_ai_usage_trackings_tenant_id', 'ai_usage_trackings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
-        # Vectorization queue foreign key constraint
-        add_constraint_if_not_exists('fk_vectorization_queue_tenant_id', 'vectorization_queue', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
+        # Note: vectorization_queue table removed - vectorization integrated into transform workers
         add_constraint_if_not_exists('fk_ai_learning_memories_tenant_id', 'ai_learning_memories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         add_constraint_if_not_exists('fk_ai_predictions_tenant_id', 'ai_predictions', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
         add_constraint_if_not_exists('fk_ai_performance_metrics_tenant_id', 'ai_performance_metrics', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE')
@@ -1111,7 +1074,6 @@ def apply(connection):
         ensure_unique_constraint('users', 'uk_users_okta_user_id', 'okta_user_id')
         ensure_unique_constraint('system_settings', 'uk_system_settings_setting_key_tenant_id', 'setting_key, tenant_id')
         ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_job_name_tenant_id', 'job_name, tenant_id')
-        ensure_unique_constraint('etl_jobs', 'uk_etl_jobs_execution_order_tenant_id', 'execution_order, tenant_id')
         ensure_unique_constraint('integrations', 'uk_integrations_provider_tenant_id', 'provider, tenant_id')
         ensure_unique_constraint('statuses_mappings', 'uk_statuses_mappings_from_tenant', 'status_from, tenant_id')
         ensure_unique_constraint('wits_mappings', 'uk_wits_mappings_from_tenant', 'wit_from, tenant_id')
@@ -1125,6 +1087,42 @@ def apply(connection):
         ensure_unique_constraint('tenants_colors', 'uk_tenants_colors_unified', 'tenant_id, color_schema_mode, accessibility_level, theme_mode')
 
         print("✅ Unique constraints created")
+
+        print("📋 Creating custom fields table...")
+
+        # Custom fields table - stores Jira custom field definitions by project
+        # Created after primary keys and foreign key constraints are established
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS custom_fields (
+                id SERIAL PRIMARY KEY,
+
+                -- === CUSTOM FIELD IDENTIFIERS ===
+                name VARCHAR(255) NOT NULL, -- Human-readable name like "Aha! Initiative", "Agile Team"
+                key VARCHAR(100) NOT NULL, -- Jira field key like "customfield_10150", "customfield_10128"
+
+                -- === FIELD SCHEMA ===
+                schema_type VARCHAR(100) NOT NULL, -- Schema type like "string", "option", "array", "number", "date", "team"
+
+                -- === FIELD OPERATIONS ===
+                operations JSONB DEFAULT '[]', -- Array of allowed operations like ["set"], ["add", "set", "remove"]
+
+                -- === PROJECT RELATIONSHIP ===
+                project_id INTEGER NOT NULL, -- Foreign key to projects table
+
+                -- === IntegrationBaseEntity FIELDS ===
+                integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                -- === CONSTRAINTS ===
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                CONSTRAINT uk_custom_fields_project_key UNIQUE(project_id, key)
+            );
+        """)
+
+        print("✅ Custom fields table created")
         print("📋 Creating performance indexes...")
 
         # Performance indexes for frequently queried columns
@@ -1179,6 +1177,24 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_updated ON work_items(updated);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_parent_external_id ON work_items(parent_external_id);")
 
+        # Custom fields overflow GIN index for JSON queries (skip if column doesn't exist)
+        try:
+            # First check if the column exists
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'work_items' AND column_name = 'custom_fields_overflow';
+            """)
+            if cursor.fetchone():
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_custom_fields_overflow_gin ON work_items USING GIN (custom_fields_overflow);")
+                print("✅ Custom fields overflow GIN index created")
+            else:
+                print("⚠️ Skipping custom_fields_overflow index: column does not exist")
+        except Exception as e:
+            print(f"⚠️ Skipping custom_fields_overflow index: {e}")
+
+
+
         # Work item changelogs indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_work_item_id ON changelogs(work_item_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_transition_change_date ON changelogs(transition_change_date);")
@@ -1205,50 +1221,74 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_pr ON wits_prs_links(external_repo_id, pull_request_number);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_full_name ON wits_prs_links(repo_full_name);")
 
-        # System table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_last_run_started_at ON etl_jobs(last_run_started_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_integration_id ON etl_jobs(integration_id);")
+        # System table indexes - Autonomous ETL Architecture
+        try:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_etl_jobs_active
+                ON etl_jobs(tenant_id, active, schedule_interval_minutes)
+                WHERE active = TRUE;
+            """)
+        except Exception as e:
+            print(f"⚠️ Skipping etl_jobs index: {e}")
+        try:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_etl_jobs_status
+                ON etl_jobs(tenant_id, status)
+                WHERE active = TRUE;
+            """)
+        except Exception as e:
+            print(f"⚠️ Skipping etl_jobs status index: {e}")
+
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_integration_id ON etl_jobs(integration_id);")
+        except Exception as e:
+            print(f"⚠️ Skipping etl_jobs integration_id index: {e}")
 
         # Color table indexes for fast lookups (unified table)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_tenant_id ON tenants_colors(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_mode ON tenants_colors(tenant_id, color_schema_mode);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_unified ON tenants_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_tenant_id ON tenants_colors(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_mode ON tenants_colors(tenant_id, color_schema_mode);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_colors_unified ON tenants_colors(tenant_id, color_schema_mode, accessibility_level, theme_mode);")
+        except Exception as e:
+            print(f"⚠️ Skipping tenants_colors indexes: {e}")
 
         # ML monitoring table indexes (Phase 3-1 Clean Architecture)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_tenant_id ON ai_learning_memories(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_error_type ON ai_learning_memories(error_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_message_id ON ai_learning_memories(message_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_tenant_id ON ai_predictions(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_tenant_id ON ai_performance_metrics(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_tenant_id ON ml_anomaly_alerts(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_model ON ml_anomaly_alerts(model_name);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_severity ON ml_anomaly_alerts(severity);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_acknowledged ON ml_anomaly_alerts(acknowledged);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_created_at ON ml_anomaly_alerts(created_at);")
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_tenant_id ON ai_learning_memories(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_error_type ON ai_learning_memories(error_type);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_learning_memories_message_id ON ai_learning_memories(message_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_tenant_id ON ai_predictions(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_model ON ai_predictions(model_name, model_version);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_predictions_type ON ai_predictions(prediction_type);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_tenant_id ON ai_performance_metrics(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_name ON ai_performance_metrics(metric_name);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_performance_metrics_timestamp ON ai_performance_metrics(measurement_timestamp);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_tenant_id ON ml_anomaly_alerts(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_model ON ml_anomaly_alerts(model_name);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_severity ON ml_anomaly_alerts(severity);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_acknowledged ON ml_anomaly_alerts(acknowledged);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ml_anomaly_alerts_created_at ON ml_anomaly_alerts(created_at);")
+            print("✅ ML monitoring indexes created")
+        except Exception as e:
+            print(f"⚠️ Skipping ML monitoring indexes: {e}")
 
         # Phase 3-1: Qdrant and AI configuration table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
-        # AI usage tracking table indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
+            # AI usage tracking table indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
+            print("✅ Qdrant and AI usage indexes created")
+        except Exception as e:
+            print(f"⚠️ Skipping Qdrant and AI usage indexes: {e}")
 
-        # Vectorization queue table indexes (optimized for queue processing)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_processing ON vectorization_queue(status, tenant_id, created_at);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_tenant_status ON vectorization_queue(tenant_id, status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_table_external ON vectorization_queue(table_name, external_id, tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_error_tracking ON vectorization_queue(status, last_error_at) WHERE status = 'failed';")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vectorization_queue_completed_cleanup ON vectorization_queue(completed_at) WHERE status = 'completed';")
+        # Note: vectorization_queue table removed - vectorization integrated into transform workers
 
         print("✅ All indexes and constraints created successfully!")
 
@@ -1306,8 +1346,12 @@ def rollback(connection):
 
             # Configuration and color tables
             'tenants_colors',
+            'tenant_colors',  # Old color table (wrong name)
             'dora_metric_insights',
             'dora_market_benchmarks',
+
+            # Custom fields table (depends on projects)
+            'custom_fields',
 
             # Junction and link tables (depend on main tables)
             'wits_prs_links',

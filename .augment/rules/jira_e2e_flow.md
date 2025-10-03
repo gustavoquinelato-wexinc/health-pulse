@@ -35,7 +35,11 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
 1. **Environment Check**: Confirm all required environment variables are loaded
    - JIRA_URL, JIRA_USERNAME, JIRA_TOKEN
    - JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT
-   - JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT
+   - JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_TEAM_UUID_FOR_AUGMENT_AGENT
+   - JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_AGILE_TEAM_VALUE_FOR_AUGMENT_AGENT
+   - JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT (dynamically calculated)
+   - JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT, JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT
+   - JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT, JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT
    - All workflow configurations
 
 2. **Epic Quality Review**: Read and apply epic health coaching guidelines
@@ -52,7 +56,7 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
    - Prepare BDD-format acceptance criteria
 
 4. **Content Preparation**: Prepare all components with proper Jira formatting
-   - Epic: title, description, acceptance criteria, risk assessment, quality score
+   - Epic: title, description, acceptance criteria, risk assessment, quality score, T-shirt size (auto-calculated)
    - Story: title, description, acceptance criteria, story points
    - Subtask: title, description, task breakdown
    - Task list: comprehensive breakdown for implementation
@@ -75,6 +79,8 @@ When instructed to follow jira-e2e-flow, AI agents must execute this exact seque
      --risk-assessment "[Detailed risk assessment with h2./h3. headers and # numbered lists]" \
      --assignee "[USERNAME]"
    ```
+
+   **Note**: WEX T-Shirt Size is automatically calculated based on epic scope analysis and team capacity configuration
 
    **Update Existing Epic (when user provides epic key):**
    ```bash

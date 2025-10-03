@@ -16,13 +16,11 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     """
     Manages RabbitMQ connections and queue operations for ETL pipeline.
-    
-    Queue Topology:
-    - extract_queue: Raw data extraction jobs
-    - transform_queue: Transform jobs (Phase 1)
-    - load_queue: Load jobs (Phase 2)
+
+    Simplified Queue Topology:
+    - transform_queue: Process raw data → final tables (single queue approach)
     """
-    
+
     def __init__(
         self,
         host: str = None,
@@ -33,7 +31,7 @@ class QueueManager:
     ):
         """
         Initialize Queue Manager with RabbitMQ connection parameters.
-        
+
         Args:
             host: RabbitMQ host (default: from env or 'localhost')
             port: RabbitMQ port (default: from env or 5672)
@@ -46,12 +44,10 @@ class QueueManager:
         self.username = username or os.getenv('RABBITMQ_USER', 'etl_user')
         self.password = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
         self.vhost = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
-        
-        # Queue names
-        self.EXTRACT_QUEUE = 'extract_queue'
+
+        # Simplified queue topology - single queue for processing
         self.TRANSFORM_QUEUE = 'transform_queue'
-        self.LOAD_QUEUE = 'load_queue'
-        
+
         logger.info(f"QueueManager initialized: {self.username}@{self.host}:{self.port}/{self.vhost}")
     
     def _get_connection(self) -> pika.BlockingConnection:
@@ -103,80 +99,36 @@ class QueueManager:
     
     def setup_queues(self):
         """
-        Set up queue topology (declare all queues).
+        Set up simplified queue topology (single transform queue).
         Should be called once during application startup.
         """
         with self.get_channel() as channel:
-            # Declare extract queue
+            # Declare transform queue (single queue for processing)
             channel.queue_declare(
-                queue=self.EXTRACT_QUEUE,
+                queue=self.TRANSFORM_QUEUE,
                 durable=True,  # Survive broker restart
                 arguments={'x-message-ttl': 86400000}  # 24 hours TTL
             )
-            logger.info(f"Queue declared: {self.EXTRACT_QUEUE}")
-            
-            # Declare transform queue
-            channel.queue_declare(
-                queue=self.TRANSFORM_QUEUE,
-                durable=True,
-                arguments={'x-message-ttl': 86400000}
-            )
             logger.info(f"Queue declared: {self.TRANSFORM_QUEUE}")
-            
-            # Declare load queue
-            channel.queue_declare(
-                queue=self.LOAD_QUEUE,
-                durable=True,
-                arguments={'x-message-ttl': 86400000}
-            )
-            logger.info(f"Queue declared: {self.LOAD_QUEUE}")
-            
-        logger.info("✅ Queue topology setup complete")
-    
-    def publish_extract_job(
-        self,
-        tenant_id: int,
-        integration_id: int,
-        job_type: str,
-        job_params: Dict[str, Any]
-    ) -> bool:
-        """
-        Publish an extraction job to the extract queue.
-        
-        Args:
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_type: Type of extraction job ('jira_sync', 'github_sync', etc.)
-            job_params: Job parameters (JQL, date range, etc.)
-            
-        Returns:
-            bool: True if published successfully
-        """
-        message = {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'job_type': job_type,
-            'job_params': job_params
-        }
-        
-        return self._publish_message(self.EXTRACT_QUEUE, message)
+
+        logger.info("✅ Simplified queue topology setup complete")
     
     def publish_transform_job(
         self,
         tenant_id: int,
         integration_id: int,
         raw_data_id: int,
-        entity_type: str
+        data_type: str
     ) -> bool:
         """
         Publish a transform job to the transform queue.
-        
+
         Args:
             tenant_id: Tenant ID
             integration_id: Integration ID
             raw_data_id: ID of raw_extraction_data record
-            entity_type: Type of entity ('jira_issues_batch', 'github_prs_batch', etc.)
-            
+            data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
+
         Returns:
             bool: True if published successfully
         """
@@ -184,39 +136,24 @@ class QueueManager:
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'raw_data_id': raw_data_id,
-            'entity_type': entity_type
+            'type': data_type
         }
-        
+
         return self._publish_message(self.TRANSFORM_QUEUE, message)
-    
-    def publish_load_job(
-        self,
-        tenant_id: int,
-        integration_id: int,
-        transformed_data_id: int,
-        entity_type: str
-    ) -> bool:
+
+    def publish_message(self, queue_name: str, message: Dict[str, Any]) -> bool:
         """
-        Publish a load job to the load queue.
-        
+        Public method to publish a message to any queue.
+
         Args:
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            transformed_data_id: ID of transformed data record
-            entity_type: Type of entity
-            
+            queue_name: Name of the queue
+            message: Message dictionary to publish
+
         Returns:
             bool: True if published successfully
         """
-        message = {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'transformed_data_id': transformed_data_id,
-            'entity_type': entity_type
-        }
-        
-        return self._publish_message(self.LOAD_QUEUE, message)
-    
+        return self._publish_message(queue_name, message)
+
     def _publish_message(self, queue_name: str, message: Dict[str, Any]) -> bool:
         """
         Internal method to publish a message to a queue.

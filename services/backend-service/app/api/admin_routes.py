@@ -48,6 +48,43 @@ settings = get_settings()
 color_resolution_service = ColorResolutionService()
 
 
+# Worker Management Models
+class WorkerStatusResponse(BaseModel):
+    """Response model for worker status."""
+    running: bool
+    workers: Dict[str, Dict[str, Any]]
+    queue_stats: Dict[str, Any]
+    raw_data_stats: Dict[str, Any]
+
+
+class WorkerActionRequest(BaseModel):
+    """Request model for worker actions."""
+    action: str  # 'start', 'stop', 'restart'
+
+
+class WorkerLogsResponse(BaseModel):
+    """Response model for worker logs."""
+    logs: List[str]
+    total_lines: int
+
+
+# Worker Management Schemas
+class WorkerStatusResponse(BaseModel):
+    running: bool
+    workers: Dict[str, Dict[str, Any]]
+
+
+class WorkerActionResponse(BaseModel):
+    success: bool
+    message: str
+    worker_status: Optional[WorkerStatusResponse] = None
+
+
+class WorkerLogsResponse(BaseModel):
+    logs: List[str]
+    total_lines: int
+
+
 # 🚀 ETL Service Notification Functions
 async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
     """Notify ETL service of color schema changes"""
@@ -1830,3 +1867,170 @@ async def debug_config():
         "environment": getattr(settings, 'ENVIRONMENT', 'development'),
         "debug_mode": getattr(settings, 'DEBUG', False)
     }
+
+
+# ============================================================================
+# WORKER MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.get("/workers/status", response_model=WorkerStatusResponse)
+async def get_worker_status(
+    current_user: User = Depends(require_authentication)
+):
+    """Get current status of all ETL workers."""
+    try:
+        from app.workers.worker_manager import get_worker_manager
+        from app.core.database import get_database
+        from sqlalchemy import text
+
+        # Get worker status
+        manager = get_worker_manager()
+        worker_status = manager.get_worker_status()
+
+        # Get queue statistics (basic info)
+        queue_stats = {
+            'transform_queue': {
+                'status': 'active',
+                'note': 'Queue statistics require RabbitMQ management API'
+            }
+        }
+
+        # Get raw data statistics
+        database = get_database()
+        raw_data_stats = {}
+
+        try:
+            with database.get_session_context() as session:
+                query = text("""
+                    SELECT
+                        status,
+                        type,
+                        COUNT(*) as count,
+                        MIN(created_at) as oldest,
+                        MAX(created_at) as newest
+                    FROM raw_extraction_data
+                    WHERE active = true
+                    GROUP BY status, type
+                    ORDER BY status, type
+                """)
+
+                result = session.execute(query).fetchall()
+
+                for row in result:
+                    key = f"{row.status}_{row.type}"
+                    raw_data_stats[key] = {
+                        'count': row.count,
+                        'oldest': row.oldest.isoformat() if row.oldest else None,
+                        'newest': row.newest.isoformat() if row.newest else None
+                    }
+        except Exception as e:
+            raw_data_stats = {'error': str(e)}
+
+        return WorkerStatusResponse(
+            running=worker_status.get('running', False),
+            workers=worker_status.get('workers', {}),
+            queue_stats=queue_stats,
+            raw_data_stats=raw_data_stats
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting worker status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get worker status: {str(e)}"
+        )
+
+
+@router.post("/workers/action")
+async def worker_action(
+    request: WorkerActionRequest,
+    current_user: User = Depends(require_authentication)
+):
+    """Perform action on ETL workers (start/stop/restart)."""
+    try:
+        from app.workers.worker_manager import get_worker_manager
+
+        manager = get_worker_manager()
+
+        if request.action == "start":
+            success = manager.start_all_workers()
+            message = "Workers started successfully" if success else "Failed to start workers"
+        elif request.action == "stop":
+            manager.stop_all_workers()
+            success = True
+            message = "Workers stopped successfully"
+        elif request.action == "restart":
+            manager.stop_all_workers()
+            success = manager.start_all_workers()
+            message = "Workers restarted successfully" if success else "Failed to restart workers"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
+            )
+
+        logger.info(f"Worker action '{request.action}' performed by user {current_user.username}")
+
+        return {
+            "success": success,
+            "message": message,
+            "action": request.action
+        }
+
+    except Exception as e:
+        logger.error(f"Error performing worker action '{request.action}': {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to perform worker action: {str(e)}"
+        )
+
+
+@router.get("/workers/logs", response_model=WorkerLogsResponse)
+async def get_worker_logs(
+    lines: int = 50,
+    current_user: User = Depends(require_authentication)
+):
+    """Get recent worker logs."""
+    try:
+        import os
+        from pathlib import Path
+
+        # Look for log files
+        log_paths = [
+            Path("logs/workers.log"),
+            Path("logs/backend_service_system.log"),
+            Path("../logs/workers.log")
+        ]
+
+        logs = []
+        total_lines = 0
+
+        for log_path in log_paths:
+            if log_path.exists():
+                try:
+                    with open(log_path, 'r', encoding='utf-8') as f:
+                        file_lines = f.readlines()
+                        total_lines += len(file_lines)
+
+                        # Get last N lines
+                        recent_lines = file_lines[-lines:] if len(file_lines) > lines else file_lines
+                        logs.extend([line.strip() for line in recent_lines])
+                        break  # Use first available log file
+                except Exception as e:
+                    logger.warning(f"Could not read log file {log_path}: {e}")
+                    continue
+
+        if not logs:
+            logs = ["No log files found or accessible"]
+
+        return WorkerLogsResponse(
+            logs=logs[-lines:],  # Ensure we don't exceed requested lines
+            total_lines=total_lines
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting worker logs: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get worker logs: {str(e)}"
+        )

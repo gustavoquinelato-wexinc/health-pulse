@@ -22,9 +22,27 @@ JIRA_USERNAME=gustavo.quinelato@wexinc.com
 JIRA_TOKEN=<your-api-token>
 
 # Project Configuration
-JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT=BST
-JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT=customfield_10128
-JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT=Research & Innovation Team  # Can be name or numeric ID
+JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT=BEN
+
+# Dual Team Field Configuration (2025-10-02 Update)
+JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT=customfield_10128
+JIRA_AGILE_TEAM_VALUE_FOR_AUGMENT_AGENT=R&I
+JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT=customfield_10001
+JIRA_TEAM_UUID_FOR_AUGMENT_AGENT=0234170d-98f3-4e52-8e47-bd46a1772e12
+
+# QP Planning Session Configuration
+JIRA_QP_PLANNING_SESSION_FIELD_FOR_AUGMENT_AGENT=customfield_10501
+JIRA_QP_PLANNING_SESSION_VALUE_FOR_AUGMENT_AGENT=["2025 Q4"]
+
+# WEX T-Shirt Size Configuration (Dynamic Calculation)
+JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT=customfield_10412
+JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT=5
+JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT=30
+JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT=2
+JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT=50
+
+# Default Assignee Configuration
+JIRA_ASSIGNEE_EMAIL_VALUE_FOR_AUGMENT_AGENT=gustavo.quinelato@wexinc.com
 
 # Workflow Configuration
 JIRA_SUBTASK_WORKFLOW=Backlog,Development,Released
@@ -39,17 +57,54 @@ JIRA_ABANDONED_RESOLUTION=Won't Do
 
 **Reference**: See root `.env` file for actual values and current configuration.
 
-**Team Field Configuration**:
-- `JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT`: Must be the custom field ID (e.g., `customfield_10128`)
-- `JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT`: Can be either team name OR numeric ID
-  - **Team Name** (recommended): `Research & Innovation Team` - User-friendly, automatically resolved to ID
-  - **Numeric ID**: `19601` - Direct ID, no resolution needed
+**Dual Team Field Configuration (Updated 2025-10-02)**:
+- **Agile Team Field** (`JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT`): `customfield_10128` - Legacy team field
+- **Team Field** (`JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT`): `customfield_10001` - New team field
+- **Team Values**: Both fields use the same team name (e.g., `R&I`) which resolves to the same ID
+- **Usage**: Both fields are populated when creating stories and epics (not needed for subtasks)
 
-**How It Works**:
-- The Jira client automatically detects if the value is numeric or a name
-- If numeric: Uses the ID directly
-- If name: Queries Jira API to resolve the team name to its ID
-- This makes configuration more user-friendly while maintaining flexibility
+**QP Planning Session Configuration**:
+- **Field**: `JIRA_QP_PLANNING_SESSION_FIELD_FOR_AUGMENT_AGENT` = `customfield_10501`
+- **Value**: `JIRA_QP_PLANNING_SESSION_VALUE_FOR_AUGMENT_AGENT` = `["2025 Q4"]` (JSON array format)
+- **Usage**: Populated for stories and epics to track quarterly planning sessions
+
+**Default Assignee Configuration**:
+- **Field**: `JIRA_ASSIGNEE_EMAIL_VALUE_FOR_AUGMENT_AGENT` = `gustavo.quinelato@wexinc.com`
+- **Usage**: Automatically assigns all created items (stories, epics, subtasks) to the specified user
+
+**WEX T-Shirt Size Dynamic Calculation (Updated 2025-10-02)**:
+- **Field**: `JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT` = `customfield_10412`
+- **Calculation Method**: Automatically calculated based on epic scope and team capacity
+- **Team Configuration**:
+  - `JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT` = `5` (number of developers)
+  - `JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT` = `30` (6h/day × 5 days)
+  - `JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT` = `2` (sprint duration)
+  - `JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT` = `50` (team velocity)
+- **Total Team Capacity**: 300 hours/sprint (5 × 30 × 2)
+- **Algorithm**: Analyzes epic description, acceptance criteria, and risks for technical complexity
+- **Dual Estimation**: Calculates both story points and hours, uses higher estimate for conservative planning
+- **Size Mapping**: XXS (<0.5 sprints) to Jumbo (12+ sprints)
+- **Usage**: Applied automatically to epics only during creation
+
+**How Field Resolution Works**:
+- The Jira client queries the Jira API to resolve team names to IDs
+- Supports multiple field name formats: `name`, `title`, `value`, `displayName`
+- Case-insensitive matching for better reliability
+- Comprehensive debug output for troubleshooting
+
+**✅ COMPLETED - Enhanced Field Integration (2025-10-02)**:
+- **Enhancement**: Added support for dual team fields, dynamic T-shirt sizing, and team configuration
+- **Fields Implemented**:
+  - `customfield_10128` (Agile Team) - Legacy field with ID resolution
+  - `customfield_10001` (Team) - Cross-project field with direct UUID
+  - `customfield_10501` (QP Planning Session) - Quarterly planning with array format
+  - `customfield_10412` (WEX T-Shirt Size) - Dynamic calculation based on scope and team capacity
+- **Team Configuration**: Realistic productivity calculation (5 devs × 30h/week × 2 weeks = 300h/sprint)
+- **Dynamic Sizing**: Intelligent scope analysis with dual estimation (story points + hours)
+- **Default Assignee**: All items automatically assigned to configured user
+- **Status**: Fully implemented and tested in jira_agent_client.py
+- **Impact**: Epics and stories now populate all required custom fields with intelligent sizing
+- **Test Results**: BEN-10365 (SM), BEN-10366 (XXS), BEN-10367 (SM) created with accurate T-shirt sizes
 
 ### API Authentication
 - **Method**: Basic Authentication using JIRA_USERNAME + JIRA_TOKEN
@@ -254,6 +309,23 @@ h3. Another Subsection
 - **Issue**: Required fields missing or invalid
 - **Solution**: Ensure all required fields are provided with correct data types
 - **Reference**: Check Jira project configuration for required fields
+
+#### Team Field Validation Errors
+- **Issue**: `"Specify a valid value for Agile Team"` or team field errors
+- **Root Cause**: Team field format mismatch or resolution failure
+- **Solution**: Ensure team fields use correct format and values are resolvable
+- **Current Status**: ✅ **RESOLVED** - Dual team field support implemented (2025-10-02)
+- **Debug Commands**:
+  ```bash
+  # Test team field resolution
+  python scripts/augment_jira_integration/jira_agent_client.py --debug create-story --title "Test" --description "Test" --parent BEN-10219
+  ```
+- **Expected Debug Output**:
+  ```
+  DEBUG - Resolved team 'R&I' to UUID: 21608
+  DEBUG - Resolved agile team 'R&I' to ID: 21608
+  DEBUG - Resolved QP planning '2025 Q4' to ID: 15832
+  ```
 
 ### Error Recovery
 - **Continue on Error**: Don't abandon entire workflow due to single failure

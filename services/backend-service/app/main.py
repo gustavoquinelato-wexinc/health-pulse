@@ -57,7 +57,7 @@ logging.getLogger("sqlalchemy.engine.Engine").disabled = True
 
 # Also disable SQLAlchemy echo completely
 import sqlalchemy
-sqlalchemy.engine.Engine.echo = False
+sqlalchemy.engine.Engine.echo = False  # type: ignore
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -174,7 +174,19 @@ async def lifespan(_: FastAPI):
         else:
             logger.warning("Database connection failed - service will continue with limited functionality")
 
-        # Backend Service - No scheduler needed
+        # Start ETL workers
+        worker_manager = None
+        try:
+            from app.workers.worker_manager import get_worker_manager
+            worker_manager = get_worker_manager()
+            success = worker_manager.start_all_workers()
+            if success:
+                logger.info("✅ ETL workers started successfully")
+            else:
+                logger.warning("⚠️ Failed to start ETL workers - ETL functionality will be limited")
+        except Exception as e:
+            logger.error(f"❌ Error starting ETL workers: {e}")
+            logger.warning("ETL workers not started - ETL functionality will be limited")
 
         # Clear all user sessions on startup for security
         # Skip in development mode to prevent authentication loops during frequent restarts
@@ -199,6 +211,15 @@ async def lifespan(_: FastAPI):
         try:
             # Use print to avoid reentrant logging issues during shutdown
             print("[INFO] Shutting down Backend Service...")
+
+            # Stop ETL workers
+            try:
+                if 'worker_manager' in locals() and worker_manager:
+                    worker_manager.stop_all_workers()
+                    print("[INFO] ETL workers stopped")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle worker cleanup errors
+                pass
 
             # Close database connections
             try:
@@ -378,7 +399,7 @@ async def custom_docs(request: Request):
             return RedirectResponse(url="/login?error=invalid_token", status_code=302)
 
         # Check admin permission
-        if not user.is_admin and user.role != 'admin':
+        if not user.is_admin and user.role != 'admin':  # type: ignore
             return RedirectResponse(url="/dashboard?error=permission_denied&resource=docs", status_code=302)
 
         # If admin, redirect to the actual docs
@@ -403,7 +424,7 @@ async def custom_docs(request: Request):
 async def debug_auth_status(request: Request):
     """Debug endpoint to check authentication status."""
     # Create middleware instance to use its authentication check
-    middleware = AuthenticationMiddleware(None)
+    middleware = AuthenticationMiddleware(app)  # type: ignore
     is_authenticated = await middleware.check_authentication(request)
     token_cookie = request.cookies.get("pulse_token")
     auth_header = request.headers.get("Authorization")
@@ -461,10 +482,7 @@ async def global_exception_handler(request, exc):
     # Generate error ID for tracking
     error_id = str(uuid.uuid4())[:8]
 
-    logger.error("Unhandled exception",
-                error=str(exc),
-                error_id=error_id,
-                path=str(request.url) if hasattr(request, 'url') else 'unknown')
+    logger.error(f"Unhandled exception - error_id: {error_id}, path: {str(request.url) if hasattr(request, 'url') else 'unknown'}, error: {str(exc)}")
 
     return JSONResponse(
         status_code=500,

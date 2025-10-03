@@ -44,24 +44,79 @@ Pulse Platform transforms raw development data into actionable business intellig
 
 ## 🏗️ Architecture Highlights
 
-**Four-Tier Microservices Architecture:**
-- **Frontend App** (React/TypeScript): Executive dashboards and user interface
-- **Backend Service** (FastAPI/Python): User management, RBAC, API gateway, analytics, and AI validation
-- **ETL Service** (FastAPI/Python): Data processing, job orchestration, and integrations
-- **Auth Service** (FastAPI/Python): API-only authentication validation backend
+### Five-Tier Microservices Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Frontend Application                         │
+│                   (React/TypeScript - Port 5173)               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📊 Executive Dashboards    🎨 Client Branding                  │
+│  📈 DORA Metrics           🌙 Dark/Light Mode                   │
+│  🔧 Admin Interface        📱 Responsive Design                 │
+│  🤖 AI Features            🔍 Semantic Search                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                    │                       │
+                    ▼                       ▼
+┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
+│  Backend        │              │  ETL Frontend   │              │  Auth Service   │
+│  Service        │◄────────────►│  (React/TS)     │              │  (FastAPI)      │
+│  (FastAPI)      │              │  Port: 3333     │              │  Port: 4000     │
+│  Port: 3001     │              │                 │              │                 │
+│                 │              │ • Job Cards     │              │ • JWT Tokens    │
+│ • Authentication│              │ • WIT Mgmt      │              │ • User Auth     │
+│ • User Mgmt     │              │ • Status Mgmt   │              │ • OKTA Ready    │
+│ • Session Mgmt  │              │ • Integrations  │              │ • SSO Flow      │
+│ • API Gateway   │              │ • Dark Mode     │              │ • Validation    │
+│ • Client Mgmt   │              │ • Responsive    │              │                 │
+│ • ML Monitoring │              │                 │              │                 │
+│ • AI Operations │              │                 │              │                 │
+│ • Flexible AI   │              │                 │              │                 │
+│ • Embeddings    │              │                 │              │                 │
+│ • Chat Agents   │              │                 │              │                 │
+│ • Vector Ops    │              │                 │              │                 │
+│ • JSON Routing  │              │                 │              │                 │
+│ • RBAC & JWT    │              │                 │              │                 │
+│ • ETL Endpoints │              │                 │              │                 │
+│   /app/etl/*    │              │                 │              │                 │
+└─────────────────┘              └─────────────────┘              └─────────────────┘
+                    │                       │
+                    └───────────────────────┼─────┐
+                                           │     │
+                    ┌──────────────────────┘     │
+                    ▼                            ▼
+┌─────────────────────────────────────┐    ┌─────────────────┐
+│           Data Layer                │    │  ETL Service    │
+│                                     │    │  (LEGACY)       │
+│  🗄️ PostgreSQL Primary/Replica      │    │  Port: 8000     │
+│     (Ports: 5432/5433)              │    │                 │
+│  🔄 Redis Cache                     │    │ ⚠️ DO NOT USE   │
+│     (Port: 6379)                    │    │ • Old Monolith  │
+│  🐰 RabbitMQ Queue                  │    │ • Jinja2 HTML   │
+│     (Ports: 5672/15672)             │    │ • Legacy Backup │
+│  🤖 Qdrant Vector Database          │    │                 │
+│     (Ports: 6333/6334)              │    │                 │
+│  📁 File Storage                    │    │ • Jinja2 HTML   │
+│                                     │    │ • Legacy Backup │
+└─────────────────────────────────────┘    │ • Reference Only│
+                                           │                 │
+                                           └─────────────────┘
+```
 
 **Technology Stack:**
 - **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **Backend**: FastAPI, SQLAlchemy, Pandas/NumPy, WebSockets, Redis, AI Validation (sqlglot)
-- **Database**: PostgreSQL with primary-replica setup
-- **Infrastructure**: Docker, Redis caching, real-time WebSocket updates
+- **Backend**: FastAPI, SQLAlchemy, Pandas/NumPy, WebSockets, Redis, AI Integration
+- **Database**: PostgreSQL with primary-replica setup, Qdrant Vector DB
+- **Infrastructure**: Docker, Redis caching, RabbitMQ queues, real-time WebSocket updates
 
 ## 🧭 Navigation UX
 - All sidebar and submenu items support native browser interactions: right-click → Open link in new tab, middle-click, and Cmd/Ctrl+click. We achieve this by rendering real anchor links (React Router Links in the frontend; <a href> in ETL).
 
 ## 🎨 Design System & Colors
-- See docs/design-system.md for color tokens and rules (on-color, on-gradient) and first-paint fallback strategy.
 - Backend exposes both default_colors and custom_colors; the frontend and ETL set CSS vars accordingly.
+- Enterprise-grade color schemes with tenant-specific branding support.
 
 **Enterprise Features:**
 - PostgreSQL primary-replica setup for high availability
@@ -80,20 +135,20 @@ This platform includes comprehensive documentation to help you understand, deplo
 
 | Document | Description |
 |----------|-------------|
-| **[Architecture Guide](docs/architecture.md)** | System design, topology, multi-tenancy, database setup, Docker configurations |
-| **[Security & Authentication](docs/security-authentication.md)** | RBAC, JWT tokens, permissions, tenant isolation, security best practices |
-| **[Jobs & Orchestration](docs/jobs-orchestration.md)** | ETL jobs, orchestrator, recovery strategies, Jira/GitHub integrations |
-| **[Integration Management](docs/integration-management.md)** | External system connections, AI providers, logo management, tenant isolation |
-| **[System Settings](docs/system-settings.md)** | Configuration reference, settings explanation, customization options |
-| **[Installation & Setup](docs/installation-setup.md)** | Requirements, deployment, database setup, getting started guide |
+| **[ARCHITECTURE](docs/ARCHITECTURE_NEW.md)** | Complete system design, microservices topology, multi-tenancy, database architecture, deployment configurations |
+| **[SECURITY](docs/SECURITY.md)** | Enterprise security, RBAC, JWT authentication, tenant isolation, compliance, security best practices |
+| **[INSTALLATION](docs/INSTALLATION.md)** | Complete deployment guide, requirements, database setup, Docker configurations, production deployment |
+| **[AI & VECTORIZATION](docs/AI.md)** | AI integration, embedding models, vector search, semantic capabilities, Qdrant configuration |
+| **[ETL & QUEUE SYSTEM](docs/ETL.md)** | ETL architecture, job orchestration, RabbitMQ queues, Jira/GitHub integrations, data processing |
 
 ### API Documentation
 
 The platform provides comprehensive API documentation through OpenAPI/Swagger:
 
 - **Auth Service**: `http://localhost:4000/health` (API-only authentication backend)
-- **Backend Service API**: `http://localhost:3001/docs`
-- **ETL Service API**: `http://localhost:8000/docs`
+- **Backend Service API**: `http://localhost:3001/docs` (Core business logic and ETL endpoints)
+- **ETL Frontend**: `http://localhost:5174` (ETL management interface)
+- **Legacy ETL Service**: `http://localhost:8002/docs` (⚠️ DEPRECATED - Reference only)
 
 ## 🎯 Target Audience
 
@@ -166,13 +221,14 @@ python services/backend-service/scripts/migration_runner.py --apply-all
 
 ### **📚 Comprehensive Guide**
 
-For detailed setup instructions, see our [Installation & Setup Guide](docs/installation-setup.md) which covers:
+For detailed setup instructions, see our [INSTALLATION Guide](docs/INSTALLATION.md) which covers:
 
 1. **Prerequisites**: System requirements and dependencies
 2. **Database Setup**: PostgreSQL primary-replica configuration
 3. **Service Deployment**: Docker-based deployment strategies
 4. **Initial Configuration**: Tenant setup and system settings
 5. **Integration Setup**: Connecting Jira and GitHub
+6. **Production Deployment**: Docker Swarm and Kubernetes configurations
 
 ## 📞 Support & Maintenance
 
