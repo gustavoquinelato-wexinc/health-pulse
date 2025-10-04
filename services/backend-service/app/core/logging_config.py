@@ -8,6 +8,7 @@ import sys
 import os
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from typing import Optional
 
 from app.core.config import get_settings
 
@@ -105,7 +106,7 @@ def _silence_third_party_loggers():
         logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
 
-def get_logger(name: str = None) -> logging.Logger:
+def get_logger(name: Optional[str] = None) -> logging.Logger:
     """
     Get a clean logger instance.
 
@@ -118,8 +119,11 @@ def get_logger(name: str = None) -> logging.Logger:
     if name is None:
         # Get calling module name
         import inspect
-        frame = inspect.currentframe().f_back
-        name = frame.f_globals.get('__name__', 'unknown')
+        frame = inspect.currentframe()
+        if frame and frame.f_back:
+            name = frame.f_back.f_globals.get('__name__', 'unknown')
+        else:
+            name = 'unknown'
 
     return logging.getLogger(name)
 
@@ -148,8 +152,39 @@ class RequestLogger:
             message = f"{message} - {kwargs}"
         self.logger.warning(message)
 
+    @classmethod
+    def log_request(cls, method: str, url: str, headers: Optional[dict] = None, client_context: Optional[dict] = None):
+        """Log incoming request details"""
+        logger = get_logger("http.request")
 
-def get_tenant_logger(name: str = None, tenant_name: str = None) -> logging.Logger:
+        # Build log message
+        message_parts = [f"{method} {url}"]
+
+        if client_context:
+            if client_context.get('tenant_name'):
+                message_parts.append(f"tenant={client_context['tenant_name']}")
+            if client_context.get('user_role'):
+                message_parts.append(f"role={client_context['user_role']}")
+
+        message = " - ".join(message_parts)
+        logger.info(message)
+
+    @classmethod
+    def log_response(cls, status_code: int, response_time: float, response_size: Optional[int] = None):
+        """Log response details"""
+        logger = get_logger("http.response")
+
+        # Build log message
+        message_parts = [f"Status: {status_code}", f"Time: {response_time:.3f}s"]
+
+        if response_size:
+            message_parts.append(f"Size: {response_size} bytes")
+
+        message = " - ".join(message_parts)
+        logger.info(message)
+
+
+def get_tenant_logger(name: Optional[str] = None, tenant_name: Optional[str] = None):
     """
     Get a tenant-aware logger (simplified version).
 
@@ -166,7 +201,9 @@ def get_tenant_logger(name: str = None, tenant_name: str = None) -> logging.Logg
         # Create a simple adapter that adds tenant context
         class TenantLoggerAdapter(logging.LoggerAdapter):
             def process(self, msg, kwargs):
-                return f"[{self.extra['tenant']}] {msg}", kwargs
+                if self.extra and 'tenant' in self.extra:
+                    return f"[{self.extra['tenant']}] {msg}", kwargs
+                return msg, kwargs
 
         return TenantLoggerAdapter(logger, {'tenant': tenant_name})
 
@@ -174,9 +211,45 @@ def get_tenant_logger(name: str = None, tenant_name: str = None) -> logging.Logg
 
 
 # Backward compatibility alias
-def get_client_logger(name: str = None, client_name: str = None) -> logging.Logger:
+def get_client_logger(name: Optional[str] = None, client_name: Optional[str] = None):
     """Backward compatibility alias for get_tenant_logger."""
     return get_tenant_logger(name, client_name)
+
+
+class EnhancedLogger:
+    """Enhanced logger that supports kwargs for structured logging."""
+
+    def __init__(self, name: Optional[str] = None):
+        self.logger = get_logger(name)
+
+    def info(self, message: str, **kwargs):
+        """Log info message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.info(message)
+
+    def error(self, message: str, **kwargs):
+        """Log error message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.error(message)
+
+    def warning(self, message: str, **kwargs):
+        """Log warning message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.warning(message)
+
+    def debug(self, message: str, **kwargs):
+        """Log debug message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.debug(message)
+
+
+def get_enhanced_logger(name: Optional[str] = None) -> EnhancedLogger:
+    """Get an enhanced logger that supports kwargs."""
+    return EnhancedLogger(name)
 
 
 class LoggerMixin:
@@ -186,6 +259,11 @@ class LoggerMixin:
     def logger(self) -> logging.Logger:
         """Returns logger for the class."""
         return get_logger(f"{self.__class__.__module__}.{self.__class__.__name__}")
+
+    @property
+    def enhanced_logger(self) -> EnhancedLogger:
+        """Returns enhanced logger for the class that supports kwargs."""
+        return get_enhanced_logger(f"{self.__class__.__module__}.{self.__class__.__name__}")
 
 
 # Legacy compatibility - remove complex classes

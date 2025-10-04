@@ -110,6 +110,7 @@ class AuthService:
     
     async def verify_token(self, token: str) -> Optional[User]:
         """Verify JWT token and return user if valid - checks Redis first, then database"""
+        user_id = None  # Initialize for exception handling
         try:
             # Debug: Log JWT verification attempt (debug only)
             logger.debug(f"[AUTH] Verifying JWT token (secret length: {len(self.jwt_secret)})")
@@ -216,10 +217,10 @@ class AuthService:
                 return None
                 
         except jwt.ExpiredSignatureError:
-            logger.warning(f"JWT token expired for user {user_id if 'user_id' in locals() else 'unknown'}")
+            logger.warning(f"JWT token expired for user {user_id or 'unknown'}")
             return None
         except jwt.InvalidTokenError:
-            logger.warning(f"Invalid JWT token for user {user_id if 'user_id' in locals() else 'unknown'}")
+            logger.warning(f"Invalid JWT token for user {user_id or 'unknown'}")
             return None
         except Exception as e:
             logger.error(f"Token verification error: {e}")

@@ -112,10 +112,51 @@ def get_logger(name: str = None) -> logging.Logger:
     return logging.getLogger(name)
 
 
+class EnhancedLogger:
+    """Enhanced logger that supports kwargs for structured logging."""
+
+    def __init__(self, name: str = None):
+        self.logger = get_logger(name)
+
+    def info(self, message: str, **kwargs):
+        """Log info message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.info(message)
+
+    def error(self, message: str, **kwargs):
+        """Log error message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.error(message)
+
+    def warning(self, message: str, **kwargs):
+        """Log warning message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.warning(message)
+
+    def debug(self, message: str, **kwargs):
+        """Log debug message with optional kwargs"""
+        if kwargs:
+            message = f"{message} - {kwargs}"
+        self.logger.debug(message)
+
+
+def get_enhanced_logger(name: str = None) -> EnhancedLogger:
+    """Get an enhanced logger that supports kwargs."""
+    return EnhancedLogger(name)
+
+
 class LoggerMixin:
     """Mixin to add clean logging to classes."""
-    
+
     @property
     def logger(self) -> logging.Logger:
         """Returns logger for the class."""
         return get_logger(f"{self.__class__.__module__}.{self.__class__.__name__}")
+
+    @property
+    def enhanced_logger(self) -> EnhancedLogger:
+        """Returns enhanced logger for the class that supports kwargs."""
+        return get_enhanced_logger(f"{self.__class__.__module__}.{self.__class__.__name__}")

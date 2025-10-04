@@ -1652,6 +1652,7 @@ async def process_vectorization_batch(session, batch_items):
         logger.error(f"[QUEUE_PROCESSOR] Full traceback: {traceback.format_exc()}")
 
         logger.info(f"[QUEUE_PROCESSOR] Marking all {len(batch_items)} items as failed due to exception...")
+        from datetime import datetime
         for item in batch_items:
             item.status = 'failed'
             item.error_message = f"Batch processing exception: {str(e)}"

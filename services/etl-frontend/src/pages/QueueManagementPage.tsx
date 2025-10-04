@@ -4,8 +4,8 @@ import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
-import Layout from '../components/Layout'
-import { useAuth } from '../contexts/AuthContext'
+import Header from '../components/Header'
+import CollapsedSidebar from '../components/CollapsedSidebar'
 import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 
 interface WorkerStatus {
@@ -29,7 +29,6 @@ interface WorkerLogs {
 }
 
 export default function QueueManagementPage() {
-  const { token } = useAuth()
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
   const [loading, setLoading] = useState(true)
@@ -41,7 +40,7 @@ export default function QueueManagementPage() {
     try {
       const response = await fetch('/api/v1/admin/workers/status', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         }
       })
@@ -62,7 +61,7 @@ export default function QueueManagementPage() {
     try {
       const response = await fetch('/api/v1/admin/workers/logs?lines=20', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         }
       })
@@ -87,7 +86,7 @@ export default function QueueManagementPage() {
       const response = await fetch('/api/v1/admin/workers/action', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ action })
@@ -128,7 +127,7 @@ export default function QueueManagementPage() {
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [token])
+  }, [])
 
   const getStatusIcon = (running: boolean, threadAlive: boolean) => {
     if (running && threadAlive) {
@@ -165,22 +164,32 @@ export default function QueueManagementPage() {
 
   if (loading) {
     return (
-      <Layout>
-        <div className="container mx-auto px-4 py-8">
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-secondary">Loading queue management...</p>
+      <div className="min-h-screen">
+        <Header />
+        <div className="flex">
+          <CollapsedSidebar />
+          <main className="flex-1 ml-16 py-8">
+            <div className="ml-12 mr-12">
+              <div className="flex items-center justify-center min-h-[400px]">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-secondary">Loading queue management...</p>
+                </div>
+              </div>
             </div>
-          </div>
+          </main>
         </div>
-      </Layout>
+      </div>
     )
   }
 
   return (
-    <Layout>
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen">
+      <Header />
+      <div className="flex">
+        <CollapsedSidebar />
+        <main className="flex-1 ml-16 py-8">
+          <div className="ml-12 mr-12">
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-primary">Queue Management</h1>
@@ -351,7 +360,9 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         )}
+          </div>
+        </main>
       </div>
-    </Layout>
+    </div>
   )
 }

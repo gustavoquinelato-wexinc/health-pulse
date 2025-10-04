@@ -68,21 +68,11 @@ class WorkerLogsResponse(BaseModel):
     total_lines: int
 
 
-# Worker Management Schemas
-class WorkerStatusResponse(BaseModel):
-    running: bool
-    workers: Dict[str, Dict[str, Any]]
-
-
+# Additional Worker Management Schemas
 class WorkerActionResponse(BaseModel):
     success: bool
     message: str
     worker_status: Optional[WorkerStatusResponse] = None
-
-
-class WorkerLogsResponse(BaseModel):
-    logs: List[str]
-    total_lines: int
 
 
 # 🚀 ETL Service Notification Functions
@@ -577,7 +567,7 @@ async def get_system_stats(
             # Calculate time-based user activity metrics
             from datetime import timedelta
             from app.core.utils import DateTimeHelper
-            now_default = DateTimeHelper.now_default()
+            now_utc = DateTimeHelper.now_default()
 
             # Initialize time-based metrics with safe defaults
             today_active = 0
@@ -1159,10 +1149,12 @@ async def terminate_user_session(
             user_session.last_updated_at = DateTimeHelper.now_utc()
             session.commit()
 
+            # Get token hash for cleanup operations
+            token_hash = user_session.token_hash
+
             # Also invalidate Redis session for immediate logout
             try:
                 auth_service = get_auth_service()
-                token_hash = user_session.token_hash
                 redis_mgr = get_redis_session_manager()
                 if redis_mgr.is_available():
                     await redis_mgr.invalidate_session(token_hash)

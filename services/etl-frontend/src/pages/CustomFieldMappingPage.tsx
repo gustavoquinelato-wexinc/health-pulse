@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sliders, Save, RefreshCw, Database, Download } from 'lucide-react';
+import { Loader2, Sliders, Save, Database, Download } from 'lucide-react';
 import Header from '../components/Header';
 import CollapsedSidebar from '../components/CollapsedSidebar';
 import ToastContainer from '../components/ToastContainer';

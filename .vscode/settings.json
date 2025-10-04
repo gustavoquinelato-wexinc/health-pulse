@@ -37,8 +37,8 @@
     "**/.pytest_cache/**": true
   },
   
-  // Python settings
-  "python.analysis.typeCheckingMode": "basic",
+  // Python settings - controlled by pyrightconfig.json
+  // "python.analysis.typeCheckingMode": "basic",
   "python.analysis.autoImportCompletions": true,
   
   // Recommended extensions

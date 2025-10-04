@@ -23,11 +23,11 @@ class QueueManager:
 
     def __init__(
         self,
-        host: str = None,
-        port: int = None,
-        username: str = None,
-        password: str = None,
-        vhost: str = None
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        vhost: Optional[str] = None
     ):
         """
         Initialize Queue Manager with RabbitMQ connection parameters.
@@ -39,11 +39,11 @@ class QueueManager:
             password: RabbitMQ password (default: from env or 'etl_password')
             vhost: RabbitMQ virtual host (default: from env or 'pulse_etl')
         """
-        self.host = host or os.getenv('RABBITMQ_HOST', 'localhost')
-        self.port = port or int(os.getenv('RABBITMQ_PORT', '5672'))
-        self.username = username or os.getenv('RABBITMQ_USER', 'etl_user')
-        self.password = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
-        self.vhost = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
+        self.host: str = host or os.getenv('RABBITMQ_HOST', 'localhost')
+        self.port: int = port if port is not None else int(os.getenv('RABBITMQ_PORT', '5672'))
+        self.username: str = username or os.getenv('RABBITMQ_USER', 'etl_user')
+        self.password: str = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
+        self.vhost: str = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
 
         # Simplified queue topology - single queue for processing
         self.TRANSFORM_QUEUE = 'transform_queue'
