@@ -441,7 +441,7 @@ async def queue_custom_fields_for_processing(
         queue_manager = QueueManager()
 
         queue_message = {
-            'type': 'custom_fields',
+            'type': 'jira_custom_fields',  # Fixed: Use the correct type that the worker expects
             'raw_data_id': raw_data_id,           # Reference to stored data
             'integration_id': integration_id,
             'tenant_id': tenant_id,
