@@ -27,7 +27,7 @@ class AuthServiceSettings(BaseSettings):
     # JWT Configuration
     JWT_SECRET_KEY: str = "CG4JhJsv-y6cwTXlSHU6N-ZwIh2ibjUvoFuxC9PaPOU"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRY_HOURS: int = 24
+    JWT_EXPIRY_MINUTES: int = 5  # Short expiry for security - frontend should refresh tokens
 
     # Service URLs
     BACKEND_SERVICE_URL: str = "http://localhost:3001"

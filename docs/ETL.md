@@ -440,117 +440,145 @@ class GitHubIntegration:
             await self.queue_vectorization(repo_name)
 ```
 
-### Dynamic Custom Fields System
+### Custom Fields Mapping System
 
-#### UI-Driven Custom Field Management
+#### Simplified Direct Mapping Architecture
 
-The ETL system includes a comprehensive custom fields management system that allows users to configure field mappings through the UI without code changes.
+The ETL system uses a simplified custom fields mapping architecture that directly maps Jira custom fields to 20 standardized columns in work_items table.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                Custom Fields Management UI                      │
+│                Custom Fields Mapping Architecture              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  📋 Project Discovery    🎯 Field Mapping    💾 Storage Config  │
+│  🔍 Global Discovery    🎯 Direct Mapping    💾 Tenant Config   │
 │                                                                 │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐  │
-│  │ Auto-discover   │    │ Drag & Drop     │    │ 20 Columns  │  │
-│  │ custom fields   │───►│ field mapping   │───►│ + JSON      │  │
-│  │ per project     │    │ to columns      │    │ overflow    │  │
+│  │ Extract all     │    │ 20 FK columns   │    │ Per tenant/ │  │
+│  │ custom fields   │───►│ point directly  │───►│ integration │  │
+│  │ globally        │    │ to custom_fields│    │ mapping     │  │
 │  └─────────────────┘    └─────────────────┘    └─────────────┘  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### Custom Fields Discovery Engine
-```python
-class CustomFieldsDiscoveryEngine:
-    def __init__(self, integration_type: str):
-        self.integration_type = integration_type
-        self.max_dedicated_columns = 20
+#### Database Schema
+```sql
+-- Global custom fields table
+CREATE TABLE custom_fields (
+    id SERIAL PRIMARY KEY,
+    external_id VARCHAR(100) NOT NULL,     -- 'customfield_10001'
+    name VARCHAR(255) NOT NULL,            -- 'Agile Team'
+    field_type VARCHAR(100) NOT NULL,      -- 'team', 'string', 'option'
+    operations JSONB DEFAULT '[]',         -- ['set'], ['add', 'remove']
+    integration_id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(tenant_id, integration_id, external_id)
+);
 
-    async def discover_project_fields(self, project_key: str):
-        """Discover custom fields using Jira createmeta API"""
-        if self.integration_type == "jira":
-            # Use createmeta for project-specific field discovery
-            response = await self.jira_client.get(
-                f"/rest/api/3/issue/createmeta?projectKeys={project_key}&expand=projects.issuetypes.fields"
+-- Direct mapping configuration per tenant/integration
+CREATE TABLE custom_fields_mapping (
+    id SERIAL PRIMARY KEY,
+    -- 20 direct FK columns to custom_fields
+    custom_field_01_id INTEGER REFERENCES custom_fields(id),
+    custom_field_02_id INTEGER REFERENCES custom_fields(id),
+    -- ... (18 more columns)
+    custom_field_20_id INTEGER REFERENCES custom_fields(id),
+
+    integration_id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(tenant_id, integration_id)
+);
+#### ETL Processing Flow
+```python
+class CustomFieldsTransformWorker:
+    def process_jira_custom_fields(self, raw_data_id: int, tenant_id: int, integration_id: int):
+        """Process Jira createmeta response to extract global custom fields"""
+
+        # 1. Get raw createmeta data
+        raw_data = self._get_raw_data(session, raw_data_id)
+        projects_data = raw_data.get('projects', [])
+
+        # 2. Collect all unique custom fields globally (not per project)
+        global_custom_fields = {}  # field_key -> field_info
+
+        for project_data in projects_data:
+            issue_types = project_data.get('issuetypes', [])
+            for issue_type in issue_types:
+                fields = issue_type.get('fields', {})
+                for field_key, field_info in fields.items():
+                    if field_key.startswith('customfield_'):
+                        # Keep first occurrence globally
+                        if field_key not in global_custom_fields:
+                            global_custom_fields[field_key] = field_info
+
+        # 3. Process each unique custom field once
+        for field_key, field_info in global_custom_fields.items():
+            self._process_custom_field_data(
+                field_key, field_info, tenant_id, integration_id
             )
 
-            fields = []
-            for project in response["projects"]:
-                for issue_type in project["issuetypes"]:
-                    for field_id, field_data in issue_type["fields"].items():
-                        if field_id.startswith("customfield_"):
-                            fields.append({
-                                "field_id": field_id,
-                                "field_name": field_data["name"],
-                                "field_type": field_data["schema"]["type"],
-                                "description": field_data.get("description", ""),
-                                "required": field_data.get("required", False),
-                                "possible_values": self._extract_allowed_values(field_data)
-                            })
+    def _process_custom_field_data(self, field_key: str, field_info: dict,
+                                   tenant_id: int, integration_id: int):
+        """Create/update global custom field record"""
+        field_name = field_info.get('name', '')
+        field_type = field_info.get('schema', {}).get('type', 'string')
+        operations = field_info.get('operations', [])
 
-            return self._deduplicate_fields(fields)
-
-    async def store_field_mappings(self, tenant_id: int, project_id: str, mappings: List[dict]):
-        """Store UI-configured field mappings"""
-        dedicated_mappings = mappings[:self.max_dedicated_columns]
-        overflow_mappings = mappings[self.max_dedicated_columns:]
-
-        mapping_config = {
-            "dedicated_columns": {
-                f"custom_field_{i+1:02d}": mapping
-                for i, mapping in enumerate(dedicated_mappings)
-            },
-            "overflow_fields": overflow_mappings,
-            "last_updated": datetime.utcnow().isoformat(),
-            "updated_by": "ui_configuration"
+        # Insert or update in custom_fields table
+        custom_field = {
+            'external_id': field_key,
+            'name': field_name,
+            'field_type': field_type,
+            'operations': json.dumps(operations),
+            'tenant_id': tenant_id,
+            'integration_id': integration_id
         }
 
-        # Store in integrations table custom_field_mappings column
-        await self.db.execute(
-            """
-            UPDATE integrations
-            SET custom_field_mappings = :mappings
-            WHERE tenant_id = :tenant_id AND project_id = :project_id
-            """,
-            {"mappings": json.dumps(mapping_config), "tenant_id": tenant_id, "project_id": project_id}
-        )
+        # Bulk insert with conflict handling
+        BulkOperations.bulk_insert(session, 'custom_fields', [custom_field])
 ```
-
-#### Transform Worker with Dynamic Field Processing
+#### Work Items Processing with Custom Fields Mapping
 ```python
-class CustomFieldTransformWorker:
-    async def process_custom_fields(self, raw_issue: dict, field_mappings: dict):
-        """Transform custom fields based on UI configuration"""
-        result = {}
+class WorkItemsTransformWorker:
+    def process_work_items(self, raw_issues: list, tenant_id: int, integration_id: int):
+        """Transform work items using custom fields mapping"""
 
-        # Process dedicated columns (optimized access)
-        for column_name, mapping in field_mappings["dedicated_columns"].items():
-            field_id = mapping["field_id"]
-            field_value = raw_issue.get("fields", {}).get(field_id)
+        # 1. Get the custom fields mapping for this tenant/integration
+        mapping = session.query(CustomFieldMapping).filter_by(
+            tenant_id=tenant_id,
+            integration_id=integration_id
+        ).first()
 
-            if field_value is not None:
-                # Apply field-specific transformation
-                result[column_name] = self._transform_field_value(
-                    field_value,
-                    mapping["field_type"]
-                )
+        if not mapping:
+            logger.warning(f"No custom fields mapping found for tenant {tenant_id}, integration {integration_id}")
+            return
 
-        # Process overflow fields (JSON storage)
-        overflow_data = {}
-        for mapping in field_mappings["overflow_fields"]:
-            field_id = mapping["field_id"]
-            field_value = raw_issue.get("fields", {}).get(field_id)
+        # 2. Process each work item
+        for raw_issue in raw_issues:
+            work_item_data = self._extract_base_fields(raw_issue)
 
-            if field_value is not None:
-                overflow_data[mapping["field_name"]] = self._transform_field_value(
-                    field_value,
-                    mapping["field_type"]
-                )
+            # 3. Map custom fields using the direct FK mapping
+            for i in range(1, 21):  # 20 custom field columns
+                custom_field = getattr(mapping, f'custom_field_{i:02d}')
+                if custom_field:
+                    # Get the value from raw issue
+                    field_value = raw_issue.get('fields', {}).get(custom_field.external_id)
+                    if field_value is not None:
+                        # Store in the corresponding work_item column
+                        work_item_data[f'custom_field_{i:02d}'] = self._transform_field_value(
+                            field_value, custom_field.field_type
+                        )
 
-        if overflow_data:
+            # 4. Bulk insert work item
+            BulkOperations.bulk_insert(session, 'work_items', [work_item_data])
+```
             result["custom_fields_overflow"] = json.dumps(overflow_data)
 
         return result
@@ -675,26 +703,26 @@ class QueueMonitor:
 - **Queue Workers**: Background processing with retry logic
 - **Extract → Transform → Load**: True ETL separation
 
-### ✅ Phase 2: Jira Enhancement with Dynamic Custom Fields (IMPLEMENTED)
-- **UI-Driven Configuration**: Custom field mapping through web interface
-- **Project-Specific Discovery**: Automatic field discovery using Jira createmeta API
-- **Optimized Storage**: 20 dedicated columns + unlimited JSON overflow
-- **Dynamic Processing**: Transform workers adapt to UI configuration
+### ✅ Phase 2: Jira Enhancement with Simplified Custom Fields (IMPLEMENTED)
+- **Global Custom Fields**: Extract all custom fields globally from Jira createmeta API
+- **Direct FK Mapping**: 20 FK columns in custom_fields_mapping table point directly to custom_fields
+- **Tenant-Level Configuration**: One mapping configuration per tenant/integration
+- **Simplified Processing**: Transform workers use direct FK relationships for mapping
 
-#### Phase 2.1: Database Foundation & UI Management ✅
-- **Enhanced Schema**: Custom field columns and overflow support
-- **Model Updates**: Unified models across all services
-- **Management UI**: Custom field discovery and mapping interfaces
+#### Phase 2.1: Database Foundation ✅
+- **Simplified Schema**: custom_fields table (global) + custom_fields_mapping table (20 FK columns)
+- **Model Updates**: Updated unified models with direct FK relationships
+- **Constraint Management**: Unique constraints on (tenant_id, integration_id, external_id)
 
-#### Phase 2.2: Enhanced Extraction with Discovery ✅
-- **Discovery Jobs**: Project-specific custom field discovery
-- **Enhanced Extraction**: Dynamic field lists based on UI mappings
-- **etl_jobs Integration**: Unified job management through etl_jobs table
+#### Phase 2.2: Global Custom Fields Extraction ✅
+- **Global Discovery**: Extract all custom fields from Jira createmeta API globally
+- **Deduplication Logic**: Process each custom field only once across all projects
+- **Raw Data Storage**: Store complete createmeta response for debugging/reprocessing
 
 #### Phase 2.3: Transform & Load Processing ✅
-- **Transform Workers**: Dynamic custom field mapping in queue workers
-- **Load Workers**: Optimized storage with mapped columns + JSON overflow
-- **Progress Tracking**: Real-time job progress with WebSocket updates
+- **Transform Workers**: Global custom fields processing with deduplication
+- **Direct FK Mapping**: Use custom_fields_mapping table for tenant-specific field mapping
+- **Bulk Operations**: Optimized bulk insert/update operations with conflict handling
 
 ### ✅ Phase 3: GitHub Enhancement (IMPLEMENTED)
 - **Queue Migration**: All GitHub ETL logic migrated to queue architecture

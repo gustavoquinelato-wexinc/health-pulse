@@ -10,10 +10,21 @@ import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCi
 
 interface WorkerStatus {
   running: boolean
+  worker_count: number
+  tenant_count: number
   workers: Record<string, {
     worker_running: boolean
     thread_alive: boolean
     thread_name: string
+  }>
+  tenants: Record<string, {
+    worker_count: number
+    workers: Record<string, {
+      worker_key: string
+      worker_running: boolean
+      thread_alive: boolean
+      thread_name: string
+    }>
   }>
   queue_stats: Record<string, any>
   raw_data_stats: Record<string, {
@@ -38,7 +49,9 @@ export default function QueueManagementPage() {
 
   const fetchWorkerStatus = async () => {
     try {
-      const response = await fetch('/api/v1/admin/workers/status', {
+      // Use backend service URL directly for admin endpoints
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/status`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
@@ -59,7 +72,9 @@ export default function QueueManagementPage() {
 
   const fetchWorkerLogs = async () => {
     try {
-      const response = await fetch('/api/v1/admin/workers/logs?lines=20', {
+      // Use backend service URL directly for admin endpoints
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/logs?lines=20`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
@@ -83,7 +98,9 @@ export default function QueueManagementPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/v1/admin/workers/action', {
+      // Use backend service URL directly for admin endpoints
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/action`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
@@ -97,7 +114,7 @@ export default function QueueManagementPage() {
       }
 
       const result = await response.json()
-      
+
       if (!result.success) {
         throw new Error(result.message || `Failed to ${action} workers`)
       }
@@ -110,6 +127,8 @@ export default function QueueManagementPage() {
       setActionLoading(null)
     }
   }
+
+
 
   useEffect(() => {
     const loadData = async () => {
@@ -303,7 +322,7 @@ export default function QueueManagementPage() {
           <CardHeader>
             <CardTitle>Worker Controls</CardTitle>
             <CardDescription>
-              Start, stop, or restart ETL background workers
+              Start, stop, or restart ETL background workers for your tenant
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -339,6 +358,50 @@ export default function QueueManagementPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Current Tenant Worker Details */}
+        {workerStatus?.tenants && Object.keys(workerStatus.tenants).length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Your Tenant Workers</CardTitle>
+              <CardDescription>
+                Detailed status of workers for your tenant
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {Object.entries(workerStatus.tenants).map(([tenantId, tenantData]) => (
+                <div key={tenantId} className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-semibold">Tenant {tenantId}</h4>
+                    <span className="text-sm text-secondary">
+                      {tenantData.worker_count} worker(s)
+                    </span>
+                  </div>
+
+                  {/* Individual Workers for this Tenant */}
+                  <div className="space-y-3">
+                    {Object.entries(tenantData.workers).map(([workerType, worker]) => (
+                      <div key={workerType} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${worker.worker_running ? 'bg-green-500' : 'bg-red-500'}`} />
+                          <span className="font-medium capitalize">{workerType} Worker</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className={`text-sm ${worker.worker_running ? 'text-green-700' : 'text-red-700'}`}>
+                            {worker.worker_running ? 'Running' : 'Stopped'}
+                          </span>
+                          {worker.thread_name && (
+                            <span className="text-xs text-secondary">({worker.thread_name})</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Worker Logs */}
         {workerLogs && (

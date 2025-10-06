@@ -62,19 +62,31 @@ class BaseWorker(ABC):
         """
         logger.info(f"Starting {self.__class__.__name__} consumer for queue: {self.queue_name}")
         self.running = True
-        
+
         try:
-            self.queue_manager.consume_messages(
-                queue_name=self.queue_name,
-                callback=self._handle_message,
-                auto_ack=False  # Manual acknowledgment for error handling
-            )
+            # Use polling approach for graceful shutdown
+            import time
+            while self.running:
+                try:
+                    # Try to get a message with timeout
+                    message = self.queue_manager.get_single_message(self.queue_name, timeout=1.0)
+                    if message:
+                        self._handle_message(message)
+                    else:
+                        # No message available, sleep briefly
+                        time.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error processing message in {self.__class__.__name__}: {e}")
+                    time.sleep(1.0)  # Wait before retrying
+
         except KeyboardInterrupt:
             logger.info(f"Received shutdown signal for {self.__class__.__name__}")
             self.stop()
         except Exception as e:
             logger.error(f"Error in {self.__class__.__name__} consumer: {e}")
             raise
+
+        logger.info(f"{self.__class__.__name__} consumer stopped")
     
     def stop(self):
         """Stop the worker gracefully."""

@@ -633,12 +633,12 @@ def apply(connection):
                 status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
                 error_details JSONB,                -- Error information if processing failed
 
-                -- BaseEntity fields with proper foreign keys
+                -- IntegrationBaseEntity fields with proper foreign keys
                 tenant_id INTEGER NOT NULL REFERENCES tenants(id),
                 integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                active BOOLEAN DEFAULT TRUE
+                last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
 
@@ -1090,24 +1090,21 @@ def apply(connection):
 
         print("📋 Creating custom fields table...")
 
-        # Custom fields table - stores Jira custom field definitions by project
+        # Custom fields table - stores global Jira custom field definitions
         # Created after primary keys and foreign key constraints are established
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS custom_fields (
                 id SERIAL PRIMARY KEY,
 
                 -- === CUSTOM FIELD IDENTIFIERS ===
+                external_id VARCHAR(100) NOT NULL, -- Jira field key like "customfield_10150", "customfield_10128"
                 name VARCHAR(255) NOT NULL, -- Human-readable name like "Aha! Initiative", "Agile Team"
-                key VARCHAR(100) NOT NULL, -- Jira field key like "customfield_10150", "customfield_10128"
 
                 -- === FIELD SCHEMA ===
-                schema_type VARCHAR(100) NOT NULL, -- Schema type like "string", "option", "array", "number", "date", "team"
+                field_type VARCHAR(100) NOT NULL, -- Schema type like "string", "option", "array", "number", "date", "team"
 
                 -- === FIELD OPERATIONS ===
                 operations JSONB DEFAULT '[]', -- Array of allowed operations like ["set"], ["add", "set", "remove"]
-
-                -- === PROJECT RELATIONSHIP ===
-                project_id INTEGER NOT NULL, -- Foreign key to projects table
 
                 -- === IntegrationBaseEntity FIELDS ===
                 integration_id INTEGER NOT NULL REFERENCES integrations(id),
@@ -1117,12 +1114,54 @@ def apply(connection):
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
                 -- === CONSTRAINTS ===
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                CONSTRAINT uk_custom_fields_project_key UNIQUE(project_id, key)
+                CONSTRAINT uk_custom_fields_external_id UNIQUE(tenant_id, integration_id, external_id)
             );
         """)
 
         print("✅ Custom fields table created")
+        print("📋 Creating custom fields mapping tables...")
+
+        # Custom fields mapping table - stores direct mapping to 20 work_item columns
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS custom_fields_mapping (
+                id SERIAL PRIMARY KEY,
+
+                -- === 20 CUSTOM FIELD MAPPINGS ===
+                custom_field_01_id INTEGER REFERENCES custom_fields(id),
+                custom_field_02_id INTEGER REFERENCES custom_fields(id),
+                custom_field_03_id INTEGER REFERENCES custom_fields(id),
+                custom_field_04_id INTEGER REFERENCES custom_fields(id),
+                custom_field_05_id INTEGER REFERENCES custom_fields(id),
+                custom_field_06_id INTEGER REFERENCES custom_fields(id),
+                custom_field_07_id INTEGER REFERENCES custom_fields(id),
+                custom_field_08_id INTEGER REFERENCES custom_fields(id),
+                custom_field_09_id INTEGER REFERENCES custom_fields(id),
+                custom_field_10_id INTEGER REFERENCES custom_fields(id),
+                custom_field_11_id INTEGER REFERENCES custom_fields(id),
+                custom_field_12_id INTEGER REFERENCES custom_fields(id),
+                custom_field_13_id INTEGER REFERENCES custom_fields(id),
+                custom_field_14_id INTEGER REFERENCES custom_fields(id),
+                custom_field_15_id INTEGER REFERENCES custom_fields(id),
+                custom_field_16_id INTEGER REFERENCES custom_fields(id),
+                custom_field_17_id INTEGER REFERENCES custom_fields(id),
+                custom_field_18_id INTEGER REFERENCES custom_fields(id),
+                custom_field_19_id INTEGER REFERENCES custom_fields(id),
+                custom_field_20_id INTEGER REFERENCES custom_fields(id),
+
+                -- === IntegrationBaseEntity FIELDS ===
+                integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                -- === CONSTRAINTS ===
+                CONSTRAINT uk_custom_fields_mapping_integration UNIQUE(tenant_id, integration_id)
+            );
+        """)
+
+        print("✅ Custom fields mapping tables created")
+        print("✅ Custom fields mapping tables created")
         print("📋 Creating performance indexes...")
 
         # Performance indexes for frequently queried columns
@@ -1193,7 +1232,15 @@ def apply(connection):
         except Exception as e:
             print(f"⚠️ Skipping custom_fields_overflow index: {e}")
 
+        # Custom fields indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_tenant_id ON custom_fields(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_integration_id ON custom_fields(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_external_id ON custom_fields(external_id);")
 
+        # Custom fields mapping indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_tenant_id ON custom_fields_mapping(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_integration_id ON custom_fields_mapping(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_tenant_integration ON custom_fields_mapping(tenant_id, integration_id);")
 
         # Work item changelogs indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_work_item_id ON changelogs(work_item_id);")
@@ -1350,7 +1397,10 @@ def rollback(connection):
             'dora_metric_insights',
             'dora_market_benchmarks',
 
-            # Custom fields table (depends on projects)
+            # Custom fields mapping table (depends on custom_fields)
+            'custom_fields_mapping',
+
+            # Custom fields table (global fields)
             'custom_fields',
 
             # Junction and link tables (depend on main tables)

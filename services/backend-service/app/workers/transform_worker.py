@@ -26,14 +26,21 @@ logger = get_logger(__name__)
 class TransformWorker(BaseWorker):
     """
     Transform worker that processes raw extraction data into final database tables.
-    
+
     Handles different data types:
     - jira_custom_fields: Creates/updates projects, WITs, custom fields, and relationships
+
+    Supports tenant-specific queues for multi-tenant processing.
     """
-    
-    def __init__(self):
-        """Initialize transform worker for transform_queue."""
-        super().__init__('transform_queue')
+
+    def __init__(self, queue_name: str = 'transform_queue'):
+        """
+        Initialize transform worker for specified queue.
+
+        Args:
+            queue_name: Name of the queue to consume from (default: 'transform_queue')
+        """
+        super().__init__(queue_name)
     
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
@@ -120,29 +127,43 @@ class TransformWorker(BaseWorker):
                 custom_fields_to_insert = []
                 custom_fields_to_update = []
                 project_wit_relationships = []
-                
+
                 # Get existing data for comparison
                 existing_projects = self._get_existing_projects(session, tenant_id, integration_id)
                 existing_wits = self._get_existing_wits(session, tenant_id, integration_id)
                 existing_custom_fields = self._get_existing_custom_fields(session, tenant_id, integration_id)
                 existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
-                
+
+                # Collect all unique custom fields globally (not per project)
+                global_custom_fields = {}  # field_key -> field_info
+
                 # Process each project
                 for project_data in projects_data:
                     project_result = self._process_project_data(
                         project_data, tenant_id, integration_id,
                         existing_projects, existing_wits, existing_custom_fields,
-                        existing_relationships
+                        existing_relationships, global_custom_fields
                     )
-                    
+
                     if project_result:
                         projects_to_insert.extend(project_result.get('projects_to_insert', []))
                         projects_to_update.extend(project_result.get('projects_to_update', []))
                         wits_to_insert.extend(project_result.get('wits_to_insert', []))
                         wits_to_update.extend(project_result.get('wits_to_update', []))
-                        custom_fields_to_insert.extend(project_result.get('custom_fields_to_insert', []))
-                        custom_fields_to_update.extend(project_result.get('custom_fields_to_update', []))
                         project_wit_relationships.extend(project_result.get('project_wit_relationships', []))
+
+                # Process global custom fields once
+                logger.info(f"Processing {len(global_custom_fields)} unique custom fields globally")
+                for field_key, field_info in global_custom_fields.items():
+                    cf_result = self._process_custom_field_data(
+                        field_key, field_info, tenant_id, integration_id,
+                        existing_custom_fields
+                    )
+                    if cf_result:
+                        custom_fields_to_insert.extend(cf_result.get('custom_fields_to_insert', []))
+                        custom_fields_to_update.extend(cf_result.get('custom_fields_to_update', []))
+
+                logger.info(f"Custom fields to insert: {len(custom_fields_to_insert)}, to update: {len(custom_fields_to_update)}")
                 
                 # 4. Perform bulk operations
                 self._perform_bulk_operations(
@@ -181,7 +202,7 @@ class TransformWorker(BaseWorker):
         try:
             query = text("""
                 UPDATE raw_extraction_data
-                SET status = :status, updated_at = NOW()
+                SET status = :status, last_updated_at = NOW()
                 WHERE id = :raw_data_id
             """)
             session.execute(query, {'raw_data_id': raw_data_id, 'status': status})
@@ -235,7 +256,8 @@ class TransformWorker(BaseWorker):
         existing_projects: Dict[str, Project],
         existing_wits: Dict[str, Wit],
         existing_custom_fields: Dict[str, CustomField],
-        existing_relationships: set
+        existing_relationships: set,
+        global_custom_fields: Dict[str, Dict[str, Any]]
     ) -> Dict[str, List]:
         """
         Process a single project's data from createmeta response.
@@ -248,8 +270,6 @@ class TransformWorker(BaseWorker):
             'projects_to_update': [],
             'wits_to_insert': [],
             'wits_to_update': [],
-            'custom_fields_to_insert': [],
-            'custom_fields_to_update': [],
             'project_wit_relationships': []
         }
 
@@ -311,15 +331,11 @@ class TransformWorker(BaseWorker):
                         if field_key not in unique_custom_fields:
                             unique_custom_fields[field_key] = field_info
 
-            # Process unique custom fields for this project
+            # Add unique custom fields from this project to global collection
             for field_key, field_info in unique_custom_fields.items():
-                cf_result = self._process_custom_field_data(
-                    field_key, field_info, tenant_id, integration_id,
-                    existing_custom_fields, project_external_id, project_id
-                )
-                if cf_result:
-                    result['custom_fields_to_insert'].extend(cf_result.get('custom_fields_to_insert', []))
-                    result['custom_fields_to_update'].extend(cf_result.get('custom_fields_to_update', []))
+                # Keep the first occurrence globally (across all projects)
+                if field_key not in global_custom_fields:
+                    global_custom_fields[field_key] = field_info
 
             return result
 
@@ -390,11 +406,9 @@ class TransformWorker(BaseWorker):
         field_info: Dict[str, Any],
         tenant_id: int,
         integration_id: int,
-        existing_custom_fields: Dict[str, CustomField],
-        project_external_id: str,
-        project_db_id: Optional[int]
+        existing_custom_fields: Dict[str, CustomField]
     ) -> Dict[str, List]:
-        """Process custom field data."""
+        """Process custom field data using new schema (external_id, field_type, no project_id)."""
         result = {
             'custom_fields_to_insert': [],
             'custom_fields_to_update': []
@@ -403,7 +417,8 @@ class TransformWorker(BaseWorker):
         try:
             field_name = field_info.get('name', '')
             field_schema = field_info.get('schema', {})
-            schema_type = field_schema.get('type', 'string')
+            field_type = field_schema.get('type', 'string')
+            operations = field_info.get('operations', [])
 
             if not field_name:
                 return result
@@ -412,21 +427,23 @@ class TransformWorker(BaseWorker):
                 # Check if custom field needs update
                 existing_cf = existing_custom_fields[field_key]
                 if (existing_cf.name != field_name or
-                    existing_cf.schema_type != schema_type):
+                    existing_cf.field_type != field_type):
+                    import json
                     result['custom_fields_to_update'].append({
                         'id': existing_cf.id,
                         'name': field_name,
-                        'schema_type': schema_type,
+                        'field_type': field_type,
+                        'operations': json.dumps(operations) if operations else '[]',  # Convert to JSON string
                         'last_updated_at': datetime.now(timezone.utc)
                     })
             else:
-                # New custom field
+                # New custom field (global, no project_id)
+                import json
                 cf_insert_data = {
                     'name': field_name,
-                    'key': field_key,
-                    'schema_type': schema_type,
-                    'project_id': project_db_id,  # Use existing project DB ID if available
-                    'project_external_id': project_external_id,  # Store external ID for later resolution
+                    'external_id': field_key,
+                    'field_type': field_type,
+                    'operations': json.dumps(operations) if operations else '[]',  # Convert to JSON string
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
@@ -452,7 +469,7 @@ class TransformWorker(BaseWorker):
         custom_fields_to_update: List[Dict],
         project_wit_relationships: List[tuple]
     ):
-        """Perform bulk database operations with proper project ID resolution."""
+        """Perform bulk database operations."""
         try:
             # 1. Bulk insert projects first
             if projects_to_insert:
@@ -462,27 +479,23 @@ class TransformWorker(BaseWorker):
             if projects_to_update:
                 BulkOperations.bulk_update(session, 'projects', projects_to_update)
 
-            # 3. Resolve project IDs for custom fields that need them
-            if custom_fields_to_insert:
-                self._resolve_project_ids_for_custom_fields(session, custom_fields_to_insert)
-
-            # 4. Bulk insert WITs
+            # 3. Bulk insert WITs
             if wits_to_insert:
                 BulkOperations.bulk_insert(session, 'wits', wits_to_insert)
 
-            # 5. Bulk update WITs
+            # 4. Bulk update WITs
             if wits_to_update:
                 BulkOperations.bulk_update(session, 'wits', wits_to_update)
 
-            # 6. Bulk insert custom fields (now with resolved project IDs)
+            # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
                 BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
 
-            # 7. Bulk update custom fields
+            # 6. Bulk update custom fields
             if custom_fields_to_update:
                 BulkOperations.bulk_update(session, 'custom_fields', custom_fields_to_update)
 
-            # 8. Bulk insert project-WIT relationships
+            # 7. Bulk insert project-WIT relationships
             if project_wit_relationships:
                 BulkOperations.bulk_insert_relationships(session, 'projects_wits', project_wit_relationships)
 
@@ -490,41 +503,4 @@ class TransformWorker(BaseWorker):
             logger.error(f"Error in bulk operations: {e}")
             raise
 
-    def _resolve_project_ids_for_custom_fields(self, session, custom_fields_to_insert: List[Dict]):
-        """Resolve project external IDs to database IDs for custom fields."""
-        try:
-            # Get all project external IDs that need resolution
-            external_ids_needed = {cf['project_external_id'] for cf in custom_fields_to_insert if cf.get('project_id') is None}
 
-            if not external_ids_needed:
-                return
-
-            # Query database for project IDs
-            from sqlalchemy import text
-            placeholders = ','.join([f':ext_id_{i}' for i in range(len(external_ids_needed))])
-            query = text(f"""
-                SELECT external_id, id FROM projects
-                WHERE external_id IN ({placeholders})
-            """)
-
-            params = {f'ext_id_{i}': ext_id for i, ext_id in enumerate(external_ids_needed)}
-            result = session.execute(query, params).fetchall()
-
-            # Create mapping
-            external_id_to_db_id = {row.external_id: row.id for row in result}
-
-            # Update custom fields with resolved project IDs
-            for cf in custom_fields_to_insert:
-                if cf.get('project_id') is None:
-                    project_external_id = cf.get('project_external_id')
-                    if project_external_id in external_id_to_db_id:
-                        cf['project_id'] = external_id_to_db_id[project_external_id]
-                    else:
-                        logger.error(f"Could not resolve project ID for external_id: {project_external_id}")
-
-                # Remove the temporary field
-                cf.pop('project_external_id', None)
-
-        except Exception as e:
-            logger.error(f"Error resolving project IDs: {e}")
-            raise

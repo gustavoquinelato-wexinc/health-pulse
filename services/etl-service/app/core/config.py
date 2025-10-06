@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Application settings using Pydantic Settings."""
 
     model_config = SettingsConfigDict(
-        env_file=[".env", "../../.env"],  # Try service .env first, then root .env
+        env_file=["../../.env", ".env"],  # Root .env as base, service .env overrides
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Application settings using Pydantic Settings."""
 
     model_config = SettingsConfigDict(
-        env_file=[".env", "../../.env"],  # Try service .env first, then root .env
+        env_file=["../../.env", ".env"],  # Root .env as base, service .env overrides
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"
@@ -172,10 +172,10 @@ _settings: Optional[Settings] = None
 def get_settings() -> Settings:
     """Returns the settings instance with lazy initialization.
 
-    New precedence (per project policy):
-    1) Service-local .env (services/backend-service/.env)
-    2) Environment variables
-    3) Root .env is reserved for docker-compose and not loaded by services
+    Configuration precedence (corrected):
+    1) Environment variables (highest priority)
+    2) Service-local .env (services/backend-service/.env)
+    3) Root .env (../../.env) (fallback for missing values)
     """
     global _settings
     if _settings is None:

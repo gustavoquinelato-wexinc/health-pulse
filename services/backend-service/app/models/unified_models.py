@@ -50,6 +50,8 @@ class Tenant(Base):
     wits_hierarchies = relationship("WitHierarchy", back_populates="tenant")
     work_items = relationship("WorkItem", back_populates="tenant")
     changelogs = relationship("Changelog", back_populates="tenant")
+    custom_fields = relationship("CustomField", back_populates="tenant")
+    custom_field_mappings = relationship("CustomFieldMapping", back_populates="tenant")
     repositories = relationship("Repository", back_populates="tenant")
     prs = relationship("Pr", back_populates="tenant")
     prs_reviews = relationship("PrReview", back_populates="tenant")
@@ -227,6 +229,8 @@ class Integration(Base, BaseEntity):
     statuses = relationship("Status", back_populates="integration")
     work_items = relationship("WorkItem", back_populates="integration")
     changelogs = relationship("Changelog", back_populates="integration")
+    custom_fields = relationship("CustomField", back_populates="integration")
+    custom_field_mappings = relationship("CustomFieldMapping", back_populates="integration")
     workflows = relationship("Workflow", back_populates="integration")
     repositories = relationship("Repository", back_populates="integration")
     prs = relationship("Pr", back_populates="integration")
@@ -263,7 +267,6 @@ class Project(Base, IntegrationBaseEntity):
     wits = relationship("Wit", secondary="projects_wits", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     work_items = relationship("WorkItem", back_populates="project")
-    custom_fields = relationship("CustomField", back_populates="project")
     issue_types = relationship("ProjectIssueType", back_populates="project")
 
 class ProjectWits(Base):
@@ -283,32 +286,88 @@ class ProjectsStatuses(Base):
     status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
 
 class CustomField(Base, IntegrationBaseEntity):
-    """Custom fields table - stores Jira custom field definitions by project"""
+    """Custom fields table - stores global Jira custom field definitions"""
     __tablename__ = 'custom_fields'
     __table_args__ = (
-        UniqueConstraint('project_id', 'key', name='uk_custom_fields_project_key'),
+        UniqueConstraint('tenant_id', 'integration_id', 'external_id', name='uk_custom_fields_external_id'),
         {'quote': False}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # === CUSTOM FIELD IDENTIFIERS ===
+    external_id = Column(String(100), nullable=False, quote=False, name="external_id")  # Jira field key like "customfield_10150", "customfield_10128"
     name = Column(String(255), nullable=False, quote=False, name="name")  # Human-readable name like "Aha! Initiative", "Agile Team"
-    key = Column(String(100), nullable=False, quote=False, name="key")  # Jira field key like "customfield_10150", "customfield_10128"
 
     # === FIELD SCHEMA ===
-    schema_type = Column(String(100), nullable=False, quote=False, name="schema_type")  # Schema type like "string", "option", "array", "number", "date", "team"
+    field_type = Column(String(100), nullable=False, quote=False, name="field_type")  # Schema type like "string", "option", "array", "number", "date", "team"
 
     # === FIELD OPERATIONS ===
     operations = Column(JSON, default=list, quote=False, name="operations")  # Array of allowed operations like ["set"], ["add", "set", "remove"]
 
-    # === PROJECT RELATIONSHIP ===
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=False, quote=False, name="project_id")
-
     # Relationships
-    project = relationship("Project", back_populates="custom_fields")
     tenant = relationship("Tenant", back_populates="custom_fields")
     integration = relationship("Integration", back_populates="custom_fields")
+
+
+class CustomFieldMapping(Base, IntegrationBaseEntity):
+    """Custom fields mapping table - stores direct mapping to 20 work item columns"""
+    __tablename__ = 'custom_fields_mapping'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mapping_integration'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === 20 CUSTOM FIELD MAPPINGS ===
+    custom_field_01_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_01_id")
+    custom_field_02_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_02_id")
+    custom_field_03_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_03_id")
+    custom_field_04_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_04_id")
+    custom_field_05_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_05_id")
+    custom_field_06_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_06_id")
+    custom_field_07_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_07_id")
+    custom_field_08_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_08_id")
+    custom_field_09_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_09_id")
+    custom_field_10_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_10_id")
+    custom_field_11_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_11_id")
+    custom_field_12_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_12_id")
+    custom_field_13_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_13_id")
+    custom_field_14_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_14_id")
+    custom_field_15_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_15_id")
+    custom_field_16_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_16_id")
+    custom_field_17_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_17_id")
+    custom_field_18_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_18_id")
+    custom_field_19_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_19_id")
+    custom_field_20_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_20_id")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="custom_field_mappings")
+    integration = relationship("Integration", back_populates="custom_field_mappings")
+
+    # Relationships to custom fields
+    custom_field_01 = relationship("CustomField", foreign_keys=[custom_field_01_id])
+    custom_field_02 = relationship("CustomField", foreign_keys=[custom_field_02_id])
+    custom_field_03 = relationship("CustomField", foreign_keys=[custom_field_03_id])
+    custom_field_04 = relationship("CustomField", foreign_keys=[custom_field_04_id])
+    custom_field_05 = relationship("CustomField", foreign_keys=[custom_field_05_id])
+    custom_field_06 = relationship("CustomField", foreign_keys=[custom_field_06_id])
+    custom_field_07 = relationship("CustomField", foreign_keys=[custom_field_07_id])
+    custom_field_08 = relationship("CustomField", foreign_keys=[custom_field_08_id])
+    custom_field_09 = relationship("CustomField", foreign_keys=[custom_field_09_id])
+    custom_field_10 = relationship("CustomField", foreign_keys=[custom_field_10_id])
+    custom_field_11 = relationship("CustomField", foreign_keys=[custom_field_11_id])
+    custom_field_12 = relationship("CustomField", foreign_keys=[custom_field_12_id])
+    custom_field_13 = relationship("CustomField", foreign_keys=[custom_field_13_id])
+    custom_field_14 = relationship("CustomField", foreign_keys=[custom_field_14_id])
+    custom_field_15 = relationship("CustomField", foreign_keys=[custom_field_15_id])
+    custom_field_16 = relationship("CustomField", foreign_keys=[custom_field_16_id])
+    custom_field_17 = relationship("CustomField", foreign_keys=[custom_field_17_id])
+    custom_field_18 = relationship("CustomField", foreign_keys=[custom_field_18_id])
+    custom_field_19 = relationship("CustomField", foreign_keys=[custom_field_19_id])
+    custom_field_20 = relationship("CustomField", foreign_keys=[custom_field_20_id])
+
 
 class Wit(Base, IntegrationBaseEntity):
     """Work item types table"""

@@ -25,15 +25,43 @@ etlApi.interceptors.request.use(
   }
 )
 
-// Response interceptor for error handling
+// Response interceptor for error handling with token refresh
 etlApi.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
+  async (error) => {
+    const originalRequest = error.config
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+
+      try {
+        // Try to refresh the token
+        const currentToken = localStorage.getItem('pulse_token')
+        if (currentToken) {
+          const refreshResponse = await axios.post('/api/v1/auth/refresh', {}, {
+            headers: { 'Authorization': `Bearer ${currentToken}` }
+          })
+
+          if (refreshResponse.data.success && refreshResponse.data.token) {
+            const newToken = refreshResponse.data.token
+            localStorage.setItem('pulse_token', newToken)
+
+            // Update the original request with new token
+            originalRequest.headers.Authorization = `Bearer ${newToken}`
+
+            // Retry the original request
+            return etlApi(originalRequest)
+          }
+        }
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError)
+      }
+
+      // If refresh fails, logout
       localStorage.removeItem('pulse_token')
       window.location.href = '/login'
     }
+
     return Promise.reject(error)
   }
 )

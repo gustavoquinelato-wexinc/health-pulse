@@ -77,7 +77,7 @@ def create_test_raw_data():
             # Insert test raw data
             insert_query = text("""
                 INSERT INTO raw_extraction_data (
-                    type, raw_data, status, tenant_id, integration_id, created_at, updated_at, active
+                    type, raw_data, status, tenant_id, integration_id, created_at, last_updated_at, active
                 ) VALUES (
                     :type, CAST(:raw_data AS jsonb), 'pending', :tenant_id, :integration_id, NOW(), NOW(), TRUE
                 ) RETURNING id

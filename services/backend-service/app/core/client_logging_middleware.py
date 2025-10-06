@@ -80,25 +80,33 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
     async def _extract_client_context(self, request: Request) -> Optional[Dict[str, Any]]:
         """Extract client context from JWT token."""
         try:
+            # Skip token validation for internal/system endpoints to avoid JWT errors during startup
+            path = str(request.url.path)
+            if any(path.startswith(skip_path) for skip_path in [
+                "/health", "/api/v1/health", "/docs", "/redoc", "/openapi.json",
+                "/favicon.ico", "/static/", "/_internal"
+            ]):
+                return None
+
             # Get token from Authorization header or cookie
             token = None
-            
+
             # Try Authorization header first
             auth_header = request.headers.get("Authorization")
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header[7:]
-            
+
             # Fallback to cookie
             if not token:
                 token = request.cookies.get("pulse_token")
-            
+
             if not token:
                 return None
-            
-            # Validate token and extract user info
+
+            # Validate token and extract user info (suppress JWT errors for middleware)
             auth_service = get_auth_service()
-            user = await auth_service.verify_token(token)
-            
+            user = await auth_service.verify_token(token, suppress_errors=True)
+
             if not user:
                 return None
             

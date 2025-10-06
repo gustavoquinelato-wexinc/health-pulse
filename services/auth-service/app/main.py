@@ -84,7 +84,7 @@ def generate_jwt_token(user_data: Dict[str, Any]) -> str:
         local_now = utc_now.astimezone(tz)
         # Convert to timezone-naive for consistency with backend
         now_default = local_now.replace(tzinfo=None)
-        exp_default = now_default + timedelta(hours=settings.JWT_EXPIRY_HOURS)
+        exp_default = now_default + timedelta(minutes=settings.JWT_EXPIRY_MINUTES)
 
         # For JWT timestamps, convert timezone-naive times to UTC epoch
         # Treat the timezone-naive datetime as if it's in the configured timezone
@@ -97,7 +97,7 @@ def generate_jwt_token(user_data: Dict[str, Any]) -> str:
         logger.warning(f"Timezone conversion failed: {e}, falling back to UTC")
         utc_now = datetime.now(timezone.utc)
         iat_timestamp = int(utc_now.timestamp())
-        exp_timestamp = int((utc_now + timedelta(hours=settings.JWT_EXPIRY_HOURS)).timestamp())
+        exp_timestamp = int((utc_now + timedelta(minutes=settings.JWT_EXPIRY_MINUTES)).timestamp())
         now_default = utc_now.replace(tzinfo=None)
 
     payload = {
@@ -219,7 +219,7 @@ async def generate_token(request: CredentialValidationRequest):
 
         return TokenResponse(
             access_token=access_token,
-            expires_in=settings.JWT_EXPIRY_HOURS * 60 * 60,  # Convert hours to seconds
+            expires_in=settings.JWT_EXPIRY_MINUTES * 60,  # Convert minutes to seconds
             user=validation_result.user
         )
 

@@ -1869,7 +1869,7 @@ async def debug_config():
 async def get_worker_status(
     current_user: User = Depends(require_authentication)
 ):
-    """Get current status of all ETL workers."""
+    """Get current status of ETL workers for the current user's tenant."""
     try:
         from app.workers.worker_manager import get_worker_manager
         from app.core.database import get_database
@@ -1877,7 +1877,29 @@ async def get_worker_status(
 
         # Get worker status
         manager = get_worker_manager()
-        worker_status = manager.get_worker_status()
+
+        # Get tenant-specific worker status only
+        tenant_worker_status = manager.get_tenant_worker_status(current_user.tenant_id)
+
+        # Create a filtered worker status that only shows current tenant
+        worker_status = {
+            'running': manager.running,
+            'worker_count': tenant_worker_status.get('worker_count', 0),
+            'tenant_count': 1 if tenant_worker_status.get('has_workers', False) else 0,
+            'workers': {},
+            'tenants': {}
+        }
+
+        # Include current tenant's workers in the main workers field for frontend compatibility
+        if tenant_worker_status.get('has_workers', False):
+            # Put workers in the main workers field (frontend expects this)
+            worker_status['workers'] = tenant_worker_status['workers']
+
+            # Also include in tenants structure for backward compatibility
+            worker_status['tenants'][str(current_user.tenant_id)] = {
+                'worker_count': tenant_worker_status['worker_count'],
+                'workers': tenant_worker_status['workers']
+            }
 
         # Get queue statistics (basic info)
         queue_stats = {
@@ -1901,12 +1923,12 @@ async def get_worker_status(
                         MIN(created_at) as oldest,
                         MAX(created_at) as newest
                     FROM raw_extraction_data
-                    WHERE active = true
+                    WHERE active = true AND tenant_id = :tenant_id
                     GROUP BY status, type
                     ORDER BY status, type
                 """)
 
-                result = session.execute(query).fetchall()
+                result = session.execute(query, {"tenant_id": current_user.tenant_id}).fetchall()
 
                 for row in result:
                     key = f"{row.status}_{row.type}"
@@ -1938,43 +1960,178 @@ async def worker_action(
     request: WorkerActionRequest,
     current_user: User = Depends(require_authentication)
 ):
-    """Perform action on ETL workers (start/stop/restart)."""
+    """Perform action on ETL workers for current user's tenant (start/stop/restart)."""
     try:
         from app.workers.worker_manager import get_worker_manager
 
         manager = get_worker_manager()
 
+        # Only control workers for the current user's tenant
+        tenant_id = current_user.tenant_id
+
         if request.action == "start":
-            success = manager.start_all_workers()
-            message = "Workers started successfully" if success else "Failed to start workers"
+            success = manager.start_tenant_workers(tenant_id)
+            message = f"Workers started for tenant {tenant_id}" if success else f"Failed to start workers for tenant {tenant_id}"
         elif request.action == "stop":
-            manager.stop_all_workers()
-            success = True
-            message = "Workers stopped successfully"
+            success = manager.stop_tenant_workers(tenant_id)
+            message = f"Workers stopped for tenant {tenant_id}" if success else f"Failed to stop workers for tenant {tenant_id}"
         elif request.action == "restart":
-            manager.stop_all_workers()
-            success = manager.start_all_workers()
-            message = "Workers restarted successfully" if success else "Failed to restart workers"
+            manager.stop_tenant_workers(tenant_id)
+            success = manager.start_tenant_workers(tenant_id)
+            message = f"Workers restarted for tenant {tenant_id}" if success else f"Failed to restart workers for tenant {tenant_id}"
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
             )
 
-        logger.info(f"Worker action '{request.action}' performed by user {current_user.username}")
+        logger.info(f"Tenant {tenant_id} worker action '{request.action}' performed by user {current_user.email}")
 
         return {
             "success": success,
             "message": message,
-            "action": request.action
+            "action": request.action,
+            "tenant_id": tenant_id
         }
 
     except Exception as e:
-        logger.error(f"Error performing worker action '{request.action}': {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to perform worker action: {str(e)}"
-        )
+        logger.error(f"Error controlling workers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to control workers: {str(e)}")
+
+
+# Tenant-specific worker management endpoints
+class TenantWorkerControlRequest(BaseModel):
+    action: str  # 'start', 'stop', 'restart'
+    tenant_id: int
+
+
+@router.post("/workers/tenant/control")
+async def control_tenant_workers(
+    request: TenantWorkerControlRequest,
+    current_user: User = Depends(require_permission("admin_panel", "write"))
+):
+    """Control worker operations for a specific tenant"""
+    try:
+        from app.workers.worker_manager import get_worker_manager
+        manager = get_worker_manager()
+
+        # Verify user has access to this tenant (users can only access their own tenant)
+        if current_user.tenant_id != request.tenant_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied to this tenant's workers"
+            )
+
+        if request.action == "start":
+            success = manager.start_tenant_workers(request.tenant_id)
+            message = f"Workers started for tenant {request.tenant_id}" if success else f"Failed to start workers for tenant {request.tenant_id}"
+        elif request.action == "stop":
+            success = manager.stop_tenant_workers(request.tenant_id)
+            message = f"Workers stopped for tenant {request.tenant_id}" if success else f"Failed to stop workers for tenant {request.tenant_id}"
+        elif request.action == "restart":
+            manager.stop_tenant_workers(request.tenant_id)
+            success = manager.start_tenant_workers(request.tenant_id)
+            message = f"Workers restarted for tenant {request.tenant_id}" if success else f"Failed to restart workers for tenant {request.tenant_id}"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
+            )
+
+        logger.info(f"Tenant {request.tenant_id} worker action '{request.action}' performed by user {current_user.email}")
+
+        return {
+            "success": success,
+            "message": message,
+            "action": request.action,
+            "tenant_id": request.tenant_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error controlling tenant workers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to control tenant workers: {str(e)}")
+
+
+@router.get("/workers/tenant/{tenant_id}/status")
+async def get_tenant_worker_status(
+    tenant_id: int,
+    current_user: User = Depends(require_permission("admin_panel", "read"))
+):
+    """Get worker status for a specific tenant"""
+    try:
+        from app.workers.worker_manager import get_worker_manager
+        manager = get_worker_manager()
+
+        # Verify user has access to this tenant (users can only access their own tenant)
+        if current_user.tenant_id != tenant_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied to this tenant's worker status"
+            )
+
+        status = manager.get_tenant_worker_status(tenant_id)
+        return status
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tenant worker status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get tenant worker status: {str(e)}")
+
+
+@router.get("/debug/user-info")
+async def get_debug_user_info(
+    current_user: User = Depends(require_authentication)
+):
+    """Debug endpoint to check current user's tenant assignment and worker status"""
+    try:
+        from app.workers.worker_manager import get_worker_manager
+        from app.core.database import get_database
+        from app.models.unified_models import Tenant
+
+        # Get user info
+        user_info = {
+            "user_id": current_user.user_id,
+            "email": current_user.email,
+            "tenant_id": current_user.tenant_id,
+            "role": current_user.role,
+            "is_admin": current_user.is_admin
+        }
+
+        # Get tenant info
+        database = get_database()
+        with database.get_session() as session:
+            tenant = session.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+            tenant_info = {
+                "id": tenant.id if tenant else None,
+                "name": tenant.name if tenant else None,
+                "active": tenant.active if tenant else None
+            } if tenant else {"error": "Tenant not found"}
+
+        # Get worker status for this tenant
+        manager = get_worker_manager()
+        worker_status = manager.get_tenant_worker_status(current_user.tenant_id)
+
+        # Get all active tenants
+        all_tenant_ids = manager._get_active_tenant_ids()
+
+        return {
+            "user": user_info,
+            "tenant": tenant_info,
+            "worker_status": worker_status,
+            "all_active_tenants": all_tenant_ids,
+            "debug_info": {
+                "workers_running": manager.running,
+                "total_workers": len(manager.worker_threads),
+                "tenant_workers": list(manager.tenant_workers.keys())
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting debug user info: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get debug info: {str(e)}")
 
 
 @router.get("/workers/logs", response_model=WorkerLogsResponse)

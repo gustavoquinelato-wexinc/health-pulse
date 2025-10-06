@@ -409,7 +409,7 @@ async def queue_custom_fields_for_processing(
                 # Insert into raw_extraction_data (simplified structure)
                 insert_query = text("""
                     INSERT INTO raw_extraction_data (
-                        type, raw_data, status, tenant_id, integration_id, created_at, updated_at, active
+                        type, raw_data, status, tenant_id, integration_id, created_at, last_updated_at, active
                     ) VALUES (
                         :type, CAST(:raw_data AS jsonb), 'pending', :tenant_id, :integration_id, NOW(), NOW(), TRUE
                     ) RETURNING id
@@ -437,28 +437,22 @@ async def queue_custom_fields_for_processing(
 
         logger.info(f"Stored custom fields data in raw_extraction_data: ID={raw_data_id}, project={project_key}")
 
-        # Step 2: Queue lightweight reference message
+        # Step 2: Queue lightweight reference message to tenant-specific transform queue
         queue_manager = QueueManager()
 
-        queue_message = {
-            'type': 'jira_custom_fields',  # Fixed: Use the correct type that the worker expects
-            'raw_data_id': raw_data_id,           # Reference to stored data
-            'integration_id': integration_id,
-            'tenant_id': tenant_id,
-            'project_key': project_key,
-            'project_name': project_name,
-            'discovered_fields_count': len(discovered_fields),
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'status': 'pending'
-        }
-
-        # Publish lightweight message to transform queue
-        queue_manager.publish_message(
-            queue_name=queue_manager.TRANSFORM_QUEUE,
-            message=queue_message
+        # Publish lightweight message to tenant-specific transform queue
+        success = queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            raw_data_id=raw_data_id,
+            data_type='jira_custom_fields'
         )
 
-        logger.info(f"Queued custom fields for processing: raw_data_id={raw_data_id}, project={project_key}")
+        if success:
+            logger.info(f"✅ Queued custom fields for processing: raw_data_id={raw_data_id}, project={project_key}, tenant={tenant_id}")
+        else:
+            logger.error(f"❌ Failed to queue custom fields for processing: raw_data_id={raw_data_id}, project={project_key}, tenant={tenant_id}")
+            raise Exception("Failed to queue custom fields for processing")
 
     except Exception as e:
         logger.error(f"Failed to store/queue custom fields data: {e}")
