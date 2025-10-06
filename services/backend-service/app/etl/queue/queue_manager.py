@@ -16,24 +16,23 @@ logger = logging.getLogger(__name__)
 class QueueManager:
     """
     Manages RabbitMQ connections and queue operations for ETL pipeline.
-    
-    Queue Topology:
-    - extract_queue: Raw data extraction jobs
-    - transform_queue: Transform jobs (Phase 1)
-    - load_queue: Load jobs (Phase 2)
+
+    Multi-Tenant Queue Topology:
+    - transform_queue_tenant_{tenant_id}: Process raw data → final tables (per tenant)
+    - Supports dynamic queue creation and worker management per tenant
     """
-    
+
     def __init__(
         self,
-        host: str = None,
-        port: int = None,
-        username: str = None,
-        password: str = None,
-        vhost: str = None
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        vhost: Optional[str] = None
     ):
         """
         Initialize Queue Manager with RabbitMQ connection parameters.
-        
+
         Args:
             host: RabbitMQ host (default: from env or 'localhost')
             port: RabbitMQ port (default: from env or 5672)
@@ -41,18 +40,29 @@ class QueueManager:
             password: RabbitMQ password (default: from env or 'etl_password')
             vhost: RabbitMQ virtual host (default: from env or 'pulse_etl')
         """
-        self.host = host or os.getenv('RABBITMQ_HOST', 'localhost')
-        self.port = port or int(os.getenv('RABBITMQ_PORT', '5672'))
-        self.username = username or os.getenv('RABBITMQ_USER', 'etl_user')
-        self.password = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
-        self.vhost = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
-        
-        # Queue names
-        self.EXTRACT_QUEUE = 'extract_queue'
-        self.TRANSFORM_QUEUE = 'transform_queue'
-        self.LOAD_QUEUE = 'load_queue'
-        
+        self.host: str = host or os.getenv('RABBITMQ_HOST', 'localhost')
+        self.port: int = port if port is not None else int(os.getenv('RABBITMQ_PORT', '5672'))
+        self.username: str = username or os.getenv('RABBITMQ_USER', 'etl_user')
+        self.password: str = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
+        self.vhost: str = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
+
+        # Multi-tenant queue topology
+        self.TRANSFORM_QUEUE_PREFIX = 'transform_queue_tenant_'
+
         logger.info(f"QueueManager initialized: {self.username}@{self.host}:{self.port}/{self.vhost}")
+
+    def get_tenant_queue_name(self, tenant_id: int, queue_type: str = 'transform') -> str:
+        """
+        Get tenant-specific queue name.
+
+        Args:
+            tenant_id: Tenant ID
+            queue_type: Type of queue ('transform', 'vectorization', etc.)
+
+        Returns:
+            str: Tenant-specific queue name
+        """
+        return f"{queue_type}_queue_tenant_{tenant_id}"
     
     def _get_connection(self) -> pika.BlockingConnection:
         """
@@ -101,82 +111,85 @@ class QueueManager:
             if connection and connection.is_open:
                 connection.close()
     
-    def setup_queues(self):
+    def setup_queues(self, tenant_ids: Optional[list] = None):
         """
-        Set up queue topology (declare all queues).
-        Should be called once during application startup.
+        Set up multi-tenant queue topology.
+        Creates queues for specified tenants or discovers active tenants.
+
+        Args:
+            tenant_ids: List of tenant IDs to create queues for. If None, discovers active tenants.
         """
         with self.get_channel() as channel:
-            # Declare extract queue
-            channel.queue_declare(
-                queue=self.EXTRACT_QUEUE,
-                durable=True,  # Survive broker restart
-                arguments={'x-message-ttl': 86400000}  # 24 hours TTL
-            )
-            logger.info(f"Queue declared: {self.EXTRACT_QUEUE}")
-            
-            # Declare transform queue
-            channel.queue_declare(
-                queue=self.TRANSFORM_QUEUE,
-                durable=True,
-                arguments={'x-message-ttl': 86400000}
-            )
-            logger.info(f"Queue declared: {self.TRANSFORM_QUEUE}")
-            
-            # Declare load queue
-            channel.queue_declare(
-                queue=self.LOAD_QUEUE,
-                durable=True,
-                arguments={'x-message-ttl': 86400000}
-            )
-            logger.info(f"Queue declared: {self.LOAD_QUEUE}")
-            
-        logger.info("✅ Queue topology setup complete")
-    
-    def publish_extract_job(
-        self,
-        tenant_id: int,
-        integration_id: int,
-        job_type: str,
-        job_params: Dict[str, Any]
-    ) -> bool:
+            # Get active tenant IDs if not provided
+            if tenant_ids is None:
+                tenant_ids = self._get_active_tenant_ids()
+
+            # Create tenant-specific queues
+            for tenant_id in tenant_ids:
+                queue_name = self.get_tenant_queue_name(tenant_id, 'transform')
+                channel.queue_declare(
+                    queue=queue_name,
+                    durable=True,  # Survive broker restart
+                    arguments={'x-message-ttl': 86400000}  # 24 hours TTL
+                )
+                logger.info(f"Queue declared: {queue_name}")
+
+            # Legacy queue removed - using only tenant-specific queues
+
+        logger.info(f"✅ Multi-tenant queue topology setup complete for {len(tenant_ids)} tenants")
+
+    def setup_tenant_queue(self, tenant_id: int, queue_type: str = 'transform'):
         """
-        Publish an extraction job to the extract queue.
-        
+        Set up queue for a specific tenant.
+
         Args:
             tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_type: Type of extraction job ('jira_sync', 'github_sync', etc.)
-            job_params: Job parameters (JQL, date range, etc.)
-            
-        Returns:
-            bool: True if published successfully
+            queue_type: Type of queue to create
         """
-        message = {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'job_type': job_type,
-            'job_params': job_params
-        }
-        
-        return self._publish_message(self.EXTRACT_QUEUE, message)
+        queue_name = self.get_tenant_queue_name(tenant_id, queue_type)
+
+        with self.get_channel() as channel:
+            channel.queue_declare(
+                queue=queue_name,
+                durable=True,
+                arguments={'x-message-ttl': 86400000}
+            )
+            logger.info(f"Tenant queue declared: {queue_name}")
+
+        return queue_name
+
+    def _get_active_tenant_ids(self) -> list:
+        """Get list of active tenant IDs from database."""
+        try:
+            from app.core.database import get_database
+            from app.models.unified_models import Tenant
+
+            database = get_database()
+            with database.get_session() as session:
+                tenants = session.query(Tenant).filter(Tenant.active == True).all()
+                tenant_ids = [tenant.id for tenant in tenants]
+                logger.info(f"Found {len(tenant_ids)} active tenants: {tenant_ids}")
+                return tenant_ids
+        except Exception as e:
+            logger.error(f"Failed to get active tenant IDs: {e}")
+            return [1]  # Fallback to tenant 1
     
     def publish_transform_job(
         self,
         tenant_id: int,
         integration_id: int,
         raw_data_id: int,
-        entity_type: str
+        data_type: str
     ) -> bool:
         """
-        Publish a transform job to the transform queue.
-        
+        Publish a transform job to the tenant-specific transform queue.
+
         Args:
             tenant_id: Tenant ID
             integration_id: Integration ID
             raw_data_id: ID of raw_extraction_data record
-            entity_type: Type of entity ('jira_issues_batch', 'github_prs_batch', etc.)
-            
+            data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
+
         Returns:
             bool: True if published successfully
         """
@@ -184,39 +197,33 @@ class QueueManager:
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'raw_data_id': raw_data_id,
-            'entity_type': entity_type
+            'type': data_type
         }
-        
-        return self._publish_message(self.TRANSFORM_QUEUE, message)
-    
-    def publish_load_job(
-        self,
-        tenant_id: int,
-        integration_id: int,
-        transformed_data_id: int,
-        entity_type: str
-    ) -> bool:
+
+        # Use tenant-specific queue
+        tenant_queue = self.get_tenant_queue_name(tenant_id, 'transform')
+
+        # Ensure tenant queue exists
+        try:
+            self.setup_tenant_queue(tenant_id, 'transform')
+        except Exception as e:
+            logger.warning(f"Failed to ensure tenant queue exists: {e}")
+
+        return self._publish_message(tenant_queue, message)
+
+    def publish_message(self, queue_name: str, message: Dict[str, Any]) -> bool:
         """
-        Publish a load job to the load queue.
-        
+        Public method to publish a message to any queue.
+
         Args:
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            transformed_data_id: ID of transformed data record
-            entity_type: Type of entity
-            
+            queue_name: Name of the queue
+            message: Message dictionary to publish
+
         Returns:
             bool: True if published successfully
         """
-        message = {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'transformed_data_id': transformed_data_id,
-            'entity_type': entity_type
-        }
-        
-        return self._publish_message(self.LOAD_QUEUE, message)
-    
+        return self._publish_message(queue_name, message)
+
     def _publish_message(self, queue_name: str, message: Dict[str, Any]) -> bool:
         """
         Internal method to publish a message to a queue.
@@ -280,7 +287,40 @@ class QueueManager:
             
             logger.info(f"Started consuming from {queue_name}")
             channel.start_consuming()
-    
+
+    def get_single_message(self, queue_name: str, timeout: float = 1.0) -> Optional[Dict[str, Any]]:
+        """
+        Get a single message from the queue with timeout.
+
+        Args:
+            queue_name: Name of the queue to get message from
+            timeout: Timeout in seconds
+
+        Returns:
+            Message dict if available, None if no message or timeout
+        """
+        try:
+            with self.get_channel() as channel:
+                method_frame, header_frame, body = channel.basic_get(queue=queue_name, auto_ack=False)
+
+                if method_frame:
+                    try:
+                        message = json.loads(body)
+                        # Acknowledge the message
+                        channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+                        return message
+                    except Exception as e:
+                        logger.error(f"Error parsing message: {e}")
+                        # Reject and requeue the message
+                        channel.basic_nack(delivery_tag=method_frame.delivery_tag, requeue=True)
+                        return None
+                else:
+                    return None
+
+        except Exception as e:
+            logger.error(f"Error getting message from {queue_name}: {e}")
+            return None
+
     def get_queue_stats(self, queue_name: str) -> Optional[Dict[str, int]]:
         """
         Get statistics for a queue.

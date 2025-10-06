@@ -11,7 +11,9 @@ from typing import Any, Dict, List, Optional, Union
 from functools import wraps
 import time
 
-logger = logging.getLogger(__name__)
+from app.core.logging_config import get_enhanced_logger
+
+logger = get_enhanced_logger(__name__)
 
 
 class DateTimeHelper:
@@ -654,7 +656,11 @@ class RetryHelper:
                         )
                         raise e
 
-                raise last_exception
+                # Ensure we have an exception to raise
+                if last_exception is not None:
+                    raise last_exception
+                else:
+                    raise Exception("Function failed but no exception was captured")
 
             return wrapper
         return decorator
@@ -664,7 +670,7 @@ class ConfigHelper:
     """Configuration utilities."""
     
     @staticmethod
-    def mask_sensitive_data(data: Dict, sensitive_keys: List[str] = None) -> Dict:
+    def mask_sensitive_data(data: Dict, sensitive_keys: Optional[List[str]] = None) -> Dict:
         """Masks sensitive data in dictionaries for logging."""
         if sensitive_keys is None:
             sensitive_keys = ['password', 'token', 'key', 'secret', 'credential']
@@ -672,7 +678,7 @@ class ConfigHelper:
         masked_data = data.copy()
         
         for key, value in masked_data.items():
-            if any(sensitive_key.lower() in key.lower() for sensitive_key in sensitive_keys):
+            if sensitive_keys and any(sensitive_key.lower() in key.lower() for sensitive_key in sensitive_keys):
                 if isinstance(value, str) and len(value) > 4:
                     masked_data[key] = value[:2] + '*' * (len(value) - 4) + value[-2:]
                 else:

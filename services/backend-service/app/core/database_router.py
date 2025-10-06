@@ -39,12 +39,13 @@ class DatabaseRouter:
 
     def _setup_pgvector_event_listener(self, engine):
         """Set up event listener to register pgvector on every new connection."""
-        if register_vector:
+        if register_vector is not None:
             @event.listens_for(engine, "connect")
             def register_vector_on_connect(dbapi_connection, connection_record):
                 try:
-                    register_vector(dbapi_connection)
-                    logger.debug("pgvector registered for new connection")
+                    if register_vector is not None:  # Double check for type safety
+                        register_vector(dbapi_connection)
+                        logger.debug("pgvector registered for new connection")
                 except Exception as e:
                     logger.warning(f"Failed to register pgvector for connection: {e}")
 
@@ -242,27 +243,65 @@ class DatabaseRouter:
     
     def get_connection_pool_stats(self) -> dict:
         """Get current connection pool statistics."""
-        primary_stats = {
-            'size': self.primary_engine.pool.size(),
-            'checked_in': self.primary_engine.pool.checkedin(),
-            'checked_out': self.primary_engine.pool.checkedout(),
-            'overflow': self.primary_engine.pool.overflow(),
-            'utilization': self.primary_engine.pool.checkedout() / 
-                          (self.primary_engine.pool.size() + self.primary_engine.pool.overflow()) if 
-                          (self.primary_engine.pool.size() + self.primary_engine.pool.overflow()) > 0 else 0
-        }
-        
+        try:
+            # Get pool stats safely with proper attribute access
+            if self.primary_engine is None:
+                raise Exception("Primary engine not initialized")
+            pool = self.primary_engine.pool
+            size = getattr(pool, 'size', lambda: 0)()
+            checked_in = getattr(pool, 'checkedin', lambda: 0)()
+            checked_out = getattr(pool, 'checkedout', lambda: 0)()
+            overflow = getattr(pool, 'overflow', lambda: 0)()
+
+            total_capacity = size + overflow
+            utilization = checked_out / total_capacity if total_capacity > 0 else 0
+
+            primary_stats = {
+                'size': size,
+                'checked_in': checked_in,
+                'checked_out': checked_out,
+                'overflow': overflow,
+                'utilization': utilization
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get primary pool stats: {e}")
+            primary_stats = {
+                'size': 0,
+                'checked_in': 0,
+                'checked_out': 0,
+                'overflow': 0,
+                'utilization': 0
+            }
+
         replica_stats = None
         if self.replica_engine:
-            replica_stats = {
-                'size': self.replica_engine.pool.size(),
-                'checked_in': self.replica_engine.pool.checkedin(),
-                'checked_out': self.replica_engine.pool.checkedout(),
-                'overflow': self.replica_engine.pool.overflow(),
-                'utilization': self.replica_engine.pool.checkedout() / 
-                              (self.replica_engine.pool.size() + self.replica_engine.pool.overflow()) if 
-                              (self.replica_engine.pool.size() + self.replica_engine.pool.overflow()) > 0 else 0
-            }
+            try:
+                # Get replica pool stats safely with proper attribute access
+                pool = self.replica_engine.pool
+                size = getattr(pool, 'size', lambda: 0)()
+                checked_in = getattr(pool, 'checkedin', lambda: 0)()
+                checked_out = getattr(pool, 'checkedout', lambda: 0)()
+                overflow = getattr(pool, 'overflow', lambda: 0)()
+
+                total_capacity = size + overflow
+                utilization = checked_out / total_capacity if total_capacity > 0 else 0
+
+                replica_stats = {
+                    'size': size,
+                    'checked_in': checked_in,
+                    'checked_out': checked_out,
+                    'overflow': overflow,
+                    'utilization': utilization
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get replica pool stats: {e}")
+                replica_stats = {
+                    'size': 0,
+                    'checked_in': 0,
+                    'checked_out': 0,
+                    'overflow': 0,
+                    'utilization': 0
+                }
         
         return {
             'primary': primary_stats,

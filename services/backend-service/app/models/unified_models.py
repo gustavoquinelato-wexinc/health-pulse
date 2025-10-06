@@ -8,8 +8,13 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Tex
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import TypeDecorator, Text as SQLText
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 import json
+from datetime import datetime, timezone
+import uuid
+
+if TYPE_CHECKING:
+    from sqlalchemy.sql.elements import ColumnElement
 
 
 
@@ -45,6 +50,8 @@ class Tenant(Base):
     wits_hierarchies = relationship("WitHierarchy", back_populates="tenant")
     work_items = relationship("WorkItem", back_populates="tenant")
     changelogs = relationship("Changelog", back_populates="tenant")
+    custom_fields = relationship("CustomField", back_populates="tenant")
+    custom_field_mappings = relationship("CustomFieldMapping", back_populates="tenant")
     repositories = relationship("Repository", back_populates="tenant")
     prs = relationship("Pr", back_populates="tenant")
     prs_reviews = relationship("PrReview", back_populates="tenant")
@@ -64,6 +71,13 @@ class Tenant(Base):
     qdrant_vectors = relationship("QdrantVector", back_populates="tenant")
     ai_usage_trackings = relationship("AIUsageTracking", back_populates="tenant")
     vectorization_queue = relationship("VectorizationQueue", back_populates="tenant")
+
+    # Phase 2.1: Issue types discovery relationships
+    projects_issue_types = relationship("ProjectIssueType", back_populates="tenant")
+
+    # Phase 1: Raw extraction data relationships
+    raw_extraction_data = relationship("RawExtractionData", back_populates="tenant")
+    custom_fields = relationship("CustomField", back_populates="tenant")
 
 
 class BaseEntity:
@@ -138,7 +152,7 @@ class User(Base, BaseEntity):
             "colorblind_safe_palette": self.colorblind_safe_palette,
             "accessibility_level": self.accessibility_level,
             "profile_image_filename": self.profile_image_filename,
-            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at is not None else None,
             "tenant_id": self.tenant_id,
             "active": self.active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -188,26 +202,25 @@ class UserPermission(Base, BaseEntity):
 
 
 class Integration(Base, BaseEntity):
-    """Clean integrations table (Phase 3-1)"""
+    """Clean integrations table with unified settings architecture"""
     __tablename__ = 'integrations'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # Core integration fields
-    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', 'Local Embeddings'
-    type = Column(String(50), nullable=False, name="type")  # 'Data', 'AI', 'Embedding'
+    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', etc.
+    type = Column(String(50), nullable=False, name="type")  # 'Data', 'AI', 'Embedding', 'System'
     username = Column(String, name="username")
-    password = Column(String, name="password")
+    password = Column(String, name="password")  # Encrypted tokens/passwords
     base_url = Column(Text, name="base_url")
-    base_search = Column(String, name="base_search")
-    ai_model = Column(String(100), name="ai_model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-    # JSON configuration columns for AI providers
-    ai_model_config = Column(JSON, default={}, name="ai_model_config")  # AI model configuration
-    cost_config = Column(JSON, default={}, name="cost_config")  # Cost tracking and limits
+    # Unified settings JSON for all integration-specific configuration
+    settings = Column(JSON, default={}, name="settings")  # Type-specific settings (projects, models, costs, etc.)
+
     fallback_integration_id = Column(Integer, quote=False, name="fallback_integration_id")  # FK to another integration for fallback
     logo_filename = Column(String(255), quote=False, name="logo_filename")  # Filename of integration logo (stored in tenant assets folder)
+    custom_field_mappings = Column(JSON, default={}, name="custom_field_mappings")  # Custom field mappings for Jira integrations
 
     # Relationships
     tenant = relationship("Tenant", back_populates="integrations")
@@ -216,6 +229,8 @@ class Integration(Base, BaseEntity):
     statuses = relationship("Status", back_populates="integration")
     work_items = relationship("WorkItem", back_populates="integration")
     changelogs = relationship("Changelog", back_populates="integration")
+    custom_fields = relationship("CustomField", back_populates="integration")
+    custom_field_mappings = relationship("CustomFieldMapping", back_populates="integration")
     workflows = relationship("Workflow", back_populates="integration")
     repositories = relationship("Repository", back_populates="integration")
     prs = relationship("Pr", back_populates="integration")
@@ -227,6 +242,13 @@ class Integration(Base, BaseEntity):
     statuses_mappings = relationship("StatusMapping", back_populates="integration")
     wits_hierarchies = relationship("WitHierarchy", back_populates="integration")
     wits_mappings = relationship("WitMapping", back_populates="integration")
+
+    # Phase 2.1: Issue types discovery relationships
+    projects_issue_types = relationship("ProjectIssueType", back_populates="integration")
+
+    # Phase 1: Raw extraction data relationships
+    raw_extraction_data = relationship("RawExtractionData", back_populates="integration")
+    custom_fields = relationship("CustomField", back_populates="integration")
 
 class Project(Base, IntegrationBaseEntity):
     """Projects table"""
@@ -245,6 +267,7 @@ class Project(Base, IntegrationBaseEntity):
     wits = relationship("Wit", secondary="projects_wits", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     work_items = relationship("WorkItem", back_populates="project")
+    issue_types = relationship("ProjectIssueType", back_populates="project")
 
 class ProjectWits(Base):
     """Relationship table between projects and work item types"""
@@ -261,6 +284,90 @@ class ProjectsStatuses(Base):
 
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
+
+class CustomField(Base, IntegrationBaseEntity):
+    """Custom fields table - stores global Jira custom field definitions"""
+    __tablename__ = 'custom_fields'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'integration_id', 'external_id', name='uk_custom_fields_external_id'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === CUSTOM FIELD IDENTIFIERS ===
+    external_id = Column(String(100), nullable=False, quote=False, name="external_id")  # Jira field key like "customfield_10150", "customfield_10128"
+    name = Column(String(255), nullable=False, quote=False, name="name")  # Human-readable name like "Aha! Initiative", "Agile Team"
+
+    # === FIELD SCHEMA ===
+    field_type = Column(String(100), nullable=False, quote=False, name="field_type")  # Schema type like "string", "option", "array", "number", "date", "team"
+
+    # === FIELD OPERATIONS ===
+    operations = Column(JSON, default=list, quote=False, name="operations")  # Array of allowed operations like ["set"], ["add", "set", "remove"]
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="custom_fields")
+    integration = relationship("Integration", back_populates="custom_fields")
+
+
+class CustomFieldMapping(Base, IntegrationBaseEntity):
+    """Custom fields mapping table - stores direct mapping to 20 work item columns"""
+    __tablename__ = 'custom_fields_mapping'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mapping_integration'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === 20 CUSTOM FIELD MAPPINGS ===
+    custom_field_01_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_01_id")
+    custom_field_02_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_02_id")
+    custom_field_03_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_03_id")
+    custom_field_04_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_04_id")
+    custom_field_05_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_05_id")
+    custom_field_06_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_06_id")
+    custom_field_07_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_07_id")
+    custom_field_08_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_08_id")
+    custom_field_09_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_09_id")
+    custom_field_10_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_10_id")
+    custom_field_11_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_11_id")
+    custom_field_12_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_12_id")
+    custom_field_13_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_13_id")
+    custom_field_14_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_14_id")
+    custom_field_15_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_15_id")
+    custom_field_16_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_16_id")
+    custom_field_17_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_17_id")
+    custom_field_18_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_18_id")
+    custom_field_19_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_19_id")
+    custom_field_20_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_20_id")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="custom_field_mappings")
+    integration = relationship("Integration", back_populates="custom_field_mappings")
+
+    # Relationships to custom fields
+    custom_field_01 = relationship("CustomField", foreign_keys=[custom_field_01_id])
+    custom_field_02 = relationship("CustomField", foreign_keys=[custom_field_02_id])
+    custom_field_03 = relationship("CustomField", foreign_keys=[custom_field_03_id])
+    custom_field_04 = relationship("CustomField", foreign_keys=[custom_field_04_id])
+    custom_field_05 = relationship("CustomField", foreign_keys=[custom_field_05_id])
+    custom_field_06 = relationship("CustomField", foreign_keys=[custom_field_06_id])
+    custom_field_07 = relationship("CustomField", foreign_keys=[custom_field_07_id])
+    custom_field_08 = relationship("CustomField", foreign_keys=[custom_field_08_id])
+    custom_field_09 = relationship("CustomField", foreign_keys=[custom_field_09_id])
+    custom_field_10 = relationship("CustomField", foreign_keys=[custom_field_10_id])
+    custom_field_11 = relationship("CustomField", foreign_keys=[custom_field_11_id])
+    custom_field_12 = relationship("CustomField", foreign_keys=[custom_field_12_id])
+    custom_field_13 = relationship("CustomField", foreign_keys=[custom_field_13_id])
+    custom_field_14 = relationship("CustomField", foreign_keys=[custom_field_14_id])
+    custom_field_15 = relationship("CustomField", foreign_keys=[custom_field_15_id])
+    custom_field_16 = relationship("CustomField", foreign_keys=[custom_field_16_id])
+    custom_field_17 = relationship("CustomField", foreign_keys=[custom_field_17_id])
+    custom_field_18 = relationship("CustomField", foreign_keys=[custom_field_18_id])
+    custom_field_19 = relationship("CustomField", foreign_keys=[custom_field_19_id])
+    custom_field_20 = relationship("CustomField", foreign_keys=[custom_field_20_id])
+
 
 class Wit(Base, IntegrationBaseEntity):
     """Work item types table"""
@@ -437,6 +544,7 @@ class WorkItem(Base, IntegrationBaseEntity):
     custom_field_18 = Column(String, quote=False, name="custom_field_18")
     custom_field_19 = Column(String, quote=False, name="custom_field_19")
     custom_field_20 = Column(String, quote=False, name="custom_field_20")
+    custom_fields_overflow = Column(JSON, quote=False, name="custom_fields_overflow")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="work_items")
@@ -638,23 +746,23 @@ class SystemSettings(Base, BaseEntity):
 
     def get_typed_value(self):
         """Returns the setting value converted to its proper type."""
-        if self.setting_type == 'integer':
-            return int(self.setting_value)
-        elif self.setting_type == 'boolean':
-            return self.setting_value.lower() in ('true', '1', 'yes', 'on')
-        elif self.setting_type == 'json':
+        if self.setting_type == 'integer':  # type: ignore
+            return int(self.setting_value)  # type: ignore
+        elif self.setting_type == 'boolean':  # type: ignore
+            return self.setting_value.lower() in ('true', '1', 'yes', 'on')  # type: ignore
+        elif self.setting_type == 'json':  # type: ignore
             import json
-            return json.loads(self.setting_value)
+            return json.loads(self.setting_value)  # type: ignore
         else:
             return self.setting_value
 
     def set_typed_value(self, value):
         """Sets the setting value from a typed value."""
-        if self.setting_type == 'integer':
+        if self.setting_type == 'integer':  # type: ignore
             self.setting_value = str(int(value))
-        elif self.setting_type == 'boolean':
+        elif self.setting_type == 'boolean':  # type: ignore
             self.setting_value = str(bool(value)).lower()
-        elif self.setting_type == 'json':
+        elif self.setting_type == 'json':  # type: ignore
             import json
             self.setting_value = json.dumps(value)
         else:
@@ -759,11 +867,11 @@ class JobSchedule(Base, IntegrationBaseEntity):
         else:  # other job is 'FINISHED' or 'PAUSED'
             self.status = 'PENDING'
 
-    def set_pending_with_checkpoint(self, error_message: str, repo_checkpoint: DateTime = None,
-                                   repo_queue: list = None, last_pr_cursor: str = None,
-                                   current_pr_node_id: str = None, last_commit_cursor: str = None,
-                                   last_review_cursor: str = None, last_comment_cursor: str = None,
-                                   last_review_thread_cursor: str = None):
+    def set_pending_with_checkpoint(self, error_message: str, repo_checkpoint: Optional[datetime] = None,
+                                   repo_queue: Optional[List[Any]] = None, last_pr_cursor: Optional[str] = None,
+                                   current_pr_node_id: Optional[str] = None, last_commit_cursor: Optional[str] = None,
+                                   last_review_cursor: Optional[str] = None, last_comment_cursor: Optional[str] = None,
+                                   last_review_thread_cursor: Optional[str] = None):
         """Mark job as pending with checkpoint data for recovery."""
         self.status = 'PENDING'
         self.error_message = error_message
@@ -795,9 +903,9 @@ class JobSchedule(Base, IntegrationBaseEntity):
     def get_checkpoint_state(self) -> Dict[str, Any]:
         """Get current checkpoint state for recovery."""
         repo_queue = None
-        if self.repo_processing_queue:
+        if self.repo_processing_queue:  # type: ignore
             import json
-            repo_queue = json.loads(self.repo_processing_queue)
+            repo_queue = json.loads(self.repo_processing_queue)  # type: ignore
 
         return {
             'repo_processing_queue': repo_queue,
@@ -842,11 +950,11 @@ class JobSchedule(Base, IntegrationBaseEntity):
 
     def mark_repo_finished(self, repo_id: str):
         """Mark repository as completed in the queue."""
-        if not self.repo_processing_queue:
+        if not self.repo_processing_queue:  # type: ignore
             return
 
         import json
-        queue = json.loads(self.repo_processing_queue)
+        queue = json.loads(self.repo_processing_queue)  # type: ignore
         repo_found = False
         for repo in queue:
             if repo["repo_id"] == repo_id:
@@ -874,11 +982,11 @@ class JobSchedule(Base, IntegrationBaseEntity):
 
     def cleanup_finished_repos(self):
         """Keep all repos in queue for analysis, just return remaining count."""
-        if not self.repo_processing_queue:
+        if not self.repo_processing_queue:  # type: ignore
             return 0
 
         import json
-        queue = json.loads(self.repo_processing_queue)
+        queue = json.loads(self.repo_processing_queue)  # type: ignore
         remaining_repos = [repo for repo in queue if not repo.get("finished", False)]
 
         if len(remaining_repos) == 0:
@@ -892,19 +1000,19 @@ class JobSchedule(Base, IntegrationBaseEntity):
 
     def get_repo_queue(self):
         """Get the current repository queue (all entries for analysis)."""
-        if not self.repo_processing_queue:
+        if not self.repo_processing_queue:  # type: ignore
             return []
 
         import json
-        return json.loads(self.repo_processing_queue)
+        return json.loads(self.repo_processing_queue)  # type: ignore
 
     def get_unfinished_repos(self):
         """Get only unfinished repositories for recovery processing."""
-        if not self.repo_processing_queue:
+        if not self.repo_processing_queue:  # type: ignore
             return []
 
         import json
-        queue = json.loads(self.repo_processing_queue)
+        queue = json.loads(self.repo_processing_queue)  # type: ignore
         return [repo for repo in queue if not repo.get("finished", False)]
 
 
@@ -1183,3 +1291,42 @@ class VectorizationQueue(Base):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="vectorization_queue")
+
+
+
+class ProjectIssueType(Base, IntegrationBaseEntity):
+    """Projects issue types discovery table"""
+    __tablename__ = 'projects_issue_types'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=False, quote=False, name="project_id")
+    jira_issuetype_id = Column(String, nullable=False, quote=False, name="jira_issuetype_id")
+    jira_issuetype_name = Column(String, nullable=False, quote=False, name="jira_issuetype_name")
+    jira_issuetype_description = Column(Text, quote=False, name="jira_issuetype_description")
+    hierarchy_level = Column(Integer, quote=False, name="hierarchy_level")
+    is_subtask = Column(Boolean, default=False, quote=False, name="is_subtask")
+    discovered_at = Column(DateTime, quote=False, name="discovered_at", default=func.now())
+    last_seen_at = Column(DateTime, quote=False, name="last_seen_at", default=func.now())
+    is_active = Column(Boolean, default=True, quote=False, name="is_active")
+
+    # Relationships
+    project = relationship("Project", back_populates="issue_types")
+    tenant = relationship("Tenant", back_populates="projects_issue_types")
+    integration = relationship("Integration", back_populates="projects_issue_types")
+
+
+class RawExtractionData(Base, IntegrationBaseEntity):
+    """Raw data storage for ETL pipeline - simplified structure"""
+    __tablename__ = 'raw_extraction_data'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    type = Column(String(50), nullable=False, quote=False, name="type")  # 'jira_custom_fields', 'github_prs', etc.
+    raw_data = Column(JSON, nullable=False, quote=False, name="raw_data")  # Complete API response (exact payload)
+    status = Column(String(20), default='pending', quote=False, name="status")  # 'pending', 'processing', 'completed', 'failed'
+    error_details = Column(JSON, nullable=True, quote=False, name="error_details")  # Error information if processing failed
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="raw_extraction_data")
+    integration = relationship("Integration", back_populates="raw_extraction_data")

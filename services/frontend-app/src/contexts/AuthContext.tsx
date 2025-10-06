@@ -62,6 +62,7 @@ interface AuthContextType {
   isAdmin: boolean
   updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
   refreshUserColors: () => Promise<void>
+  refreshToken: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -240,10 +241,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const token = localStorage.getItem('pulse_token')
         if (token) {
           try {
+            // Check if token is close to expiry (within 1 minute)
+            try {
+              const payload = JSON.parse(atob(token.split('.')[1]))
+              const expiryTime = payload.exp * 1000 // Convert to milliseconds
+              const currentTime = Date.now()
+              const timeUntilExpiry = expiryTime - currentTime
+
+              // If token expires in less than 1 minute, try to refresh it
+              if (timeUntilExpiry < 60000) {
+                console.log('Token expiring soon, attempting refresh...')
+                const refreshed = await refreshToken()
+                if (!refreshed) {
+                  console.warn('Token refresh failed, logging out')
+                  logout()
+                  return
+                }
+              }
+            } catch (tokenParseError) {
+              console.warn('Failed to parse token for expiry check:', tokenParseError)
+            }
+
             // Explicitly set Authorization header for validation
             const response = await axios.post('/api/v1/auth/validate', {}, {
               headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`
               }
             })
             if (!response.data.success) {
@@ -264,7 +286,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           logout()
         }
       }
-    }, 10 * 60 * 1000) // 10 minutes
+    }, 30000) // Check every 30 seconds for better responsiveness
 
     setSessionCheckInterval(interval)
     // Session validation started
@@ -276,11 +298,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     axios.interceptors.response.use(
       (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
+      async (error) => {
+        const originalRequest = error.config
+
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true
+
+          try {
+            // Try to refresh the token
+            const refreshed = await refreshToken()
+            if (refreshed) {
+              // Update the original request with new token
+              const newToken = localStorage.getItem('pulse_token')
+              originalRequest.headers.Authorization = `Bearer ${newToken}`
+
+              // Retry the original request
+              return axios(originalRequest)
+            }
+          } catch (refreshError) {
+            console.error('Token refresh failed in interceptor:', refreshError)
+          }
+
+          // If refresh fails, logout
           console.warn('AuthContext: 401 Unauthorized - logging out user')
           logout()
         }
+
         return Promise.reject(error)
       }
     )
@@ -861,6 +904,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  // Refresh JWT token
+  const refreshToken = async (): Promise<boolean> => {
+    try {
+      const currentToken = localStorage.getItem('pulse_token')
+      if (!currentToken) {
+        console.warn('No token to refresh')
+        return false
+      }
+
+      const response = await axios.post('/api/v1/auth/refresh', {}, {
+        headers: { 'Authorization': `Bearer ${currentToken}` }
+      })
+
+      if (response.data.success && response.data.token) {
+        const newToken = response.data.token
+        localStorage.setItem('pulse_token', newToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+        console.log('✅ Token refreshed successfully')
+        return true
+      }
+    } catch (error) {
+      console.error('❌ Failed to refresh token:', error)
+      // If refresh fails, logout user
+      logout()
+    }
+    return false
+  }
+
   const value: AuthContextType = {
     user,
     login,
@@ -869,7 +940,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isAdmin: !!user && user.is_admin,
     updateAccessibilityPreference,
-    refreshUserColors
+    refreshUserColors,
+    refreshToken
   }
 
 

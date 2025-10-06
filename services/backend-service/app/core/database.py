@@ -38,12 +38,13 @@ class PostgreSQLDatabase:
 
     def _setup_pgvector_event_listener(self, engine):
         """Set up event listener to register pgvector on every new connection."""
-        if register_vector:
+        if register_vector is not None:
             @event.listens_for(engine, "connect")
             def register_vector_on_connect(dbapi_connection, connection_record):
                 try:
-                    register_vector(dbapi_connection)
-                    logger.debug("pgvector registered for new connection")
+                    if register_vector is not None:  # Double check for type safety
+                        register_vector(dbapi_connection)
+                        logger.debug("pgvector registered for new connection")
                 except Exception as e:
                     logger.warning(f"Failed to register pgvector for connection: {e}")
 
@@ -150,6 +151,8 @@ class PostgreSQLDatabase:
     def is_connection_alive(self) -> bool:
         """Checks if the connection is alive."""
         try:
+            if self.engine is None:
+                return False
             with self.engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
                 return True
@@ -175,6 +178,10 @@ class PostgreSQLDatabase:
             # First, drop any orphaned tables that might have foreign key constraints
             # but are not in our current model definitions
             logger.info("Checking for orphaned tables...")
+
+            if self.engine is None:
+                logger.error("Engine not initialized")
+                return
 
             with self.engine.connect() as conn:
                 # Drop github_extraction_sessions table if it exists (orphaned from old system)
@@ -206,11 +213,14 @@ class PostgreSQLDatabase:
     def check_table_exists(self, table_name: str) -> bool:
         """Checks if a table exists in the current schema."""
         try:
+            if self.engine is None:
+                return False
             with self.engine.connect() as conn:
                 result = conn.execute(text(
                     "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table_name)"
                 ), {"table_name": table_name})
-                return result.scalar()
+                scalar_result = result.scalar()
+                return bool(scalar_result) if scalar_result is not None else False
         except Exception as e:
             logger.error(f"Error checking table existence: {e}")
             return False

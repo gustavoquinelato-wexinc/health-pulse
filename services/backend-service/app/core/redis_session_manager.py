@@ -85,6 +85,8 @@ class RedisSessionManager:
             }
             
             # Store in Redis with expiration
+            if self.redis_client is None:
+                raise Exception("Redis client not initialized")
             self.redis_client.setex(
                 session_key,
                 ttl,
@@ -93,6 +95,8 @@ class RedisSessionManager:
             
             # Also maintain a set of active sessions per user for logout-all functionality
             user_sessions_key = f"{self.user_sessions_prefix}{user_data.get('id')}"
+            if self.redis_client is None:
+                raise Exception("Redis client not initialized")
             self.redis_client.sadd(user_sessions_key, token_hash)
             self.redis_client.expire(user_sessions_key, ttl)
             
@@ -117,13 +121,24 @@ class RedisSessionManager:
             return None
             
         try:
+            if self.redis_client is None:
+                logger.error("Redis client not initialized")
+                return None
+
             session_key = f"{self.session_prefix}{token_hash}"
             session_data_str = self.redis_client.get(session_key)
-            
+
             if not session_data_str:
                 logger.debug(f"No session found in Redis for token hash: {token_hash[:10]}...")
                 return None
-            
+
+            # Handle both string and bytes response from Redis
+            if isinstance(session_data_str, bytes):
+                session_data_str = session_data_str.decode('utf-8')
+            elif not isinstance(session_data_str, str):
+                logger.error(f"Unexpected session data type: {type(session_data_str)}")
+                return None
+
             session_data = json.loads(session_data_str)
             
             # Check if session has expired (double-check)
@@ -154,19 +169,29 @@ class RedisSessionManager:
             return False
             
         try:
+            if self.redis_client is None:
+                logger.error("Redis client not initialized")
+                return False
+
             session_key = f"{self.session_prefix}{token_hash}"
-            
+
             # Get session data to find user_id before deletion
             session_data_str = self.redis_client.get(session_key)
             if session_data_str:
-                session_data = json.loads(session_data_str)
-                user_id = session_data.get("user_id")
-                
-                # Remove from user's session set
-                if user_id:
-                    user_sessions_key = f"{self.user_sessions_prefix}{user_id}"
-                    self.redis_client.srem(user_sessions_key, token_hash)
-            
+                # Handle both string and bytes response from Redis
+                if isinstance(session_data_str, bytes):
+                    session_data_str = session_data_str.decode('utf-8')
+                elif not isinstance(session_data_str, str):
+                    logger.error(f"Unexpected session data type: {type(session_data_str)}")
+                else:
+                    session_data = json.loads(session_data_str)
+                    user_id = session_data.get("user_id")
+
+                    # Remove from user's session set
+                    if user_id:
+                        user_sessions_key = f"{self.user_sessions_prefix}{user_id}"
+                        self.redis_client.srem(user_sessions_key, token_hash)
+
             # Remove the session
             result = self.redis_client.delete(session_key)
             
@@ -195,21 +220,55 @@ class RedisSessionManager:
             return False
             
         try:
+            if self.redis_client is None:
+                logger.error("Redis client not initialized")
+                return False
+
             user_sessions_key = f"{self.user_sessions_prefix}{user_id}"
-            
+
             # Get all session token hashes for this user
-            token_hashes = self.redis_client.smembers(user_sessions_key)
-            
+            token_hashes_result = self.redis_client.smembers(user_sessions_key)
+
+            # Handle async result if needed
+            if hasattr(token_hashes_result, '__await__'):
+                logger.error("Async Redis client not supported in this context")
+                return False
+
+            # Ensure we have a proper iterable result
+            token_hashes = token_hashes_result
+            if token_hashes is None:
+                token_hashes = set()
+            elif hasattr(token_hashes, '__await__'):
+                logger.error("Async Redis client not supported - token_hashes is awaitable")
+                return False
+
             if not token_hashes:
                 logger.debug(f"No active sessions found for user {user_id}")
                 return True
-            
+
             # Remove all sessions
-            session_keys = [f"{self.session_prefix}{token_hash}" for token_hash in token_hashes]
-            deleted_count = self.redis_client.delete(*session_keys)
-            
-            # Remove the user sessions set
-            self.redis_client.delete(user_sessions_key)
+            try:
+
+                # Convert to list and process
+                if hasattr(token_hashes, '__iter__'):
+                    token_list = []
+                    for token_hash in token_hashes:
+                        if isinstance(token_hash, bytes):
+                            token_list.append(token_hash.decode('utf-8'))
+                        else:
+                            token_list.append(str(token_hash))
+
+                    session_keys = [f"{self.session_prefix}{token_hash}" for token_hash in token_list]
+                    deleted_count = self.redis_client.delete(*session_keys)
+
+                    # Remove the user sessions set
+                    self.redis_client.delete(user_sessions_key)
+                else:
+                    logger.error("token_hashes is not iterable")
+                    return False
+            except (TypeError, AttributeError) as e:
+                logger.error(f"Error processing token hashes: {e}")
+                return False
             
             logger.info(f"✅ Invalidated {deleted_count} sessions for user {user_id}")
             return True
@@ -233,14 +292,18 @@ class RedisSessionManager:
             return False
             
         try:
+            if self.redis_client is None:
+                logger.error("Redis client not initialized")
+                return False
+
             session_key = f"{self.session_prefix}{token_hash}"
             ttl = ttl_seconds or self.default_ttl
-            
+
             # Check if session exists
             if not self.redis_client.exists(session_key):
                 logger.debug(f"Cannot extend non-existent session: {token_hash[:10]}...")
                 return False
-            
+
             # Extend expiration
             result = self.redis_client.expire(session_key, ttl)
             

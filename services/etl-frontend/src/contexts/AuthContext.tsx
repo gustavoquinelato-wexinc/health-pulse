@@ -55,6 +55,7 @@ interface AuthContextType {
   isAdmin: boolean
   updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
   refreshUserColors: () => Promise<void>
+  refreshToken: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -393,9 +394,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return
         }
 
+        // Check if token is close to expiry (within 1 minute)
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]))
+          const expiryTime = payload.exp * 1000 // Convert to milliseconds
+          const currentTime = Date.now()
+          const timeUntilExpiry = expiryTime - currentTime
+
+          // If token expires in less than 1 minute, try to refresh it
+          if (timeUntilExpiry < 60000) {
+            console.log('Token expiring soon, attempting refresh...')
+            const refreshed = await refreshToken()
+            if (!refreshed) {
+              console.warn('Token refresh failed, logging out')
+              setUser(null)
+              localStorage.clear()
+              sessionStorage.clear()
+              delete axios.defaults.headers.common['Authorization']
+              window.location.replace('/login')
+              return
+            }
+          }
+        } catch (tokenParseError) {
+          console.warn('Failed to parse token for expiry check:', tokenParseError)
+        }
+
         // Quick validation check
         const response = await axios.post('/api/v1/auth/validate', {}, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` }
         })
 
         if (!response.data.valid) {
@@ -414,7 +440,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         delete axios.defaults.headers.common['Authorization']
         window.location.replace('/login')
       }
-    }, 60000) // Check every minute
+    }, 30000) // Check every 30 seconds for better responsiveness
 
     return () => clearInterval(interval)
   }, [user])
@@ -765,6 +791,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.location.replace('/login')
   }
 
+  // Refresh JWT token
+  const refreshToken = async (): Promise<boolean> => {
+    try {
+      const currentToken = localStorage.getItem('pulse_token')
+      if (!currentToken) {
+        console.warn('No token to refresh')
+        return false
+      }
+
+      const response = await axios.post('/api/v1/auth/refresh', {}, {
+        headers: { 'Authorization': `Bearer ${currentToken}` }
+      })
+
+      if (response.data.success && response.data.token) {
+        const newToken = response.data.token
+        localStorage.setItem('pulse_token', newToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+        console.log('✅ Token refreshed successfully')
+        return true
+      }
+    } catch (error) {
+      console.error('❌ Failed to refresh token:', error)
+      // If refresh fails, logout user
+      logout()
+    }
+    return false
+  }
+
   const value: AuthContextType = {
     user,
     login,
@@ -773,7 +827,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isAdmin: !!user && user.is_admin,
     updateAccessibilityPreference,
-    refreshUserColors
+    refreshUserColors,
+    refreshToken
   }
 
   return (

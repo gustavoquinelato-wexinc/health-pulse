@@ -10,7 +10,7 @@ This is the **NEW** ETL frontend that replaces the legacy monolithic ETL service
 - **Old ETL Service**: `services/etl-service/` - **DO NOT MODIFY** (legacy backup/reference only)
 - **New ETL Frontend**: `services/etl-frontend/` - **CURRENT** (this service)
 - **New ETL Backend**: `services/backend-service/app/etl/` - **CURRENT**
-- **Migration Guide**: See `docs/etl/NEW_ETL_ARCHITECTURE.md` for complete details
+- **Migration Guide**: See `docs/ETL.md` for complete architecture details
 
 ## ✨ Key Features
 
@@ -216,10 +216,11 @@ The project includes VSCode settings that:
 
 ## 📚 Related Documentation
 
-- **⚠️ Migration Guide**: `docs/etl/NEW_ETL_ARCHITECTURE.md` (READ THIS FIRST!)
-- **Architecture**: `docs/architecture.md`
-- **Jobs & Orchestration**: `docs/jobs-orchestration.md`
-- **Old ETL Service**: `services/etl-service/README_LEGACY.md` (reference only - DO NOT USE)
+- **⚠️ ETL Architecture**: `docs/ETL.md` (READ THIS FIRST!)
+- **System Architecture**: `docs/ARCHITECTURE_NEW.md`
+- **Security**: `docs/SECURITY.md`
+- **Installation**: `docs/INSTALLATION.md`
+- **Old ETL Service**: `services/etl-service/README.md` (LEGACY - reference only)
 
 ## 🚫 What NOT to Do
 

@@ -1,6 +1,27 @@
-# ETL Service - Pulse Platform Data Engine
+# ETL Service - LEGACY (DO NOT USE)
 
-A comprehensive FastAPI-based ETL service for extracting, transforming, and loading data from multiple sources including Jira, GitHub, Aha!, and Azure DevOps with intelligent job orchestration and checkpoint recovery.
+⚠️ **DEPRECATED - REFERENCE ONLY** ⚠️
+
+This is the **LEGACY** ETL service that has been replaced by the new ETL architecture.
+
+**DO NOT MODIFY OR USE THIS SERVICE FOR NEW DEVELOPMENT**
+
+## 🚨 Migration Notice
+
+- **Old ETL Service**: `services/etl-service/` - **LEGACY BACKUP/REFERENCE ONLY**
+- **New ETL Frontend**: `services/etl-frontend/` - **CURRENT** (React + TypeScript)
+- **New ETL Backend**: `services/backend-service/app/etl/` - **CURRENT** (FastAPI endpoints)
+
+**For current ETL functionality, use the new architecture documented in:**
+- `services/etl-frontend/README.md`
+- `services/backend-service/README.md` (ETL endpoints section)
+- `docs/ETL.md` (Complete ETL architecture)
+
+---
+
+## 📚 Legacy Documentation (Reference Only)
+
+The following documentation is preserved for reference and migration purposes only.
 
 ## 🎯 Overview
 

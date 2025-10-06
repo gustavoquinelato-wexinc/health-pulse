@@ -45,8 +45,11 @@ def load_env_file():
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
-                    # Only set if not already in environment
-                    if key not in os.environ:
+                    # Always override with .env file values for JIRA agent variables
+                    if 'JIRA' in key and 'AUGMENT_AGENT' in key:
+                        os.environ[key] = value
+                    # Only set if not already in environment for other variables
+                    elif key not in os.environ:
                         os.environ[key] = value
 
 # Load environment variables from .env file
@@ -62,8 +65,31 @@ class JiraAgentTenant:
         self.username = os.getenv('JIRA_USERNAME')
         self.token = os.getenv('JIRA_TOKEN')
         self.project_key = os.getenv('JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT')
-        self.team_field = os.getenv('JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT')
-        self.team_value_raw = os.getenv('JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT')
+
+        # Team field mappings
+        self.team_field = os.getenv('JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT') or 'customfield_10001'
+        self.team_value = os.getenv('JIRA_TEAM_UUID_FOR_AUGMENT_AGENT') or '0234170d-98f3-4e52-8e47-bd46a1772e12'  # Direct UUID for cross-project team
+        self.agile_team_field = os.getenv('JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT') or 'customfield_10128'
+        self.agile_team_value_raw = os.getenv('JIRA_AGILE_TEAM_VALUE_FOR_AUGMENT_AGENT') or 'R&I'
+
+        # QP Planning Session field
+        self.qp_planning_field = os.getenv('JIRA_QP_PLANNING_SESSION_FIELD_FOR_AUGMENT_AGENT') or 'customfield_10501'  # customfield_10501
+        self.qp_planning_value_raw = os.getenv('JIRA_QP_PLANNING_SESSION_VALUE_FOR_AUGMENT_AGENT') or '["2025 Q4"]'  # ["2025 Q4"]
+
+        # WEX T-Shirt Size field (for epics only - dynamically calculated)
+        self.tshirt_size_field = os.getenv('JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT') or 'customfield_10412'
+
+        # Team configuration for T-shirt size calculation
+        self.team_size = int(os.getenv('JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT') or '5')
+        self.team_productive_hours_per_week = int(os.getenv('JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT') or '30')
+        self.sprint_weeks = int(os.getenv('JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT') or '2')
+        self.team_story_points_per_sprint = int(os.getenv('JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT') or '50')
+
+        # Calculate total team capacity per sprint
+        self.team_hours_per_sprint = self.team_size * self.team_productive_hours_per_week * self.sprint_weeks
+
+        # Assignee configuration
+        self.default_assignee_email = os.getenv('JIRA_ASSIGNEE_EMAIL_VALUE_FOR_AUGMENT_AGENT') or 'gustavo.quinelato@wexinc.com'
 
         # Load workflow configurations
         self.subtask_workflow = os.getenv('JIRA_SUBTASK_WORKFLOW', '').split(',') if os.getenv('JIRA_SUBTASK_WORKFLOW') else []
@@ -89,8 +115,11 @@ class JiraAgentTenant:
             'Accept': 'application/json'
         }
 
-        # Resolve team value to ID if it's a name (not numeric)
-        self.team_value = self._resolve_team_value()
+        # Resolve field values to proper formats
+        # Note: team_value is already set above for cross-project team field (direct UUID)
+        self.agile_team_value = self._resolve_agile_team_value()
+        self.qp_planning_value = self._resolve_qp_planning_value()
+        # Note: tshirt_size_value will be calculated dynamically in create_epic method
     
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
         """Make a request to the Jira API with error handling."""
@@ -140,26 +169,18 @@ class JiraAgentTenant:
 
     def _resolve_team_value(self) -> Optional[str]:
         """
-        Resolve team value to ID.
-        If team_value_raw is numeric, use it directly.
-        If it's a string (team name), query Jira to get the ID.
+        Resolve team value to UUID for customfield_10001.
+        This field uses UUID format for team identification.
         """
         if not self.team_value_raw or not self.team_field:
             return None
 
-        # Check if it's already a numeric ID
-        if self.team_value_raw.isdigit():
-            if self.debug:
-                print(f"DEBUG - Team value is already numeric ID: {self.team_value_raw}")
-            return self.team_value_raw
-
-        # It's a team name, need to resolve to ID
+        # For customfield_10001, we need to find the UUID for the team name
         if self.debug:
-            print(f"DEBUG - Resolving team name '{self.team_value_raw}' to ID...")
+            print(f"DEBUG - Resolving team name '{self.team_value_raw}' to UUID for {self.team_field}...")
 
         try:
             # Use createmeta API to get field options for the project
-            # This works for all issue types (Story, Sub-task, Epic)
             createmeta = self._make_request('GET',
                 f'issue/createmeta?projectKeys={self.project_key}&expand=projects.issuetypes.fields')
 
@@ -170,22 +191,293 @@ class JiraAgentTenant:
                     if self.team_field in fields:
                         allowed_values = fields[self.team_field].get('allowedValues', [])
                         for option in allowed_values:
-                            if option.get('value') == self.team_value_raw:
-                                team_id = option.get('id')
-                                if self.debug:
-                                    print(f"DEBUG - Resolved team '{self.team_value_raw}' to ID: {team_id}")
-                                return team_id
+                            # Try multiple possible name fields
+                            possible_names = [
+                                option.get('name', ''),
+                                option.get('title', ''),
+                                option.get('value', ''),
+                                option.get('displayName', '')
+                            ]
+
+                            for possible_name in possible_names:
+                                if possible_name and possible_name.lower() == self.team_value_raw.lower():
+                                    team_uuid = option.get('id')
+                                    if self.debug:
+                                        print(f"DEBUG - Resolved team '{self.team_value_raw}' to UUID: {team_uuid}")
+                                    return team_uuid
 
             # If not found, log warning and return None
             if self.debug:
-                print(f"DEBUG - Could not resolve team name '{self.team_value_raw}' to ID")
-                print(f"DEBUG - Available teams: {[opt.get('value') for project in createmeta.get('projects', []) for issuetype in project.get('issuetypes', []) for opt in issuetype.get('fields', {}).get(self.team_field, {}).get('allowedValues', [])]}")
+                print(f"DEBUG - Could not resolve team name '{self.team_value_raw}' to UUID")
+                # Print all available teams for debugging
+                for project in createmeta.get('projects', []):
+                    for issuetype in project.get('issuetypes', []):
+                        fields = issuetype.get('fields', {})
+                        if self.team_field in fields:
+                            allowed_values = fields[self.team_field].get('allowedValues', [])
+                            print(f"DEBUG - Available teams for {self.team_field}:")
+                            for i, opt in enumerate(allowed_values[:10]):  # Show first 10
+                                name = opt.get('name') or opt.get('title') or opt.get('value') or opt.get('displayName') or 'Unknown'
+                                print(f"DEBUG -   {i+1}: {name} (id: {opt.get('id')})")
+                            if len(allowed_values) > 10:
+                                print(f"DEBUG -   ... and {len(allowed_values) - 10} more")
+                            break
             return None
 
         except Exception as e:
             if self.debug:
                 print(f"DEBUG - Error resolving team value: {e}")
             return None
+
+    def _resolve_agile_team_value(self) -> Optional[str]:
+        """
+        Resolve agile team value to ID for customfield_10128.
+        This field uses numeric ID format.
+        """
+        if not self.agile_team_value_raw or not self.agile_team_field:
+            return None
+
+        # Check if it's already a numeric ID
+        if self.agile_team_value_raw.isdigit():
+            if self.debug:
+                print(f"DEBUG - Agile team value is already numeric ID: {self.agile_team_value_raw}")
+            return self.agile_team_value_raw
+
+        # It's a team name, need to resolve to ID
+        if self.debug:
+            print(f"DEBUG - Resolving agile team name '{self.agile_team_value_raw}' to ID for {self.agile_team_field}...")
+
+        try:
+            # Use createmeta API to get field options for the project
+            createmeta = self._make_request('GET',
+                f'issue/createmeta?projectKeys={self.project_key}&expand=projects.issuetypes.fields')
+
+            # Navigate through the response to find the agile team field options
+            for project in createmeta.get('projects', []):
+                for issuetype in project.get('issuetypes', []):
+                    fields = issuetype.get('fields', {})
+                    if self.agile_team_field in fields:
+                        allowed_values = fields[self.agile_team_field].get('allowedValues', [])
+                        for option in allowed_values:
+                            if option.get('value') == self.agile_team_value_raw:
+                                team_id = option.get('id')
+                                if self.debug:
+                                    print(f"DEBUG - Resolved agile team '{self.agile_team_value_raw}' to ID: {team_id}")
+                                return team_id
+
+            # If not found, log warning and return None
+            if self.debug:
+                print(f"DEBUG - Could not resolve agile team name '{self.agile_team_value_raw}' to ID")
+                print(f"DEBUG - Available agile teams: {[opt.get('value') for project in createmeta.get('projects', []) for issuetype in project.get('issuetypes', []) for opt in issuetype.get('fields', {}).get(self.agile_team_field, {}).get('allowedValues', [])]}")
+            return None
+
+        except Exception as e:
+            if self.debug:
+                print(f"DEBUG - Error resolving agile team value: {e}")
+            return None
+
+    def _resolve_qp_planning_value(self) -> Optional[list]:
+        """
+        Resolve QP Planning Session value to array of IDs for customfield_10501.
+        This field accepts multiple values in array format.
+        """
+        if not self.qp_planning_value_raw or not self.qp_planning_field:
+            return None
+
+        try:
+            # Parse the JSON array from environment variable
+            import json
+            planning_values = json.loads(self.qp_planning_value_raw)
+            if not isinstance(planning_values, list):
+                planning_values = [planning_values]
+
+            if self.debug:
+                print(f"DEBUG - Resolving QP planning values {planning_values} to IDs for {self.qp_planning_field}...")
+
+            # Use createmeta API to get field options for the project
+            createmeta = self._make_request('GET',
+                f'issue/createmeta?projectKeys={self.project_key}&expand=projects.issuetypes.fields')
+
+            resolved_ids = []
+            # Navigate through the response to find the QP planning field options
+            for project in createmeta.get('projects', []):
+                for issuetype in project.get('issuetypes', []):
+                    fields = issuetype.get('fields', {})
+                    if self.qp_planning_field in fields:
+                        allowed_values = fields[self.qp_planning_field].get('allowedValues', [])
+                        for planning_value in planning_values:
+                            for option in allowed_values:
+                                if option.get('value') == planning_value:
+                                    option_id = option.get('id')
+                                    if option_id:
+                                        resolved_ids.append({"id": option_id})
+                                        if self.debug:
+                                            print(f"DEBUG - Resolved QP planning '{planning_value}' to ID: {option_id}")
+
+            if resolved_ids:
+                return resolved_ids
+            else:
+                if self.debug:
+                    print(f"DEBUG - Could not resolve QP planning values {planning_values} to IDs")
+                    print(f"DEBUG - Available QP planning options: {[opt.get('value') for project in createmeta.get('projects', []) for issuetype in project.get('issuetypes', []) for opt in issuetype.get('fields', {}).get(self.qp_planning_field, {}).get('allowedValues', [])]}")
+                return None
+
+        except Exception as e:
+            if self.debug:
+                print(f"DEBUG - Error resolving QP planning value: {e}")
+            return None
+
+    def _calculate_tshirt_size(self, epic_description: str, acceptance_criteria: str = None, risk_assessment: str = None):
+        """
+        Dynamically calculate T-shirt size based on epic scope and team configuration.
+
+        Args:
+            epic_description: The epic description to analyze for scope
+            acceptance_criteria: Optional acceptance criteria for additional scope analysis
+            risk_assessment: Optional risk assessment for complexity analysis
+
+        Returns:
+            str: T-shirt size (XXS, XS, SM, MD, LG, XL, XXL, Jumbo)
+        """
+        if self.debug:
+            print(f"DEBUG - Calculating T-shirt size based on epic scope...")
+            print(f"DEBUG - Team size: {self.team_size} developers")
+            print(f"DEBUG - Productive hours per week per person: {self.team_productive_hours_per_week}")
+            print(f"DEBUG - Sprint duration: {self.sprint_weeks} weeks")
+            print(f"DEBUG - Total team capacity: {self.team_hours_per_sprint} hours/sprint")
+            print(f"DEBUG - Team velocity: {self.team_story_points_per_sprint} story points/sprint")
+
+        # Analyze epic content for scope indicators
+        content = f"{epic_description} {acceptance_criteria or ''} {risk_assessment or ''}".lower()
+
+        # Calculate base complexity score
+        complexity_score = 0
+
+        # Scope indicators (each adds points)
+        scope_indicators = {
+            'database': 2, 'schema': 2, 'migration': 3, 'data model': 2,
+            'api': 2, 'endpoint': 1, 'integration': 3, 'microservice': 4,
+            'frontend': 2, 'ui': 1, 'dashboard': 2, 'interface': 1,
+            'authentication': 3, 'authorization': 3, 'security': 2,
+            'performance': 2, 'optimization': 2, 'scalability': 3,
+            'testing': 1, 'automation': 2, 'deployment': 2, 'infrastructure': 3,
+            'monitoring': 2, 'logging': 1, 'analytics': 2, 'reporting': 2,
+            'machine learning': 4, 'ai': 3, 'algorithm': 3, 'model': 2,
+            'transformation': 3, 'migration': 3, 'refactoring': 2, 'redesign': 4,
+            'platform': 4, 'framework': 3, 'architecture': 4, 'system': 2
+        }
+
+        for indicator, points in scope_indicators.items():
+            if indicator in content:
+                complexity_score += points
+                if self.debug:
+                    print(f"DEBUG - Found '{indicator}': +{points} points")
+
+        # Count acceptance criteria (more criteria = more complexity)
+        if acceptance_criteria:
+            ac_count = acceptance_criteria.lower().count('h3.') + acceptance_criteria.lower().count('given')
+            complexity_score += ac_count * 0.5
+            if self.debug:
+                print(f"DEBUG - Acceptance criteria count: {ac_count}, +{ac_count * 0.5} points")
+
+        # Count risks (more risks = more complexity)
+        if risk_assessment:
+            risk_count = risk_assessment.lower().count('h3.') + risk_assessment.lower().count('risk')
+            complexity_score += risk_count * 0.3
+            if self.debug:
+                print(f"DEBUG - Risk count: {risk_count}, +{risk_count * 0.3} points")
+
+        # Estimate story points based on complexity (more realistic approach)
+        base_story_points = 8  # Minimum epic size in story points
+        estimated_story_points = base_story_points + (complexity_score * 2)
+
+        # Calculate sprints needed based on story points
+        sprints_needed_by_points = estimated_story_points / self.team_story_points_per_sprint
+
+        # Also calculate by hours as a cross-check
+        base_hours = 60  # Minimum epic size in hours
+        estimated_hours = base_hours + (complexity_score * 15)
+        sprints_needed_by_hours = estimated_hours / self.team_hours_per_sprint
+
+        # Use the higher estimate for conservative planning
+        sprints_needed = max(sprints_needed_by_points, sprints_needed_by_hours)
+
+        if self.debug:
+            print(f"DEBUG - Complexity score: {complexity_score}")
+            print(f"DEBUG - Estimated story points: {estimated_story_points}")
+            print(f"DEBUG - Sprints needed (by points): {sprints_needed_by_points:.1f}")
+            print(f"DEBUG - Estimated hours: {estimated_hours}")
+            print(f"DEBUG - Sprints needed (by hours): {sprints_needed_by_hours:.1f}")
+            print(f"DEBUG - Final sprints needed (conservative): {sprints_needed:.1f}")
+
+        # Map sprints to T-shirt sizes
+        if sprints_needed < 0.5:
+            size = 'XXS'  # <1 sprint or <100 hours
+        elif sprints_needed < 1:
+            size = 'XS'   # 1 sprint or 2 weeks
+        elif sprints_needed < 2:
+            size = 'SM'   # 1-2 sprints or 2 weeks to 1 month
+        elif sprints_needed < 4:
+            size = 'MD'   # 3-4 sprints or 1-2 months
+        elif sprints_needed < 8:
+            size = 'LG'   # 5-8 sprints or 2-4 months
+        elif sprints_needed < 10:
+            size = 'XL'   # 9-10 sprints or 4-5 months
+        elif sprints_needed < 12:
+            size = 'XXL'  # 10-12 sprints or 5-6 months
+        else:
+            size = 'Jumbo'  # 12+ sprints or 6+ months
+
+        if self.debug:
+            print(f"DEBUG - Calculated T-shirt size: {size}")
+
+        return size
+
+    def _resolve_tshirt_size_value(self, calculated_size: str):
+        """
+        Resolve calculated T-shirt size name to ID for customfield_10412 (WEX T-Shirt Size field).
+        This field is used for epics only and contains size options from XXS to Jumbo.
+        """
+        if not calculated_size or not self.tshirt_size_field:
+            return None
+
+        if self.debug:
+            print(f"DEBUG - Resolving calculated T-shirt size '{calculated_size}' to ID for {self.tshirt_size_field}...")
+
+        try:
+            # Get field metadata from create meta for Epic issue type
+            createmeta = self._make_request('GET',
+                f'issue/createmeta?projectKeys={self.project_key}&issuetypeNames=Epic&expand=projects.issuetypes.fields')
+
+            # Navigate through the response to find the T-shirt size field options
+            for project in createmeta.get('projects', []):
+                for issuetype in project.get('issuetypes', []):
+                    if issuetype.get('name') == 'Epic':
+                        fields = issuetype.get('fields', {})
+                        if self.tshirt_size_field in fields:
+                            allowed_values = fields[self.tshirt_size_field].get('allowedValues', [])
+                            if self.debug:
+                                size_options = [opt.get('value', 'Unknown') for opt in allowed_values]
+                                print(f"DEBUG - Available T-shirt sizes: {size_options}")
+
+                            # Look for T-shirt size by value
+                            for option in allowed_values:
+                                if option.get('value') == calculated_size:
+                                    size_id = option.get('id')
+                                    if self.debug:
+                                        print(f"DEBUG - Resolved T-shirt size '{calculated_size}' to ID: {size_id}")
+                                    return size_id
+
+                            if self.debug:
+                                print(f"DEBUG - Could not resolve T-shirt size '{calculated_size}' to ID")
+                            return None
+
+        except Exception as e:
+            if self.debug:
+                print(f"DEBUG - Error resolving T-shirt size: {e}")
+            return None
+
+        return None
 
     def get_user_account_id(self, email_or_username: str) -> str:
         """Get Jira user accountId from email or username."""
@@ -223,28 +515,41 @@ class JiraAgentTenant:
         if acceptance_criteria:
             issue_data["fields"]["customfield_10222"] = acceptance_criteria
 
-        # Add story points if provided (customfield_10024)
-        if story_points:
-            issue_data["fields"]["customfield_10024"] = story_points
+        # Note: Story points field (customfield_10024) is not available for Epic issue types
+        # Epic quality should be documented in the description instead
 
         # Add risk assessment if provided (customfield_10218)
         if risk_assessment:
             issue_data["fields"]["customfield_10218"] = risk_assessment
 
-        # Add assignee if provided
-        if assignee:
-            account_id = self.get_user_account_id(assignee)
+        # Add assignee (use provided or default)
+        assignee_to_use = assignee or self.default_assignee_email
+        if assignee_to_use:
+            account_id = self.get_user_account_id(assignee_to_use)
             if account_id:
                 issue_data["fields"]["assignee"] = {"accountId": account_id}
             else:
                 if self.debug:
-                    print(f"DEBUG - Could not find accountId for assignee: {assignee}")
+                    print(f"DEBUG - Could not find accountId for assignee: {assignee_to_use}")
 
-        # Add team field if configured
+        # Add team field (customfield_10001) if configured - Cross-project team field (direct UUID)
         if self.team_field and self.team_value:
-            # For dropdown fields, we need to find the field ID
-            # customfield_10128 is commonly used for team fields
-            issue_data["fields"]["customfield_10128"] = {"value": self.team_value}
+            issue_data["fields"][self.team_field] = self.team_value  # Direct UUID for cross-project team field
+
+        # Add agile team field (customfield_10128) if configured - ID format
+        if self.agile_team_field and self.agile_team_value:
+            issue_data["fields"][self.agile_team_field] = {"id": self.agile_team_value}
+
+        # Add QP Planning Session field (customfield_10501) if configured - Array format
+        if self.qp_planning_field and self.qp_planning_value:
+            issue_data["fields"][self.qp_planning_field] = self.qp_planning_value
+
+        # Add WEX T-Shirt Size field (customfield_10412) - Dynamically calculated for epics
+        if self.tshirt_size_field:
+            calculated_size = self._calculate_tshirt_size(description, acceptance_criteria, risk_assessment)
+            tshirt_size_id = self._resolve_tshirt_size_value(calculated_size)
+            if tshirt_size_id:
+                issue_data["fields"][self.tshirt_size_field] = {"id": tshirt_size_id}
 
         result = self._make_request('POST', 'issue', issue_data)
         return {
@@ -334,18 +639,27 @@ class JiraAgentTenant:
         if story_points:
             issue_data["fields"]["customfield_10024"] = story_points
 
-        # Add assignee if provided
-        if assignee:
-            account_id = self.get_user_account_id(assignee)
+        # Add assignee (use provided or default)
+        assignee_to_use = assignee or self.default_assignee_email
+        if assignee_to_use:
+            account_id = self.get_user_account_id(assignee_to_use)
             if account_id:
                 issue_data["fields"]["assignee"] = {"accountId": account_id}
             else:
                 if self.debug:
-                    print(f"DEBUG - Could not find accountId for assignee: {assignee}")
+                    print(f"DEBUG - Could not find accountId for assignee: {assignee_to_use}")
 
-        # Add team field if configured
+        # Add team field (customfield_10001) if configured - Cross-project team field (direct UUID)
         if self.team_field and self.team_value:
-            issue_data["fields"]["customfield_10128"] = {"value": self.team_value}
+            issue_data["fields"][self.team_field] = self.team_value  # Direct UUID for cross-project team field
+
+        # Add agile team field (customfield_10128) if configured - ID format
+        if self.agile_team_field and self.agile_team_value:
+            issue_data["fields"][self.agile_team_field] = {"id": self.agile_team_value}
+
+        # Add QP Planning Session field (customfield_10501) if configured - Array format
+        if self.qp_planning_field and self.qp_planning_value:
+            issue_data["fields"][self.qp_planning_field] = self.qp_planning_value
 
         result = self._make_request('POST', 'issue', issue_data)
         return {
@@ -419,18 +733,15 @@ class JiraAgentTenant:
             }
         }
 
-        # Add assignee if provided
-        if assignee:
-            account_id = self.get_user_account_id(assignee)
+        # Add assignee (use provided or default)
+        assignee_to_use = assignee or self.default_assignee_email
+        if assignee_to_use:
+            account_id = self.get_user_account_id(assignee_to_use)
             if account_id:
                 issue_data["fields"]["assignee"] = {"accountId": account_id}
             else:
                 if self.debug:
-                    print(f"DEBUG - Could not find accountId for assignee: {assignee}")
-
-        # Add team field if configured
-        if self.team_field and self.team_value:
-            issue_data["fields"]["customfield_10128"] = {"id": self.team_value}
+                    print(f"DEBUG - Could not find accountId for assignee: {assignee_to_use}")
 
         result = self._make_request('POST', 'issue', issue_data)
         return {
@@ -486,7 +797,18 @@ class JiraAgentTenant:
             print(f"  JIRA_TOKEN: {self.token[:10]}...{self.token[-4:] if len(self.token) > 14 else self.token}")
             print(f"  JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT: {self.project_key}")
             print(f"  JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT: {self.team_field}")
-            print(f"  JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT: {self.team_value}")
+            print(f"  JIRA_TEAM_UUID_FOR_AUGMENT_AGENT: {self.team_value}")
+            print(f"  JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT: {self.agile_team_field}")
+            print(f"  JIRA_AGILE_TEAM_VALUE_FOR_AUGMENT_AGENT: {self.agile_team_value}")
+            print(f"  JIRA_QP_PLANNING_SESSION_FIELD_FOR_AUGMENT_AGENT: {self.qp_planning_field}")
+            print(f"  JIRA_QP_PLANNING_SESSION_VALUE_FOR_AUGMENT_AGENT: {self.qp_planning_value}")
+            print(f"  JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT: {self.tshirt_size_field}")
+            print(f"  JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT: {self.team_size}")
+            print(f"  JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT: {self.team_productive_hours_per_week}")
+            print(f"  JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT: {self.sprint_weeks}")
+            print(f"  JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT: {self.team_story_points_per_sprint}")
+            print(f"  Calculated team capacity: {self.team_hours_per_sprint} hours/sprint")
+            print(f"  JIRA_ASSIGNEE_EMAIL_VALUE_FOR_AUGMENT_AGENT: {self.default_assignee_email}")
             print(f"DEBUG - Request URL: {self.base_url}/rest/api/latest/issue/{issue_key}")
             print(f"DEBUG - Headers: {self.headers}")
             print(f"DEBUG - Auth: {self.auth}")

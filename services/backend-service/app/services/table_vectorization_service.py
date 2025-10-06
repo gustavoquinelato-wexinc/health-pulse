@@ -154,9 +154,12 @@ class TableVectorizationService:
             collection_name = f"client_{tenant_id}_{self.TABLE_MAPPING[table_name]['collection_suffix']}"
 
             try:
-                collection_info = await asyncio.get_event_loop().run_in_executor(
-                    None, qdrant_client.client.get_collection, collection_name
-                )
+                if not qdrant_client.client:
+                    vector_count = 0
+                else:
+                    collection_info = await asyncio.get_event_loop().run_in_executor(
+                        None, qdrant_client.client.get_collection, collection_name
+                    )
                 vector_count = collection_info.vectors_count if collection_info else 0
             except Exception as e:
                 logger.debug(f"[TABLE_STATUS] Collection {collection_name} not found or error: {e}")
@@ -458,11 +461,11 @@ class TableVectorizationService:
 
                 if existing_record:
                     # Update existing record
-                    existing_record.qdrant_collection = collection_name
-                    existing_record.qdrant_point_id = point_id
-                    existing_record.embedding_model = provider_used
-                    existing_record.embedding_provider = provider_used
-                    existing_record.last_updated_at = datetime.utcnow()
+                    existing_record.qdrant_collection = collection_name  # type: ignore
+                    existing_record.qdrant_point_id = point_id  # type: ignore
+                    existing_record.embedding_model = provider_used  # type: ignore
+                    existing_record.embedding_provider = provider_used  # type: ignore
+                    existing_record.last_updated_at = datetime.utcnow()  # type: ignore
                     logger.debug(f"[TABLE_VECTORIZATION] Updated existing bridge record for {table_name} {record_id}")
                 else:
                     # Create new bridge record
@@ -511,7 +514,7 @@ class TableVectorizationService:
 
         return True
 
-    def clear_stuck_sessions(self, table_name: str = None, max_age_minutes: int = 30) -> int:
+    def clear_stuck_sessions(self, table_name: Optional[str] = None, max_age_minutes: int = 30) -> int:
         """Clear stuck sessions that are older than max_age_minutes."""
         current_time = datetime.now()
         sessions_to_remove = []

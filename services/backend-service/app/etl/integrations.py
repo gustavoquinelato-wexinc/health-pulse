@@ -23,7 +23,7 @@ class IntegrationResponse(BaseModel):
     integration_type: str
     base_url: Optional[str]
     username: Optional[str]
-    ai_model: Optional[str]
+    settings: Optional[dict]  # Unified settings
     logo_filename: Optional[str]
     active: bool
     last_sync_at: Optional[str]
@@ -35,7 +35,7 @@ class IntegrationCreateRequest(BaseModel):
     base_url: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
-    ai_model: Optional[str] = None
+    settings: Optional[dict] = None  # Unified settings
     logo_filename: Optional[str] = None
     active: bool = True
 
@@ -44,8 +44,9 @@ class IntegrationUpdateRequest(BaseModel):
     base_url: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
-    ai_model: Optional[str] = None
+    settings: Optional[dict] = None  # Unified settings
     logo_filename: Optional[str] = None
+    ai_model: Optional[str] = None
     active: Optional[bool] = None
 
 
@@ -60,7 +61,7 @@ async def get_integrations(
             # Get integrations filtered by tenant_id and type='data' for ETL (case-insensitive)
             integrations = session.query(Integration).filter(
                 Integration.tenant_id == user.tenant_id,
-                Integration.type.ilike('data')
+                Integration.type.ilike('%data%')
             ).order_by(Integration.provider).all()
 
             integration_responses = []
@@ -70,13 +71,13 @@ async def get_integrations(
                 last_sync_at = None
 
                 integration_responses.append(IntegrationResponse(
-                    id=integration.id,
-                    name=integration.provider or "Unknown",
-                    integration_type=integration.type or "Unknown",
-                    base_url=integration.base_url,
-                    username=integration.username,
-                    ai_model=integration.ai_model,
-                    logo_filename=integration.logo_filename,
+                    id=integration.id,  # type: ignore
+                    name=integration.provider or "Unknown",  # type: ignore
+                    integration_type=integration.type or "Unknown",  # type: ignore
+                    base_url=integration.base_url,  # type: ignore
+                    username=integration.username,  # type: ignore
+                    settings=integration.settings,  # type: ignore
+                    logo_filename=integration.logo_filename,  # type: ignore
                     active=integration.active,
                     last_sync_at=last_sync_at
                 ))
@@ -117,7 +118,7 @@ async def create_integration(
                 type=create_data.type,
                 base_url=create_data.base_url,
                 username=create_data.username,
-                ai_model=create_data.ai_model,
+                settings=create_data.settings or {},  # Unified settings
                 logo_filename=create_data.logo_filename,
                 tenant_id=user.tenant_id,
                 active=create_data.active,
@@ -128,7 +129,7 @@ async def create_integration(
             # Encrypt password if provided
             if create_data.password:
                 key = AppConfig.load_key()
-                new_integration.password = AppConfig.encrypt_token(create_data.password, key)
+                new_integration.password = AppConfig.encrypt_token(create_data.password, key)  # type: ignore
 
             session.add(new_integration)
             session.commit()
@@ -172,20 +173,20 @@ async def update_integration(
 
             # Update fields
             if update_data.base_url is not None:
-                integration.base_url = update_data.base_url
+                integration.base_url = update_data.base_url  # type: ignore
             if update_data.username is not None:
-                integration.username = update_data.username
+                integration.username = update_data.username  # type: ignore
             if update_data.ai_model is not None:
-                integration.ai_model = update_data.ai_model
+                integration.ai_model = update_data.ai_model  # type: ignore
             if update_data.logo_filename is not None:
-                integration.logo_filename = update_data.logo_filename
+                integration.logo_filename = update_data.logo_filename  # type: ignore
             if update_data.active is not None:
                 integration.active = update_data.active
 
             # Only update password if provided
             if update_data.password:
                 key = AppConfig.load_key()
-                integration.password = AppConfig.encrypt_token(update_data.password, key)
+                integration.password = AppConfig.encrypt_token(update_data.password, key)  # type: ignore
 
             integration.last_updated_at = datetime.utcnow()
 
@@ -270,7 +271,7 @@ async def upload_integration_logo(
         assets_dir.mkdir(parents=True, exist_ok=True)
 
         # Save the file
-        filename = logo.filename.lower()
+        filename = (logo.filename or "logo.png").lower()
         file_path = assets_dir / filename
 
         with open(file_path, 'wb') as f:

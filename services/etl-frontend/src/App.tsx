@@ -19,6 +19,12 @@ import WorkflowsPage from './pages/WorkflowsPage'
 import IntegrationsPage from './pages/IntegrationsPage'
 import QdrantPage from './pages/QdrantPage'
 
+// Phase 2.1: Custom Fields Management pages
+import CustomFieldMappingPage from './pages/CustomFieldMappingPage'
+
+// Queue Management page
+import QueueManagementPage from './pages/QueueManagementPage'
+
 function App() {
   return (
     <TenantErrorBoundary>
@@ -46,45 +52,65 @@ function App() {
                   }
                 />
 
-                {/* ETL Management Routes */}
+                {/* ETL Management Routes - Admin Only */}
                 <Route
                   path="/wits-mappings"
                   element={
-                    <ProtectedRoute>
+                    <AdminRoute>
                       <WitsMappingsPage />
-                    </ProtectedRoute>
+                    </AdminRoute>
                   }
                 />
                 <Route
                   path="/wits-hierarchies"
                   element={
-                    <ProtectedRoute>
+                    <AdminRoute>
                       <WitsHierarchiesPage />
-                    </ProtectedRoute>
+                    </AdminRoute>
                   }
                 />
                 <Route
                   path="/statuses-mappings"
                   element={
-                    <ProtectedRoute>
+                    <AdminRoute>
                       <StatusesMappingsPage />
-                    </ProtectedRoute>
+                    </AdminRoute>
                   }
                 />
                 <Route
                   path="/workflows"
                   element={
-                    <ProtectedRoute>
+                    <AdminRoute>
                       <WorkflowsPage />
-                    </ProtectedRoute>
+                    </AdminRoute>
                   }
                 />
                 <Route
                   path="/integrations"
                   element={
-                    <ProtectedRoute>
+                    <AdminRoute>
                       <IntegrationsPage />
-                    </ProtectedRoute>
+                    </AdminRoute>
+                  }
+                />
+
+                {/* Phase 2.1: Custom Fields Management Routes - Admin Only */}
+                <Route
+                  path="/custom-fields-mappings"
+                  element={
+                    <AdminRoute>
+                      <CustomFieldMappingPage />
+                    </AdminRoute>
+                  }
+                />
+
+                {/* Queue Management Routes - Admin Only */}
+                <Route
+                  path="/queue-management"
+                  element={
+                    <AdminRoute>
+                      <QueueManagementPage />
+                    </AdminRoute>
                   }
                 />
 

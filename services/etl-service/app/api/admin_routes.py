@@ -49,7 +49,7 @@ class IntegrationResponse(BaseModel):
     integration_type: str
     base_url: Optional[str] = None
     username: Optional[str] = None
-    ai_model: Optional[str] = None  # AI model name
+    settings: Optional[dict] = None  # Unified settings (replaces ai_model, base_search, etc.)
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     active: bool
     last_sync_at: Optional[str] = None
@@ -60,10 +60,7 @@ class IntegrationCreateRequest(BaseModel):
     base_url: Optional[str] = None  # Optional for embedding integrations
     username: Optional[str] = None
     password: Optional[str] = None
-    base_search: Optional[str] = None
-    ai_model: Optional[str] = None  # AI model name
-    ai_model_config: Optional[dict] = None  # AI model configuration
-    cost_config: Optional[dict] = None  # Cost tracking and limits
+    settings: Optional[dict] = None  # Unified settings for all integration-specific configuration
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     active: bool = True
@@ -72,10 +69,7 @@ class IntegrationUpdateRequest(BaseModel):
     base_url: Optional[str] = None  # Optional for embedding integrations
     username: Optional[str] = None
     password: Optional[str] = None
-    base_search: Optional[str] = None
-    ai_model: Optional[str] = None  # AI model name
-    ai_model_config: Optional[dict] = None  # AI model configuration
-    cost_config: Optional[dict] = None  # Cost tracking and limits
+    settings: Optional[dict] = None  # Unified settings for all integration-specific configuration
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
 
@@ -85,10 +79,7 @@ class IntegrationDetailResponse(BaseModel):
     integration_type: str
     base_url: Optional[str] = None
     username: Optional[str] = None
-    base_search: Optional[str] = None
-    ai_model: Optional[str] = None  # AI model name
-    ai_model_config: Optional[dict] = None  # AI model configuration
-    cost_config: Optional[dict] = None  # Cost tracking and limits
+    settings: Optional[dict] = None  # Unified settings for all integration-specific configuration
     fallback_integration_id: Optional[int] = None  # FK to another integration for fallback
     logo_filename: Optional[str] = None  # Filename of integration logo (stored in tenant assets folder)
     password_masked: Optional[str] = None  # Masked version for display
@@ -337,10 +328,7 @@ async def create_integration(
                 type=create_data.type,
                 base_url=create_data.base_url,
                 username=create_data.username,
-                base_search=create_data.base_search,
-                ai_model=create_data.ai_model,
-                ai_model_config=create_data.ai_model_config or {},
-                cost_config=create_data.cost_config or {},
+                settings=create_data.settings or {},  # Unified settings
                 fallback_integration_id=create_data.fallback_integration_id,
                 logo_filename=create_data.logo_filename,
                 tenant_id=user.tenant_id,
@@ -541,10 +529,7 @@ async def update_integration(
             # Update fields
             integration.base_url = update_data.base_url
             integration.username = update_data.username
-            integration.base_search = update_data.base_search
-            integration.ai_model = update_data.ai_model  # Update AI model name
-            integration.ai_model_config = update_data.ai_model_config or {}
-            integration.cost_config = update_data.cost_config or {}
+            integration.settings = update_data.settings or {}  # Update unified settings
             integration.fallback_integration_id = update_data.fallback_integration_id
             integration.logo_filename = update_data.logo_filename  # Update logo filename
 

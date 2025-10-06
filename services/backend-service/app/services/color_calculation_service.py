@@ -189,7 +189,7 @@ class ColorCalculationService:
             Adaptive color for opposite theme
         """
         try:
-            luminance = self.get_luminance(hex_color)
+            luminance = self.calculate_luminance(hex_color)
 
             if defined_in_mode == 'light':
                 # For colors defined in light mode, adapt for dark mode

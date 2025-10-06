@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from app.auth.auth_middleware import require_authentication
-from app.core.client_logging_middleware import get_tenant_logger_from_request
+from app.core.client_logging_middleware import get_enhanced_tenant_logger_from_request
+from app.core.logging_config import get_enhanced_logger
 from app.models.unified_models import User
 
 
@@ -49,8 +50,8 @@ async def receive_frontend_log(
     and writes them to the appropriate tenant-specific log file.
     """
     try:
-        # Get tenant-aware logger
-        logger = get_tenant_logger_from_request(request, "frontend_logs")
+        # Get enhanced tenant-aware logger
+        logger = get_enhanced_tenant_logger_from_request(request, "frontend_logs")
         
         # Validate that the log entry matches the authenticated user's tenant
         if log_entry.tenantId and log_entry.tenantId != current_user.tenant_id:
@@ -97,8 +98,7 @@ async def receive_frontend_log(
         
     except Exception as e:
         # Use system logger for errors in log processing
-        from app.core.logging_config import get_logger
-        system_logger = get_logger("frontend_log_error")
+        system_logger = get_enhanced_logger("frontend_log_error")
         system_logger.error(f"Failed to process frontend log: {e}")
         
         raise HTTPException(
@@ -120,8 +120,8 @@ async def receive_frontend_log_batch(
     Useful for flushing buffered logs from the frontend.
     """
     try:
-        # Get tenant-aware logger
-        logger = get_tenant_logger_from_request(request, "frontend_logs")
+        # Get enhanced tenant-aware logger
+        logger = get_enhanced_tenant_logger_from_request(request, "frontend_logs")
         
         processed_count = 0
         error_count = 0
@@ -194,8 +194,7 @@ async def receive_frontend_log_batch(
         
     except Exception as e:
         # Use system logger for errors in batch processing
-        from app.core.logging_config import get_logger
-        system_logger = get_logger("frontend_log_batch_error")
+        system_logger = get_enhanced_logger("frontend_log_batch_error")
         system_logger.error(f"Failed to process frontend log batch: {e}")
         
         raise HTTPException(

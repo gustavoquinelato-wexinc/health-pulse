@@ -9,7 +9,7 @@ The Backend Service serves as the primary interface between the frontend and dat
 - **API Gateway**: Unified API layer for frontend applications
 - **Authentication**: JWT-based user authentication and authorization
 - **Performance Optimization**: Query caching, connection pooling, response optimization
-- **ETL Coordination**: Settings management and job coordination with ETL service
+- **ETL Backend**: Complete ETL processing through /app/etl/* endpoints
 - **ML Monitoring**: AI performance metrics, anomaly detection, and learning memory (Phase 1+)
 - **Vector Operations**: Semantic search and similarity analysis infrastructure (Phase 1+)
 - **AI Validation**: SQL syntax/semantic validation with self-healing capabilities (Phase 2)
@@ -25,13 +25,15 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database (Enhanced)
     │              ├─ Query Optimization   │
     │              ├─ Caching Layer        │
     │              ├─ ML Monitoring APIs   │ ← Phase 1
-    │              └─ Vector Operations    │ ← Phase 1
+    │              ├─ Vector Operations    │ ← Phase 1
+    │              └─ ETL Processing       │ ← /app/etl/*
     │                       │
     │                       ├─ pgvector (similarity search)
     │                       ├─ postgresml (ML capabilities)
-    │                       └─ ML monitoring tables
+    │                       ├─ ML monitoring tables
+    │                       └─ RabbitMQ Queue System
     │
-    └─────────────────────► ETL Service (Job Coordination)
+    ETL Frontend ──────────► Backend ETL Endpoints (/app/etl/*)
                             │
                             └─► AI Service (Phase 2+)
 ```
@@ -63,9 +65,9 @@ Frontend ──► Analytics Backend ──► PostgreSQL Database (Enhanced)
 
 ### **Prerequisites**
 - Python 3.11+
-- PostgreSQL database (shared with ETL service)
+- PostgreSQL database (shared with ETL frontend)
 - Redis for caching
-- ETL Service running for job coordination
+- ETL Frontend running for ETL management interface
 
 ### **Development Setup**
 

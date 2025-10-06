@@ -108,8 +108,14 @@ class AuthService:
             logger.error(f"OKTA auth failed: {e}")
             return None
     
-    async def verify_token(self, token: str) -> Optional[User]:
-        """Verify JWT token and return user if valid - checks Redis first, then database"""
+    async def verify_token(self, token: str, suppress_errors: bool = False) -> Optional[User]:
+        """Verify JWT token and return user if valid - checks Redis first, then database
+
+        Args:
+            token: JWT token to verify
+            suppress_errors: If True, suppresses warning logs for invalid tokens (useful for middleware)
+        """
+        user_id = None  # Initialize for exception handling
         try:
             # Debug: Log JWT verification attempt (debug only)
             logger.debug(f"[AUTH] Verifying JWT token (secret length: {len(self.jwt_secret)})")
@@ -216,10 +222,12 @@ class AuthService:
                 return None
                 
         except jwt.ExpiredSignatureError:
-            logger.warning(f"JWT token expired for user {user_id if 'user_id' in locals() else 'unknown'}")
+            if not suppress_errors:
+                logger.warning(f"JWT token expired for user {user_id or 'unknown'}")
             return None
         except jwt.InvalidTokenError:
-            logger.warning(f"Invalid JWT token for user {user_id if 'user_id' in locals() else 'unknown'}")
+            if not suppress_errors:
+                logger.warning(f"Invalid JWT token for user {user_id or 'unknown'}")
             return None
         except Exception as e:
             logger.error(f"Token verification error: {e}")
@@ -576,6 +584,34 @@ class AuthService:
     def _hash_token(self, token: str) -> str:
         """Hash token for storage (for revocation purposes)"""
         return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+    def create_access_token(self, user_data: Dict[str, Any]) -> str:
+        """Create a new JWT access token for the given user data"""
+        try:
+            from datetime import datetime, timezone
+            import jwt
+
+            # Create token payload
+            now = datetime.now(timezone.utc)
+            payload = {
+                "user_id": user_data.get("id"),
+                "email": user_data.get("email"),
+                "role": user_data.get("role"),
+                "is_admin": user_data.get("is_admin", False),
+                "tenant_id": user_data.get("tenant_id"),
+                "iat": now,
+                "exp": now + self.token_expiry,  # Use self.token_expiry instead of jwt_expiry_minutes
+                "iss": "pulse-auth-service"
+            }
+
+            # Generate JWT token
+            token = jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
+            logger.debug(f"Created new access token for user_id: {user_data.get('id')}")
+            return token
+
+        except Exception as e:
+            logger.error(f"Failed to create access token: {e}")
+            raise
     
     async def create_user(self, email: str, password: str, tenant_id: int, first_name: str = None, last_name: str = None,
                          role: str = 'user', is_admin: bool = False) -> Optional[User]:
