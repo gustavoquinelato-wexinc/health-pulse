@@ -160,6 +160,14 @@ graph TD
 - **🤖 System Authentication**: Workers → Database (direct system credentials)
 - **🔧 Service-to-Service**: Backend ↔ Auth Service (HTTP token validation)
 
+### Middleware & System Requests
+
+The platform includes smart middleware that:
+- **Skips JWT validation** for system endpoints (`/health`, `/docs`, `/static/*`)
+- **Prevents startup errors** by not validating tokens for internal requests
+- **Maintains security** for user-facing endpoints with proper JWT validation
+- **Supports error suppression** for middleware to avoid log spam during startup
+
 ## 🏢 Multi-Tenancy Design
 
 ### Tenant Isolation Layers

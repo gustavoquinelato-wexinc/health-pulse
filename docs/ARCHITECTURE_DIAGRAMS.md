@@ -302,6 +302,87 @@ sequenceDiagram
     User->>Frontend: Redirect to Login
 ```
 
+## 4.1. Service-to-Service Authentication Flow
+
+```mermaid
+graph TD
+    %% Frontend Layer
+    subgraph "Frontend Applications"
+        FA[Frontend App<br/>React + TypeScript<br/>Port: 5173]
+        ETL[ETL Frontend<br/>React + TypeScript<br/>Port: 3333]
+    end
+
+    %% Service Layer
+    subgraph "Backend Services"
+        BS[Backend Service<br/>FastAPI<br/>Port: 3001]
+        AS[Auth Service<br/>FastAPI<br/>Port: 4000]
+    end
+
+    %% ETL Processing (Internal to Backend)
+    subgraph "ETL Processing (Internal)"
+        ETL_API[ETL API Endpoints<br/>/app/etl/*<br/>• Custom Fields<br/>• Jobs<br/>• Integrations]
+        ETL_WORKERS[ETL Workers<br/>• Transform Worker<br/>• Extract Worker<br/>• Load Worker]
+    end
+
+    %% Data Layer
+    subgraph "Data & Queue Layer"
+        PG[(PostgreSQL<br/>Port: 5432)]
+        RMQ[RabbitMQ<br/>Port: 5672]
+    end
+
+    %% Authentication Flows
+    FA -->|1. JWT Token| BS
+    ETL -->|2. JWT Token| BS
+    BS -->|3. Validate Token| AS
+    AS -->|4. User Data| BS
+
+    %% Internal ETL Processing (No Auth Required)
+    BS -->|5. Internal Call| ETL_API
+    ETL_API -->|6. Queue Message| RMQ
+    RMQ -->|7. Process Data| ETL_WORKERS
+    ETL_WORKERS -->|8. Direct DB Access<br/>System Credentials| PG
+
+    %% No Direct Communication
+    ETL -.->|❌ NO DIRECT COMM| AS
+    ETL_API -.->|❌ NO DIRECT COMM| AS
+    ETL_WORKERS -.->|❌ NO AUTH NEEDED| AS
+
+    %% Annotations
+    BS -->|9. Business Logic| PG
+
+    %% Styling
+    classDef frontend fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef service fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef etl fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef data fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef nocomm fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray: 5 5
+
+    class FA,ETL frontend
+    class BS,AS service
+    class ETL_API,ETL_WORKERS etl
+    class PG,RMQ data
+```
+
+### Authentication Types Explained:
+
+#### 🌐 **User Authentication (Interactive)**
+- **Path**: Frontend → Backend Service → Auth Service
+- **Purpose**: Validate user requests from UI applications
+- **Token**: JWT in Authorization header
+- **Flow**: `ETL Frontend → Backend /app/etl/* → Auth Service validation`
+
+#### 🤖 **System Authentication (Workers)**
+- **Path**: RabbitMQ Workers → Database (Direct)
+- **Purpose**: Background processing without user context
+- **Credentials**: System database credentials
+- **No Auth Service**: Workers don't need user authentication
+
+#### 🔧 **Internal Processing (No Auth)**
+- **Path**: Backend Service → ETL API Endpoints (Internal)
+- **Purpose**: Internal service communication
+- **Security**: Same process, no network calls
+- **Context**: User context passed through function calls
+
 ## 5. Database Schema Overview
 
 ```mermaid

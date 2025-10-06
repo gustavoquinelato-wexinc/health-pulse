@@ -184,8 +184,42 @@ python services/backend-service/scripts/test_multitenant_workers.py
 
 ### **Frontend Access Control**
 - ✅ **Tenant users**: Can only control their tenant's workers
-- ✅ **Admin users**: Can control all tenant workers
-- ✅ **API validation**: Tenant ID validation in all endpoints
+- ✅ **Admin users**: Can only control their own tenant's workers (tenant-specific admins)
+- ✅ **API validation**: Strict tenant ID validation in all endpoints
+
+### **Tenant Access Control Fix**
+
+#### **Security Issue Resolved**
+**Problem**: Admin users were incorrectly seeing workers for **all tenants** instead of only their own tenant.
+
+**Root Cause**: The access control logic was checking `current_user.is_admin` and allowing admins to see all tenants, but in this system, admin users are **tenant-specific admins**, not **system-wide admins**.
+
+#### **Solution Applied**
+```python
+# Before (Incorrect):
+if not current_user.is_admin and current_user.tenant_id != tenant_id:
+    raise HTTPException(status_code=403, detail="Access denied")
+
+# After (Correct):
+if current_user.tenant_id != tenant_id:
+    raise HTTPException(status_code=403, detail="Access denied")
+```
+
+#### **Updated Endpoints**
+- **Worker Status**: Returns only current user's tenant workers
+- **Worker Control**: Controls only current user's tenant workers
+- **Tenant Worker Control**: Validates tenant_id matches current user's tenant
+- **Tenant Worker Status**: Prevents cross-tenant status access
+
+#### **Security Model**
+1. **Tenant Admin**: Can manage workers for **their tenant only**
+2. **Tenant User**: Can manage workers for **their tenant only**
+3. **System Admin**: Would need separate endpoints (not implemented)
+
+#### **Access Control Rules**
+- ✅ **Tenant Isolation**: Users can only see/control their own tenant's resources
+- ✅ **No Cross-Tenant Access**: Strict validation of tenant_id in all endpoints
+- ✅ **Consistent Enforcement**: Same rules apply to all user types within a tenant
 
 ---
 

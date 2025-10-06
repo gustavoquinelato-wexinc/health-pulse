@@ -329,4 +329,72 @@ class TransformWorker(BaseWorker):
 
 ---
 
+## 🔄 Token Refresh & Session Management
+
+### Automatic Token Refresh System
+
+The platform implements automatic token refresh to maintain security while providing seamless user experience:
+
+#### **Configuration**
+- **Token Expiry**: 5 minutes for enhanced security
+- **Session Check**: Every 30 seconds
+- **Proactive Refresh**: When <1 minute remaining
+- **Retry Logic**: Single retry on 401 errors
+
+#### **Frontend Implementation**
+```typescript
+// Automatic token refresh in AuthContext
+const refreshToken = async (): Promise<boolean> => {
+  try {
+    const response = await api.post('/api/v1/auth/refresh');
+    if (response.data.success) {
+      localStorage.setItem('pulse_token', response.data.token);
+      // Update axios headers
+      return true;
+    }
+  } catch (error) {
+    // Logout if refresh fails
+    logout();
+    return false;
+  }
+}
+```
+
+#### **Backend Token Refresh Endpoint**
+```python
+@router.post("/refresh")
+async def refresh_token(request: Request):
+    """Token refresh endpoint. Validates current token and returns a new one if valid."""
+    # Validates current token via auth service
+    # Generates new token for same user
+    # Returns: {"success": True, "token": "new_jwt_token", "user": user_data}
+```
+
+#### **API Interceptor with Retry**
+```typescript
+// Automatic retry on 401 errors
+etlApi.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const refreshSuccess = await refreshToken();
+      if (refreshSuccess) {
+        // Retry original request with new token
+        return etlApi.request(error.config);
+      }
+    }
+    return Promise.reject(error);
+  }
+)
+```
+
+### Benefits
+- ✅ **Seamless User Experience**: No unexpected logouts
+- ✅ **Security Maintained**: Short-lived tokens (5 minutes)
+- ✅ **Automatic Recovery**: Failed API calls retry with fresh tokens
+- ✅ **Proactive Refresh**: Tokens refreshed before expiry
+- ✅ **Graceful Degradation**: Logout only when refresh fails
+
+---
+
 **Security is a shared responsibility. All team members must follow these guidelines to maintain the platform's security posture.**
