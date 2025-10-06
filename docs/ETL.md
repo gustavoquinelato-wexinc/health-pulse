@@ -709,6 +709,14 @@ class QueueMonitor:
 - **Tenant-Level Configuration**: One mapping configuration per tenant/integration
 - **Simplified Processing**: Transform workers use direct FK relationships for mapping
 
+#### Recent Bug Fixes & Improvements ✅
+- **🔧 Data Truncation Fix**: Removed "Story" filter from Jira createmeta API calls to retrieve ALL issue types
+- **🔧 WIT Deduplication**: Fixed transform worker to create 11 unique issue types instead of 86 duplicates
+- **🔧 Project-WIT Relationships**: Fixed creation of 86 project-issuetype relationships
+- **🔧 Import Error Fix**: Added missing `json` import in custom_fields.py
+- **🔧 Migration Rollback**: Fixed foreign key constraint violations in migration rollbacks
+- **📊 Debug Logging**: Added comprehensive logging for payload sizes and processing steps
+
 #### Phase 2.1: Database Foundation ✅
 - **Simplified Schema**: custom_fields table (global) + custom_fields_mapping table (20 FK columns)
 - **Model Updates**: Updated unified models with direct FK relationships

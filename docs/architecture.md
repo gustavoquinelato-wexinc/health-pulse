@@ -137,6 +137,29 @@ User Request ──► Auth Service ──► JWT Token ──► Backend Servic
   Credentials    OKTA/Local      Secure Cookie   RBAC Enforcement   Tenant Filter
 ```
 
+### Service-to-Service Authentication
+
+```mermaid
+graph TD
+    A[Frontend] -->|JWT Token| B[Backend Service :3001]
+    B -->|Validate Token| C[Auth Service :4000]
+    C -->|User Data| B
+
+    D[ETL Frontend] -->|JWT Token| B
+    B -->|ETL Endpoints /app/etl/*| E[ETL Processing]
+
+    F[RabbitMQ Workers] -->|Direct Access| G[Database]
+    F -->|Service Credentials| H[RabbitMQ :5672]
+
+    I[Transform Worker] -->|No Auth Required| G
+    I -->|Tenant Isolation| J[Queue Routing]
+```
+
+**Authentication Types:**
+- **🌐 User Authentication**: Frontend → Backend → Auth Service (JWT validation)
+- **🤖 System Authentication**: Workers → Database (direct system credentials)
+- **🔧 Service-to-Service**: Backend ↔ Auth Service (HTTP token validation)
+
 ## 🏢 Multi-Tenancy Design
 
 ### Tenant Isolation Layers

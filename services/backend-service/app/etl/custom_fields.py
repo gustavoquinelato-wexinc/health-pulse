@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
+import json
 
 from app.core.database import get_db_session
 from app.auth.auth_middleware import require_authentication, UserData
@@ -207,9 +208,16 @@ async def sync_custom_fields(
             logger.info(f"Calling Jira createmeta API for projects: {project_keys}")
             createmeta_response = jira_client.get_createmeta(
                 project_keys=project_keys,
-                issue_type_names=["Story"],  # Focus on Story issue type initially
+                issue_type_names=None,  # 🔧 FIX: Get ALL issue types, not just "Story"
                 expand="projects.issuetypes.fields"
             )
+
+            # 🔍 DEBUG: Log the size of the response for troubleshooting
+            response_json = json.dumps(createmeta_response)
+            response_size_bytes = len(response_json.encode('utf-8'))
+            response_size_mb = response_size_bytes / 1024 / 1024
+            projects_count = len(createmeta_response.get('projects', []))
+            logger.info(f"🔍 DEBUG: Createmeta response size: {response_size_bytes:,} bytes ({response_size_mb:.2f} MB), projects: {projects_count}")
 
             # Store one record with all projects and queue single message
             projects_processed = 0
@@ -415,9 +423,15 @@ async def queue_custom_fields_for_processing(
                     ) RETURNING id
                 """)
 
+                # 🔍 DEBUG: Log the size being stored in database
+                raw_data_json = json.dumps(createmeta_response)
+                db_size_bytes = len(raw_data_json.encode('utf-8'))
+                db_size_mb = db_size_bytes / 1024 / 1024
+                logger.info(f"🔍 DEBUG: Storing in database: {db_size_bytes:,} bytes ({db_size_mb:.2f} MB)")
+
                 result = db.execute(insert_query, {
                     'type': 'jira_custom_fields',
-                    'raw_data': json.dumps(createmeta_response),  # EXACT API response, no wrapping
+                    'raw_data': raw_data_json,  # EXACT API response, no wrapping
                     'tenant_id': tenant_id,
                     'integration_id': integration_id
                 })
@@ -427,6 +441,8 @@ async def queue_custom_fields_for_processing(
                     raise Exception("Failed to insert raw data - no ID returned")
                 raw_data_id = row[0]
                 db.commit()
+
+                logger.info(f"🔍 DEBUG: Successfully stored raw_data with ID: {raw_data_id}")
 
                 logger.info(f"Stored raw data: ID={raw_data_id}, project={project_key}")
 

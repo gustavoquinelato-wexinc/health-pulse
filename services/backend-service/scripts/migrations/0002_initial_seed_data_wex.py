@@ -1228,6 +1228,12 @@ def rollback(connection):
         print("📋 Removing raw extraction data...")
         cursor.execute("DELETE FROM raw_extraction_data WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
+        print("📋 Removing custom fields mapping...")
+        cursor.execute("DELETE FROM custom_fields_mapping WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+
+        print("📋 Removing custom fields...")
+        cursor.execute("DELETE FROM custom_fields WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+
         print("📋 Removing all integrations for WEX tenant...")
         cursor.execute("DELETE FROM integrations WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 

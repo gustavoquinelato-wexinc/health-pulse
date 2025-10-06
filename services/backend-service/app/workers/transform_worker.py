@@ -112,12 +112,27 @@ class TransformWorker(BaseWorker):
                 # raw_data is already the createmeta response from Jira API
                 createmeta_response = raw_data
                 projects_data = createmeta_response.get('projects', [])
-                
+
                 if not projects_data:
                     logger.warning(f"No projects found in raw data: {raw_data_id}")
                     return True  # Not an error, just empty data
-                
-                logger.info(f"Processing {len(projects_data)} projects from createmeta")
+
+                logger.info(f"🔍 DEBUG: Processing {len(projects_data)} projects from createmeta")
+
+                # Debug: Count total issue types and relationships
+                total_issue_types = 0
+                total_relationships = 0
+                unique_issue_types = set()
+                for project in projects_data:
+                    issue_types = project.get('issuetypes', [])
+                    total_issue_types += len(issue_types)
+                    total_relationships += len(issue_types)
+                    for it in issue_types:
+                        unique_issue_types.add(it.get('id'))
+
+                logger.info(f"🔍 DEBUG: Found {len(unique_issue_types)} unique issue types across all projects")
+                logger.info(f"🔍 DEBUG: Expected {total_relationships} project-wit relationships")
+                logger.info(f"🔍 DEBUG: Unique issue type IDs: {sorted(unique_issue_types)}")
                 
                 # 3. Process projects and collect data for bulk operations
                 projects_to_insert = []
@@ -134,11 +149,23 @@ class TransformWorker(BaseWorker):
                 existing_custom_fields = self._get_existing_custom_fields(session, tenant_id, integration_id)
                 existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
 
+                logger.info(f"🔍 DEBUG: Found {len(existing_projects)} existing projects")
+                logger.info(f"🔍 DEBUG: Found {len(existing_wits)} existing WITs: {list(existing_wits.keys())}")
+                logger.info(f"🔍 DEBUG: Found {len(existing_custom_fields)} existing custom fields")
+                logger.info(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
+
                 # Collect all unique custom fields globally (not per project)
                 global_custom_fields = {}  # field_key -> field_info
 
                 # Process each project
-                for project_data in projects_data:
+                logger.info(f"🔍 DEBUG: Starting to process {len(projects_data)} projects individually...")
+                for i, project_data in enumerate(projects_data):
+                    project_key = project_data.get('key', 'UNKNOWN')
+                    project_name = project_data.get('name', 'UNKNOWN')
+                    issue_types_count = len(project_data.get('issuetypes', []))
+
+                    logger.info(f"🔍 DEBUG: Processing project {i+1}/{len(projects_data)}: {project_key} ({project_name}) with {issue_types_count} issue types")
+
                     project_result = self._process_project_data(
                         project_data, tenant_id, integration_id,
                         existing_projects, existing_wits, existing_custom_fields,
@@ -151,6 +178,46 @@ class TransformWorker(BaseWorker):
                         wits_to_insert.extend(project_result.get('wits_to_insert', []))
                         wits_to_update.extend(project_result.get('wits_to_update', []))
                         project_wit_relationships.extend(project_result.get('project_wit_relationships', []))
+
+                        logger.info(f"🔍 DEBUG: After processing {project_key}: Total WITs to insert: {len(wits_to_insert)}, relationships: {len(project_wit_relationships)}")
+                    else:
+                        logger.warning(f"🔍 DEBUG: No result returned for project {project_key}")
+
+                logger.info(f"🔍 DEBUG: Final totals after all projects:")
+                logger.info(f"🔍 DEBUG:   - Projects to insert: {len(projects_to_insert)}")
+                logger.info(f"🔍 DEBUG:   - Projects to update: {len(projects_to_update)}")
+                logger.info(f"🔍 DEBUG:   - WITs to insert (before dedup): {len(wits_to_insert)}")
+                logger.info(f"🔍 DEBUG:   - WITs to update: {len(wits_to_update)}")
+                logger.info(f"🔍 DEBUG:   - Project-wit relationships: {len(project_wit_relationships)}")
+
+                # 🔧 FIX: Deduplicate WITs globally by external_id
+                # The same WIT (e.g., "Story" with id "10001") appears in multiple projects
+                # We should only insert each unique WIT once
+                unique_wits_to_insert = {}
+                for wit in wits_to_insert:
+                    external_id = wit.get('external_id')
+                    if external_id and external_id not in unique_wits_to_insert:
+                        unique_wits_to_insert[external_id] = wit
+
+                wits_to_insert = list(unique_wits_to_insert.values())
+
+                logger.info(f"🔍 DEBUG: After WIT deduplication:")
+                logger.info(f"🔍 DEBUG:   - Unique WITs to insert: {len(wits_to_insert)}")
+                logger.info(f"🔍 DEBUG:   - WIT external IDs: {list(unique_wits_to_insert.keys())}")
+
+                # Show WIT names for debugging
+                for wit in wits_to_insert:
+                    logger.info(f"🔍 DEBUG:   - WIT to insert: {wit.get('original_name')} (id: {wit.get('external_id')})")
+
+                # Also deduplicate WITs to update
+                unique_wits_to_update = {}
+                for wit in wits_to_update:
+                    wit_id = wit.get('id')  # Database ID for updates
+                    if wit_id and wit_id not in unique_wits_to_update:
+                        unique_wits_to_update[wit_id] = wit
+
+                wits_to_update = list(unique_wits_to_update.values())
+                logger.info(f"🔍 DEBUG:   - Unique WITs to update: {len(wits_to_update)}")
 
                 # Process global custom fields once
                 logger.info(f"Processing {len(global_custom_fields)} unique custom fields globally")
@@ -165,15 +232,24 @@ class TransformWorker(BaseWorker):
 
                 logger.info(f"Custom fields to insert: {len(custom_fields_to_insert)}, to update: {len(custom_fields_to_update)}")
                 
-                # 4. Perform bulk operations
+                # 4. Perform bulk operations (projects and WITs first)
                 self._perform_bulk_operations(
                     session, projects_to_insert, projects_to_update,
                     wits_to_insert, wits_to_update,
                     custom_fields_to_insert, custom_fields_to_update,
-                    project_wit_relationships
+                    []  # Empty relationships for now
                 )
+
+                # 5. Create project-wit relationships after projects and WITs are saved
+                if project_wit_relationships:
+                    logger.info(f"Creating {len(project_wit_relationships)} project-wit relationships")
+                    actual_relationships = self._create_project_wit_relationships(
+                        session, project_wit_relationships, tenant_id, integration_id
+                    )
+                    if actual_relationships:
+                        BulkOperations.bulk_insert_relationships(session, 'projects_wits', actual_relationships)
                 
-                # 5. Update raw data status
+                # 6. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
                 
                 session.commit()
@@ -263,7 +339,7 @@ class TransformWorker(BaseWorker):
         Process a single project's data from createmeta response.
 
         Returns:
-            Dict with lists of data to insert/update
+            Dict with lists of data to insert/update and project-wit relationships to create
         """
         result = {
             'projects_to_insert': [],
@@ -277,6 +353,9 @@ class TransformWorker(BaseWorker):
             project_external_id = project_data.get('id')
             project_key = project_data.get('key')
             project_name = project_data.get('name')
+            issue_types = project_data.get('issuetypes', [])
+
+            logger.info(f"🔍 DEBUG: _process_project_data - Processing {project_key} ({project_name}) with {len(issue_types)} issue types")
 
             if not all([project_external_id, project_key, project_name]):
                 logger.warning(f"Incomplete project data: {project_data}")
@@ -314,14 +393,33 @@ class TransformWorker(BaseWorker):
             # Process issue types (WITs) and collect unique custom fields per project
             issue_types = project_data.get('issuetypes', [])
             unique_custom_fields = {}  # field_key -> field_info (deduplicated)
+            project_wit_external_ids = []  # Store WIT external IDs for this project
 
-            for issue_type in issue_types:
+            logger.info(f"🔍 DEBUG: Processing {len(issue_types)} issue types for project {project_key}")
+
+            for i, issue_type in enumerate(issue_types):
+                wit_external_id = issue_type.get('id')
+                wit_name = issue_type.get('name', 'UNKNOWN')
+
+                logger.info(f"🔍 DEBUG: Processing issue type {i+1}/{len(issue_types)}: {wit_name} (id: {wit_external_id})")
+
+                if wit_external_id:
+                    project_wit_external_ids.append(wit_external_id)
+                    logger.info(f"🔍 DEBUG: Added WIT external ID {wit_external_id} to project {project_key}")
+
                 wit_result = self._process_wit_data(
                     issue_type, tenant_id, integration_id, existing_wits
                 )
                 if wit_result:
-                    result['wits_to_insert'].extend(wit_result.get('wits_to_insert', []))
-                    result['wits_to_update'].extend(wit_result.get('wits_to_update', []))
+                    wits_to_insert = wit_result.get('wits_to_insert', [])
+                    wits_to_update = wit_result.get('wits_to_update', [])
+
+                    logger.info(f"🔍 DEBUG: WIT result for {wit_name}: {len(wits_to_insert)} to insert, {len(wits_to_update)} to update")
+
+                    result['wits_to_insert'].extend(wits_to_insert)
+                    result['wits_to_update'].extend(wits_to_update)
+                else:
+                    logger.warning(f"🔍 DEBUG: No WIT result for {wit_name} (id: {wit_external_id})")
 
                 # Collect custom fields from this issue type (deduplicate by field_key)
                 fields = issue_type.get('fields', {})
@@ -331,17 +429,95 @@ class TransformWorker(BaseWorker):
                         if field_key not in unique_custom_fields:
                             unique_custom_fields[field_key] = field_info
 
+            # Store project-wit relationships for later processing (after WITs are saved)
+            # We'll store as (project_external_id, wit_external_id) tuples
+            logger.info(f"🔍 DEBUG: Creating {len(project_wit_external_ids)} project-wit relationships for project {project_key}")
+            logger.info(f"🔍 DEBUG: WIT external IDs for {project_key}: {project_wit_external_ids}")
+
+            for wit_external_id in project_wit_external_ids:
+                relationship = (project_external_id, wit_external_id)
+                result['project_wit_relationships'].append(relationship)
+                logger.info(f"🔍 DEBUG: Added relationship: project {project_external_id} -> wit {wit_external_id}")
+
             # Add unique custom fields from this project to global collection
             for field_key, field_info in unique_custom_fields.items():
                 # Keep the first occurrence globally (across all projects)
                 if field_key not in global_custom_fields:
                     global_custom_fields[field_key] = field_info
 
+            logger.info(f"🔍 DEBUG: Project {project_key} summary:")
+            logger.info(f"🔍 DEBUG:   - WITs to insert: {len(result['wits_to_insert'])}")
+            logger.info(f"🔍 DEBUG:   - WITs to update: {len(result['wits_to_update'])}")
+            logger.info(f"🔍 DEBUG:   - Project-wit relationships: {len(result['project_wit_relationships'])}")
+            logger.info(f"🔍 DEBUG:   - Unique custom fields: {len(unique_custom_fields)}")
+            logger.info(f"🔍 DEBUG:   - Relationship details: {result['project_wit_relationships']}")
+
             return result
 
         except Exception as e:
             logger.error(f"Error processing project data: {e}")
             return result
+
+    def _create_project_wit_relationships(
+        self,
+        session,
+        project_wit_relationships: List[tuple],
+        tenant_id: int,
+        integration_id: int
+    ) -> List[tuple]:
+        """
+        Create project-wit relationships using actual database IDs.
+
+        Args:
+            session: Database session
+            project_wit_relationships: List of (project_external_id, wit_external_id) tuples
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+
+        Returns:
+            List of (project_id, wit_id) tuples with actual database IDs
+        """
+        try:
+            # Get all projects and WITs for this tenant/integration
+            projects = session.query(Project).filter(
+                Project.tenant_id == tenant_id,
+                Project.integration_id == integration_id,
+                Project.active == True
+            ).all()
+            projects_dict = {p.external_id: p.id for p in projects}
+
+            wits = session.query(Wit).filter(
+                Wit.tenant_id == tenant_id,
+                Wit.integration_id == integration_id,
+                Wit.active == True
+            ).all()
+            wits_dict = {w.external_id: w.id for w in wits}
+
+            # Get existing relationships to avoid duplicates
+            existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
+
+            # Convert external IDs to database IDs
+            actual_relationships = []
+            for project_external_id, wit_external_id in project_wit_relationships:
+                project_id = projects_dict.get(project_external_id)
+                wit_id = wits_dict.get(wit_external_id)
+
+                if project_id and wit_id:
+                    relationship_key = (project_id, wit_id)
+                    if relationship_key not in existing_relationships:
+                        actual_relationships.append(relationship_key)
+                else:
+                    if not project_id:
+                        logger.warning(f"Project not found for external_id: {project_external_id}")
+                    if not wit_id:
+                        logger.warning(f"WIT not found for external_id: {wit_external_id}")
+
+            logger.info(f"Created {len(actual_relationships)} new project-wit relationships")
+            return actual_relationships
+
+        except Exception as e:
+            logger.error(f"Error creating project-wit relationships: {e}")
+            return []
 
     def _process_wit_data(
         self,
@@ -362,15 +538,21 @@ class TransformWorker(BaseWorker):
             wit_description = issue_type_data.get('description', '')
             hierarchy_level = issue_type_data.get('hierarchyLevel', 0)
 
+            logger.info(f"🔍 DEBUG: _process_wit_data - Processing WIT: {wit_name} (id: {wit_external_id})")
+
             if not all([wit_external_id, wit_name]):
+                logger.warning(f"🔍 DEBUG: Incomplete WIT data: external_id={wit_external_id}, name={wit_name}")
                 return result
 
             if wit_external_id in existing_wits:
                 # Check if WIT needs update
                 existing_wit = existing_wits[wit_external_id]
+                logger.info(f"🔍 DEBUG: WIT {wit_name} already exists, checking for updates...")
+
                 if (existing_wit.original_name != wit_name or
                     existing_wit.description != wit_description or
                     existing_wit.hierarchy_level != hierarchy_level):
+                    logger.info(f"🔍 DEBUG: WIT {wit_name} needs update")
                     result['wits_to_update'].append({
                         'id': existing_wit.id,
                         'original_name': wit_name,
@@ -378,8 +560,11 @@ class TransformWorker(BaseWorker):
                         'hierarchy_level': hierarchy_level,
                         'last_updated_at': datetime.now(timezone.utc)
                     })
+                else:
+                    logger.info(f"🔍 DEBUG: WIT {wit_name} is up to date, no update needed")
             else:
                 # New WIT
+                logger.info(f"🔍 DEBUG: WIT {wit_name} is new, adding to insert list")
                 wit_insert_data = {
                     'external_id': wit_external_id,
                     'original_name': wit_name,

@@ -205,6 +205,128 @@ CREATE POLICY tenant_isolation ON projects
 - [ ] Security training completed
 - [ ] Compliance audits scheduled
 
+## 🔗 Service-to-Service Authentication
+
+### Authentication Types
+
+#### **🌐 User Authentication (Interactive)**
+For frontend applications and user-initiated requests:
+
+```mermaid
+graph TD
+    A[Frontend] -->|JWT Token| B[Backend Service :3001]
+    B -->|Validate Token| C[Auth Service :4000]
+    C -->|User Data| B
+    B -->|Process Request| D[Database]
+
+    E[ETL Frontend] -->|JWT Token| F[ETL Service :8000]
+    F -->|Validate Token| C
+    C -->|User Data| F
+```
+
+**Flow:**
+1. Frontend sends JWT token in Authorization header
+2. Service receives request and extracts token
+3. Service calls Auth Service to validate token
+4. Auth Service returns user data if valid
+5. Service processes request with user context
+
+#### **🤖 System Authentication (Workers)**
+For background processes and automated services:
+
+```mermaid
+graph TD
+    A[RabbitMQ Workers] -->|Direct Access| B[Database]
+    A -->|Service Credentials| C[RabbitMQ]
+    A -->|No User Auth| D[System Access]
+```
+
+**Characteristics:**
+- **No User Authentication**: Workers don't require JWT tokens
+- **Database Access**: Direct PostgreSQL connections using system credentials
+- **Queue Access**: RabbitMQ service credentials (`etl_user`/`etl_password`)
+- **Tenant Isolation**: Workers process only their tenant's data via queue routing
+
+#### **🔧 Service-to-Service (Internal)**
+For internal service communication:
+
+```python
+# Backend Service validating token via Auth Service
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        f"{auth_service_url}/api/v1/token/validate",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=5.0
+    )
+```
+
+### Authentication Endpoints
+
+| Service | Endpoint | Purpose | Authentication |
+|---------|----------|---------|----------------|
+| Auth Service | `POST /api/v1/token/validate` | Validate JWT tokens | Token in header |
+| Backend | `POST /api/v1/auth/validate` | Proxy to Auth Service | Token in header |
+| ETL Service | `GET /api/v1/auth/validate` | Proxy to Auth Service | Token in header |
+
+### Configuration
+
+#### **JWT Settings (Shared across services)**
+```env
+JWT_SECRET_KEY=CG4JhJsv-y6cwTXlSHU6N-ZwIh2ibjUvoFuxC9PaPOU
+JWT_ALGORITHM=HS256
+JWT_EXPIRY_MINUTES=5  # Auth Service (short for security)
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60  # Backend Service
+```
+
+#### **Service URLs**
+```env
+AUTH_SERVICE_URL=http://localhost:4000
+BACKEND_SERVICE_URL=http://localhost:3001
+ETL_SERVICE_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:3000
+```
+
+#### **RabbitMQ Service Credentials**
+```env
+RABBITMQ_USER=etl_user
+RABBITMQ_PASSWORD=etl_password
+RABBITMQ_VHOST=pulse_etl
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+```
+
+### Worker Security Model
+
+#### **No User Authentication Required**
+RabbitMQ workers operate without user authentication because:
+
+1. **System-Level Access**: Workers are trusted system components
+2. **Tenant Isolation**: Queue routing ensures workers only process their tenant's data
+3. **Database Security**: Direct database access with system credentials
+4. **Queue Security**: RabbitMQ access controlled by service credentials
+
+#### **Tenant Isolation in Workers**
+```python
+# Workers consume from tenant-specific queues
+queue_name = f"transform_queue_tenant_{tenant_id}"
+
+# All database operations are tenant-scoped
+session.query(WorkItem).filter(
+    WorkItem.tenant_id == tenant_id
+).all()
+```
+
+#### **Worker Authentication Flow**
+```python
+# Worker initialization - no user auth needed
+class TransformWorker(BaseWorker):
+    def __init__(self, tenant_id: int):
+        self.tenant_id = tenant_id
+        self.queue_name = f"transform_queue_tenant_{tenant_id}"
+        self.database = get_database()  # System database access
+        self.queue_manager = QueueManager()  # Service credentials
+```
+
 ---
 
 **Security is a shared responsibility. All team members must follow these guidelines to maintain the platform's security posture.**
