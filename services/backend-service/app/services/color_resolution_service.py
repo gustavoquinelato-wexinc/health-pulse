@@ -235,14 +235,14 @@ class ColorResolutionService:
 
             # Get appropriate colors based on user's accessibility level
             if accessibility_level in ['AA', 'AAA']:
-                color_data = self.get_accessibility_colors(tenant_id, mode, accessibility_level, db)
+                color_data = self.get_accessibility_colors(tenant_id, mode, accessibility_level, db)  # type: ignore
             else:
                 color_data = self.get_client_colors(tenant_id, mode, db)
 
             if not color_data:
                 # Fallback to default mode if custom not found
                 if accessibility_level in ['AA', 'AAA']:
-                    color_data = self.get_accessibility_colors(tenant_id, 'default', accessibility_level, db)
+                    color_data = self.get_accessibility_colors(tenant_id, 'default', accessibility_level, db)  # type: ignore
                 else:
                     color_data = self.get_client_colors(tenant_id, 'default', db)
             

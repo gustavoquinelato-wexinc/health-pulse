@@ -97,13 +97,13 @@ async def get_wits(
 
             return [
                 WitResponse(
-                    id=wit.id,
-                    external_id=wit.external_id,
-                    original_name=wit.original_name,
-                    description=wit.description,
-                    hierarchy_level=wit.hierarchy_level,
-                    wits_mapping_id=wit.wit_mapping_id,
-                    integration_id=wit.integration_id,
+                    id=wit.id,  # type: ignore
+                    external_id=wit.external_id,  # type: ignore
+                    original_name=wit.original_name,  # type: ignore
+                    description=wit.description,  # type: ignore
+                    hierarchy_level=wit.hierarchy_level,  # type: ignore
+                    wits_mapping_id=wit.wit_mapping_id,  # type: ignore
+                    integration_id=wit.integration_id,  # type: ignore
                     active=wit.active
                 )
                 for wit in wits
@@ -249,17 +249,17 @@ async def update_wit_hierarchy(
 
                     # Reassign all dependent mappings to the target hierarchy
                     for mapping in dependent_mappings:
-                        mapping.wits_hierarchy_id = hierarchy_update.target_hierarchy_id
+                        mapping.wits_hierarchy_id = hierarchy_update.target_hierarchy_id  # type: ignore
                         # Update the wit_to field to match the target hierarchy's name
                         mapping.wit_to = target_hierarchy.level_name
 
             # Update fields if provided
             if hierarchy_update.level_name is not None:
-                hierarchy.level_name = hierarchy_update.level_name
+                hierarchy.level_name = hierarchy_update.level_name  # type: ignore
             if hierarchy_update.level_number is not None:
-                hierarchy.level_number = hierarchy_update.level_number
+                hierarchy.level_number = hierarchy_update.level_number  # type: ignore
             if hierarchy_update.description is not None:
-                hierarchy.description = hierarchy_update.description
+                hierarchy.description = hierarchy_update.description  # type: ignore
             if hierarchy_update.integration_id is not None:
                 hierarchy.integration_id = hierarchy_update.integration_id
             if hierarchy_update.active is not None:
@@ -276,13 +276,13 @@ async def update_wit_hierarchy(
 
             # Return updated hierarchy data with integration info
             return WitHierarchyResponse(
-                id=hierarchy.id,
-                level_number=hierarchy.level_number,
-                level_name=hierarchy.level_name,
-                description=hierarchy.description,
-                integration_id=hierarchy.integration_id,
-                integration_name=integration.provider if integration else None,
-                integration_logo=integration.logo_filename if integration else None,
+                id=hierarchy.id,  # type: ignore
+                level_number=hierarchy.level_number,  # type: ignore
+                level_name=hierarchy.level_name,  # type: ignore
+                description=hierarchy.description,  # type: ignore
+                integration_id=hierarchy.integration_id,  # type: ignore
+                integration_name=integration.provider if integration else None,  # type: ignore
+                integration_logo=integration.logo_filename if integration else None,  # type: ignore
                 active=hierarchy.active
             )
 
@@ -417,7 +417,7 @@ async def delete_wit_hierarchy(
 
                     # Reassign all dependent mappings to the target hierarchy
                     for mapping in dependent_mappings:
-                        mapping.wits_hierarchy_id = deletion_data.target_hierarchy_id
+                        mapping.wits_hierarchy_id = deletion_data.target_hierarchy_id  # type: ignore
                         # Update the wit_to field to match the target hierarchy's name
                         mapping.wit_to = target_hierarchy.level_name
 
@@ -470,13 +470,13 @@ async def create_wit_hierarchy(
                     integration_logo = integration.logo_filename
 
             return WitHierarchyResponse(
-                id=new_hierarchy.id,
-                level_number=new_hierarchy.level_number,
-                level_name=new_hierarchy.level_name,
-                description=new_hierarchy.description,
-                integration_id=new_hierarchy.integration_id,
-                integration_name=integration_name,
-                integration_logo=integration_logo,
+                id=new_hierarchy.id,  # type: ignore
+                level_number=new_hierarchy.level_number,  # type: ignore
+                level_name=new_hierarchy.level_name,  # type: ignore
+                description=new_hierarchy.description,  # type: ignore
+                integration_id=new_hierarchy.integration_id,  # type: ignore
+                integration_name=integration_name,  # type: ignore
+                integration_logo=integration_logo,  # type: ignore
                 active=new_hierarchy.active
             )
 
@@ -540,13 +540,13 @@ async def create_wit_mapping(
                     integration_logo = integration.logo_filename
 
             return WitMappingResponse(
-                id=new_mapping.id,
-                wit_from=new_mapping.wit_from,
-                wit_to=new_mapping.wit_to,
-                hierarchy_level=new_mapping.hierarchy_level,
-                integration_id=new_mapping.integration_id,
-                integration_name=integration_name,
-                integration_logo=integration_logo,
+                id=new_mapping.id,  # type: ignore
+                wit_from=new_mapping.wit_from,  # type: ignore
+                wit_to=new_mapping.wit_to,  # type: ignore
+                hierarchy_level=new_mapping.hierarchy_level,  # type: ignore
+                integration_id=new_mapping.integration_id,  # type: ignore
+                integration_name=integration_name,  # type: ignore
+                integration_logo=integration_logo,  # type: ignore
                 active=new_mapping.active
             )
 
@@ -583,9 +583,9 @@ async def update_wit_mapping(
 
             # Update fields if provided
             if mapping_data.wit_from is not None:
-                mapping.wit_from = mapping_data.wit_from
+                mapping.wit_from = mapping_data.wit_from  # type: ignore
             if mapping_data.wit_to is not None:
-                mapping.wit_to = mapping_data.wit_to
+                mapping.wit_to = mapping_data.wit_to  # type: ignore
             if mapping_data.integration_id is not None:
                 mapping.integration_id = mapping_data.integration_id
             if mapping_data.active is not None:
@@ -621,13 +621,13 @@ async def update_wit_mapping(
             ).first() if mapping.integration_id else None
 
             return WitMappingResponse(
-                id=mapping.id,
-                wit_from=mapping.wit_from,
-                wit_to=mapping.wit_to,
-                hierarchy_level=hierarchy.level_number if hierarchy else None,
-                integration_id=mapping.integration_id,
-                integration_name=integration.provider if integration else None,
-                integration_logo=integration.logo_filename if integration else None,
+                id=mapping.id,  # type: ignore
+                wit_from=mapping.wit_from,  # type: ignore
+                wit_to=mapping.wit_to,  # type: ignore
+                hierarchy_level=hierarchy.level_number if hierarchy else None,  # type: ignore
+                integration_id=mapping.integration_id,  # type: ignore
+                integration_name=integration.provider if integration else None,  # type: ignore
+                integration_logo=integration.logo_filename if integration else None,  # type: ignore
                 active=mapping.active
             )
 

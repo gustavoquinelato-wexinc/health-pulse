@@ -9,11 +9,11 @@ from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.logging_config import get_logger, RequestLogger
+from app.core.logging_config import RequestLogger, get_enhanced_logger
 from app.core.config import get_settings
 from app.core.security import SecurityValidator, validate_request_data, default_rate_limiter
 
-logger = get_logger(__name__)
+logger = get_enhanced_logger(__name__)
 settings = get_settings()
 
 

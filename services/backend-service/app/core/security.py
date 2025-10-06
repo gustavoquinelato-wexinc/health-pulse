@@ -52,7 +52,7 @@ class SecurityValidator:
             return True
         
         if cls.PATTERNS['sql_injection'].search(value):
-            logger.warning("Possible SQL injection attempt detected", value=value[:100])
+            logger.warning(f"Possible SQL injection attempt detected - value: {value[:100]}")
             return False
         
         return True
@@ -64,7 +64,7 @@ class SecurityValidator:
             return True
         
         if cls.PATTERNS['xss'].search(value):
-            logger.warning("Possible XSS attempt detected", value=value[:100])
+            logger.warning(f"Possible XSS attempt detected - value: {value[:100]}")
             return False
         
         return True
@@ -76,7 +76,7 @@ class SecurityValidator:
             return True
         
         if cls.PATTERNS['path_traversal'].search(value):
-            logger.warning("Possible path traversal attempt detected", value=value[:100])
+            logger.warning(f"Possible path traversal attempt detected - value: {value[:100]}")
             return False
         
         return True
@@ -88,7 +88,7 @@ class SecurityValidator:
             return True
         
         if cls.PATTERNS['command_injection'].search(value):
-            logger.warning("Possible command injection attempt detected", value=value[:100])
+            logger.warning(f"Possible command injection attempt detected - value: {value[:100]}")
             return False
         
         return True

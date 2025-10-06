@@ -85,26 +85,25 @@ class IntegrationBaseEntity:
 
 
 class Integration(Base, BaseEntity):
-    """Clean integrations table (Phase 3-1)"""
+    """Clean integrations table with unified settings architecture"""
     __tablename__ = 'integrations'
     __table_args__ = {'quote': False}
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
     # Core integration fields
-    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', 'Local Embeddings'
-    type = Column(String(50), nullable=False, quote=False, name="type")  # 'Data', 'AI', 'Embedding'
+    provider = Column(String(50), nullable=False, quote=False, name="provider")  # 'Jira', 'GitHub', 'WEX AI Gateway', etc.
+    type = Column(String(50), nullable=False, quote=False, name="type")  # 'Data', 'AI', 'Embedding', 'System'
     username = Column(String, quote=False, name="username")
-    password = Column(String, quote=False, name="password")
+    password = Column(String, quote=False, name="password")  # Encrypted tokens/passwords
     base_url = Column(Text, quote=False, name="base_url")
-    base_search = Column(String, quote=False, name="base_search")
-    ai_model = Column(String(100), quote=False, name="ai_model")  # AI model name: 'azure-gpt-4o-mini', 'bedrock-claude-sonnet-4-v1'
 
-    # JSON configuration columns for AI providers
-    ai_model_config = Column(JSON, default={}, quote=False, name="ai_model_config")  # AI model configuration
-    cost_config = Column(JSON, default={}, quote=False, name="cost_config")  # Cost tracking and limits
+    # Unified settings JSON for all integration-specific configuration
+    settings = Column(JSON, default={}, quote=False, name="settings")  # Type-specific settings (projects, models, costs, etc.)
+
     fallback_integration_id = Column(Integer, quote=False, name="fallback_integration_id")  # FK to another integration for fallback
     logo_filename = Column(String(255), quote=False, name="logo_filename")  # Filename of integration logo (stored in tenant assets folder)
+    custom_field_mappings = Column(JSON, default={}, quote=False, name="custom_field_mappings")  # Custom field mappings for Jira integrations
 
     # Relationships
     tenant = relationship("Tenant", back_populates="integrations")
@@ -142,6 +141,7 @@ class Project(Base, IntegrationBaseEntity):
     wits = relationship("Wit", secondary="projects_wits", back_populates="projects")
     statuses = relationship("Status", secondary="projects_statuses", back_populates="projects")
     work_items = relationship("WorkItem", back_populates="project")
+    custom_fields = relationship("CustomField", back_populates="project")
 
 class ProjectWits(Base):
     """Relationship table between projects and work item types"""
@@ -158,6 +158,32 @@ class ProjectsStatuses(Base):
 
     project_id = Column(Integer, ForeignKey('projects.id'), primary_key=True, quote=False, name="project_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), primary_key=True, quote=False, name="status_id")
+
+class CustomField(Base, BaseEntity):
+    """Custom fields table - stores Jira custom field definitions by project"""
+    __tablename__ = 'custom_fields'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'key', name='uk_custom_fields_project_key'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === CUSTOM FIELD IDENTIFIERS ===
+    name = Column(String(255), nullable=False, quote=False, name="name")  # Human-readable name like "Aha! Initiative", "Agile Team"
+    key = Column(String(100), nullable=False, quote=False, name="key")  # Jira field key like "customfield_10150", "customfield_10128"
+
+    # === FIELD SCHEMA ===
+    schema_type = Column(String(100), nullable=False, quote=False, name="schema_type")  # Schema type like "string", "option", "array", "number", "date", "team"
+
+    # === FIELD OPERATIONS ===
+    operations = Column(JSON, default=list, quote=False, name="operations")  # Array of allowed operations like ["set"], ["add", "set", "remove"]
+
+    # === PROJECT RELATIONSHIP ===
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=False, quote=False, name="project_id")
+
+    # Relationships
+    project = relationship("Project", back_populates="custom_fields")
 
 class Wit(Base, IntegrationBaseEntity):
     """Work item types table"""

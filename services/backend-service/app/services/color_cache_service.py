@@ -88,12 +88,15 @@ class ColorCacheService:
             return None
             
         try:
+            if not self.redis_client:
+                return None
+
             cache_key = self._get_cache_key("client_colors", tenant_id, mode)
             cached_data = self.redis_client.get(cache_key)
-            
+
             if cached_data:
                 self.logger.debug(f"Cache hit for client colors: {tenant_id}:{mode}")
-                return json.loads(cached_data)
+                return json.loads(cached_data)  # type: ignore
             else:
                 self.logger.debug(f"Cache miss for client colors: {tenant_id}:{mode}")
                 return None
@@ -120,9 +123,12 @@ class ColorCacheService:
             return False
             
         try:
+            if not self.redis_client:
+                return False
+
             cache_key = self._get_cache_key("client_colors", tenant_id, mode)
             ttl = ttl or self.default_ttl
-            
+
             self.redis_client.setex(
                 cache_key,
                 ttl,
@@ -151,12 +157,15 @@ class ColorCacheService:
             return None
             
         try:
+            if not self.redis_client:
+                return None
+
             cache_key = self._get_cache_key("user_colors", user_id, tenant_id)
             cached_data = self.redis_client.get(cache_key)
-            
+
             if cached_data:
                 self.logger.debug(f"Cache hit for user colors: {user_id}:{tenant_id}")
-                return json.loads(cached_data)
+                return json.loads(cached_data)  # type: ignore
             else:
                 self.logger.debug(f"Cache miss for user colors: {user_id}:{tenant_id}")
                 return None
@@ -183,9 +192,12 @@ class ColorCacheService:
             return False
             
         try:
+            if not self.redis_client:
+                return False
+
             cache_key = self._get_cache_key("user_colors", user_id, tenant_id)
             ttl = ttl or self.short_ttl  # Shorter TTL for user-specific data
-            
+
             self.redis_client.setex(
                 cache_key,
                 ttl,
@@ -215,12 +227,15 @@ class ColorCacheService:
             return None
             
         try:
+            if not self.redis_client:
+                return None
+
             cache_key = self._get_cache_key("accessibility_colors", tenant_id, mode, level)
             cached_data = self.redis_client.get(cache_key)
-            
+
             if cached_data:
                 self.logger.debug(f"Cache hit for accessibility colors: {tenant_id}:{mode}:{level}")
-                return json.loads(cached_data)
+                return json.loads(cached_data)  # type: ignore
             else:
                 self.logger.debug(f"Cache miss for accessibility colors: {tenant_id}:{mode}:{level}")
                 return None
@@ -248,9 +263,12 @@ class ColorCacheService:
             return False
             
         try:
+            if not self.redis_client:
+                return False
+
             cache_key = self._get_cache_key("accessibility_colors", tenant_id, mode, level)
             ttl = ttl or self.default_ttl
-            
+
             self.redis_client.setex(
                 cache_key,
                 ttl,
@@ -287,9 +305,11 @@ class ColorCacheService:
             
             deleted_count = 0
             for pattern in patterns:
+                if not self.redis_client:
+                    continue
                 keys = self.redis_client.keys(pattern)
                 if keys:
-                    deleted_count += self.redis_client.delete(*keys)
+                    deleted_count += self.redis_client.delete(*keys)  # type: ignore
             
             self.logger.info(f"Invalidated {deleted_count} cached color entries for client {tenant_id}")
             return True
@@ -312,11 +332,14 @@ class ColorCacheService:
             return False
             
         try:
+            if not self.redis_client:
+                return False
+
             pattern = f"{self.user_colors_prefix}{user_id}:*"
             keys = self.redis_client.keys(pattern)
-            
+
             if keys:
-                deleted_count = self.redis_client.delete(*keys)
+                deleted_count = self.redis_client.delete(*keys)  # type: ignore
                 self.logger.info(f"Invalidated {deleted_count} cached color entries for user {user_id}")
             
             return True
@@ -336,21 +359,24 @@ class ColorCacheService:
             return {"available": False, "error": "Redis not available"}
             
         try:
+            if not self.redis_client:
+                return {"available": False, "error": "Redis client not initialized"}
+
             info = self.redis_client.info()
-            
+
             # Count color-related keys
-            color_keys = len(self.redis_client.keys(f"{self.cache_prefix}*"))
-            client_keys = len(self.redis_client.keys(f"{self.client_colors_prefix}*"))
-            user_keys = len(self.redis_client.keys(f"{self.user_colors_prefix}*"))
+            color_keys = len(self.redis_client.keys(f"{self.cache_prefix}*"))  # type: ignore
+            client_keys = len(self.redis_client.keys(f"{self.client_colors_prefix}*"))  # type: ignore
+            user_keys = len(self.redis_client.keys(f"{self.user_colors_prefix}*"))  # type: ignore
             
             return {
                 "available": True,
-                "total_keys": info.get("db0", {}).get("keys", 0),
+                "total_keys": info.get("db0", {}).get("keys", 0),  # type: ignore
                 "color_cache_keys": color_keys,
                 "client_color_keys": client_keys,
                 "user_color_keys": user_keys,
-                "memory_used": info.get("used_memory_human", "Unknown"),
-                "connected_clients": info.get("connected_clients", 0)
+                "memory_used": info.get("used_memory_human", "Unknown"),  # type: ignore
+                "connected_clients": info.get("connected_clients", 0)  # type: ignore
             }
             
         except Exception as e:

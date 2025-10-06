@@ -1,10 +1,12 @@
 import { motion } from 'framer-motion'
 import {
+  Activity,
   Database,
   Home,
   List,
   Plug,
-  RefreshCw
+  RefreshCw,
+  Sliders
 } from 'lucide-react'
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -52,6 +54,12 @@ const navigationItems: NavigationItem[] = [
     ]
   },
   {
+    id: 'custom-fields',
+    label: 'Custom Fields',
+    icon: Sliders,
+    path: '/custom-fields-mappings'
+  },
+  {
     id: 'integrations',
     label: 'Integrations',
     icon: Plug,
@@ -62,6 +70,12 @@ const navigationItems: NavigationItem[] = [
     label: 'Qdrant',
     icon: Database,
     path: '/qdrant'
+  },
+  {
+    id: 'queue-management',
+    label: 'Queue Management',
+    icon: Activity,
+    path: '/queue-management'
   }
 ]
 

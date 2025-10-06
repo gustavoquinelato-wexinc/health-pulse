@@ -99,12 +99,12 @@ async def get_statuses(
 
             return [
                 StatusResponse(
-                    id=status_obj.id,
-                    external_id=status_obj.external_id,
-                    original_name=status_obj.original_name,
-                    description=status_obj.description,
-                    status_category=status_obj.status_category,
-                    integration_id=status_obj.integration_id,
+                    id=status_obj.id,  # type: ignore
+                    external_id=status_obj.external_id,  # type: ignore
+                    original_name=status_obj.original_name,  # type: ignore
+                    description=status_obj.description,  # type: ignore
+                    status_category=status_obj.status_category,  # type: ignore
+                    integration_id=status_obj.integration_id,  # type: ignore
                     active=status_obj.active
                 )
                 for status_obj in statuses
@@ -233,7 +233,7 @@ async def create_status_mapping(
             integration_name = None
             integration_logo = None
 
-            if new_mapping.workflow_id:
+            if new_mapping.workflow_id is not None:  # type: ignore
                 workflow = session.query(Workflow).filter(
                     Workflow.id == new_mapping.workflow_id,
                     Workflow.tenant_id == user.tenant_id
@@ -252,16 +252,16 @@ async def create_status_mapping(
                     integration_logo = integration.logo_filename
 
             return StatusMappingResponse(
-                id=new_mapping.id,
-                status_from=new_mapping.status_from,
-                status_to=new_mapping.status_to,
-                status_category=new_mapping.status_category,
-                workflow_step_name=workflow_step_name,
-                workflow_id=new_mapping.workflow_id,
-                step_number=step_number,
-                integration_name=integration_name,
-                integration_id=new_mapping.integration_id,
-                integration_logo=integration_logo,
+                id=new_mapping.id,  # type: ignore
+                status_from=new_mapping.status_from,  # type: ignore
+                status_to=new_mapping.status_to,  # type: ignore
+                status_category=new_mapping.status_category,  # type: ignore
+                workflow_step_name=workflow_step_name,  # type: ignore
+                workflow_id=new_mapping.workflow_id,  # type: ignore
+                step_number=step_number,  # type: ignore
+                integration_name=integration_name,  # type: ignore
+                integration_id=new_mapping.integration_id,  # type: ignore
+                integration_logo=integration_logo,  # type: ignore
                 active=new_mapping.active
             )
 
@@ -312,14 +312,14 @@ async def create_workflow(
                     integration_logo = integration.logo_filename
 
             return WorkflowResponse(
-                id=new_workflow.id,
-                step_name=new_workflow.step_name,
-                step_number=new_workflow.step_number,
-                step_category=new_workflow.step_category,
-                is_commitment_point=new_workflow.is_commitment_point,
-                integration_id=new_workflow.integration_id,
-                integration_name=integration_name,
-                integration_logo=integration_logo,
+                id=new_workflow.id,  # type: ignore
+                step_name=new_workflow.step_name,  # type: ignore
+                step_number=new_workflow.step_number,  # type: ignore
+                step_category=new_workflow.step_category,  # type: ignore
+                is_commitment_point=new_workflow.is_commitment_point,  # type: ignore
+                integration_id=new_workflow.integration_id,  # type: ignore
+                integration_name=integration_name,  # type: ignore
+                integration_logo=integration_logo,  # type: ignore
                 active=new_workflow.active
             )
 
@@ -356,13 +356,13 @@ async def update_status_mapping(
 
             # Update fields if provided
             if mapping_data.status_from is not None:
-                mapping.status_from = mapping_data.status_from
+                mapping.status_from = mapping_data.status_from  # type: ignore
             if mapping_data.status_to is not None:
-                mapping.status_to = mapping_data.status_to
+                mapping.status_to = mapping_data.status_to  # type: ignore
             if mapping_data.status_category is not None:
-                mapping.status_category = mapping_data.status_category
+                mapping.status_category = mapping_data.status_category  # type: ignore
             if mapping_data.workflow_id is not None:
-                mapping.workflow_id = mapping_data.workflow_id
+                mapping.workflow_id = mapping_data.workflow_id  # type: ignore
             if mapping_data.integration_id is not None:
                 mapping.integration_id = mapping_data.integration_id
             if mapping_data.active is not None:
@@ -374,23 +374,23 @@ async def update_status_mapping(
             # Get workflow and integration info for response
             workflow = session.query(Workflow).filter(
                 Workflow.id == mapping.workflow_id
-            ).first() if mapping.workflow_id else None
+            ).first() if mapping.workflow_id is not None else None  # type: ignore
 
             integration = session.query(Integration).filter(
                 Integration.id == mapping.integration_id
             ).first() if mapping.integration_id else None
 
             return StatusMappingResponse(
-                id=mapping.id,
-                status_from=mapping.status_from,
-                status_to=mapping.status_to,
-                status_category=mapping.status_category,
-                workflow_step_name=workflow.step_name if workflow else None,
-                workflow_id=mapping.workflow_id,
-                step_number=workflow.step_number if workflow else None,
-                integration_name=integration.provider if integration else None,
-                integration_id=mapping.integration_id,
-                integration_logo=integration.logo_filename if integration else None,
+                id=mapping.id,  # type: ignore
+                status_from=mapping.status_from,  # type: ignore
+                status_to=mapping.status_to,  # type: ignore
+                status_category=mapping.status_category,  # type: ignore
+                workflow_step_name=workflow.step_name if workflow else None,  # type: ignore
+                workflow_id=mapping.workflow_id,  # type: ignore
+                step_number=workflow.step_number if workflow else None,  # type: ignore
+                integration_name=integration.provider if integration else None,  # type: ignore
+                integration_id=mapping.integration_id,  # type: ignore
+                integration_logo=integration.logo_filename if integration else None,  # type: ignore
                 active=mapping.active
             )
 
@@ -429,13 +429,13 @@ async def update_workflow(
 
             # Update fields if provided
             if workflow_data.step_name is not None:
-                workflow.step_name = workflow_data.step_name
+                workflow.step_name = workflow_data.step_name  # type: ignore
             if workflow_data.step_number is not None:
-                workflow.step_number = workflow_data.step_number
+                workflow.step_number = workflow_data.step_number  # type: ignore
             if workflow_data.step_category is not None:
-                workflow.step_category = workflow_data.step_category
+                workflow.step_category = workflow_data.step_category  # type: ignore
             if workflow_data.is_commitment_point is not None:
-                workflow.is_commitment_point = workflow_data.is_commitment_point
+                workflow.is_commitment_point = workflow_data.is_commitment_point  # type: ignore
             if workflow_data.integration_id is not None:
                 workflow.integration_id = workflow_data.integration_id
             if workflow_data.active is not None:
@@ -450,14 +450,14 @@ async def update_workflow(
             ).first() if workflow.integration_id else None
 
             return WorkflowResponse(
-                id=workflow.id,
-                step_name=workflow.step_name,
-                step_number=workflow.step_number,
-                step_category=workflow.step_category,
-                is_commitment_point=workflow.is_commitment_point,
-                integration_id=workflow.integration_id,
-                integration_name=integration.provider if integration else None,
-                integration_logo=integration.logo_filename if integration else None,
+                id=workflow.id,  # type: ignore
+                step_name=workflow.step_name,  # type: ignore
+                step_number=workflow.step_number,  # type: ignore
+                step_category=workflow.step_category,  # type: ignore
+                is_commitment_point=workflow.is_commitment_point,  # type: ignore
+                integration_id=workflow.integration_id,  # type: ignore
+                integration_name=integration.provider if integration else None,  # type: ignore
+                integration_logo=integration.logo_filename if integration else None,  # type: ignore
                 active=workflow.active
             )
 

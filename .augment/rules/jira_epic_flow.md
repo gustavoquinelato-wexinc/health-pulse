@@ -33,7 +33,11 @@ When instructed to follow jira-epic-flow, AI agents must execute this exact sequ
 1. **Environment Check**: Confirm all required environment variables are loaded
    - JIRA_URL, JIRA_USERNAME, JIRA_TOKEN
    - JIRA_PROJECT_KEY_FOR_AUGMENT_AGENT
-   - JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_TEAM_VALUE_FOR_AUGMENT_AGENT
+   - JIRA_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_TEAM_UUID_FOR_AUGMENT_AGENT
+   - JIRA_AGILE_TEAM_FIELD_FOR_AUGMENT_AGENT, JIRA_AGILE_TEAM_VALUE_FOR_AUGMENT_AGENT
+   - JIRA_TSHIRT_SIZE_FIELD_FOR_AUGMENT_AGENT (dynamically calculated)
+   - JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT, JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT
+   - JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT, JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT
    - Epic workflow configurations
 
 2. **Epic Quality Review**: Read and apply epic health coaching guidelines
@@ -49,6 +53,7 @@ When instructed to follow jira-epic-flow, AI agents must execute this exact sequ
    - BDD-format acceptance criteria for customfield_10222
    - Detailed risk assessment with mitigation plans for customfield_10218
    - Quality score (8+) for story points field (customfield_10024)
+   - WEX T-Shirt Size dynamically calculated based on epic scope and team capacity (customfield_10412)
 
 4. **Epic Assessment**: Conduct thorough quality evaluation
    - Apply RAG (Red-Amber-Green) rating system
@@ -77,6 +82,8 @@ When instructed to follow jira-epic-flow, AI agents must execute this exact sequ
      --story-points [QUALITY_SCORE_8_PLUS] \
      --risk-assessment "[Detailed risk assessment with h2./h3. headers and # numbered lists]"
    ```
+
+   **Note**: WEX T-Shirt Size is automatically calculated based on epic scope analysis and team capacity configuration
 
 8. **Epic Validation**: Verify epic was created successfully
    ```bash
@@ -113,6 +120,35 @@ When instructed to follow jira-epic-flow, AI agents must execute this exact sequ
 - **Acceptance Criteria (customfield_10222)**: 6+ comprehensive BDD-style criteria with h3. headers
 - **Risk Assessment (customfield_10218)**: 5+ detailed risks with mitigation plans using proper formatting
 - **Story Points (customfield_10024)**: Quality score of 8+ reflecting epic excellence
+- **WEX T-Shirt Size (customfield_10412)**: Dynamically calculated based on epic scope and team capacity
+
+### **WEX T-Shirt Size Dynamic Calculation**
+T-shirt size is automatically calculated using intelligent scope analysis and realistic team capacity:
+
+**Team Configuration (Configurable):**
+- **Team Size**: 5 developers (JIRA_TEAM_SIZE_FOR_AUGMENT_AGENT)
+- **Productive Hours**: 30 hours/week per person (JIRA_TEAM_PRODUCTIVE_HOURS_PER_WEEK_FOR_AUGMENT_AGENT)
+- **Sprint Duration**: 2 weeks (JIRA_SPRINT_WEEKS_FOR_AUGMENT_AGENT)
+- **Total Capacity**: 300 hours/sprint (5 × 30 × 2)
+- **Story Point Velocity**: 50 points/sprint (JIRA_TEAM_STORY_POINTS_PER_SPRINT_FOR_AUGMENT_AGENT)
+
+**Calculation Method:**
+1. **Scope Analysis**: Analyzes epic description, acceptance criteria, and risks for technical complexity
+2. **Dual Estimation**: Calculates both story points and hours estimates
+3. **Conservative Planning**: Uses higher estimate for better planning accuracy
+4. **Automatic Mapping**: Maps sprints needed to appropriate T-shirt size
+
+**T-Shirt Size Mapping:**
+- **XXS**: <0.5 sprints - Very small enhancements
+- **XS**: 0.5-1 sprint - Small feature additions
+- **SM**: 1-2 sprints - Medium features
+- **MD**: 2-4 sprints - Standard epic size
+- **LG**: 4-8 sprints - Large initiatives
+- **XL**: 8-10 sprints - Major transformations
+- **XXL**: 10-12 sprints - Very large programs
+- **Jumbo**: 12+ sprints - Enterprise-wide initiatives
+
+**Scope Indicators**: Database, API, frontend, integration, authentication, performance, testing, automation, deployment, infrastructure, monitoring, analytics, AI/ML, architecture, and more.
 
 ### **Product Innovation Criteria**
 - **Customer and Business Value**: Clear value proposition for both

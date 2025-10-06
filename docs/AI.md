@@ -1,0 +1,505 @@
+# AI & VECTORIZATION
+
+**Comprehensive AI Integration & Vector Search System**
+
+This document covers all AI capabilities in the Pulse Platform, including vectorization, embedding models, semantic search, and AI provider integrations.
+
+## 🤖 AI Architecture Overview
+
+### Flexible AI Provider System
+
+Pulse Platform implements a hybrid AI architecture supporting multiple providers and deployment models:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   AI Gateway    │    │  Direct Models  │    │  Vector Store   │
+│   (Internal)    │    │   (Local/API)   │    │   (Qdrant)      │
+├─────────────────┤    ├─────────────────┤    ├─────────────────┤
+│ • OpenAI GPT    │    │ • Local LLMs    │    │ • Collections   │
+│ • Claude        │    │ • Transformers  │    │ • Embeddings    │
+│ • Custom Models │    │ • ONNX Models   │    │ • Similarity    │
+│ • Rate Limiting │    │ • GPU/CPU       │    │ • Filtering     │
+│ • Cost Control  │    │ • Offline Mode  │    │ • Clustering    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### AI Integration Types
+
+#### 1. AI Gateway Integration (Internal Clients)
+- **Purpose**: Centralized AI service for internal company use
+- **Features**: Rate limiting, cost control, model routing
+- **Configuration**: `gateway_route = true`
+- **Use Cases**: Frontend AI agents, chat interfaces
+
+#### 2. Direct Model Integration (External Clients)
+- **Purpose**: Direct API calls for external clients
+- **Features**: Full JSON configuration, model flexibility
+- **Configuration**: `gateway_route = false`
+- **Use Cases**: ETL processing, embedding generation
+
+## 🔍 Vectorization System
+
+### Comprehensive Data Vectorization
+
+All ETL data tables are vectorized for unified semantic search:
+
+```
+┌─────────────────┐    Embedding    ┌─────────────────┐    Storage    ┌─────────────────┐
+│  Source Data    │─────────────────►│  Vector Model   │─────────────►│  Qdrant DB      │
+├─────────────────┤                 ├─────────────────┤              ├─────────────────┤
+│ • Issues        │                 │ • OpenAI Ada    │              │ • Collections   │
+│ • Comments      │                 │ • Local Models  │              │ • Points        │
+│ • Pull Requests │                 │ • Transformers  │              │ • Metadata      │
+│ • Repositories  │                 │ • Custom Models │              │ • Indexes       │
+│ • Work Items    │                 │ • Multi-lang    │              │ • Clusters      │
+│ • Status Data   │                 │ • Batch Process │              │ • Similarity    │
+└─────────────────┘                 └─────────────────┘              └─────────────────┘
+```
+
+### Vectorization Pipeline
+
+#### 1. Data Extraction
+```python
+# Extract text content from structured data
+def extract_vectorizable_content(entity):
+    content_parts = []
+    
+    if hasattr(entity, 'title'):
+        content_parts.append(f"Title: {entity.title}")
+    if hasattr(entity, 'description'):
+        content_parts.append(f"Description: {entity.description}")
+    if hasattr(entity, 'comments'):
+        content_parts.extend([f"Comment: {c.body}" for c in entity.comments])
+    
+    return " | ".join(content_parts)
+```
+
+#### 2. Embedding Generation
+```python
+# Generate embeddings using configured provider
+async def generate_embedding(text: str, provider_config: dict):
+    if provider_config.get('gateway_route'):
+        # Use AI Gateway
+        return await ai_gateway_client.embed(text, model=provider_config['model'])
+    else:
+        # Direct model call
+        return await direct_model_client.embed(text, **provider_config)
+```
+
+#### 3. Vector Storage
+```python
+# Store vectors in Qdrant with metadata
+def store_vector(entity_id: str, vector: List[float], metadata: dict):
+    point = {
+        "id": entity_id,
+        "vector": vector,
+        "payload": {
+            "entity_type": metadata["type"],
+            "tenant_id": metadata["tenant_id"],
+            "created_at": metadata["timestamp"],
+            "source_table": metadata["table"],
+            **metadata["custom_fields"]
+        }
+    }
+    qdrant_client.upsert(collection_name="pulse_vectors", points=[point])
+```
+
+### Vectorized Data Tables
+
+#### Core ETL Tables
+- **Issues**: Title, description, comments, labels
+- **Pull Requests**: Title, description, diff content, comments
+- **Repositories**: Name, description, README content
+- **Work Items**: Title, description, acceptance criteria
+- **Comments**: Body text, thread context
+- **Status Updates**: Change descriptions, notes
+
+#### Vector Metadata
+```json
+{
+  "entity_id": "issue_123",
+  "entity_type": "issue",
+  "tenant_id": 1,
+  "project_id": 456,
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T15:45:00Z",
+  "source_table": "issues",
+  "integration_type": "jira",
+  "custom_fields": {
+    "priority": "high",
+    "component": "backend",
+    "assignee": "john.doe"
+  }
+}
+```
+
+## 🔍 Semantic Search System
+
+### Multi-Modal Search Capabilities
+
+#### 1. Similarity Search
+```python
+# Find similar content across all data types
+async def semantic_search(query: str, tenant_id: int, limit: int = 10):
+    query_vector = await generate_embedding(query)
+    
+    results = qdrant_client.search(
+        collection_name="pulse_vectors",
+        query_vector=query_vector,
+        query_filter={
+            "must": [{"key": "tenant_id", "match": {"value": tenant_id}}]
+        },
+        limit=limit,
+        score_threshold=0.7
+    )
+    
+    return [
+        {
+            "entity_id": hit.id,
+            "score": hit.score,
+            "entity_type": hit.payload["entity_type"],
+            "content": hit.payload.get("content_preview"),
+            "metadata": hit.payload
+        }
+        for hit in results
+    ]
+```
+
+#### 2. Filtered Search
+```python
+# Search with entity type and metadata filters
+async def filtered_search(query: str, filters: dict, tenant_id: int):
+    query_vector = await generate_embedding(query)
+    
+    filter_conditions = [
+        {"key": "tenant_id", "match": {"value": tenant_id}}
+    ]
+    
+    if filters.get("entity_type"):
+        filter_conditions.append({
+            "key": "entity_type", 
+            "match": {"value": filters["entity_type"]}
+        })
+    
+    if filters.get("project_id"):
+        filter_conditions.append({
+            "key": "project_id", 
+            "match": {"value": filters["project_id"]}
+        })
+    
+    return qdrant_client.search(
+        collection_name="pulse_vectors",
+        query_vector=query_vector,
+        query_filter={"must": filter_conditions},
+        limit=filters.get("limit", 10)
+    )
+```
+
+#### 3. Clustering & Analytics
+```python
+# Discover content clusters and patterns
+async def discover_clusters(tenant_id: int, entity_type: str = None):
+    # Get vectors for clustering
+    vectors = qdrant_client.scroll(
+        collection_name="pulse_vectors",
+        scroll_filter={
+            "must": [
+                {"key": "tenant_id", "match": {"value": tenant_id}},
+                {"key": "entity_type", "match": {"value": entity_type}}
+            ] if entity_type else [
+                {"key": "tenant_id", "match": {"value": tenant_id}}
+            ]
+        },
+        limit=1000
+    )
+    
+    # Apply clustering algorithm
+    from sklearn.cluster import KMeans
+    
+    vector_data = [point.vector for point in vectors[0]]
+    clusters = KMeans(n_clusters=5).fit(vector_data)
+    
+    return {
+        "clusters": clusters.labels_.tolist(),
+        "centroids": clusters.cluster_centers_.tolist(),
+        "entities": [point.id for point in vectors[0]]
+    }
+```
+
+## 🛠️ AI Provider Configuration
+
+### Provider Types
+
+#### 1. OpenAI Integration
+```json
+{
+  "type": "openai",
+  "model": "text-embedding-ada-002",
+  "api_key": "${OPENAI_API_KEY}",
+  "gateway_route": true,
+  "cost_tier": "standard",
+  "rate_limit": 1000
+}
+```
+
+#### 2. Local Model Integration
+```json
+{
+  "type": "local",
+  "model_path": "/models/sentence-transformers/all-MiniLM-L6-v2",
+  "device": "cuda:0",
+  "gateway_route": false,
+  "batch_size": 32,
+  "max_length": 512
+}
+```
+
+#### 3. Azure OpenAI Integration
+```json
+{
+  "type": "azure_openai",
+  "endpoint": "https://your-resource.openai.azure.com/",
+  "api_key": "${AZURE_OPENAI_KEY}",
+  "deployment_name": "text-embedding-ada-002",
+  "api_version": "2023-05-15",
+  "gateway_route": true
+}
+```
+
+### Model Selection Strategy
+
+#### Frontend AI Agents (Gateway Route)
+- **Use Case**: Chat interfaces, user queries
+- **Provider**: AI Gateway with OpenAI/Claude
+- **Configuration**: `gateway_route = true`
+- **Benefits**: Rate limiting, cost control, monitoring
+
+#### ETL Processing (Direct Route)
+- **Use Case**: Bulk embedding generation
+- **Provider**: Local models or direct API
+- **Configuration**: `gateway_route = false`
+- **Benefits**: Performance, cost efficiency, offline capability
+
+## 📊 AI Performance Monitoring
+
+### Embedding Quality Metrics
+
+#### 1. Similarity Accuracy
+```python
+# Measure embedding quality through similarity tests
+def measure_embedding_quality(test_pairs: List[Tuple[str, str, float]]):
+    results = []
+    
+    for text1, text2, expected_similarity in test_pairs:
+        vec1 = generate_embedding(text1)
+        vec2 = generate_embedding(text2)
+        
+        actual_similarity = cosine_similarity(vec1, vec2)
+        accuracy = 1 - abs(expected_similarity - actual_similarity)
+        
+        results.append({
+            "text1": text1,
+            "text2": text2,
+            "expected": expected_similarity,
+            "actual": actual_similarity,
+            "accuracy": accuracy
+        })
+    
+    return {
+        "average_accuracy": sum(r["accuracy"] for r in results) / len(results),
+        "results": results
+    }
+```
+
+#### 2. Search Relevance
+```python
+# Measure search result relevance
+def measure_search_relevance(queries: List[dict]):
+    relevance_scores = []
+    
+    for query_data in queries:
+        results = semantic_search(
+            query=query_data["query"],
+            tenant_id=query_data["tenant_id"]
+        )
+        
+        # Calculate relevance based on expected results
+        expected_ids = set(query_data["expected_results"])
+        actual_ids = set(r["entity_id"] for r in results[:5])
+        
+        precision = len(expected_ids & actual_ids) / len(actual_ids)
+        recall = len(expected_ids & actual_ids) / len(expected_ids)
+        
+        relevance_scores.append({
+            "query": query_data["query"],
+            "precision": precision,
+            "recall": recall,
+            "f1_score": 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        })
+    
+    return relevance_scores
+```
+
+### Cost & Performance Tracking
+
+#### 1. API Usage Monitoring
+```python
+# Track AI API usage and costs
+class AIUsageTracker:
+    def __init__(self):
+        self.usage_log = []
+    
+    def log_request(self, provider: str, model: str, tokens: int, cost: float):
+        self.usage_log.append({
+            "timestamp": datetime.utcnow(),
+            "provider": provider,
+            "model": model,
+            "tokens": tokens,
+            "cost": cost
+        })
+    
+    def get_daily_usage(self, date: datetime) -> dict:
+        day_usage = [
+            log for log in self.usage_log 
+            if log["timestamp"].date() == date.date()
+        ]
+        
+        return {
+            "total_requests": len(day_usage),
+            "total_tokens": sum(log["tokens"] for log in day_usage),
+            "total_cost": sum(log["cost"] for log in day_usage),
+            "by_provider": self._group_by_provider(day_usage)
+        }
+```
+
+#### 2. Performance Benchmarks
+```python
+# Benchmark embedding generation performance
+async def benchmark_embedding_performance():
+    test_texts = [
+        "Short text for testing",
+        "Medium length text with more content for performance testing",
+        "Very long text content that includes multiple sentences and paragraphs to test the performance of embedding generation with larger inputs that might be more representative of real-world usage patterns."
+    ]
+    
+    results = {}
+    
+    for provider in ["openai", "local", "azure"]:
+        provider_results = []
+        
+        for text in test_texts:
+            start_time = time.time()
+            embedding = await generate_embedding(text, provider_config[provider])
+            end_time = time.time()
+            
+            provider_results.append({
+                "text_length": len(text),
+                "generation_time": end_time - start_time,
+                "embedding_dimension": len(embedding)
+            })
+        
+        results[provider] = {
+            "average_time": sum(r["generation_time"] for r in provider_results) / len(provider_results),
+            "results": provider_results
+        }
+    
+    return results
+```
+
+## 🔧 AI System Administration
+
+### Vector Database Management
+
+#### 1. Collection Management
+```python
+# Manage Qdrant collections
+def create_collection(collection_name: str, vector_size: int):
+    qdrant_client.create_collection(
+        collection_name=collection_name,
+        vectors_config={
+            "size": vector_size,
+            "distance": "Cosine"
+        },
+        optimizers_config={
+            "default_segment_number": 2,
+            "max_segment_size": 20000,
+            "memmap_threshold": 20000
+        }
+    )
+
+def optimize_collection(collection_name: str):
+    qdrant_client.update_collection(
+        collection_name=collection_name,
+        optimizer_config={
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": 20000
+        }
+    )
+```
+
+#### 2. Index Maintenance
+```python
+# Maintain vector indexes for optimal performance
+def rebuild_indexes(collection_name: str):
+    # Get collection info
+    info = qdrant_client.get_collection(collection_name)
+    
+    # Recreate with optimized settings
+    qdrant_client.update_collection(
+        collection_name=collection_name,
+        vectors_config={
+            "size": info.config.params.vectors.size,
+            "distance": info.config.params.vectors.distance,
+            "hnsw_config": {
+                "m": 16,
+                "ef_construct": 100,
+                "full_scan_threshold": 10000
+            }
+        }
+    )
+```
+
+### AI Model Management
+
+#### 1. Model Deployment
+```bash
+# Deploy local embedding models
+docker run -d \
+  --name embedding-service \
+  --gpus all \
+  -p 8080:8080 \
+  -v /models:/models \
+  sentence-transformers/all-MiniLM-L6-v2
+
+# Health check
+curl http://localhost:8080/health
+```
+
+#### 2. Model Updates
+```python
+# Update AI provider configurations
+def update_ai_provider(tenant_id: int, provider_config: dict):
+    # Validate configuration
+    if not validate_provider_config(provider_config):
+        raise ValueError("Invalid provider configuration")
+    
+    # Test connection
+    test_result = test_provider_connection(provider_config)
+    if not test_result.success:
+        raise ConnectionError(f"Provider test failed: {test_result.error}")
+    
+    # Update database
+    db.query(Integration).filter(
+        Integration.tenant_id == tenant_id,
+        Integration.type == "ai_provider"
+    ).update({"config": provider_config})
+    
+    # Clear cache
+    cache.delete(f"ai_provider:{tenant_id}")
+```
+
+---
+
+**The AI & Vectorization system provides comprehensive semantic search capabilities across all platform data, enabling intelligent insights and content discovery.**

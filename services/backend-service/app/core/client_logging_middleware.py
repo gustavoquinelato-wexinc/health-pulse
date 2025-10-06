@@ -24,8 +24,8 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
         request.state.client_context = client_context
         
         # Get client-aware logger
-        if client_context and client_context.get('client_name'):
-            logger = get_client_logger("http.middleware", client_context['client_name'])
+        if client_context and client_context.get('tenant_name'):
+            logger = get_client_logger("http.middleware", client_context['tenant_name'])
         else:
             logger = get_client_logger("http.middleware")
         
@@ -34,7 +34,7 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
             method=request.method,
             url=str(request.url),
             headers=dict(request.headers),
-            client_context=client_context
+            client_context=client_context or {}
         )
         
         try:
@@ -45,20 +45,16 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
             process_time = time.time() - start_time
 
             # Determine client identifier for logging (avoid "anonymous" for security)
-            if client_context and client_context.get('client_name'):
-                tenant_identifier = client_context['client_name']
+            if client_context and client_context.get('tenant_name'):
+                tenant_identifier = client_context['tenant_name']
             elif client_context:
-                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but tenant name unknown
             else:
                 tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.info(
-                "Request completed",
-                method=request.method,
-                url=str(request.url),
-                status_code=response.status_code,
-                process_time=process_time,
-                client=tenant_identifier
+                f"Request completed - {request.method} {str(request.url)} - "
+                f"Status: {response.status_code} - Time: {process_time:.3f}s - Client: {tenant_identifier}"
             )
             
             return response
@@ -68,46 +64,49 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
             process_time = time.time() - start_time
 
             # Determine client identifier for logging (avoid "anonymous" for security)
-            if client_context and client_context.get('client_name'):
-                tenant_identifier = client_context['client_name']
+            if client_context and client_context.get('tenant_name'):
+                tenant_identifier = client_context['tenant_name']
             elif client_context:
-                tenant_identifier = 'authenticated'  # User is authenticated but client name unknown
+                tenant_identifier = 'authenticated'  # User is authenticated but tenant name unknown
             else:
                 tenant_identifier = 'unauthenticated'  # No authentication context
 
             logger.error(
-                "Request failed",
-                method=request.method,
-                url=str(request.url),
-                error=str(exc),
-                error_type=type(exc).__name__,
-                process_time=process_time,
-                client=tenant_identifier
+                f"Request failed - {request.method} {str(request.url)} - "
+                f"Error: {type(exc).__name__}: {str(exc)} - Time: {process_time:.3f}s - Client: {tenant_identifier}"
             )
             raise
     
     async def _extract_client_context(self, request: Request) -> Optional[Dict[str, Any]]:
         """Extract client context from JWT token."""
         try:
+            # Skip token validation for internal/system endpoints to avoid JWT errors during startup
+            path = str(request.url.path)
+            if any(path.startswith(skip_path) for skip_path in [
+                "/health", "/api/v1/health", "/docs", "/redoc", "/openapi.json",
+                "/favicon.ico", "/static/", "/_internal"
+            ]):
+                return None
+
             # Get token from Authorization header or cookie
             token = None
-            
+
             # Try Authorization header first
             auth_header = request.headers.get("Authorization")
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header[7:]
-            
+
             # Fallback to cookie
             if not token:
                 token = request.cookies.get("pulse_token")
-            
+
             if not token:
                 return None
-            
-            # Validate token and extract user info
+
+            # Validate token and extract user info (suppress JWT errors for middleware)
             auth_service = get_auth_service()
-            user = await auth_service.verify_token(token)
-            
+            user = await auth_service.verify_token(token, suppress_errors=True)
+
             if not user:
                 return None
             
@@ -146,8 +145,31 @@ def get_tenant_context_from_request(request: Request) -> Optional[Dict[str, Any]
     return getattr(request.state, 'client_context', None)
 
 
-def get_tenant_logger_from_request(request: Request, name: str = None):
+def get_tenant_logger_from_request(request: Request, name: Optional[str] = None):
     """Helper function to get tenant-aware logger from request."""
     tenant_context = get_tenant_context_from_request(request)
     tenant_name = tenant_context.get('tenant_name') if tenant_context else None
-    return get_tenant_logger(name, tenant_name)
+    return get_tenant_logger(name or "request", tenant_name or "unknown")
+
+
+def get_enhanced_tenant_logger_from_request(request: Request, name: Optional[str] = None):
+    """Helper function to get enhanced tenant-aware logger from request that supports kwargs."""
+    from app.core.logging_config import get_enhanced_logger
+    tenant_context = get_tenant_context_from_request(request)
+    tenant_name = tenant_context.get('tenant_name') if tenant_context else None
+
+    # Create enhanced logger and add tenant context if available
+    enhanced_logger = get_enhanced_logger(name or "request")
+    if tenant_name:
+        # Wrap the enhanced logger methods to add tenant context
+        original_info = enhanced_logger.info
+        original_error = enhanced_logger.error
+        original_warning = enhanced_logger.warning
+        original_debug = enhanced_logger.debug
+
+        enhanced_logger.info = lambda message, **kwargs: original_info(f"[{tenant_name}] {message}", **kwargs)
+        enhanced_logger.error = lambda message, **kwargs: original_error(f"[{tenant_name}] {message}", **kwargs)
+        enhanced_logger.warning = lambda message, **kwargs: original_warning(f"[{tenant_name}] {message}", **kwargs)
+        enhanced_logger.debug = lambda message, **kwargs: original_debug(f"[{tenant_name}] {message}", **kwargs)
+
+    return enhanced_logger

@@ -3,60 +3,67 @@ ETL Service application configuration.
 Manages all configurations through environment variables.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from typing import Optional, List
 
 
 class Settings(BaseSettings):
     """Application settings using Pydantic Settings."""
-    
+
+    model_config = SettingsConfigDict(
+        env_file=["../../.env", ".env"],  # Root .env as base, service .env overrides
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
+
     # Application Settings
-    APP_NAME: str = Field(default="ETL Service", env="APP_NAME")
-    APP_VERSION: str = Field(default="1.0.0", env="APP_VERSION")
-    DEBUG: bool = Field(default=False, env="DEBUG")
-    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
+    APP_NAME: str = "ETL Service"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
 
     # 🎯 TENANT-SPECIFIC CONFIGURATION (Multi-Instance Approach)
-    CLIENT_NAME: str = Field(env="CLIENT_NAME", description="Tenant name this ETL instance serves (case-insensitive)")
+    CLIENT_NAME: str = ""  # Required: Tenant name this ETL instance serves (case-insensitive)
 
     # API Settings
-    API_V1_STR: str = Field(default="/api/v1", env="API_V1_STR")
-    HOST: str = Field(default="0.0.0.0", env="ETL_HOST")
-    PORT: int = Field(default=8000, env="ETL_PORT")
+    API_V1_STR: str = "/api/v1"
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
 
     # Service URLs (no hardcoded URLs)
-    BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
+    BACKEND_SERVICE_URL: str = "http://localhost:3001"
 
     # System Authentication (for automated jobs)
-    SYSTEM_USER_EMAIL: str = Field(default="system@etl.pulse.local", env="SYSTEM_USER_EMAIL")
-    SYSTEM_USER_PASSWORD: str = Field(default="etl_system_secure_2024", env="SYSTEM_USER_PASSWORD")
-    
+    SYSTEM_USER_EMAIL: str = "system@etl.pulse.local"
+    SYSTEM_USER_PASSWORD: str = "etl_system_secure_2024"
+
     # PostgreSQL Configuration
-    POSTGRES_HOST: str
+    POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_DATABASE: str
-    
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "password"
+    POSTGRES_DATABASE: str = "health_pulse"
+
     # Read Replica Configuration
-    POSTGRES_REPLICA_HOST: Optional[str] = Field(default=None, env="POSTGRES_REPLICA_HOST")
-    POSTGRES_REPLICA_PORT: int = Field(default=5432, env="POSTGRES_REPLICA_PORT")
+    POSTGRES_REPLICA_HOST: Optional[str] = None
+    POSTGRES_REPLICA_PORT: int = 5432
 
     # Primary Database Pool Settings (Write-heavy operations)
-    DB_POOL_SIZE: int = Field(default=5, env="DB_POOL_SIZE")
-    DB_MAX_OVERFLOW: int = Field(default=10, env="DB_MAX_OVERFLOW")
-    DB_POOL_TIMEOUT: int = Field(default=30, env="DB_POOL_TIMEOUT")
-    DB_POOL_RECYCLE: int = Field(default=3600, env="DB_POOL_RECYCLE")
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 3600
 
     # Replica Database Pool Settings (Read-heavy operations)
-    DB_REPLICA_POOL_SIZE: int = Field(default=5, env="DB_REPLICA_POOL_SIZE")
-    DB_REPLICA_MAX_OVERFLOW: int = Field(default=10, env="DB_REPLICA_MAX_OVERFLOW")
-    DB_REPLICA_POOL_TIMEOUT: int = Field(default=30, env="DB_REPLICA_POOL_TIMEOUT")
+    DB_REPLICA_POOL_SIZE: int = 5
+    DB_REPLICA_MAX_OVERFLOW: int = 10
+    DB_REPLICA_POOL_TIMEOUT: int = 30
 
     # Feature Flags
-    USE_READ_REPLICA: bool = Field(default=False, env="USE_READ_REPLICA")
-    REPLICA_FALLBACK_ENABLED: bool = Field(default=True, env="REPLICA_FALLBACK_ENABLED")
+    USE_READ_REPLICA: bool = False
+    REPLICA_FALLBACK_ENABLED: bool = True
     
     # NOTE: Jira Configuration moved to database (integrations table)
     # All integration credentials are now stored in the database for security
@@ -69,37 +76,36 @@ class Settings(BaseSettings):
     # are now stored in the database (integrations table) for security
     
     # Job Scheduling Configuration
-    SCHEDULER_TIMEZONE: str = Field(default="UTC", env="SCHEDULER_TIMEZONE")
-    
+    SCHEDULER_TIMEZONE: str = "UTC"
+
     # Security Configuration
-    SECRET_KEY: str = Field(default="your-secret-key-change-this-in-production", env="SECRET_KEY")
-    ENCRYPTION_KEY: str = Field(default="your-secret-encryption-key-here", env="ENCRYPTION_KEY")
+    SECRET_KEY: str = "QBYpLWwoEjV_m4ywClhaXmz2dtvjD56nDl2mf1tbuEg"
+    ENCRYPTION_KEY: str = "ayHa2aciB-E3TYrlgHhr6WJ365b-s_uE5tfnHa5lIuM="
 
     # JWT Configuration (loaded from shared .env but not used by ETL service)
     # ETL Service uses centralized authentication through Backend Service
-    JWT_SECRET_KEY: str = Field(default="pulse-dev-secret-key-2024", env="JWT_SECRET_KEY")
-    JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, env="JWT_ACCESS_TOKEN_EXPIRE_MINUTES")
+    JWT_SECRET_KEY: str = "CG4JhJsv-y6cwTXlSHU6N-ZwIh2ibjUvoFuxC9PaPOU"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Cache Configuration
-    REDIS_URL: Optional[str] = Field(default="redis://localhost:6379/0", env="REDIS_URL")
-    CACHE_TTL_SECONDS: int = Field(default=3600, env="CACHE_TTL_SECONDS")
+    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
+    CACHE_TTL_SECONDS: int = 3600
 
     # Service Communication URLs
-    BACKEND_SERVICE_URL: str = Field(default="http://localhost:3001", env="BACKEND_SERVICE_URL")
-    AI_SERVICE_URL: str = Field(default="http://localhost:8001", env="AI_SERVICE_URL")
-    FRONTEND_URL: str = Field(default="http://localhost:5173", env="VITE_API_BASE_URL")
+    BACKEND_SERVICE_URL: str = "http://localhost:3001"
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # CORS Configuration
-    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173", env="CORS_ORIGINS")
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # Cookie Configuration
-    COOKIE_DOMAIN: str = Field(default=".localhost", env="COOKIE_DOMAIN")
-    COOKIE_SECURE: bool = Field(default=False, env="COOKIE_SECURE")
-    COOKIE_SAMESITE: str = Field(default="lax", env="COOKIE_SAMESITE")
+    COOKIE_DOMAIN: str = ".localhost"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
 
     # Internal communication secret (for backend -> ETL internal APIs)
-    ETL_INTERNAL_SECRET: str = Field(default="dev-internal-secret-change", env="ETL_INTERNAL_SECRET")
+    ETL_INTERNAL_SECRET: str = "dev-internal-secret-change"
 
     @property
     def cors_origins_list(self) -> list:
@@ -121,12 +127,7 @@ class Settings(BaseSettings):
     # NOTE: jira_base_url property removed - URLs now come from database
     
 
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "allow"  # Allow extra fields from environment
+
 
 
 class AppConfig:

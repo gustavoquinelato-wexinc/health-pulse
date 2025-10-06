@@ -71,13 +71,15 @@ async def login(login_request: LoginRequest, request: Request):
     User login endpoint.
     Validates credentials and returns JWT token with user information.
     """
-    logger.info(f"🔐 Login attempt for email: {login_request.email}")
-    
+    logger.info(f"🔧 DEBUG: ETL frontend login endpoint called for email: {login_request.email}")
+    logger.info(f"🔧 DEBUG: Request headers: {dict(request.headers)}")
+    logger.info(f"🔧 DEBUG: Client IP: {request.client.host if request.client else 'Unknown'}")
+
     try:
         # Get client info from request
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "Unknown")
-        
+
         # Always authenticate via centralized auth service
         auth_service = get_auth_service()
         try:
@@ -85,6 +87,9 @@ async def login(login_request: LoginRequest, request: Request):
             import httpx
             settings = get_settings()
             auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+            logger.info(f"🔧 DEBUG: About to call auth service at: {auth_service_url}")
+            logger.info(f"🔧 DEBUG: Auth request payload: email={login_request.email}, include_ml_fields={getattr(login_request, 'include_ml_fields', False)}")
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -97,9 +102,14 @@ async def login(login_request: LoginRequest, request: Request):
                     timeout=10.0
                 )
 
+                logger.info(f"🔧 DEBUG: Auth service response status: {response.status_code}")
+
                 if response.status_code == 200:
                     validation_data = response.json()
+                    logger.info(f"🔧 DEBUG: Auth service validation response: {validation_data}")
+
                     if validation_data.get("valid"):
+                        logger.info("🔧 DEBUG: Credentials validated, generating token...")
                         # Generate centralized token and return it
                         gen_resp = await client.post(
                             f"{auth_service_url}/api/v1/generate-token",
@@ -110,8 +120,11 @@ async def login(login_request: LoginRequest, request: Request):
                             },
                             timeout=10.0
                         )
+                        logger.info(f"🔧 DEBUG: Token generation response status: {gen_resp.status_code}")
+
                         if gen_resp.status_code == 200:
                             gen_data = gen_resp.json()
+                            logger.info(f"🔧 DEBUG: Token generated successfully, user: {gen_data.get('user', {}).get('email', 'unknown')}")
                             auth_result = {
                                 "token": gen_data["access_token"],
                                 "user": gen_data["user"],
@@ -119,13 +132,17 @@ async def login(login_request: LoginRequest, request: Request):
                             # Store session locally for admin panel (active sessions, logout, etc.)
                             try:
                                 await auth_service.store_session_from_token(auth_result["token"], auth_result["user"], ip_address=ip_address, user_agent=user_agent)
+                                logger.info("🔧 DEBUG: Session stored locally")
                             except Exception as e:
                                 logger.warning(f"Could not store session from centralized token: {e}")
                         else:
+                            logger.warning(f"🔧 DEBUG: Token generation failed with status: {gen_resp.status_code}")
                             auth_result = None
                     else:
+                        logger.warning("🔧 DEBUG: Credentials validation failed")
                         auth_result = None
                 else:
+                    logger.warning(f"🔧 DEBUG: Auth service returned error status: {response.status_code}")
                     auth_result = None
         except Exception as e:
             logger.warning(f"Centralized auth service unavailable: {e}")
@@ -147,6 +164,10 @@ async def login(login_request: LoginRequest, request: Request):
             user=auth_result["user"]
         )
 
+        logger.info(f"🔧 DEBUG: About to send response to ETL frontend")
+        logger.info(f"🔧 DEBUG: Response data - success: {response_data.success}, user_email: {auth_result['user'].get('email', 'unknown')}")
+        logger.info(f"🔧 DEBUG: Token length: {len(auth_result['token'])} characters")
+
         # Create JSON response to set cookies
         response = JSONResponse(content=response_data.dict())
 
@@ -166,6 +187,7 @@ async def login(login_request: LoginRequest, request: Request):
         )
 
         logger.info(f"✅ Subdomain-shared session cookie set for all services")
+        logger.info(f"🔧 DEBUG: Final response ready to send to ETL frontend")
         return response
         
     except HTTPException:
@@ -374,6 +396,97 @@ async def validate_token(request: Request):
     except Exception as e:
         logger.error(f"Token validation error: {e}")
         return TokenValidationResponse(valid=False, user=None)
+
+
+@router.post("/refresh")
+async def refresh_token(request: Request):
+    """
+    Token refresh endpoint.
+    Validates current token and returns a new one if valid.
+    """
+    try:
+        # Get token from Authorization header
+        token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+
+        if not token:
+            logger.debug("No token found in Authorization header for refresh")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No token provided for refresh"
+            )
+
+        # Validate current token via centralized auth service
+        try:
+            import httpx
+            from app.core.config import get_settings
+            settings = get_settings()
+            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+
+            async with httpx.AsyncClient() as client:
+                # First validate the current token
+                validate_response = await client.post(
+                    f"{auth_service_url}/api/v1/token/validate",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=5.0
+                )
+
+                if validate_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Current token is invalid"
+                    )
+
+                token_data = validate_response.json()
+                if not token_data.get("valid"):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Current token is invalid"
+                    )
+
+                user_data = token_data.get("user")
+                if not user_data:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="User data not found in token"
+                    )
+
+                # Generate new token using the user data from the validated token
+                # Since we already validated the token, we can generate a new one directly
+                from app.auth.auth_service import get_auth_service
+                auth_service = get_auth_service()
+
+                # Create a new token for the same user
+                new_token = auth_service.create_access_token(user_data)
+
+                # Store the new session
+                await auth_service.store_session_from_token(new_token, user_data)
+
+                logger.info(f"Token refreshed successfully for user_id: {user_data['id']}")
+
+                return {
+                    "success": True,
+                    "token": new_token,
+                    "user": user_data
+                }
+
+        except httpx.RequestError as e:
+            logger.error(f"Auth service communication error during refresh: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication service unavailable"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
 
 
 # Navigation session endpoint removed - now handled by Redis shared sessions

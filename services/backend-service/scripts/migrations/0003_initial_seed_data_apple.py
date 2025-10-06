@@ -175,17 +175,26 @@ def apply(connection):
             jira_url = "https://wexinc.atlassian.net"
             jira_username = "gustavo.quinelato@wexinc.com"
 
+        # Jira settings configuration
+        jira_settings = {
+            "projects": ["BDP", "BEN", "BEX", "BST", "CDB", "CDH", "EPE", "FG", "HBA", "HDO", "HDS", "WCI", "WX", "BENBR"],
+            "base_search": None,  # Optional additional filters
+            "sync_config": {
+                "batch_size": 100,
+                "rate_limit": 10
+            }
+        }
+
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
+                provider, type, username, password, base_url, settings,
                 logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "Jira", "Data", jira_username, jira_password, jira_url,
-            "project in (BDP,BEN,BEX,BST,CDB,CDH,EPE,FG,HBA,HDO,HDS)", None,
+            "Jira", "Data", jira_username, jira_password, jira_url, json.dumps(jira_settings),
             "jira.svg",
             tenant_id, jira_active
         ))
@@ -222,19 +231,26 @@ def apply(connection):
         else:
             print("   ⚠️  GitHub token not found in .env file")
 
+        # GitHub settings configuration
+        github_settings = {
+            "repository_filter": "health-",  # Repository name filter
+            "sync_config": {
+                "batch_size": 50,
+                "rate_limit": 5000  # GitHub API rate limit
+            }
+        }
+
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
+                provider, type, username, password, base_url, settings,
                 logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "GitHub", "Data", None, github_password, "https://api.github.com",
-            "health-", None,
-            "github.svg",
-            tenant_id, github_active
+            "GitHub", "Data", None, github_password, "https://api.github.com", json.dumps(github_settings),
+            "github.svg", tenant_id, github_active
         ))
 
         github_result = cursor.fetchone()
@@ -248,8 +264,8 @@ def apply(connection):
 
         # Create AI Gateway integration
         print("   📋 Creating AI Gateway integration...")
-        ai_gateway_base_url = os.getenv("AI_GATEWAY_BASE_URL")
-        ai_gateway_api_key = os.getenv("AI_GATEWAY_API_KEY")
+        ai_gateway_base_url = os.getenv("WEX_AI_GATEWAY_BASE_URL")
+        ai_gateway_api_key = os.getenv("WEX_AI_GATEWAY_API_KEY")
         ai_model = os.getenv("AI_MODEL")
         ai_fallback_model = os.getenv("AI_FALLBACK_MODEL")
 
@@ -258,58 +274,76 @@ def apply(connection):
             encrypted_ai_key = AppConfig.encrypt_token(ai_gateway_api_key, key)
             print("   🔐 AI Gateway API key encrypted successfully")
 
-            # Create primary AI Gateway integration
-            cursor.execute("""
-                INSERT INTO integrations (
-                    provider, type, username, password, base_url, base_search, ai_model,
-                    ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (provider, tenant_id) DO NOTHING
-                RETURNING id;
-            """, (
-                "WEX AI Gateway", "AI", None, encrypted_ai_key, ai_gateway_base_url,
-                None, "bedrock-claude-sonnet-4-v1",
-                json.dumps({
+            # Primary AI Gateway settings
+            ai_gateway_settings = {
+                "model": "bedrock-claude-sonnet-4-v1",
+                "model_config": {
                     "temperature": 0.3,
                     "max_tokens": 700,
                     "gateway_route": True,
                     "source": "external"
-                }),
-                "wex-ai-gateway.svg",
-                tenant_id, True
+                },
+                "cost_config": {
+                    "max_monthly_cost": 1000,
+                    "alert_threshold": 0.8
+                }
+            }
+
+            # Create primary AI Gateway integration
+            cursor.execute("""
+                INSERT INTO integrations (
+                    provider, type, username, password, base_url, settings,
+                    logo_filename, tenant_id, active, created_at, last_updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (provider, tenant_id) DO NOTHING
+                RETURNING id;
+            """, (
+                "WEX AI Gateway", "AI", None, encrypted_ai_key, ai_gateway_base_url, json.dumps(ai_gateway_settings),
+                "wex-ai-gateway.svg", tenant_id, True
             ))
 
             ai_gateway_result = cursor.fetchone()
             if ai_gateway_result:
                 ai_gateway_integration_id = ai_gateway_result['id']
             else:
-                cursor.execute("SELECT id FROM integrations WHERE provider = 'wex_ai_gateway' AND tenant_id = %s;", (tenant_id,))
-                ai_gateway_integration_id = cursor.fetchone()['id']
+                cursor.execute("SELECT id FROM integrations WHERE provider = 'WEX AI Gateway' AND tenant_id = %s;", (tenant_id,))
+                result = cursor.fetchone()
+                if result:
+                    ai_gateway_integration_id = result['id']
+                else:
+                    raise Exception("Failed to create or find WEX AI Gateway integration")
 
             print(f"   ✅ AI Gateway integration created (ID: {ai_gateway_integration_id}, model: {ai_model})")
 
             # Create fallback AI Gateway integration if fallback model is specified
             if ai_fallback_model and ai_fallback_model != ai_model:
-                cursor.execute("""
-                    INSERT INTO integrations (
-                        provider, type, username, password, base_url, base_search, ai_model,
-                        ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                    ON CONFLICT (provider, tenant_id) DO NOTHING
-                    RETURNING id;
-                """, (
-                    "WEX AI Gateway Fallback", "AI", None, encrypted_ai_key, ai_gateway_base_url,
-                    None, "azure-gpt-4o-mini",
-                    json.dumps({
+                # Fallback AI Gateway settings
+                ai_fallback_settings = {
+                    "model": "azure-gpt-4o-mini",
+                    "model_config": {
                         "temperature": 0.3,
                         "max_tokens": 700,
                         "gateway_route": True,
                         "source": "external"
-                    }),
-                    "wex-ai-gateway-fallback.svg",
-                    tenant_id, True
+                    },
+                    "cost_config": {
+                        "max_monthly_cost": 500,
+                        "alert_threshold": 0.8
+                    }
+                }
+
+                cursor.execute("""
+                    INSERT INTO integrations (
+                        provider, type, username, password, base_url, settings,
+                        logo_filename, tenant_id, active, created_at, last_updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (provider, tenant_id) DO NOTHING
+                    RETURNING id;
+                """, (
+                    "WEX AI Gateway Fallback", "AI", None, encrypted_ai_key, ai_gateway_base_url, json.dumps(ai_fallback_settings),
+                    "wex-ai-gateway-fallback.svg", tenant_id, True
                 ))
 
                 fallback_result = cursor.fetchone()
@@ -327,26 +361,26 @@ def apply(connection):
         # Create embedding integrations
         print("   📋 Creating embedding integrations...")
 
+        # Free local embedding settings
+        local_embedding_settings = {
+            "model_path": "models/sentence-transformers/all-mpnet-base-v2",
+            "cost_tier": "free",
+            "gateway_route": False,
+            "source": "local"
+        }
+
         # Free local embedding
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
-                ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
+                provider, type, username, password, base_url, settings,
+                logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "MPNet base-v2", "Embedding", None, None, None,
-            None, "all-mpnet-base-v2",
-            json.dumps({
-                "model_path": "models/sentence-transformers/all-mpnet-base-v2",
-                "cost_tier": "free",
-                "gateway_route": False,
-                "source": "local"
-            }),
-            "local-embeddings.svg",
-            tenant_id, False  # Set to inactive - using external embeddings as primary
+            "MPNet base-v2", "Embedding", None, None, None, json.dumps(local_embedding_settings),
+            "local-embeddings.svg", tenant_id, False  # Set to inactive - using external embeddings as primary
         ))
 
         local_embedding_result = cursor.fetchone()
@@ -356,25 +390,25 @@ def apply(connection):
 
         # Paid external embedding (WEX AI Gateway)
         if ai_gateway_base_url and encrypted_ai_key:
+            # Azure embedding settings
+            azure_embedding_settings = {
+                "model_path": "azure-text-embedding-3-small",
+                "cost_tier": "paid",
+                "gateway_route": True,
+                "source": "external"
+            }
+
             cursor.execute("""
                 INSERT INTO integrations (
-                    provider, type, username, password, base_url, base_search, ai_model,
-                    ai_model_config, logo_filename, tenant_id, active, created_at, last_updated_at
+                    provider, type, username, password, base_url, settings,
+                    logo_filename, tenant_id, active, created_at, last_updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (provider, tenant_id) DO NOTHING
                 RETURNING id;
             """, (
-                "Azure 3-small", "Embedding", None, encrypted_ai_key, ai_gateway_base_url,
-                None, "azure-text-embedding-3-small",
-                json.dumps({
-                    "model_path": "azure-text-embedding-3-small",
-                    "cost_tier": "paid",
-                    "gateway_route": True,
-                    "source": "external"
-                }),
-                "wex-embeddings.svg",
-                tenant_id, True  # Set to active - external embeddings as primary
+                "Azure 3-small", "Embedding", None, encrypted_ai_key, ai_gateway_base_url, json.dumps(azure_embedding_settings),
+                "wex-embeddings.svg", tenant_id, True  # Set to active - external embeddings as primary
             ))
 
             paid_embedding_result = cursor.fetchone()
@@ -386,19 +420,18 @@ def apply(connection):
 
         # Create WEX Fabric integration (placeholder for future)
         print("   📋 Creating WEX Fabric integration...")
+
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
+                provider, type, username, password, base_url, settings,
                 logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "WEX Fabric", "Data", None, None, "https://fabric.wex.com",
-            None, None,
-            "fabric.svg",
-            tenant_id, False  # Inactive until implemented
+            "WEX Fabric", "Data", None, None, "https://fabric.wex.com", None,
+            "fabric.svg", tenant_id, False  # Inactive until implemented
         ))
 
         fabric_result = cursor.fetchone()
@@ -412,19 +445,18 @@ def apply(connection):
 
         # Create Active Directory integration (placeholder for future)
         print("   📋 Creating Active Directory integration...")
+
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
+                provider, type, username, password, base_url, settings,
                 logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "WEX AD", "Data", None, None, "https://login.microsoftonline.com",
-            None, None,
-            "ad.svg",
-            tenant_id, False  # Inactive until implemented
+            "WEX AD", "Data", None, None, "https://login.microsoftonline.com", None,
+            "ad.svg", tenant_id, False  # Inactive until implemented
         ))
 
         ad_result = cursor.fetchone()
@@ -438,19 +470,18 @@ def apply(connection):
 
         # Create Internal integration for jobs that don't require external integrations
         print("   📋 Creating Internal integration...")
+
         cursor.execute("""
             INSERT INTO integrations (
-                provider, type, username, password, base_url, base_search, ai_model,
+                provider, type, username, password, base_url, settings,
                 logo_filename, tenant_id, active, created_at, last_updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "Internal", "System", None, None, None,
-            None, None,
-            "internal.svg",
-            tenant_id, True  # Active for internal jobs
+            "Internal", "System", None, None, None, None,
+            "internal.svg", tenant_id, True  # Active for internal jobs
         ))
 
         internal_result = cursor.fetchone()
@@ -463,6 +494,84 @@ def apply(connection):
         print(f"   ✅ Internal integration created (ID: {internal_integration_id}, active)")
 
         print("✅ Integrations created")
+
+        # ====================================================================
+        # SEED ETL JOBS (from migration 0005)
+        # ====================================================================
+        print("\n📋 Seeding ETL jobs for autonomous architecture...")
+
+        # Get integration IDs for this tenant
+        integrations = {
+            'Jira': jira_integration_id,
+            'GitHub': github_integration_id,
+            'WEX Fabric': fabric_integration_id,
+            'WEX AD': ad_integration_id
+        }
+
+        # Define jobs with their configurations
+        jobs_config = [
+            {
+                "job_name": "Jira",
+                "integration_id": integrations.get('Jira'),
+                "schedule_interval_minutes": 360,  # 6 hours
+                "status": "READY",
+                "active": True
+            },
+            {
+                "job_name": "GitHub",
+                "integration_id": integrations.get('GitHub'),
+                "schedule_interval_minutes": 240,  # 4 hours
+                "status": "READY",
+                "active": True
+            },
+            {
+                "job_name": "WEX Fabric",
+                "integration_id": integrations.get('WEX Fabric'),
+                "schedule_interval_minutes": 1440,  # 24 hours
+                "status": "READY",
+                "active": False  # Inactive by default (not implemented yet)
+            },
+            {
+                "job_name": "WEX AD",
+                "integration_id": integrations.get('WEX AD'),
+                "schedule_interval_minutes": 720,  # 12 hours
+                "status": "READY",
+                "active": False  # Inactive by default (not implemented yet)
+            }
+            # NOTE: No Vectorization job - now integrated into transform workers
+        ]
+
+        # Insert jobs
+        for job in jobs_config:
+            if job["integration_id"]:  # Only insert if integration exists
+                cursor.execute("""
+                    INSERT INTO etl_jobs (
+                        job_name,
+                        status,
+                        schedule_interval_minutes,
+                        retry_interval_minutes,
+                        integration_id,
+                        tenant_id,
+                        active,
+                        created_at,
+                        last_updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (job_name, tenant_id) DO NOTHING;
+                """, (
+                    job["job_name"],
+                    job["status"],
+                    job["schedule_interval_minutes"],
+                    15,  # retry_interval_minutes (15 min for all jobs)
+                    job["integration_id"],
+                    tenant_id,
+                    job["active"]
+                ))
+                print(f"    ✅ {job['job_name']} (interval: {job['schedule_interval_minutes']}min, active: {job['active']})")
+            else:
+                print(f"    ⚠️  {job['job_name']} - integration not found, skipped")
+
+        print("✅ ETL jobs seeded")
 
         # 4. Insert workflow steps (complete workflow configuration - EXACT COPY from 001_initial_schema.py)
         print("📋 Creating workflow steps...")
@@ -754,14 +863,8 @@ def apply(connection):
         # 8. Insert system settings
         print("📋 Creating system settings...")
         system_settings_data = [
-            {"setting_key": "orchestrator_interval_minutes", "setting_value": "60", "setting_type": "integer", "description": "Orchestrator run interval in minutes"},
-            {"setting_key": "orchestrator_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable orchestrator"},
-            {"setting_key": "orchestrator_retry_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable orchestrator retry logic"},
-            {"setting_key": "orchestrator_retry_interval_minutes", "setting_value": "15", "setting_type": "integer", "description": "Orchestrator retry interval in minutes"},
-            {"setting_key": "jira_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable Jira synchronization"},
-            {"setting_key": "github_sync_enabled", "setting_value": "true", "setting_type": "boolean", "description": "Enable/disable GitHub synchronization"},
+            # Note: Removed old ETL orchestrator settings - now using autonomous ETL jobs
             {"setting_key": "data_retention_days", "setting_value": "365", "setting_type": "integer", "description": "Number of days to retain data"},
-            {"setting_key": "max_concurrent_jobs", "setting_value": "3", "setting_type": "integer", "description": "Maximum number of concurrent jobs"},
             {"setting_key": "font_contrast_threshold", "setting_value": "0.5", "setting_type": "decimal", "description": "Font contrast threshold for color calculations"},
             {"setting_key": "contrast_ratio_normal", "setting_value": "4.5", "setting_type": "decimal", "description": "WCAG contrast ratio for normal text (AA: 4.5, AAA: 7.0)"},
             {"setting_key": "contrast_ratio_large", "setting_value": "3.0", "setting_type": "decimal", "description": "WCAG contrast ratio for large text (AA: 3.0, AAA: 4.5)"}
@@ -893,54 +996,8 @@ def apply(connection):
 
         print("✅ Default user permissions created")
 
-        # 10. Create default job schedules
-        print("📋 Creating default job schedules...")
-
-        # Integration IDs already available from previous steps
-
-        job_schedules_data = [
-            {
-                "job_name": "Jira",
-                "execution_order": 1,
-                "status": "PENDING",
-                "integration_id": jira_integration_id
-            },
-            {
-                "job_name": "GitHub",
-                "execution_order": 2,
-                "status": "READY",
-                "integration_id": github_integration_id
-            },
-            {
-                "job_name": "WEX Fabric",
-                "execution_order": 3,
-                "status": "READY",
-                "integration_id": fabric_integration_id
-            },
-            {
-                "job_name": "WEX AD",
-                "execution_order": 4,
-                "status": "READY",
-                "integration_id": ad_integration_id
-            },
-            {
-                "job_name": "Vectorization",
-                "execution_order": 5,
-                "status": "READY",
-                "integration_id": internal_integration_id  # Use internal integration for system jobs
-            }
-        ]
-
-        for job in job_schedules_data:
-            # Set Fabric and AD jobs as inactive since they're not implemented yet
-            is_active = job["job_name"] not in ["WEX Fabric", "WEX AD"]
-            cursor.execute("""
-                INSERT INTO etl_jobs (job_name, execution_order, status, integration_id, tenant_id, active, created_at, last_updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (job_name, tenant_id) DO NOTHING;
-            """, (job["job_name"], job["execution_order"], job["status"], job["integration_id"], tenant_id, is_active))
-
-        print("✅ Default job schedules created")
+        # 10. ETL jobs already seeded above with autonomous architecture
+        # (Removed old orchestrator-based job schedules)
 
         # 11. Insert colors for WEX tenant
         print("📋 Creating colors for WEX tenant...")
@@ -1146,6 +1203,12 @@ def rollback(connection):
 
         print("📋 Removing workflows...")
         cursor.execute("DELETE FROM workflows WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+
+        print("📋 Removing custom fields mapping...")
+        cursor.execute("DELETE FROM custom_fields_mapping WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+
+        print("📋 Removing custom fields...")
+        cursor.execute("DELETE FROM custom_fields WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing all integrations for Apple tenant...")
         cursor.execute("DELETE FROM integrations WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")

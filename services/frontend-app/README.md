@@ -6,7 +6,7 @@ A modern React-based frontend application for the Pulse Platform analytics dashb
 
 The Frontend Application provides an intuitive interface for:
 - **Analytics Dashboards**: DORA metrics, GitHub analytics, portfolio views
-- **ETL Management**: Configuration and monitoring of data pipelines
+- **ETL Integration**: Cross-navigation to ETL Frontend for data pipeline management
 - **Real-time Monitoring**: Live job status and progress tracking
 - **Executive Reporting**: C-level KPIs and business intelligence
 
@@ -85,11 +85,11 @@ npm run preview
 - **Portfolio View**: Cross-project metrics and correlations
 - **Executive KPIs**: C-level business intelligence dashboards
 
-### **ETL Management**
-- **Configuration Interface**: Manage ETL settings and parameters
-- **Job Control**: Start, stop, and monitor data pipeline jobs
-- **Progress Tracking**: Real-time job status and progress indicators
-- **Log Viewing**: Access and analyze ETL job logs
+### **ETL Integration**
+- **Cross-Navigation**: Seamless navigation to ETL Frontend (port 5174)
+- **Unified Authentication**: Shared JWT tokens across services
+- **Status Overview**: High-level ETL job status in analytics dashboard
+- **Data Quality Metrics**: ETL performance and data quality indicators
 
 ### **User Experience**
 - **Real-time Updates**: Live data refresh and notifications
@@ -106,7 +106,7 @@ Frontend-specific variables (prefixed with `VITE_`):
 ```env
 # API Configuration
 VITE_API_BASE_URL=http://localhost:3001
-VITE_ETL_SERVICE_URL=http://localhost:8000
+VITE_ETL_FRONTEND_URL=http://localhost:5174
 VITE_AI_SERVICE_URL=http://localhost:8001
 
 # Feature Flags
@@ -118,10 +118,11 @@ VITE_ENABLE_AI_FEATURES=true
 
 ## 📚 Documentation
 
-- **[Architecture Guide](../../docs/architecture.md)** - System architecture and design
-- **[Design System](../../docs/design-system.md)** - UI/UX guidelines and color system
-- **[Frontend Architecture](docs/architecture.md)** - Frontend-specific architecture details
-- **[Sidebar Implementation](docs/sidebar-implementation.md)** - Navigation system details
+- **[ARCHITECTURE](../../docs/ARCHITECTURE_NEW.md)** - Complete system architecture and design
+- **[SECURITY](../../docs/SECURITY.md)** - Enterprise security and authentication
+- **[INSTALLATION](../../docs/INSTALLATION.md)** - Complete deployment guide
+- **[ETL SYSTEM](../../docs/ETL.md)** - ETL architecture and queue system
+- **[AI & VECTORIZATION](../../docs/AI.md)** - AI integration and semantic search
 
 ## 🔗 Integration Points
 
@@ -131,10 +132,11 @@ VITE_ENABLE_AI_FEATURES=true
 - ETL configuration management
 - Real-time status updates
 
-### **ETL Service (Direct)**
+### **ETL Frontend (Cross-Navigation)**
+- Dedicated ETL management interface
 - Job monitoring and control
-- Log access and management
 - Real-time progress tracking
+- Custom field configuration
 
 ### **AI Service (Future)**
 - AI-powered insights and recommendations

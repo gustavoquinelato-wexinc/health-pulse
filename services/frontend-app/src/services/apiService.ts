@@ -26,7 +26,7 @@ import {
 } from '../types';
 
 // @ts-ignore - Import existing JS client for now
-import apiTenant from '../utils/apiTenant.js';
+import apiTenant from '../utils/apiClient.js';
 
 class ApiService {
   private baseUrl: string;
