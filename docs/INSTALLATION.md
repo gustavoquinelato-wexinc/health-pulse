@@ -375,7 +375,7 @@ curl http://localhost:4000/health    # Auth Service
 curl http://localhost:8000/health    # ETL Service (Legacy)
 
 # Frontend applications
-curl http://localhost:5173           # Frontend App
+curl http://localhost:3000           # Frontend App
 curl http://localhost:3333           # ETL Frontend
 
 # Database and infrastructure
@@ -389,7 +389,7 @@ curl http://localhost:15672             # RabbitMQ management UI
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| **Frontend App** | 5173 | Main React application |
+| **Frontend App** | 3000 | Main React application |
 | **ETL Frontend** | 3333 | ETL management interface |
 | **Backend Service** | 3001 | Main API and business logic |
 | **Auth Service** | 4000 | Authentication and authorization |
