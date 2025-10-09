@@ -70,7 +70,7 @@ async def execute_projects_and_issue_types_extraction(
     2. Statuses & Project Relationships (40% total)
     3. Future phases can be added here (remaining 20%)
     """
-    logger.info(f"🚀 ETL JOB STARTED: 'Jira' (ID: {job_id}) - Beginning execution")
+    logger.info(f"Starting Jira extraction for integration {integration_id}, tenant {tenant_id}")
 
     progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id)
 
@@ -114,7 +114,6 @@ async def execute_projects_and_issue_types_extraction(
         await reset_job_countdown(tenant_id, job_id, "Complete Jira extraction finished successfully")
 
         logger.info(f"Complete Jira extraction completed for integration {integration_id}")
-        logger.info(f"🏁 ETL JOB FINISHED: 'Jira' (ID: {job_id}) - Execution completed successfully")
 
         return {
             "success": True,
@@ -126,7 +125,6 @@ async def execute_projects_and_issue_types_extraction(
         
     except Exception as e:
         logger.error(f"Complete Jira extraction failed for integration {integration_id}: {e}")
-        logger.error(f"💥 ETL JOB FAILED: 'Jira' (ID: {job_id}) - Execution failed with error: {e}")
 
         # Update job status to FAILED
         try:
