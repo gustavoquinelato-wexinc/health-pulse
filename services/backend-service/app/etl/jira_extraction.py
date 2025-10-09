@@ -336,15 +336,16 @@ async def _extract_projects_and_issue_types(
     )
 
     # Extract projects with issue types using /project/search endpoint (not /createmeta)
-    projects_data = jira_client.get_projects_with_issue_types(
+    projects_list = jira_client.get_projects(
         project_keys=PROJECT_KEYS,
         expand="issueTypes"
     )
 
-    if not projects_data or 'values' not in projects_data:
+    if not projects_list:
         raise ValueError("No projects found in Jira project/search response")
 
-    projects_list = projects_data['values']
+    # Wrap in the expected structure for consistency with raw data storage
+    projects_data = {'values': projects_list}
 
     # Step 1 progress: Store raw data (0.3 -> 0.6)
     await progress_tracker.update_step_progress(
