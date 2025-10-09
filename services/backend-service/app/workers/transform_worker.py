@@ -595,6 +595,8 @@ class TransformWorker(BaseWorker):
             for issue_type in issue_types:
                 wit_external_id = issue_type.get('id')
                 wit_name = issue_type.get('name')
+                wit_description = issue_type.get('description', '')
+                hierarchy_level = issue_type.get('hierarchyLevel', 0)
 
                 if not wit_external_id:
                     logger.warning(f"Skipping issue type without external_id: {issue_type}")
@@ -608,6 +610,8 @@ class TransformWorker(BaseWorker):
                     result['wits_to_update'].append({
                         'id': existing_wit.id,
                         'original_name': wit_name,
+                        'description': wit_description,
+                        'hierarchy_level': hierarchy_level,
                         'last_updated_at': datetime.now(timezone.utc)
                     })
                 else:
@@ -615,6 +619,8 @@ class TransformWorker(BaseWorker):
                     result['wits_to_insert'].append({
                         'external_id': wit_external_id,
                         'original_name': wit_name,
+                        'description': wit_description,
+                        'hierarchy_level': hierarchy_level,
                         'tenant_id': tenant_id,
                         'integration_id': integration_id,
                         'active': True,
