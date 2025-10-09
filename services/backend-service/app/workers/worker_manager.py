@@ -5,8 +5,6 @@ Handles starting, stopping, and monitoring of all queue workers.
 """
 
 import threading
-import signal
-import sys
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,9 +31,8 @@ class WorkerManager:
         self.executor = ThreadPoolExecutor(max_workers=20)  # Increased for multi-tenant
         self.running = False
 
-        # Setup signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Note: Signal handlers removed to avoid conflicts with FastAPI's lifespan management
+        # FastAPI's lifespan context manager will handle graceful shutdown
 
         logger.info("Multi-tenant WorkerManager initialized")
     
@@ -127,17 +124,19 @@ class WorkerManager:
         # Stop each worker
         for worker_name, worker in self.workers.items():
             try:
+                logger.info(f"Stopping {worker_name} worker...")
                 worker.stop()
                 logger.info(f"Stopped {worker_name} worker")
             except Exception as e:
                 logger.error(f"Error stopping {worker_name} worker: {e}")
 
-        # Wait for threads to finish
+        # Wait for threads to finish with shorter timeout for faster shutdown
         for worker_name, thread in self.worker_threads.items():
             try:
-                thread.join(timeout=10)  # Wait up to 10 seconds
+                logger.info(f"Waiting for {worker_name} thread to finish...")
+                thread.join(timeout=3)  # Reduced to 3 seconds for faster shutdown
                 if thread.is_alive():
-                    logger.warning(f"Worker thread {worker_name} did not stop gracefully")
+                    logger.warning(f"Worker thread {worker_name} did not stop gracefully within 3 seconds")
                 else:
                     logger.info(f"Worker thread {worker_name} stopped")
             except Exception as e:
@@ -332,11 +331,7 @@ class WorkerManager:
         finally:
             logger.info(f"{worker_name} worker thread finished")
     
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals."""
-        logger.info(f"Received signal {signum}, shutting down workers...")
-        self.stop_all_workers()
-        # Don't call sys.exit(0) here as it interferes with FastAPI's async lifecycle
+
 
 
 # Global worker manager instance

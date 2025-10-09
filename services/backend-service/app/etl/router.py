@@ -11,9 +11,9 @@ from .integrations import router as integrations_router
 from .qdrant import router as qdrant_router
 from .raw_data import router as raw_data_router
 from .jobs import router as jobs_router
-from .orchestrator import router as orchestrator_router
 from .custom_fields import router as custom_fields_router
 from .projects import router as projects_router
+from .jira_extraction import router as jira_extraction_router
 
 # Create main ETL router
 router = APIRouter()
@@ -26,5 +26,5 @@ router.include_router(projects_router, tags=["ETL - Projects"])
 router.include_router(qdrant_router, tags=["ETL - Qdrant"])
 router.include_router(raw_data_router, tags=["ETL - Raw Data"])
 router.include_router(jobs_router, tags=["ETL - Jobs"])
-router.include_router(orchestrator_router, tags=["ETL - Orchestrator"])
 router.include_router(custom_fields_router, tags=["ETL - Custom Fields"])
+router.include_router(jira_extraction_router, tags=["ETL - Jira Extraction"])

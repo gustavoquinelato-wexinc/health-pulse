@@ -47,10 +47,26 @@ def setup_logging(force_reconfigure=False):
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # Console handler
+    # Console handler - only show WARNING+ to reduce noise, but allow ETL job logs
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    console_handler.setLevel(logging.DEBUG if DEBUG else logging.WARNING)
     console_handler.setFormatter(formatter)
+
+    # Add filter to allow important ETL job messages through
+    def console_filter(record):
+        message = record.getMessage()
+        # Always show WARNING+ messages
+        if record.levelno >= logging.WARNING:
+            return True
+        # Allow ETL job start/finish messages
+        if any(keyword in message for keyword in [
+            "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
+            "Job scheduler started successfully", "Backend Service started successfully"
+        ]):
+            return True
+        return False
+
+    console_handler.addFilter(console_filter)
     root_logger.addHandler(console_handler)
 
     # File handler with rotation
@@ -70,10 +86,13 @@ def setup_logging(force_reconfigure=False):
     # Set root logger level
     root_logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
+
+
     # Silence noisy third-party libraries
     _silence_third_party_loggers()
 
     _logging_configured = True
+
 
 
 def _silence_third_party_loggers():

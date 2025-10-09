@@ -80,49 +80,60 @@ class JiraAPIClient:
             logger.error(f"Unexpected error getting createmeta: {e}")
             raise
     
-    def get_projects(self, project_keys: Optional[List[str]] = None, max_results: int = 50) -> List[Dict[str, Any]]:
+    def get_projects(self, project_keys: Optional[List[str]] = None, max_results: int = 100, expand: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Fetch Jira projects, optionally filtered by project keys.
-        
+        Fetch Jira projects with issue types, optionally filtered by project keys.
+
         Args:
             project_keys: Optional list of project keys to filter by
-            max_results: Maximum results per page (default: 50)
-            
+            max_results: Maximum results per page (default: 100)
+            expand: Optional expand parameter for additional data
+
         Returns:
-            List of project objects
+            List of project objects with issue types included
         """
         try:
             url = f"{self.base_url}/rest/api/3/project/search"
-            
-            params = {
-                'maxResults': max_results
-            }
-            
-            # Add project keys filter if provided
+
+            # Build params as list of tuples to handle multiple 'keys' parameters
+            params = [
+                ('startAt', 0),
+                ('maxResults', max_results)
+            ]
+
+            # Add each project key as a separate 'keys' parameter (matching old ETL service)
             if project_keys:
-                params['keys'] = ','.join(project_keys)  # type: ignore
-            
+                for project_key in project_keys:
+                    params.append(('keys', str(project_key)))
+
+            if expand:
+                params.append(('expand', expand))
+
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Health-Pulse-ETL/1.0'
+            }
+
+            logger.info(f"Fetching projects with keys: {project_keys or 'ALL'}")
+
             response = requests.get(
                 url,
                 auth=(self.username, self.token),
                 params=params,
-                headers={
-                    'Accept': 'application/json',
-                    'Accept-Charset': 'utf-8',
-                    'User-Agent': 'Health-Pulse-ETL-Backend/1.0'
-                },
+                headers=headers,
                 timeout=30
             )
-            
+
             response.raise_for_status()
             result = response.json()
-            
+
             # API 3 returns: {"values": [...], "total": 12, "maxResults": 50, ...}
             projects = result.get('values', [])
             logger.info(f"Successfully fetched {len(projects)} projects")
-            
+
             return projects
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get projects: {e}")
             raise
@@ -150,6 +161,40 @@ class JiraAPIClient:
             token=decrypted_token,
             base_url=integration.base_url
         )
+
+
+
+    def get_project_statuses(self, project_key: str) -> List[Dict[str, Any]]:
+        """
+        Get project-specific statuses for a single project (following old ETL approach).
+
+        Args:
+            project_key: Single project key to get statuses for
+
+        Returns:
+            List of issue type objects, each containing statuses array
+        """
+        try:
+            url = f"{self.base_url}/rest/api/3/project/{project_key}/statuses"
+
+            response = requests.get(
+                url,
+                auth=(self.username, self.token),
+                headers={'Accept': 'application/json'},
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                statuses_data = response.json()
+                logger.info(f"Retrieved statuses for project {project_key}: {len(statuses_data)} issue types")
+                return statuses_data
+            else:
+                logger.warning(f"Failed to get statuses for project {project_key}: {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting statuses for project {project_key}: {e}")
+            return []
 
 
 def extract_custom_fields_from_createmeta(createmeta_response: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -211,7 +256,7 @@ def extract_custom_fields_from_createmeta(createmeta_response: Dict[str, Any]) -
         
         logger.info(f"Extracted {len(discovered_fields)} unique custom fields from createmeta response")
         return discovered_fields
-        
+
     except Exception as e:
         logger.error(f"Error extracting custom fields from createmeta: {e}")
         return []

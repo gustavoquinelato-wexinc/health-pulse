@@ -27,7 +27,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 ┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
 │  Backend        │              │  ETL Frontend   │              │  Auth Service   │
 │  Service        │◄────────────►│  (React/TS)     │              │  (FastAPI)      │
-│  (FastAPI)      │              │  Port: 5174     │              │  Port: 4000     │
+│  (FastAPI)      │              │  Port: 3333     │              │  Port: 4000     │
 │  Port: 3001     │              │                 │              │                 │
 │                 │              │ • Job Cards     │              │ • JWT Tokens    │
 │ • Authentication│              │ • WIT Mgmt      │              │ • User Auth     │
@@ -76,7 +76,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Purpose**: Core business logic and API gateway
 - **Responsibilities**: User authentication, RBAC, multi-tenant data isolation, AI operations, analytics, ETL endpoints
 
-#### ETL Frontend (Port 5174)
+#### ETL Frontend (Port 3333)
 - **Technology**: React, TypeScript, Tailwind CSS
 - **Purpose**: ETL management interface
 

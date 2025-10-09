@@ -147,7 +147,7 @@ The platform provides comprehensive API documentation through OpenAPI/Swagger:
 
 - **Auth Service**: `http://localhost:4000/health` (API-only authentication backend)
 - **Backend Service API**: `http://localhost:3001/docs` (Core business logic and ETL endpoints)
-- **ETL Frontend**: `http://localhost:5174` (ETL management interface)
+- **ETL Frontend**: `http://localhost:3333` (ETL management interface)
 - **Legacy ETL Service**: `http://localhost:8002/docs` (⚠️ DEPRECATED - Reference only)
 
 ## 🎯 Target Audience
