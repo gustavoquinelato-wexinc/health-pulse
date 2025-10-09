@@ -997,13 +997,6 @@ def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str
     It prepares entity data into text format for embedding generation.
     """
     try:
-    """
-    Create text content for vectorization based on entity type.
-
-    This function is STILL USED by the new RabbitMQ-based VectorizationWorker.
-    It prepares entity data into text format for embedding generation.
-    """
-    try:
         # Handle None entity_data
         if entity_data is None:
             logger.warning(f"[TEXT_CONTENT] Entity data is None for table '{table_name}' - cannot create text content")
