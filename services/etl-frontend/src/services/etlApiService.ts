@@ -11,13 +11,20 @@ const etlApi = axios.create({
   },
 })
 
-// Add request interceptor to include auth token
+// Add request interceptor to include hybrid authentication
 etlApi.interceptors.request.use(
   (config) => {
+    // For ETL job operations: use service-to-service authentication
+    // For UI pages (mappings, configs): use user JWT tokens
+    const internalSecret = import.meta.env.VITE_ETL_INTERNAL_SECRET || 'dev-internal-secret-change'
+    config.headers['X-Internal-Auth'] = internalSecret
+
+    // Also include user token for UI operations (mappings, configurations, etc.)
     const token = localStorage.getItem('pulse_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+
     return config
   },
   (error) => {
@@ -198,4 +205,5 @@ export const customFieldsApi = {
   },
 }
 
+export { etlApi }
 export default etlApi

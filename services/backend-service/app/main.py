@@ -98,9 +98,9 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             logger.debug(f"Public route {path} - skipping auth")
             return await call_next(request)
 
-        # Skip authentication for API routes (they handle their own auth)
-        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/"):
-            logger.debug(f"API/Auth route {path} - skipping middleware auth")
+        # Skip authentication for API routes and WebSocket routes (they handle their own auth)
+        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/") or path.startswith("/ws/"):
+            logger.debug(f"API/Auth/WebSocket route {path} - skipping middleware auth")
             return await call_next(request)
 
         # For protected web routes and unknown routes, check authentication
@@ -198,6 +198,25 @@ async def lifespan(_: FastAPI):
         else:
             logger.info("Session clearing disabled (development mode - DEBUG=True)")
 
+        # Start independent job scheduler for automatic ETL job execution
+        # Wait a moment to ensure database is fully ready
+        import asyncio
+        await asyncio.sleep(2)  # 2 second delay to ensure database is ready
+
+        logger.info("🚀 Attempting to start job scheduler...")
+        try:
+            from app.etl.job_scheduler import start_job_scheduler
+            logger.info("🔍 Job scheduler module imported successfully")
+            await start_job_scheduler()
+            logger.info("✅ Independent job scheduler started successfully")
+        except Exception as e:
+            logger.error(f"❌ CRITICAL: Error starting job scheduler: {e}")
+            logger.error(f"❌ Job scheduler error type: {type(e).__name__}")
+            logger.error(f"❌ Job scheduler error details: {str(e)}")
+            import traceback
+            logger.error(f"❌ Job scheduler traceback: {traceback.format_exc()}")
+            logger.warning("⚠️ Job scheduler not started - jobs will need manual triggering")
+
         logger.info("Backend Service started successfully")
         yield
 
@@ -219,6 +238,15 @@ async def lifespan(_: FastAPI):
                     print("[INFO] ETL workers stopped")
             except (Exception, asyncio.CancelledError):
                 # Silently handle worker cleanup errors
+                pass
+
+            # Stop job scheduler
+            try:
+                from app.etl.job_scheduler import stop_job_scheduler
+                await stop_job_scheduler()
+                print("[INFO] Job scheduler stopped")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle scheduler cleanup errors
                 pass
 
             # Close database connections
@@ -372,6 +400,10 @@ app.include_router(ai_query_router, prefix="/api/v1", tags=["AI Query Interface"
 # Include ETL routes
 from app.etl.router import router as etl_router
 app.include_router(etl_router, prefix="/app/etl", tags=["ETL Management"])
+
+# Include WebSocket routes
+from app.api.websocket_routes import router as websocket_router
+app.include_router(websocket_router, tags=["WebSocket"])
 
 # Backend Service - API only, no static files or web routes
 

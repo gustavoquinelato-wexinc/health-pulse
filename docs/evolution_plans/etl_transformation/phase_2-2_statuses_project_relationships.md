@@ -1,218 +1,272 @@
-# ETL Phase 2.2: Jira Enhanced Extraction with Discovery
+# ETL Phase 2.2: Statuses & Project Relationships (Complete E2E Implementation)
 
 **Implemented**: NO ❌
 **Duration**: 1 week (Week 6 of overall plan)
 **Priority**: HIGH
 **Risk Level**: MEDIUM
-**Last Updated**: 2025-10-02
+**Last Updated**: 2025-10-07
+**Jira Story**: [BEN-10438](https://wexinc.atlassian.net/browse/BEN-10438)
+**Jira Subtask**: [BEN-10440](https://wexinc.atlassian.net/browse/BEN-10440)
+
+> ⚠️ **ARCHITECTURE NOTE**: All ETL functionality has been moved to `services/backend-service/app/etl/`. The `services/etl-service` is now **LEGACY/DEPRECATED** and should not be used for new development.
 
 ## 📊 Prerequisites (Must be complete before starting)
 
-1. ✅ **Phase 2.1 Complete**: Database Foundation & UI Management
-   - Custom field tables created
-   - JSON overflow column added to work_items
-   - Custom field mapping UI functional
-   - Custom field discovery UI working
+1. ✅ **Phase 0 Complete**: ETL Frontend + Backend ETL Module working
+2. ✅ **Phase 1 Complete**: RabbitMQ + Raw Data Storage + Queue Manager
+   - RabbitMQ container running
+   - Database tables created (`raw_extraction_data`, `etl_job_queue`)
+   - Queue manager implemented in backend-service
+   - Raw data APIs functional
+3. ✅ **Phase 2.1 Complete**: Projects & Issue Types Extraction
+   - Projects and issue types extraction working end-to-end
+   - Queue processing and transform workers functional
+   - Database operations for projects, wits, and project_wits tables
 
-**Status**: Cannot start until Phase 2.1 is complete.
+**Status**: Ready to start after Phase 2.1 completion.
 
 ## 💼 Business Outcome
 
-**Enhanced Jira Extraction with Project-Specific Discovery**: Implement intelligent Jira data extraction that:
-- **Discovers custom fields** per project using createmeta API
-- **Builds dynamic field lists** based on UI mappings
-- **Extracts project-specific issue types** instead of scanning all Jira
-- **Integrates with etl_jobs table** for job management
-- **Supports incremental sync** with proper checkpoint management
+**Complete Statuses & Project Relationships Extraction**: Implement the full end-to-end flow for Jira statuses and project relationships extraction using the new queue-based architecture:
+- **API Endpoints** for triggering statuses and project relationships extraction
+- **Raw Data Storage** in `raw_extraction_data` table
+- **Queue Processing** with transformation workers
+- **Database Operations** for statuses and projects_statuses tables
+- **UI Integration** for monitoring and control
+- **Progress Tracking** with real-time updates
 
-This creates intelligent, efficient Jira extraction that adapts to project configurations.
+This builds upon Phase 2.1 to complete the foundational Jira metadata extraction capabilities.
 
 ## 🎯 Objectives
 
-1. **Discovery Job**: Implement project-specific custom field discovery
-2. **Enhanced Extraction**: Dynamic field lists based on UI configuration
-3. **Issue Type Discovery**: Project-specific issue types from createmeta
-4. **etl_jobs Integration**: Use etl_jobs table for job orchestration
-5. **Performance**: Optimize API calls and reduce unnecessary data fetching
+1. **API Endpoints**: Create Jira statuses/project relationships extraction endpoints in backend-service/app/etl/
+2. **Data Extraction**: Implement Jira API integration for statuses and project-status relationships
+3. **Queue Integration**: Store raw data and publish transformation messages
+4. **Transform Workers**: Process queued data and update final database tables
+5. **UI Integration**: Connect ETL frontend to trigger and monitor extractions
+6. **Progress Tracking**: Real-time job status and progress updates
 
 ## 📋 Task Breakdown
 
-### Task 2.2.1: Jira Discovery Job Implementation
-**Duration**: 3 days
+### Task 2.2.1: API Endpoints Implementation
+**Duration**: 2 days
 **Priority**: CRITICAL
 
-#### Discovery Job Base Class
+#### Statuses & Project Relationships Extraction Endpoint
 ```python
-# services/etl-service/app/jobs/jira/jira_discovery_job.py
-from typing import Dict, Any, List
-from app.jobs.base_job import BaseExtractJob
-from app.integrations.jira_client import JiraClient
-from app.core.logging_config import get_logger
+# services/backend-service/app/etl/jira_extraction.py (enhancement)
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from sqlalchemy.orm import Session
+from app.core.database import get_db_session
+from app.etl.jira_client import JiraAPIClient
+from app.etl.queue.queue_manager import QueueManager
 
-logger = get_logger(__name__)
+@router.post("/jira/extract/statuses-and-relationships/{integration_id}")
+async def extract_statuses_and_relationships(
+    integration_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db_session)
+):
+    """
+    Extract statuses and project-status relationships from Jira.
 
-class JiraDiscoveryJob(BaseExtractJob):
-    """Discover project-specific custom fields and issue types using createmeta API"""
-    
-    def __init__(self, tenant_id: int, integration_id: int):
-        super().__init__(tenant_id, integration_id)
-        self.jira_client = JiraClient(integration_id)
-    
-    async def extract_data(self) -> List[Dict[str, Any]]:
-        """Extract project metadata from createmeta endpoint"""
-        
-        logger.info(f"Starting Jira discovery for integration {self.integration_id}")
-        
-        # Get all projects for this integration
-        projects = await self.get_integration_projects()
-        logger.info(f"Found {len(projects)} projects to discover")
-        
-        discovery_data = []
-        
-        for project in projects:
-            try:
-                logger.info(f"Discovering metadata for project {project['key']}")
-                
-                # Call /rest/api/3/issue/createmeta for this project
-                createmeta = await self.jira_client.get_createmeta(
-                    project_keys=[project['key']],
-                    expand='projects.issuetypes.fields'
-                )
-                
-                # Extract custom fields and issue types
-                project_data = self.extract_project_metadata(project, createmeta)
-                discovery_data.append(project_data)
-                
-                logger.info(f"Discovered {len(project_data['custom_fields'])} custom fields and {len(project_data['issue_types'])} issue types for {project['key']}")
-                
-            except Exception as e:
-                logger.error(f"Failed to discover metadata for project {project['key']}: {e}")
-                # Continue with other projects
-                continue
-        
-        logger.info(f"Discovery completed. Found metadata for {len(discovery_data)} projects")
-        return discovery_data
-    
-    def extract_project_metadata(self, project: Dict, createmeta: Dict) -> Dict[str, Any]:
-        """Extract custom fields and issue types from createmeta response"""
-        
-        custom_fields = []
-        issue_types = []
-        
-        for project_data in createmeta.get('projects', []):
-            if project_data.get('key') != project['key']:
-                continue
-                
-            for issuetype in project_data.get('issuetypes', []):
-                # Store issue type
-                issue_types.append({
-                    'jira_issuetype_id': issuetype['id'],
-                    'jira_issuetype_name': issuetype['name'],
-                    'jira_issuetype_description': issuetype.get('description', ''),
-                    'hierarchy_level': issuetype.get('hierarchyLevel', 0),
-                    'is_subtask': issuetype.get('subtask', False)
-                })
-                
-                # Extract custom fields from this issue type
-                for field_key, field_info in issuetype.get('fields', {}).items():
-                    if field_key.startswith('customfield_'):
-                        # Check if we already have this field (avoid duplicates across issue types)
-                        existing_field = next(
-                            (f for f in custom_fields if f['jira_field_id'] == field_key), 
-                            None
-                        )
-                        
-                        if not existing_field:
-                            custom_fields.append({
-                                'jira_field_id': field_key,
-                                'jira_field_name': field_info.get('name', ''),
-                                'jira_field_type': field_info.get('schema', {}).get('type', 'string'),
-                                'jira_field_schema': field_info.get('schema', {}),
-                                'is_required': field_info.get('required', False),
-                                'has_default_value': field_info.get('hasDefaultValue', False)
-                            })
-        
+    This endpoint:
+    1. Fetches all statuses from Jira API
+    2. Fetches project-status relationships
+    3. Stores raw data in raw_extraction_data table
+    4. Publishes transformation messages to queue
+    """
+    try:
+        # Get integration details
+        integration = get_integration_by_id(db, integration_id, tenant_id)
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+
+        # Create Jira client
+        jira_client = JiraAPIClient.create_from_integration(integration)
+
+        # Add background task for extraction
+        background_tasks.add_task(
+            execute_statuses_and_relationships_extraction,
+            integration_id, tenant_id, jira_client
+        )
+
         return {
-            'project_id': project['id'],
-            'project_key': project['key'],
-            'project_name': project['name'],
-            'custom_fields': custom_fields,
-            'issue_types': issue_types,
-            'discovery_timestamp': datetime.utcnow().isoformat()
+            "success": True,
+            "message": "Statuses and project relationships extraction started",
+            "integration_id": integration_id
         }
-    
-    async def get_integration_projects(self) -> List[Dict[str, Any]]:
-        """Get projects for this integration from database"""
-        
-        # This would query the projects table
-        # For now, return a sample - replace with actual DB query
-        return [
-            {'id': 1, 'key': 'BEN', 'name': 'Benefits Platform'},
-            {'id': 2, 'key': 'HEALTH', 'name': 'Health Platform'}
-        ]
-    
-    def get_entity_type(self) -> str:
-        """Return entity type for this job"""
-        return "jira_discovery"
-    
-    def get_extraction_metadata(self) -> Dict[str, Any]:
-        """Return Jira-specific extraction metadata"""
-        metadata = super().get_extraction_metadata()
-        metadata.update({
-            'discovery_type': 'project_metadata',
-            'jira_instance': self.jira_client.base_url,
-            'api_endpoint': '/rest/api/3/issue/createmeta'
-        })
-        return metadata
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
-#### Enhanced Jira Client for Createmeta
+### Task 2.2.2: Data Extraction Functions
+**Duration**: 2 days
+**Priority**: CRITICAL
+
+#### Statuses and Project Relationships Extraction Function
 ```python
-# services/etl-service/app/integrations/jira_client.py
-class JiraClient:
-    """Enhanced Jira client with createmeta support"""
-    
-    async def get_createmeta(self, project_keys: List[str], expand: str = None) -> Dict[str, Any]:
-        """Get create metadata for projects"""
-        
-        try:
-            params = {
-                'projectKeys': ','.join(project_keys)
-            }
-            
-            if expand:
-                params['expand'] = expand
-            
-            response = await self.session.get(
-                f"{self.base_url}/rest/api/3/issue/createmeta",
-                params=params,
-                auth=(self.username, self.token),
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except Exception as e:
-            logger.error(f"Failed to get createmeta for projects {project_keys}: {e}")
-            raise
-    
-    async def get_project_details(self, project_key: str) -> Dict[str, Any]:
-        """Get detailed project information"""
-        
-        try:
-            response = await self.session.get(
-                f"{self.base_url}/rest/api/3/project/{project_key}",
-                auth=(self.username, self.token),
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except Exception as e:
-            logger.error(f"Failed to get project details for {project_key}: {e}")
-            raise
+# services/backend-service/app/etl/jira_extraction.py (enhancement)
+async def execute_statuses_and_relationships_extraction(
+    integration_id: int,
+    tenant_id: int,
+    jira_client: JiraAPIClient
+):
+    """
+    Execute the complete statuses and project relationships extraction.
+
+    This function:
+    1. Extracts all statuses from Jira
+    2. Extracts project-status relationships
+    3. Stores raw data in raw_extraction_data table
+    4. Publishes transformation messages to queue
+    """
+    try:
+        logger.info(f"Starting statuses extraction for integration {integration_id}")
+
+        # Extract statuses
+        statuses_data = await extract_statuses(jira_client)
+
+        # Extract project-status relationships
+        project_statuses_data = await extract_project_status_relationships(jira_client)
+
+        # Store raw data
+        await store_statuses_raw_data(integration_id, tenant_id, statuses_data, project_statuses_data)
+
+        # Publish to transformation queue
+        await publish_statuses_transformation_message(integration_id, tenant_id)
+
+        logger.info(f"Statuses extraction completed for integration {integration_id}")
+
+    except Exception as e:
+        logger.error(f"Statuses extraction failed for integration {integration_id}: {e}")
+        raise
+
+async def extract_statuses(jira_client: JiraAPIClient) -> List[Dict[str, Any]]:
+    """Extract all statuses from Jira API."""
+    try:
+        # Get all statuses
+        response = await jira_client.get("/rest/api/3/status")
+        statuses = response.json() if hasattr(response, 'json') else response
+
+        logger.info(f"Extracted {len(statuses)} statuses from Jira")
+        return statuses
+
+    except Exception as e:
+        logger.error(f"Failed to extract statuses: {e}")
+        raise
+
+async def extract_project_status_relationships(jira_client: JiraAPIClient) -> List[Dict[str, Any]]:
+    """Extract project-status relationships from Jira API."""
+    try:
+        # Get all projects first
+        projects_response = await jira_client.get("/rest/api/3/project")
+        projects = projects_response.json() if hasattr(projects_response, 'json') else projects_response
+
+        project_statuses = []
+
+        for project in projects:
+            try:
+                # Get statuses for this project
+                project_statuses_response = await jira_client.get(
+                    f"/rest/api/3/project/{project['key']}/statuses"
+                )
+                project_status_data = project_statuses_response.json() if hasattr(project_statuses_response, 'json') else project_statuses_response
+
+                project_statuses.append({
+                    'project_id': project['id'],
+                    'project_key': project['key'],
+                    'project_name': project['name'],
+                    'statuses': project_status_data
+                })
+
+            except Exception as e:
+                logger.warning(f"Failed to get statuses for project {project['key']}: {e}")
+                continue
+
+        logger.info(f"Extracted status relationships for {len(project_statuses)} projects")
+        return project_statuses
+
+    except Exception as e:
+        logger.error(f"Failed to extract project-status relationships: {e}")
+        raise
+```
+
+### Task 2.2.3: Transform Worker Implementation
+**Duration**: 2 days
+**Priority**: HIGH
+
+#### Statuses Transform Worker Enhancement
+```python
+# services/backend-service/app/workers/transform_worker.py (enhancement)
+async def process_jira_statuses_and_relationships(self, message_data: Dict[str, Any]):
+    """
+    Process statuses and project-status relationships from raw data.
+
+    This function:
+    1. Retrieves raw data from raw_extraction_data table
+    2. Processes statuses and saves to statuses table
+    3. Processes project-status relationships and saves to projects_statuses table
+    4. Updates job progress and status
+    """
+    try:
+        integration_id = message_data['integration_id']
+        tenant_id = message_data['tenant_id']
+        extraction_id = message_data['extraction_id']
+
+        logger.info(f"Processing statuses and relationships for extraction {extraction_id}")
+
+        # Get raw data
+        raw_data = await self.get_raw_extraction_data(extraction_id)
+
+        # Process statuses
+        await self.process_statuses(raw_data['statuses'], tenant_id)
+
+        # Process project-status relationships
+        await self.process_project_status_relationships(raw_data['project_statuses'], tenant_id)
+
+        logger.info(f"Successfully processed statuses and relationships for extraction {extraction_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to process statuses and relationships: {e}")
+        raise
+
+async def process_statuses(self, statuses_data: List[Dict[str, Any]], tenant_id: int):
+    """Process and save statuses to database."""
+    try:
+        with get_db_session() as db:
+            for status_data in statuses_data:
+                # Check if status already exists
+                existing_status = db.query(Status).filter(
+                    Status.jira_status_id == status_data['id'],
+                    Status.tenant_id == tenant_id
+                ).first()
+
+                if existing_status:
+                    # Update existing status
+                    existing_status.jira_status_name = status_data['name']
+                    existing_status.jira_status_description = status_data.get('description', '')
+                    existing_status.status_category = status_data.get('statusCategory', {}).get('name', '')
+                    existing_status.updated_at = datetime.utcnow()
+                else:
+                    # Create new status
+                    new_status = Status(
+                        tenant_id=tenant_id,
+                        jira_status_id=status_data['id'],
+                        jira_status_name=status_data['name'],
+                        jira_status_description=status_data.get('description', ''),
+                        status_category=status_data.get('statusCategory', {}).get('name', ''),
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(new_status)
+
+            db.commit()
+            logger.info(f"Processed {len(statuses_data)} statuses")
+
+    except Exception as e:
+        logger.error(f"Failed to process statuses: {e}")
+        raise
 ```
 
 ### Task 2.2.2: Enhanced Issues Extraction Job
@@ -221,7 +275,8 @@ class JiraClient:
 
 #### Dynamic Issues Extraction
 ```python
-# services/etl-service/app/jobs/jira/jira_issues_extract_job.py
+# ⚠️ UPDATED PATH: services/backend-service/app/etl/jobs/jira_issues_extract_job.py
+# (etl-service is legacy - all ETL moved to backend-service/app/etl/)
 class JiraIssuesExtractJob(BaseExtractJob):
     """Extract Jira issues with dynamic custom fields based on UI mappings"""
     
@@ -405,7 +460,8 @@ class JiraIssuesExtractJob(BaseExtractJob):
 
 #### Job Orchestration with etl_jobs
 ```python
-# services/etl-service/app/orchestration/jira_orchestrator.py
+# ⚠️ UPDATED PATH: services/backend-service/app/etl/orchestration/jira_orchestrator.py
+# (etl-service is legacy - all ETL moved to backend-service/app/etl/)
 from app.core.database import get_database_connection
 from app.core.logging_config import get_logger
 
@@ -549,38 +605,42 @@ class JiraJobOrchestrator:
 
 ## ✅ Success Criteria
 
-1. **Discovery Job**: Project-specific custom field discovery working
-2. **Enhanced Extraction**: Dynamic field lists based on UI mappings
-3. **Issue Type Discovery**: Project-specific issue types stored correctly
-4. **etl_jobs Integration**: Jobs managed through etl_jobs table
-5. **Performance**: Optimized API calls with reduced unnecessary data fetching
+1. **API Endpoints**: Statuses and project relationships extraction endpoints working
+2. **Data Extraction**: Complete statuses and project-status relationships extracted from Jira
+3. **Raw Data Storage**: All extracted data stored in raw_extraction_data table
+4. **Queue Processing**: Transform workers processing statuses data successfully
+5. **Database Operations**: Statuses and projects_statuses tables populated correctly
+6. **UI Integration**: ETL frontend can trigger and monitor statuses extraction
+7. **Progress Tracking**: Real-time progress updates working
 
 ## 🚨 Risk Mitigation
 
-1. **API Rate Limits**: Implement proper rate limiting and retry logic
-2. **Large Projects**: Handle projects with many custom fields efficiently
-3. **Discovery Failures**: Graceful handling when createmeta API fails
-4. **Data Consistency**: Ensure discovered data is properly validated
-5. **Job Dependencies**: Proper handling of job dependencies in etl_jobs
+1. **API Rate Limits**: Implement proper rate limiting for Jira API calls
+2. **Large Datasets**: Handle large numbers of statuses and projects efficiently
+3. **Data Consistency**: Ensure status relationships are correctly mapped
+4. **Queue Failures**: Proper error handling and retry mechanisms for queue processing
+5. **Database Performance**: Optimize bulk operations for statuses and relationships
 
 ## 📋 Implementation Checklist
 
-- [ ] Implement Jira discovery job with createmeta API
-- [ ] Enhance Jira client with createmeta support
-- [ ] Implement enhanced issues extraction with dynamic fields
-- [ ] Create job orchestration using etl_jobs table
-- [ ] Add job status tracking and progress updates
-- [ ] Test discovery job with real Jira projects
-- [ ] Test enhanced extraction with UI-configured mappings
-- [ ] Validate job dependencies and scheduling
-- [ ] Test incremental sync functionality
-- [ ] Performance test with large projects
+- [ ] Create API endpoint `/jira/extract/statuses-and-relationships/{integration_id}`
+- [ ] Implement `execute_statuses_and_relationships_extraction()` function
+- [ ] Create `extract_statuses()` and `extract_project_status_relationships()` functions
+- [ ] Implement raw data storage in `raw_extraction_data` table
+- [ ] Add queue message publishing for transformation
+- [ ] Enhance transform worker to process `jira_statuses_and_relationships` data type
+- [ ] Implement `process_statuses()` and `process_project_status_relationships()` functions
+- [ ] Add progress tracking with `StatusesExtractionProgressTracker`
+- [ ] Integrate UI trigger button in ETL frontend
+- [ ] Add error handling and retry mechanisms
+- [ ] Test complete end-to-end flow
+- [ ] Validate database operations and performance
 
 ## 🔄 Next Steps
 
 After completion, this enables:
-- **Phase 2.3**: Transform & Load Processing with dynamic custom fields
-- **Real-time discovery**: Projects automatically discover new custom fields
-- **Efficient extraction**: Only fetch fields that are actually used
+- **Phase 2.3**: Issues, Changelogs & Dev Status extraction
+- **Complete Metadata Foundation**: All Jira metadata (projects, issue types, statuses) available
+- **Foundation Ready**: Architecture proven for complex data extraction
 
-**Mark as Implemented**: ✅ when all checklist items are complete and jobs are running successfully.
+**Mark as Implemented**: ✅ when all checklist items are complete and end-to-end flow is working.

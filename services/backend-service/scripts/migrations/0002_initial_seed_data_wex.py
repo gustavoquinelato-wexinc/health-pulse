@@ -534,14 +534,14 @@ def apply(connection):
             {
                 "job_name": "Jira",
                 "integration_id": integrations.get('Jira'),
-                "schedule_interval_minutes": 360,  # 6 hours
+                "schedule_interval_minutes": 60,  # 1 hour
                 "status": "READY",
                 "active": True
             },
             {
                 "job_name": "GitHub",
                 "integration_id": integrations.get('GitHub'),
-                "schedule_interval_minutes": 240,  # 4 hours
+                "schedule_interval_minutes": 60,  # 1 hour
                 "status": "READY",
                 "active": True
             },

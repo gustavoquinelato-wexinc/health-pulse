@@ -771,11 +771,10 @@ class SystemSettings(Base, BaseEntity):
 
 class JobSchedule(Base, IntegrationBaseEntity):
     """
-    Orchestration table for managing ETL job execution with state management.
+    ETL Job Management with Independent Scheduling.
 
-    Implements Active/Passive Job Model:
-    - Active Job (Orchestrator): Checks for PENDING jobs and triggers them
-    - Passive Jobs (Workers): Do the actual ETL work and manage their own state
+    Each job runs independently with its own schedule and timing.
+    No orchestrator dependency - jobs are autonomous.
     """
 
     __tablename__ = 'etl_jobs'
@@ -783,73 +782,97 @@ class JobSchedule(Base, IntegrationBaseEntity):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
 
-    # Job identification
-    job_name = Column(String, nullable=False, quote=False, name="job_name")  # 'jira_sync', 'github_sync', 'fabric_sync', 'ad_sync'
-    execution_order = Column(Integer, nullable=False, quote=False, name="execution_order")  # 1, 2, 3, 4...
-    status = Column(String, nullable=False, default='PENDING', quote=False, name="status")  # 'PENDING', 'RUNNING', 'FINISHED', 'PAUSED', 'INACTIVE'
+    # Job identification and configuration
+    job_name = Column(String, nullable=False, quote=False, name="job_name")  # 'Jira', 'GitHub', 'WEX AD', 'WEX Fabric'
+    status = Column(String, nullable=False, default='READY', quote=False, name="status")  # 'READY', 'RUNNING', 'FINISHED', 'FAILED'
 
-    # Checkpoint management for graceful failure recovery
-    last_repo_sync_checkpoint = Column(DateTime, nullable=True, quote=False, name="last_repo_sync_checkpoint")
+    # Scheduling configuration
+    schedule_interval_minutes = Column(Integer, nullable=False, default=360, quote=False, name="schedule_interval_minutes")  # Normal interval
+    retry_interval_minutes = Column(Integer, nullable=False, default=15, quote=False, name="retry_interval_minutes")  # Retry interval
+    next_run = Column(DateTime, nullable=True, quote=False, name="next_run")  # When job should run next
 
-    # Repository processing queue (JSONB array of repo objects)
-    repo_processing_queue = Column(Text, nullable=True, quote=False, name="repo_processing_queue")  # JSON string for compatibility
-
-    # GraphQL cursor-based pagination checkpoints
-    last_pr_cursor = Column(String, nullable=True, quote=False, name="last_pr_cursor")
-    current_pr_node_id = Column(String, nullable=True, quote=False, name="current_pr_node_id")
-    last_commit_cursor = Column(String, nullable=True, quote=False, name="last_commit_cursor")
-    last_review_cursor = Column(String, nullable=True, quote=False, name="last_review_cursor")
-    last_comment_cursor = Column(String, nullable=True, quote=False, name="last_comment_cursor")
-    last_review_thread_cursor = Column(String, nullable=True, quote=False, name="last_review_thread_cursor")
-
-    # Execution tracking (Integration Sync Pattern)
-    # last_run_started_at: Set when job starts extracting data, NEVER updated during recovery
-    # last_success_at: Set when job completes successfully, used as integration.last_sync_at
-    # Recovery: Always continue from last_run_started_at using cursors for pagination
+    # Execution tracking
     last_run_started_at = Column(DateTime, nullable=True, quote=False, name="last_run_started_at")
-    last_success_at = Column(DateTime, nullable=True, quote=False, name="last_success_at")
+    last_run_finished_at = Column(DateTime, nullable=True, quote=False, name="last_run_finished_at")
     error_message = Column(Text, nullable=True, quote=False, name="error_message")
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
+
+    # Checkpoint data for recovery
+    checkpoint_data = Column(Text, nullable=True, quote=False, name="checkpoint_data")  # JSONB stored as text
 
     # Relationships
     integration = relationship("Integration", back_populates="etl_jobs")
 
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
-        self.last_repo_sync_checkpoint = None
-        self.repo_processing_queue = None
-        self.last_pr_cursor = None
-        self.current_pr_node_id = None
-        self.last_commit_cursor = None
-        self.last_review_cursor = None
-        self.last_comment_cursor = None
-        self.last_review_thread_cursor = None
+        self.checkpoint_data = None
+        self.error_message = None
+        self.retry_count = 0
 
     def has_recovery_checkpoints(self) -> bool:
-        """Check if there are any remaining recovery checkpoints."""
-        return any([
-            self.last_repo_sync_checkpoint is not None,
-            self.repo_processing_queue is not None,
-            self.last_pr_cursor is not None,
-            self.current_pr_node_id is not None,
-            self.last_commit_cursor is not None,
-            self.last_review_cursor is not None,
-            self.last_comment_cursor is not None,
-            self.last_review_thread_cursor is not None
-        ])
+        """Check if there are recovery checkpoints available."""
+        return self.checkpoint_data is not None
 
     def set_running(self):
-        """Mark job as running."""
+        """Mark job as running and update timing."""
         from app.core.utils import DateTimeHelper
         self.status = 'RUNNING'
         self.last_run_started_at = DateTimeHelper.now_default()
 
     def set_finished(self):
-        """Mark job as finished and clear checkpoints."""
+        """Mark job as finished and calculate next run time."""
         from app.core.utils import DateTimeHelper
-        self.status = 'FINISHED'
-        self.last_success_at = DateTimeHelper.now_default()
+        from datetime import timedelta
+
+        now = DateTimeHelper.now_default()
+        self.status = 'READY'  # Ready for next run
+        self.last_run_finished_at = now
         self.clear_checkpoints()
+
+        # Calculate next run time
+        self.next_run = now + timedelta(minutes=self.schedule_interval_minutes)
+
+    def set_failed(self, error_message: str):
+        """Mark job as failed and calculate retry time."""
+        from app.core.utils import DateTimeHelper
+        from datetime import timedelta
+
+        now = DateTimeHelper.now_default()
+        self.status = 'FAILED'
+        self.error_message = error_message
+        self.retry_count += 1
+
+        # Calculate next retry time
+        self.next_run = now + timedelta(minutes=self.retry_interval_minutes)
+
+    def calculate_next_run(self):
+        """Calculate when this job should run next based on current state."""
+        from app.core.utils import DateTimeHelper
+        from datetime import timedelta
+
+        now = DateTimeHelper.now_default()
+
+        if self.status == 'FAILED':
+            # Use retry interval for failed jobs
+            self.next_run = now + timedelta(minutes=self.retry_interval_minutes)
+        else:
+            # Use normal schedule interval
+            self.next_run = now + timedelta(minutes=self.schedule_interval_minutes)
+
+        return self.next_run
+
+    def is_ready_to_run(self) -> bool:
+        """Check if job is ready to run based on status and timing."""
+        if not self.active:
+            return False
+        if self.status == 'RUNNING':
+            return False
+        if self.next_run is None:
+            return True  # Never run before, ready to start
+
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
+        return now >= self.next_run
 
     def set_paused(self):
         """Mark job as paused."""

@@ -237,6 +237,81 @@ async def delete_integration(
         )
 
 
+@router.post("/integrations/{integration_id}/toggle-active")
+async def toggle_integration_active(
+    integration_id: int,
+    request: dict,  # {"active": bool}
+    user: User = Depends(require_authentication)
+):
+    """
+    Toggle integration active/inactive status.
+
+    Business Rule: Inactive integration cannot have active jobs.
+    - Can deactivate integration only if all its jobs are inactive
+    - Can activate integration regardless of job status
+    """
+    try:
+        from sqlalchemy import text
+
+        database = get_database()
+        with database.get_write_session_context() as session:
+            # Get the integration
+            integration = session.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.tenant_id == user.tenant_id
+            ).first()
+
+            if not integration:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Integration not found"
+                )
+
+            new_active_status = request.get("active", True)
+
+            # If deactivating integration, check if it has any active jobs
+            if not new_active_status:
+                active_jobs_query = text("""
+                    SELECT COUNT(*) FROM etl_jobs
+                    WHERE integration_id = :integration_id
+                    AND tenant_id = :tenant_id
+                    AND active = true
+                """)
+                active_jobs_count = session.execute(active_jobs_query, {
+                    'integration_id': integration_id,
+                    'tenant_id': user.tenant_id
+                }).fetchone()[0]
+
+                if active_jobs_count > 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot deactivate integration {integration.provider} - it has {active_jobs_count} active job(s). Deactivate all jobs first."
+                    )
+
+            # Update integration status
+            integration.active = new_active_status
+            integration.last_updated_at = datetime.utcnow()
+            session.commit()
+
+            action = "activated" if new_active_status else "deactivated"
+            logger.info(f"Integration {integration.provider} (ID: {integration_id}) {action}")
+
+            return {
+                "success": True,
+                "message": f"Integration {integration.provider} {action} successfully",
+                "integration_id": integration_id,
+                "active": new_active_status
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to toggle integration status: {str(e)}"
+        )
+
+
 @router.post("/integrations/upload-logo")
 async def upload_integration_logo(
     logo: UploadFile = File(...),

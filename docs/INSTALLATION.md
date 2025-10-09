@@ -26,7 +26,7 @@ Ensure these ports are available:
 - **3001**: Backend service API
 - **4000**: Auth service
 - **5173**: Frontend development server
-- **5174**: ETL frontend
+- **3333**: ETL frontend
 - **8000**: ETL service
 - **5432**: PostgreSQL primary database
 - **5433**: PostgreSQL replica database

@@ -693,7 +693,7 @@ class QueueMonitor:
 ## 🚀 Evolution Plan Implementation Status
 
 ### ✅ Phase 0: Foundation (COMPLETED)
-- **ETL Frontend**: Modern React + TypeScript interface (Port 5174)
+- **ETL Frontend**: Modern React + TypeScript interface (Port 3333)
 - **Backend ETL Module**: FastAPI endpoints at `/app/etl/*`
 - **Basic Job Management**: Job cards, status tracking, manual controls
 

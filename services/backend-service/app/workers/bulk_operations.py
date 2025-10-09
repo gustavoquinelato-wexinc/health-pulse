@@ -175,7 +175,19 @@ class BulkOperations:
             values_list = []
             params = {}
             
-            for idx, (id1, id2) in enumerate(batch):
+            for idx, relationship in enumerate(batch):
+                # Handle both tuple unpacking and defensive access
+                try:
+                    if hasattr(relationship, '__len__') and len(relationship) >= 2:
+                        id1 = relationship[0]
+                        id2 = relationship[1]
+                    else:
+                        logger.warning(f"Skipping malformed relationship (too few elements): {relationship}")
+                        continue
+                except (TypeError, IndexError) as e:
+                    logger.warning(f"Skipping malformed relationship: {relationship} - {e}")
+                    continue
+
                 param_prefix = f"r{i}_{idx}_"
                 values_list.append(f"(:{param_prefix}id1, :{param_prefix}id2)")
                 params[f"{param_prefix}id1"] = id1

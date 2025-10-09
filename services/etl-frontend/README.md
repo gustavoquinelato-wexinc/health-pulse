@@ -51,7 +51,7 @@ npm install
 
 ```bash
 npm run dev
-# Opens on http://localhost:5174
+# Opens on http://localhost:3333
 ```
 
 ### Build
@@ -256,4 +256,4 @@ For questions or issues:
 **Version**: 1.0.0
 **Last Updated**: 2025-10-02
 **Status**: Active Development
-**Port**: 5174 (development)
+**Port**: 3333 (development)
