@@ -350,7 +350,7 @@ class VectorizationWorker(BaseWorker):
 
     def _get_point_id(self, table_name: str, external_id: str, entity: Any) -> str:
         """
-        Generate Qdrant point ID for the entity.
+        Generate Qdrant point ID for the entity (UUID format, same as old ETL).
 
         Args:
             table_name: Name of the table
@@ -358,14 +358,17 @@ class VectorizationWorker(BaseWorker):
             entity: Entity object
 
         Returns:
-            Point ID string
+            Point ID string (UUID)
         """
-        # For work_items_prs_links, use table_name_{internal_id} format
-        if table_name == 'work_items_prs_links':
-            return f"{table_name}_{entity.id}"
+        import uuid
 
-        # For all other tables, use external_id directly
-        return str(external_id)
+        # Create deterministic UUID for point ID (consistent with old ETL)
+        # This ensures same entity always gets same point ID
+        record_id = entity.id
+        unique_string = f"{self.tenant_id}_{table_name}_{record_id}"
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+
+        return point_id
 
     def _generate_embedding(
         self,
@@ -374,7 +377,7 @@ class VectorizationWorker(BaseWorker):
         table_name: str
     ) -> Optional[List[float]]:
         """
-        Generate embedding for entity data using HybridProviderManager.
+        Generate embedding for entity data using HybridProviderManager (async wrapper).
 
         Args:
             session: Database session
@@ -385,45 +388,39 @@ class VectorizationWorker(BaseWorker):
             List of floats representing the embedding vector
         """
         try:
-            # Initialize hybrid provider if not already done
-            if self._hybrid_provider is None:
-                from app.ai.hybrid_provider_manager import HybridProviderManager
-                self._hybrid_provider = HybridProviderManager()
+            # Use asyncio to call the async method
+            import asyncio
 
-            # Get embedding integration for this tenant
-            embedding_integration = session.query(Integration).filter(
-                Integration.tenant_id == self.tenant_id,
-                Integration.provider == 'Embedding',
-                Integration.active == True
-            ).first()
+            # Create text content using the same helper as old ETL
+            from app.api.ai_config_routes import create_text_content_from_entity
+            text_to_embed = create_text_content_from_entity(entity_data, table_name)
 
-            if not embedding_integration:
-                logger.error(f"No active embedding integration found for tenant {self.tenant_id}")
-                return None
-
-            # Prepare text for embedding (concatenate relevant fields)
-            text_parts = []
-            for key, value in entity_data.items():
-                if value and isinstance(value, str) and value.strip():
-                    text_parts.append(f"{key}: {value}")
-
-            text_to_embed = " | ".join(text_parts)
-
-            if not text_to_embed.strip():
+            if not text_to_embed or not text_to_embed.strip():
                 logger.warning(f"No text content to embed for {table_name}")
                 return None
 
-            # Generate embedding using hybrid provider
-            embedding = self._hybrid_provider.generate_embedding(
-                text=text_to_embed,
-                integration_id=embedding_integration.id
+            # Initialize hybrid provider if not already done
+            if self._hybrid_provider is None:
+                from app.ai.hybrid_provider_manager import HybridProviderManager
+                self._hybrid_provider = HybridProviderManager(session)
+                # Initialize providers for this tenant
+                asyncio.run(self._hybrid_provider.initialize_providers(self.tenant_id))
+
+            # Generate embeddings using the same method as old ETL
+            response = asyncio.run(
+                self._hybrid_provider.generate_embeddings(
+                    texts=[text_to_embed],
+                    tenant_id=self.tenant_id
+                )
             )
 
-            if embedding and len(embedding) > 0:
+            if response.success and response.data and len(response.data) > 0:
+                embedding = response.data[0]  # Get first embedding from batch
                 logger.debug(f"Generated embedding of dimension {len(embedding)}")
                 return embedding
             else:
-                logger.error(f"Empty embedding generated for {table_name}")
+                error_msg = response.error if hasattr(response, 'error') else "Unknown error"
+                logger.error(f"Failed to generate embedding: {error_msg}")
                 return None
 
         except Exception as e:
@@ -439,11 +436,11 @@ class VectorizationWorker(BaseWorker):
         metadata: Dict[str, Any]
     ) -> bool:
         """
-        Store embedding in Qdrant collection.
+        Store embedding in Qdrant collection using PulseQdrantClient (same as old ETL).
 
         Args:
             collection_name: Qdrant collection name
-            point_id: Point ID
+            point_id: Point ID (UUID string)
             embedding: Embedding vector
             metadata: Metadata to store with the point
 
@@ -451,49 +448,46 @@ class VectorizationWorker(BaseWorker):
             bool: True if successful
         """
         try:
+            import asyncio
+
             # Initialize Qdrant client if not already done
             if self._qdrant_client is None:
-                from qdrant_client import QdrantClient
-                from app.core.config import AppConfig
+                from app.ai.qdrant_client import PulseQdrantClient
+                self._qdrant_client = PulseQdrantClient()
+                asyncio.run(self._qdrant_client.initialize())
 
-                config = AppConfig()
-                self._qdrant_client = QdrantClient(
-                    url=config.QDRANT_URL,
-                    api_key=config.QDRANT_API_KEY if hasattr(config, 'QDRANT_API_KEY') else None
-                )
-
-            # Ensure collection exists
-            from qdrant_client.models import Distance, VectorParams
-
-            try:
-                self._qdrant_client.get_collection(collection_name)
-            except Exception:
-                # Collection doesn't exist, create it
-                logger.info(f"Creating Qdrant collection: {collection_name}")
-                self._qdrant_client.create_collection(
+            # Ensure collection exists (same as old ETL)
+            asyncio.run(
+                self._qdrant_client.ensure_collection_exists(
                     collection_name=collection_name,
-                    vectors_config=VectorParams(
-                        size=len(embedding),
-                        distance=Distance.COSINE
-                    )
+                    vector_size=len(embedding)
                 )
-
-            # Upsert point
-            from qdrant_client.models import PointStruct
-
-            self._qdrant_client.upsert(
-                collection_name=collection_name,
-                points=[
-                    PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload=metadata
-                    )
-                ]
             )
 
-            logger.debug(f"Stored point {point_id} in collection {collection_name}")
-            return True
+            # Prepare vector data (same format as old ETL)
+            vector_data = [{
+                'id': point_id,  # UUID string
+                'vector': embedding,
+                'payload': {
+                    **metadata,
+                    'tenant_id': self.tenant_id
+                }
+            }]
+
+            # Upsert using PulseQdrantClient (same as old ETL)
+            result = asyncio.run(
+                self._qdrant_client.upsert_vectors(
+                    collection_name=collection_name,
+                    vectors=vector_data
+                )
+            )
+
+            if result.success:
+                logger.debug(f"Stored point {point_id} in collection {collection_name}")
+                return True
+            else:
+                logger.error(f"Failed to store in Qdrant: {result.error}")
+                return False
 
         except Exception as e:
             logger.error(f"Error storing in Qdrant: {e}")

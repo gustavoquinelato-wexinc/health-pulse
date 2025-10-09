@@ -982,7 +982,13 @@ async def bulk_vector_operations(
         return {"success": False, "error": str(e)}
 
 
-# Vectorization Queue Endpoints
+# ============================================================================
+# DEPRECATED: Old Vectorization Queue Endpoints (Database-based)
+# ============================================================================
+# These endpoints are DEPRECATED and will be removed in a future release.
+# The new ETL architecture uses RabbitMQ-based vectorization queues instead
+# of database tables. See VectorizationWorker in app/workers/vectorization_worker.py
+# ============================================================================
 
 class VectorizationQueueRequest(BaseModel):
     tenant_id: int
@@ -1006,7 +1012,13 @@ async def process_vectorization_queue(
     background_tasks: BackgroundTasks,
     user: UserData = Depends(require_authentication)
 ):
-    """Process vectorization queue for a tenant (async)"""
+    """
+    DEPRECATED: Process vectorization queue for a tenant (async)
+
+    This endpoint is deprecated. The new ETL architecture uses RabbitMQ-based
+    vectorization queues managed by VectorizationWorker instead of database tables.
+    """
+    logger.warning("DEPRECATED: /ai/vectors/process-queue endpoint called - use RabbitMQ-based vectorization instead")
     try:
         from fastapi import BackgroundTasks
         from app.models.unified_models import VectorizationQueue
@@ -1046,7 +1058,13 @@ async def process_vectorization_queue_internal(
     background_tasks: BackgroundTasks,
     req: Request
 ):
-    """Process vectorization queue for a tenant (async) - Internal service endpoint"""
+    """
+    DEPRECATED: Process vectorization queue for a tenant (async) - Internal service endpoint
+
+    This endpoint is deprecated. The new ETL architecture uses RabbitMQ-based
+    vectorization queues managed by VectorizationWorker instead of database tables.
+    """
+    logger.warning("DEPRECATED: /ai/vectors/process-queue-internal endpoint called - use RabbitMQ-based vectorization instead")
     try:
         # Verify internal authentication
         verify_internal_auth(req)
@@ -1302,7 +1320,13 @@ async def cleanup_qdrant_collections(
 
 
 async def process_tenant_vectorization_queue(tenant_id: int, progress_batch_size: int = 20):
-    """Process ALL pending vectorization items for a tenant with progress updates every N items"""
+    """
+    DEPRECATED: Process ALL pending vectorization items for a tenant with progress updates every N items
+
+    This function is deprecated. The new ETL architecture uses RabbitMQ-based
+    vectorization queues managed by VectorizationWorker instead of database tables.
+    """
+    logger.warning("DEPRECATED: process_tenant_vectorization_queue called - use RabbitMQ-based vectorization instead")
     try:
         from app.models.unified_models import VectorizationQueue
         from datetime import datetime
@@ -1515,7 +1539,13 @@ async def get_internal_ids_for_table(session, table_name: str, external_ids: lis
 
 
 async def process_vectorization_batch(session, batch_items):
-    """Process a batch of vectorization items and return detailed results"""
+    """
+    DEPRECATED: Process a batch of vectorization items and return detailed results
+
+    This function is deprecated. The new ETL architecture uses RabbitMQ-based
+    vectorization queues managed by VectorizationWorker instead of database tables.
+    """
+    logger.warning("DEPRECATED: process_vectorization_batch called - use RabbitMQ-based vectorization instead")
     try:
         from datetime import datetime
 
@@ -1892,7 +1922,13 @@ async def send_vectorization_progress(tenant_id: int, percentage: float, message
 
 
 async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], tenant_id: int, db_session) -> Dict[str, Any]:
-    """Vectorize entities from the queue using existing infrastructure with AI Gateway batching"""
+    """
+    DEPRECATED: Vectorize entities from the queue using existing infrastructure with AI Gateway batching
+
+    This function is deprecated. The new ETL architecture uses RabbitMQ-based
+    vectorization queues managed by VectorizationWorker instead of database tables.
+    """
+    logger.warning("DEPRECATED: bulk_vectorize_entities_from_queue called - use RabbitMQ-based vectorization instead")
     try:
         logger.info(f"[BULK_VECTORIZE] ===== STARTING BULK VECTORIZATION =====")
         logger.info(f"[BULK_VECTORIZE] Processing {len(entities)} entities for tenant {tenant_id}")
@@ -2144,7 +2180,12 @@ async def bulk_vectorize_entities_from_queue(entities: List[Dict[str, Any]], ten
 
 
 def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str) -> str:
-    """Create text content for vectorization based on entity type"""
+    """
+    Create text content for vectorization based on entity type.
+
+    This function is STILL USED by the new RabbitMQ-based VectorizationWorker.
+    It prepares entity data into text format for embedding generation.
+    """
     try:
         # Handle None entity_data
         if entity_data is None:
