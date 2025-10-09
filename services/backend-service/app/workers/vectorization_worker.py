@@ -64,11 +64,11 @@ class VectorizationWorker(BaseWorker):
         queue_name = f"vectorization_queue_tenant_{tenant_id}"
         super().__init__(queue_name)
         self.tenant_id = tenant_id
-        
-        # Will be initialized on first use
-        self._hybrid_provider = None
-        self._qdrant_client = None
-        
+
+        # Note: We don't cache HybridProviderManager or QdrantClient
+        # Each message processing creates fresh instances with their own sessions
+        # This ensures proper session management and avoids stale session issues
+
         logger.info(f"VectorizationWorker initialized for tenant {tenant_id}")
     
     def process_message(self, message: Dict[str, Any]) -> bool:
@@ -98,8 +98,11 @@ class VectorizationWorker(BaseWorker):
                 return False
             
             logger.info(f"Processing vectorization: {table_name} - {external_id}")
-            
-            # Fetch entity from database
+
+            # Step 1: Fetch entity from database (separate session)
+            entity_data = None
+            record_id = None
+
             with self.get_db_session() as session:
                 entity = self._fetch_entity(session, table_name, external_id, tenant_id)
 
@@ -107,48 +110,50 @@ class VectorizationWorker(BaseWorker):
                     # This can happen if entity was queued before commit or if entity was deleted
                     logger.debug(f"Entity not found (may have been queued before commit): {table_name} - {external_id}")
                     return False
-                
+
                 # Prepare entity data for vectorization
                 entity_data = self._prepare_entity_data(entity, table_name)
-                
+                record_id = entity.id
+
                 if not entity_data:
                     logger.warning(f"No data to vectorize for {table_name} - {external_id}")
                     return False
-                
-                # Generate embedding
-                embedding = self._generate_embedding(session, entity_data, table_name)
-                
-                if not embedding:
-                    logger.error(f"Failed to generate embedding for {table_name} - {external_id}")
-                    return False
-                
-                # Store in Qdrant
-                point_id = self._get_point_id(table_name, external_id, entity)
-                collection_name = f"client_{tenant_id}_{table_name}"
-                
-                success = self._store_in_qdrant(
-                    collection_name=collection_name,
-                    point_id=point_id,
-                    embedding=embedding,
-                    metadata=entity_data
-                )
-                
-                if not success:
-                    logger.error(f"Failed to store in Qdrant: {table_name} - {external_id}")
-                    return False
-                
-                # Store bridge record in qdrant_vectors table
+
+            # Step 2: Generate embedding (separate session created inside)
+            embedding = self._generate_embedding(tenant_id, entity_data, table_name)
+
+            if not embedding:
+                logger.error(f"Failed to generate embedding for {table_name} - {external_id}")
+                return False
+
+            # Step 3: Store in Qdrant (separate session created inside)
+            point_id = self._get_point_id(table_name, external_id, record_id)
+            collection_name = f"client_{tenant_id}_{table_name}"
+
+            success = self._store_in_qdrant(
+                collection_name=collection_name,
+                point_id=point_id,
+                embedding=embedding,
+                metadata=entity_data
+            )
+
+            if not success:
+                logger.error(f"Failed to store in Qdrant: {table_name} - {external_id}")
+                return False
+
+            # Step 4: Store bridge record in qdrant_vectors table (separate session)
+            with self.get_db_session() as session:
                 self._store_bridge_record(
                     session=session,
                     tenant_id=tenant_id,
                     table_name=table_name,
-                    record_id=entity.id,
+                    record_id=record_id,
                     qdrant_point_id=point_id,
                     collection_name=collection_name
                 )
-                
-                logger.info(f"✅ Vectorization complete: {table_name} - {external_id}")
-                return True
+
+            logger.info(f"✅ Vectorization complete: {table_name} - {external_id}")
+            return True
                 
         except Exception as e:
             logger.error(f"Error processing vectorization message: {e}")
@@ -350,14 +355,14 @@ class VectorizationWorker(BaseWorker):
             return dt_value
         return str(dt_value)
 
-    def _get_point_id(self, table_name: str, external_id: str, entity: Any) -> str:
+    def _get_point_id(self, table_name: str, external_id: str, record_id: int) -> str:
         """
         Generate Qdrant point ID for the entity (UUID format, same as old ETL).
 
         Args:
             table_name: Name of the table
-            external_id: External ID
-            entity: Entity object
+            external_id: External ID (not used, kept for signature compatibility)
+            record_id: Internal database ID
 
         Returns:
             Point ID string (UUID)
@@ -366,7 +371,6 @@ class VectorizationWorker(BaseWorker):
 
         # Create deterministic UUID for point ID (consistent with old ETL)
         # This ensures same entity always gets same point ID
-        record_id = entity.id
         unique_string = f"{self.tenant_id}_{table_name}_{record_id}"
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
 
@@ -374,15 +378,16 @@ class VectorizationWorker(BaseWorker):
 
     def _generate_embedding(
         self,
-        session: Session,
+        tenant_id: int,
         entity_data: Dict[str, Any],
         table_name: str
     ) -> Optional[List[float]]:
         """
-        Generate embedding for entity data using HybridProviderManager (async wrapper).
+        Generate embedding for entity data using HybridProviderManager.
+        Creates its own database session for querying integration configs.
 
         Args:
-            session: Database session
+            tenant_id: Tenant ID
             entity_data: Prepared entity data
             table_name: Name of the table
 
@@ -392,38 +397,45 @@ class VectorizationWorker(BaseWorker):
         try:
             # Use asyncio to call the async method
             import asyncio
+            from app.ai.hybrid_provider_manager import HybridProviderManager
+            from app.api.ai_config_routes import create_text_content_from_entity
 
             # Create text content using the same helper as old ETL
-            from app.api.ai_config_routes import create_text_content_from_entity
             text_to_embed = create_text_content_from_entity(entity_data, table_name)
 
             if not text_to_embed or not text_to_embed.strip():
                 logger.warning(f"No text content to embed for {table_name}")
                 return None
 
-            # Initialize hybrid provider if not already done
-            if self._hybrid_provider is None:
-                from app.ai.hybrid_provider_manager import HybridProviderManager
-                self._hybrid_provider = HybridProviderManager(session)
-                # Initialize providers for this tenant
-                asyncio.run(self._hybrid_provider.initialize_providers(self.tenant_id))
+            # Create fresh session for HybridProviderManager
+            # This ensures we have a valid session to query Integration table
+            with self.get_db_session() as session:
+                # Create fresh HybridProviderManager with its own session
+                hybrid_provider = HybridProviderManager(session)
 
-            # Generate embeddings using the same method as old ETL
-            response = asyncio.run(
-                self._hybrid_provider.generate_embeddings(
-                    texts=[text_to_embed],
-                    tenant_id=self.tenant_id
+                # Initialize providers for this tenant (queries Integration table)
+                init_success = asyncio.run(hybrid_provider.initialize_providers(tenant_id))
+
+                if not init_success:
+                    logger.error(f"Failed to initialize AI providers for tenant {tenant_id}")
+                    return None
+
+                # Generate embeddings using the same method as old ETL
+                response = asyncio.run(
+                    hybrid_provider.generate_embeddings(
+                        texts=[text_to_embed],
+                        tenant_id=tenant_id
+                    )
                 )
-            )
 
-            if response.success and response.data and len(response.data) > 0:
-                embedding = response.data[0]  # Get first embedding from batch
-                logger.debug(f"Generated embedding of dimension {len(embedding)}")
-                return embedding
-            else:
-                error_msg = response.error if hasattr(response, 'error') else "Unknown error"
-                logger.error(f"Failed to generate embedding: {error_msg}")
-                return None
+                if response.success and response.data and len(response.data) > 0:
+                    embedding = response.data[0]  # Get first embedding from batch
+                    logger.debug(f"Generated embedding of dimension {len(embedding)}")
+                    return embedding
+                else:
+                    error_msg = response.error if hasattr(response, 'error') else "Unknown error"
+                    logger.error(f"Failed to generate embedding: {error_msg}")
+                    return None
 
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
@@ -439,6 +451,7 @@ class VectorizationWorker(BaseWorker):
     ) -> bool:
         """
         Store embedding in Qdrant collection using PulseQdrantClient (same as old ETL).
+        Creates fresh Qdrant client for each operation.
 
         Args:
             collection_name: Qdrant collection name
@@ -451,16 +464,15 @@ class VectorizationWorker(BaseWorker):
         """
         try:
             import asyncio
+            from app.ai.qdrant_client import PulseQdrantClient
 
-            # Initialize Qdrant client if not already done
-            if self._qdrant_client is None:
-                from app.ai.qdrant_client import PulseQdrantClient
-                self._qdrant_client = PulseQdrantClient()
-                asyncio.run(self._qdrant_client.initialize())
+            # Create fresh Qdrant client (no database session needed)
+            qdrant_client = PulseQdrantClient()
+            asyncio.run(qdrant_client.initialize())
 
             # Ensure collection exists (same as old ETL)
             asyncio.run(
-                self._qdrant_client.ensure_collection_exists(
+                qdrant_client.ensure_collection_exists(
                     collection_name=collection_name,
                     vector_size=len(embedding)
                 )
@@ -478,7 +490,7 @@ class VectorizationWorker(BaseWorker):
 
             # Upsert using PulseQdrantClient (same as old ETL)
             result = asyncio.run(
-                self._qdrant_client.upsert_vectors(
+                qdrant_client.upsert_vectors(
                     collection_name=collection_name,
                     vectors=vector_data
                 )
