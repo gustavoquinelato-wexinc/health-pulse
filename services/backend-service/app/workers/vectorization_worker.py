@@ -254,7 +254,8 @@ class VectorizationWorker(BaseWorker):
             
             elif table_name == "statuses":
                 return {
-                    "name": entity.name or "",
+                    "external_id": entity.external_id or "",
+                    "original_name": entity.original_name or "",
                     "description": entity.description or "",
                     "category": entity.category or ""
                 }

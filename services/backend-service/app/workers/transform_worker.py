@@ -1454,6 +1454,9 @@ class TransformWorker(BaseWorker):
                 db.execute(insert_query, statuses_to_insert)
                 logger.info(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
 
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_to_insert)
+
             # Bulk update existing statuses
             if statuses_to_update:
                 update_query = text("""
@@ -1465,6 +1468,9 @@ class TransformWorker(BaseWorker):
                 """)
                 db.execute(update_query, statuses_to_update)
                 logger.info(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
+
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_to_update)
 
             return len(statuses_to_insert) + len(statuses_to_update)
 

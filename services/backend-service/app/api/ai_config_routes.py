@@ -2268,6 +2268,45 @@ def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str
             logger.debug(f"[TEXT_CONTENT] Repository content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
             return content
 
+        elif table_name == "statuses":
+            parts = []
+            if entity_data.get("original_name"):
+                parts.append(f"Name: {entity_data['original_name']}")
+            if entity_data.get("category"):
+                parts.append(f"Category: {entity_data['category']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+
+            content = " | ".join(parts)
+            logger.debug(f"[TEXT_CONTENT] Status content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
+
+        elif table_name == "projects":
+            parts = []
+            if entity_data.get("key"):
+                parts.append(f"Key: {entity_data['key']}")
+            if entity_data.get("name"):
+                parts.append(f"Name: {entity_data['name']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get("project_type"):
+                parts.append(f"Type: {entity_data['project_type']}")
+
+            content = " | ".join(parts)
+            logger.debug(f"[TEXT_CONTENT] Project content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
+
+        elif table_name == "wits":
+            parts = []
+            if entity_data.get("name"):
+                parts.append(f"Name: {entity_data['name']}")
+            if entity_data.get("description"):
+                parts.append(f"Description: {entity_data['description']}")
+
+            content = " | ".join(parts)
+            logger.debug(f"[TEXT_CONTENT] WIT content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
+            return content
+
         else:
             # Generic fallback
             content = " | ".join([f"{k}: {v}" for k, v in entity_data.items() if v and k != "external_id"])
