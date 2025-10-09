@@ -42,15 +42,19 @@ class IndividualJobTimer:
             return
 
         self.running = True
+        print(f"🚀 TIMER: Starting individual timer for job '{self.job_name}' (ID: {self.job_id})")  # Force print
         logger.info(f"🚀 Starting individual timer for job '{self.job_name}' (ID: {self.job_id})")
 
         # Calculate initial delay until next run
         next_run_delay = await self._calculate_initial_delay()
         if next_run_delay is not None:
+            print(f"   - TIMER: Next run in {next_run_delay:.1f} minutes")  # Force print
             logger.info(f"   - Next run in {next_run_delay:.1f} minutes")
             # Start the individual timer for this job
             self.timer_task = asyncio.create_task(self._job_timer_loop(next_run_delay))
+            print(f"   - TIMER: Timer task created for job '{self.job_name}'")  # Force print
         else:
+            print(f"   - TIMER: Job '{self.job_name}' is not ready to schedule")  # Force print
             logger.info(f"   - Job '{self.job_name}' is not ready to schedule")
 
     async def stop(self):
@@ -218,9 +222,8 @@ class IndividualJobTimer:
 
             logger.info(f"🚀 Triggered job '{self.job_name}' (ID: {self.job_id}) for tenant {self.tenant_id}")
 
-            # TODO: Implement actual job execution logic here
-            # For now, just simulate job completion after a short delay
-            asyncio.create_task(self._simulate_job_execution())
+            # Execute the actual job based on job type
+            asyncio.create_task(self._execute_actual_job())
 
         except Exception as e:
             logger.error(f"Error triggering job '{self.job_name}': {e}")
@@ -281,6 +284,141 @@ class IndividualJobTimer:
         except Exception as e:
             logger.error(f"Error in simulated job execution for '{self.job_name}': {e}")
 
+    async def _execute_actual_job(self):
+        """Execute the actual job based on job type"""
+        try:
+            logger.info(f"🚀 ETL JOB STARTED: '{self.job_name}' (ID: {self.job_id}) - Beginning execution")
+            logger.info(f"🔧 Starting actual execution for job '{self.job_name}' (ID: {self.job_id})")
+
+            # Get integration information for this job
+            database = get_database()
+            with database.get_session_context() as session:
+                # Get job details and integration info
+                job_query = text("""
+                    SELECT ej.job_name, ej.integration_id, i.provider, i.type
+                    FROM etl_jobs ej
+                    JOIN integrations i ON ej.integration_id = i.id
+                    WHERE ej.id = :job_id AND ej.tenant_id = :tenant_id
+                """)
+
+                job_result = session.execute(job_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id
+                }).fetchone()
+
+                if not job_result:
+                    raise Exception(f"Job {self.job_id} not found or integration missing")
+
+                job_name, integration_id, provider, integration_type = job_result
+                logger.info(f"🔍 Job details: {job_name}, Integration: {integration_id} ({provider}/{integration_type})")
+
+            # Execute job based on type
+            if job_name.lower() == 'jira':
+                logger.info("🚀 Executing Jira extraction job...")
+                from app.etl.jira_extraction import execute_projects_and_issue_types_extraction
+                await execute_projects_and_issue_types_extraction(integration_id, self.tenant_id, self.job_id)
+
+            elif job_name.lower() == 'github':
+                logger.info("🚀 Executing GitHub extraction job...")
+                # TODO: Implement GitHub job execution
+                logger.warning("GitHub job execution not yet implemented - marking as completed")
+                await self._mark_job_completed()
+
+            else:
+                logger.warning(f"Unknown job type: {job_name} - marking as completed")
+                await self._mark_job_completed()
+
+            logger.info(f"✅ Job '{self.job_name}' execution completed")
+            logger.info(f"🏁 ETL JOB FINISHED: '{self.job_name}' (ID: {self.job_id}) - Execution completed successfully")
+
+        except Exception as e:
+            logger.error(f"❌ Error executing job '{self.job_name}': {e}")
+            import traceback
+            logger.error(f"❌ Job execution traceback: {traceback.format_exc()}")
+            logger.error(f"💥 ETL JOB FAILED: '{self.job_name}' (ID: {self.job_id}) - Execution failed with error: {e}")
+
+            # Mark job as failed
+            await self._mark_job_failed(str(e))
+
+    async def _mark_job_completed(self):
+        """Mark job as completed and calculate next run"""
+        try:
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+            now = DateTimeHelper.now_default()
+
+            database = get_database()
+            with database.get_session_context() as session:
+                # Get job's schedule interval to calculate next_run
+                schedule_query = text("""
+                    SELECT schedule_interval_minutes
+                    FROM etl_jobs
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                schedule_result = session.execute(schedule_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id
+                }).fetchone()
+
+                if schedule_result:
+                    schedule_interval_minutes = schedule_result[0]
+                    next_run = now + timedelta(minutes=schedule_interval_minutes)
+                else:
+                    next_run = now + timedelta(minutes=360)  # Default 6 hours
+
+                # Update job status to READY and set next_run
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'READY',
+                        last_run_finished_at = :now,
+                        last_updated_at = :now,
+                        next_run = :next_run,
+                        error_message = NULL,
+                        retry_count = 0
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id,
+                    'now': now,
+                    'next_run': next_run
+                })
+                session.commit()
+
+            logger.info(f"✅ Job '{self.job_name}' marked as completed - next run at {next_run}")
+
+        except Exception as e:
+            logger.error(f"Error marking job as completed: {e}")
+
+    async def _mark_job_failed(self, error_message: str):
+        """Mark job as failed"""
+        try:
+            database = get_database()
+            with database.get_session_context() as session:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'FAILED',
+                        last_updated_at = :now,
+                        error_message = :error_message
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id,
+                    'now': now,
+                    'error_message': error_message[:500]  # Limit error message length
+                })
+                session.commit()
+
+            logger.error(f"❌ Job '{self.job_name}' marked as FAILED: {error_message}")
+        except Exception as db_error:
+            logger.error(f"Error updating job status to FAILED: {db_error}")
+
 
 class JobTimerManager:
     """
@@ -312,13 +450,16 @@ class JobTimerManager:
 
                 results = session.execute(query).fetchall()
 
+                print(f"🚀 JOB SCHEDULER: Found {len(results)} active jobs - starting individual timers")  # Force print
                 logger.info(f"🚀 Found {len(results)} active jobs - starting individual timers")
 
                 for row in results:
                     job_id, job_name, tenant_id = row
+                    print(f"🔍 JOB SCHEDULER: Starting timer for job '{job_name}' (ID: {job_id}, tenant: {tenant_id})")  # Force print
                     logger.info(f"🔍 Starting timer for job '{job_name}' (ID: {job_id}, tenant: {tenant_id})")
                     await self._start_job_timer(job_id, job_name, tenant_id)
 
+                print(f"✅ JOB SCHEDULER: All {len(results)} job timers started successfully")  # Force print
                 logger.info(f"✅ All {len(results)} job timers started successfully")
 
         except Exception as e:
@@ -375,9 +516,11 @@ def get_job_timer_manager() -> JobTimerManager:
 async def start_job_scheduler():
     """Start individual timers for all jobs"""
     try:
+        print("🚀 JOB SCHEDULER: Starting job scheduler...")  # Force print
         logger.info("🚀 Starting job scheduler...")
 
         # Check database connection first with retry logic
+        print("🔍 JOB SCHEDULER: Checking database connection...")  # Force print
         logger.info("🔍 Checking database connection...")
         database = get_database()
 
@@ -413,11 +556,14 @@ async def start_job_scheduler():
             logger.error(f"❌ Error checking etl_jobs table: {table_check_error}")
             raise
 
+        print("🔧 JOB SCHEDULER: Getting job timer manager...")  # Force print
         logger.info("🔧 Getting job timer manager...")
         manager = get_job_timer_manager()
 
+        print("🚀 JOB SCHEDULER: Starting all job timers...")  # Force print
         logger.info("🚀 Starting all job timers...")
         await manager.start_all_job_timers()
+        print("✅ JOB SCHEDULER: Job scheduler started successfully")  # Force print
         logger.info("✅ Job scheduler started successfully")
     except Exception as e:
         logger.error(f"❌ Failed to start job scheduler: {e}")

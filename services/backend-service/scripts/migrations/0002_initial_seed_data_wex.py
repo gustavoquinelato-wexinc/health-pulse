@@ -534,7 +534,7 @@ def apply(connection):
             {
                 "job_name": "Jira",
                 "integration_id": integrations.get('Jira'),
-                "schedule_interval_minutes": 60,  # 1 hour
+                "schedule_interval_minutes": 1,  # 1 hour
                 "status": "READY",
                 "active": True
             },

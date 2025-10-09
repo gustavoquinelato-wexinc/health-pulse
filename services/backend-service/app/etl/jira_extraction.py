@@ -64,14 +64,16 @@ async def execute_projects_and_issue_types_extraction(
 ) -> Dict[str, Any]:
     """
     Execute complete Jira extraction with all phases.
-    
+
     Combined Flow (Phase 2.1 + 2.2):
     1. Projects & Issue Types (40% total)
-    2. Statuses & Project Relationships (40% total)  
+    2. Statuses & Project Relationships (40% total)
     3. Future phases can be added here (remaining 20%)
     """
+    logger.info(f"🚀 ETL JOB STARTED: 'Jira' (ID: {job_id}) - Beginning execution")
+
     progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id)
-    
+
     try:
         # Step 0: Initialize (0% -> 25%)
         await progress_tracker.update_step_progress(
@@ -110,9 +112,10 @@ async def execute_projects_and_issue_types_extraction(
         
         # Update job status to FINISHED
         await reset_job_countdown(tenant_id, job_id, "Complete Jira extraction finished successfully")
-        
+
         logger.info(f"Complete Jira extraction completed for integration {integration_id}")
-        
+        logger.info(f"🏁 ETL JOB FINISHED: 'Jira' (ID: {job_id}) - Execution completed successfully")
+
         return {
             "success": True,
             "projects_count": projects_result['projects_count'],
@@ -123,7 +126,8 @@ async def execute_projects_and_issue_types_extraction(
         
     except Exception as e:
         logger.error(f"Complete Jira extraction failed for integration {integration_id}: {e}")
-        
+        logger.error(f"💥 ETL JOB FAILED: 'Jira' (ID: {job_id}) - Execution failed with error: {e}")
+
         # Update job status to FAILED
         try:
             await progress_tracker.websocket_client.send_progress_update(
@@ -331,16 +335,16 @@ async def _extract_projects_and_issue_types(
         1, 0.0, f"Fetching projects and issue types from {len(PROJECT_KEYS)} WEX projects"
     )
 
-    # Extract projects with issue types
-    projects_data = jira_client.get_createmeta(
+    # Extract projects with issue types using /project/search endpoint (not /createmeta)
+    projects_data = jira_client.get_projects_with_issue_types(
         project_keys=PROJECT_KEYS,
-        expand="projects.issuetypes"
+        expand="issueTypes"
     )
 
-    if not projects_data or 'projects' not in projects_data:
-        raise ValueError("No projects found in Jira createmeta response")
+    if not projects_data or 'values' not in projects_data:
+        raise ValueError("No projects found in Jira project/search response")
 
-    projects_list = projects_data['projects']
+    projects_list = projects_data['values']
 
     # Step 1 progress: Store raw data (0.3 -> 0.6)
     await progress_tracker.update_step_progress(
@@ -348,7 +352,7 @@ async def _extract_projects_and_issue_types(
     )
 
     raw_data_id = await store_raw_extraction_data(
-        integration_id, tenant_id, "jira_projects_and_issue_types", projects_data
+        integration_id, tenant_id, "jira_project_search", projects_data
     )
 
     # Step 1 progress: Process transformation (0.6 -> 1.0)
@@ -356,10 +360,10 @@ async def _extract_projects_and_issue_types(
         1, 0.6, f"Processing projects and issue types data (raw_data_id={raw_data_id})"
     )
 
-    # Process transformation directly
+    # Process transformation directly using project/search data structure
     from app.workers.transform_worker import TransformWorker
     transform_worker = TransformWorker()
-    processed = transform_worker._process_jira_projects_and_issue_types(
+    processed = transform_worker._process_jira_project_search(
         raw_data_id=raw_data_id,
         tenant_id=tenant_id,
         integration_id=integration_id
@@ -368,8 +372,8 @@ async def _extract_projects_and_issue_types(
     if not processed:
         raise ValueError("Failed to process projects transformation")
 
-    # Count results
-    issue_types_count = sum(len(project.get('issuetypes', [])) for project in projects_list)
+    # Count results (project/search uses 'issueTypes' camelCase, not 'issuetypes')
+    issue_types_count = sum(len(project.get('issueTypes', [])) for project in projects_list)
 
     await progress_tracker.complete_step(
         1, f"Phase 2.1 complete: {len(projects_list)} projects, {issue_types_count} issue types"
