@@ -250,6 +250,9 @@ class Integration(Base, BaseEntity):
     raw_extraction_data = relationship("RawExtractionData", back_populates="integration")
     custom_fields = relationship("CustomField", back_populates="integration")
 
+    # Phase 3-1: Vectorization relationships
+    qdrant_vectors = relationship("QdrantVector", back_populates="integration")
+
 class Project(Base, IntegrationBaseEntity):
     """Projects table"""
     __tablename__ = 'projects'
@@ -1230,28 +1233,39 @@ class MLAnomalyAlert(Base, BaseEntity):
 
 # ===== PHASE 3-1: NEW MODELS FOR CLEAN ARCHITECTURE =====
 
-class QdrantVector(Base):
-    """Tracks vector references in Qdrant with client isolation (Phase 3-1)."""
+class QdrantVector(Base, IntegrationBaseEntity):
+    """
+    Bridge table tracking vector references in Qdrant with tenant isolation.
+    Supports multi-agent architecture with source_type filtering.
+    Inherits from IntegrationBaseEntity to track which integration generated the embedding.
+    """
     __tablename__ = 'qdrant_vectors'
     __table_args__ = (
         UniqueConstraint('tenant_id', 'table_name', 'record_id', 'vector_type'),
         {'quote': False}
     )
 
+    # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
-    table_name = Column(String(50), nullable=False, quote=False, name="table_name")
-    record_id = Column(Integer, nullable=False, quote=False, name="record_id")
-    qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")
-    qdrant_point_id = Column(UUID(as_uuid=False), nullable=False, quote=False, name="qdrant_point_id")  # UUID type
-    vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
-    embedding_model = Column(String(100), nullable=False, quote=False, name="embedding_model")
-    embedding_provider = Column(String(50), nullable=False, quote=False, name="embedding_provider")
 
-    last_updated_at = Column(DateTime(timezone=True), default=func.now(), quote=False, name="last_updated_at")
+    # Agent scope and source identification
+    source_type = Column(String(50), nullable=False, quote=False, name="source_type")  # 'JIRA', 'GITHUB'
+    table_name = Column(String(50), nullable=False, quote=False, name="table_name")  # 'work_items', 'prs', etc.
+    record_id = Column(Integer, nullable=False, quote=False, name="record_id")  # Internal DB record ID
+
+    # Qdrant references
+    qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")  # 'client_1_jira_work_items'
+    qdrant_point_id = Column(UUID(as_uuid=False), nullable=False, unique=True, quote=False, name="qdrant_point_id")  # UUID
+
+    # Vector metadata
+    vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
+
+    # IntegrationBaseEntity provides: integration_id, tenant_id, active, created_at, last_updated_at
+    # The integration_id links to the Integration table which has the embedding model and provider info
 
     # Relationships
     tenant = relationship("Tenant", back_populates="qdrant_vectors")
+    integration = relationship("Integration", back_populates="qdrant_vectors")
 
 
 

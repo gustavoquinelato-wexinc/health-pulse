@@ -678,21 +678,45 @@ def apply(connection):
         """)
 
         # 26. Qdrant vectors table - tracks vector references with tenant isolation (Phase 3-1)
+        # Inherits from IntegrationBaseEntity pattern - integration_id links to embedding config
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS qdrant_vectors (
                 id SERIAL PRIMARY KEY,
-                tenant_id INTEGER NOT NULL,
-                table_name VARCHAR(50) NOT NULL,
-                record_id INTEGER NOT NULL,
-                qdrant_collection VARCHAR(100) NOT NULL,
-                qdrant_point_id UUID NOT NULL,
-                vector_type VARCHAR(50) NOT NULL, -- 'content', 'summary', 'metadata'
-                embedding_model VARCHAR(100) NOT NULL, -- Track which model generated this
-                embedding_provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
+
+                -- Agent scope and source identification
+                source_type VARCHAR(50) NOT NULL,           -- 'JIRA', 'GITHUB'
+                table_name VARCHAR(50) NOT NULL,            -- 'work_items', 'prs', etc.
+                record_id INTEGER NOT NULL,                 -- Internal DB record ID
+
+                -- Qdrant references
+                qdrant_collection VARCHAR(100) NOT NULL,    -- 'client_1_jira_work_items'
+                qdrant_point_id UUID NOT NULL,              -- UUID for Qdrant point
+
+                -- Vector metadata
+                vector_type VARCHAR(50) NOT NULL,           -- 'content', 'summary', 'metadata'
+
+                -- IntegrationBaseEntity fields (integration has embedding model/provider info)
+                integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
+                -- Constraints
                 UNIQUE(tenant_id, table_name, record_id, vector_type)
             );
+        """)
+
+        # Indexes for qdrant_vectors table
+        cursor.execute("""
+            -- Index for agent filtering (fast queries by source_type)
+            CREATE INDEX idx_qdrant_vectors_source_type ON qdrant_vectors (tenant_id, source_type);
+
+            -- Unique index for reverse lookups (Qdrant → PostgreSQL)
+            CREATE UNIQUE INDEX idx_qdrant_vectors_point_id ON qdrant_vectors (qdrant_point_id);
+
+            -- Index for active filtering
+            CREATE INDEX idx_qdrant_vectors_active ON qdrant_vectors (tenant_id, active);
         """)
 
         # AI tables removed - tenant_ai_preferences and tenant_ai_configuration not needed yet
