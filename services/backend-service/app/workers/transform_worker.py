@@ -1343,8 +1343,8 @@ class TransformWorker(BaseWorker):
 
                 logger.info(f"Processing {len(statuses_data)} statuses and {len(project_statuses_data)} project relationships")
 
-                # Process statuses and project relationships
-                statuses_processed = self._process_statuses_data(db, statuses_data, integration_id, tenant_id)
+                # Process statuses and project relationships (returns entities for vectorization)
+                statuses_result = self._process_statuses_data(db, statuses_data, integration_id, tenant_id)
                 relationships_processed = self._process_project_status_relationships_data(db, project_statuses_data, integration_id, tenant_id)
 
                 # Update raw data status to completed
@@ -1357,9 +1357,16 @@ class TransformWorker(BaseWorker):
                 """)
                 db.execute(update_query, {'raw_data_id': raw_data_id})
 
-                # Commit all changes
+                # Commit all changes BEFORE queueing for vectorization
                 db.commit()
 
+                # Queue statuses for vectorization AFTER commit
+                if statuses_result['statuses_to_insert']:
+                    self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_result['statuses_to_insert'])
+                if statuses_result['statuses_to_update']:
+                    self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_result['statuses_to_update'])
+
+                statuses_processed = statuses_result['count']
                 logger.info(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
                 return True
 
@@ -1367,8 +1374,13 @@ class TransformWorker(BaseWorker):
             logger.error(f"Error processing statuses and project relationships: {e}")
             return False
 
-    def _process_statuses_data(self, db, statuses_data: List[Dict], integration_id: int, tenant_id: int) -> int:
-        """Process and bulk insert/update statuses."""
+    def _process_statuses_data(self, db, statuses_data: List[Dict], integration_id: int, tenant_id: int) -> Dict[str, Any]:
+        """
+        Process and bulk insert/update statuses.
+
+        Returns:
+            Dict with 'count', 'statuses_to_insert', and 'statuses_to_update'
+        """
         try:
             statuses_to_insert = []
             statuses_to_update = []
@@ -1454,9 +1466,6 @@ class TransformWorker(BaseWorker):
                 db.execute(insert_query, statuses_to_insert)
                 logger.info(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
 
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_to_insert)
-
             # Bulk update existing statuses
             if statuses_to_update:
                 update_query = text("""
@@ -1469,10 +1478,12 @@ class TransformWorker(BaseWorker):
                 db.execute(update_query, statuses_to_update)
                 logger.info(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
 
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_to_update)
-
-            return len(statuses_to_insert) + len(statuses_to_update)
+            # Return entities for vectorization (to be queued AFTER commit)
+            return {
+                'count': len(statuses_to_insert) + len(statuses_to_update),
+                'statuses_to_insert': statuses_to_insert,
+                'statuses_to_update': statuses_to_update
+            }
 
         except Exception as e:
             logger.error(f"Error processing statuses data: {e}")

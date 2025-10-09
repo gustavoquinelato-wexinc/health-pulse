@@ -102,9 +102,10 @@ class VectorizationWorker(BaseWorker):
             # Fetch entity from database
             with self.get_db_session() as session:
                 entity = self._fetch_entity(session, table_name, external_id, tenant_id)
-                
+
                 if not entity:
-                    logger.warning(f"Entity not found: {table_name} - {external_id}")
+                    # This can happen if entity was queued before commit or if entity was deleted
+                    logger.debug(f"Entity not found (may have been queued before commit): {table_name} - {external_id}")
                     return False
                 
                 # Prepare entity data for vectorization

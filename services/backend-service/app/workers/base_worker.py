@@ -105,11 +105,12 @@ class BaseWorker(ABC):
             
             # Process the message
             success = self.process_message(message)
-            
+
             if success:
                 logger.debug(f"Message processed successfully: {message.get('type', 'unknown')}")
             else:
-                logger.warning(f"Message processing failed: {message.get('type', 'unknown')}")
+                # Reduce log noise - entity may have been queued before commit
+                logger.debug(f"Message processing failed (entity may not exist yet): {message.get('type', 'unknown')}")
                 
         except Exception as e:
             logger.error(f"Error processing message in {self.__class__.__name__}: {e}")
