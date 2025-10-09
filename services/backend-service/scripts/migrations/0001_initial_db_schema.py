@@ -592,6 +592,7 @@ def apply(connection):
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
                 checkpoint_data JSONB,
+                next_run TIMESTAMP,
                 integration_id INTEGER,
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,

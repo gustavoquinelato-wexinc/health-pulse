@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import axios from 'axios'
+import { etlApi } from '../services/etlApiService'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
 import JobCard from '../components/JobCard'
@@ -13,6 +14,7 @@ import JobDetailsModal from '../components/JobDetailsModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
+import { etlWebSocketService } from '../services/websocketService'
 
 interface Job {
   id: number
@@ -45,24 +47,51 @@ export default function HomePage() {
   useEffect(() => {
     if (user) {
       fetchJobs()
+      // Initialize WebSocket service when user accesses ETL page
+      etlWebSocketService.initializeService()
       // Refresh every 30 seconds
       const interval = setInterval(fetchJobs, 30000)
       return () => clearInterval(interval)
     }
   }, [user])
 
+  // Listen for job completion events
+  useEffect(() => {
+    const handleJobCompletion = (event: CustomEvent) => {
+      const { jobId, success } = event.detail
+
+
+      // Update the job status in the local state
+      setJobs(prevJobs =>
+        prevJobs.map(job =>
+          job.id === jobId
+            ? {
+                ...job,
+                status: success ? 'FINISHED' : 'FAILED',
+                progress_percentage: null,
+                current_step: null
+              }
+            : job
+        )
+      )
+
+      // Refresh jobs from server to get updated data
+      setTimeout(() => fetchJobs(), 1000)
+    }
+
+    window.addEventListener('etl-job-completed', handleJobCompletion as EventListener)
+
+    return () => {
+      window.removeEventListener('etl-job-completed', handleJobCompletion as EventListener)
+    }
+  }, [])
+
   const fetchJobs = async () => {
     if (!user) return
 
     try {
-      const response = await axios.get(
-        `http://localhost:3001/app/etl/jobs?tenant_id=${user.tenant_id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        }
-      )
+      // Use etlApi service which has authentication headers configured
+      const response = await etlApi.get(`/jobs?tenant_id=${user.tenant_id}`)
       // Sort jobs alphabetically by job_name
       const sortedJobs = response.data.sort((a: Job, b: Job) =>
         a.job_name.localeCompare(b.job_name)
@@ -81,22 +110,23 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      const response = await axios.post(
-        `http://localhost:3001/app/etl/jobs/${jobId}/run-now?tenant_id=${user.tenant_id}`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        }
+      // First, set the job status to RUNNING in the frontend
+      setJobs(prevJobs =>
+        prevJobs.map(job =>
+          job.id === jobId
+            ? { ...job, status: 'RUNNING', progress_percentage: 0, current_step: 'Starting...' }
+            : job
+        )
       )
+
+      // Then call the backend to start the extraction
+      const response = await etlApi.post(`/jobs/${jobId}/run-now?tenant_id=${user.tenant_id}`)
 
       showSuccess(
         'Job Triggered',
         response.data.message || 'Job execution started'
       )
 
-      await fetchJobs()
     } catch (err: any) {
       console.error('Error running job:', err)
       showError(
@@ -112,15 +142,17 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      const response = await axios.post(
-        `http://localhost:3001/app/etl/jobs/${jobId}/toggle-active?tenant_id=${user.tenant_id}`,
-        { active },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        }
+      const response = await etlApi.post(
+        `/jobs/${jobId}/toggle-active?tenant_id=${user.tenant_id}`,
+        { active }
       )
+
+      // Find the job name for WebSocket management
+      const job = jobs.find(j => j.id === jobId)
+      if (job) {
+        // Dynamically manage WebSocket connection based on active status
+        etlWebSocketService.handleJobToggle(job.job_name, active)
+      }
 
       // Show success toast
       showSuccess(
@@ -142,14 +174,9 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      const response = await axios.post(
-        `http://localhost:3001/app/etl/jobs/${jobId}/settings?tenant_id=${user.tenant_id}`,
-        settings,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        }
+      const response = await etlApi.post(
+        `/jobs/${jobId}/settings?tenant_id=${user.tenant_id}`,
+        settings
       )
 
       // Close modal first to prevent flash

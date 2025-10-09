@@ -305,12 +305,12 @@ class JiraDataProcessor:
                     hierarchy_level = wit_mapping.wit_hierarchy.level_number if wit_mapping.wit_hierarchy else 0
                     logger.debug(f"Mapped issuetype '{original_name}' to '{wit_mapping.wit_to}' (hierarchy: {hierarchy_level}) via wit mapping")
                 else:
-                    logger.warning(f"No wit mapping found in database for issuetype '{original_name}' and client {tenant_id}")
+                    logger.debug(f"No wit mapping found in database for issuetype '{original_name}' and client {tenant_id} - will use default processing")
             else:
                 if not original_name:
-                    logger.warning("No issuetype name provided for mapping")
+                    logger.debug("No issuetype name provided for mapping")
                 if not tenant_id:
-                    logger.warning("No tenant_id available for wit mapping")
+                    logger.debug("No tenant_id available for wit mapping")
 
             return {
                 'external_id': issuetype_data.get('id', None),
@@ -364,14 +364,14 @@ class JiraDataProcessor:
                     if status_mapping.workflow:
                         logger.debug(f"Mapped status '{original_name}' to workflow '{status_mapping.workflow.step_name}' via status mapping")
                     else:
-                        logger.warning(f"Status mapping found but no workflow linked for status '{original_name}' and client {tenant_id}")
+                        logger.debug(f"Status mapping found but no workflow linked for status '{original_name}' and client {tenant_id}")
                 else:
-                    logger.warning(f"No status mapping found in database for status '{original_name}' and client {tenant_id}")
+                    logger.debug(f"No status mapping found in database for status '{original_name}' and client {tenant_id} - will use default processing")
             else:
                 if not original_name:
-                    logger.warning("No status name provided for mapping")
+                    logger.debug("No status name provided for mapping")
                 if not tenant_id:
-                    logger.warning("No tenant_id available for status mapping")
+                    logger.debug("No tenant_id available for status mapping")
 
             return {
                 'external_id': status_data.get('id', None),

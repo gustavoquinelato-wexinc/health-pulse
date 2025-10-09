@@ -4,19 +4,17 @@ Provides analytics APIs, authentication, and serves as API gateway for frontend.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse, Response
+from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
-import asyncio
 
 # Backend Service - No scheduler needed
 
 from app.core.config import get_settings
 from app.core.database import get_database
-from app.core.logging_config import get_logger
+from app.core.logging_config import setup_logging, get_logger
 from app.core.utils import DateTimeHelper
 from app.core.middleware import (
     ErrorHandlingMiddleware, SecurityMiddleware, SecurityValidationMiddleware,
@@ -59,6 +57,9 @@ logging.getLogger("sqlalchemy.engine.Engine").disabled = True
 import sqlalchemy
 sqlalchemy.engine.Engine.echo = False  # type: ignore
 
+# Initialize logging configuration
+setup_logging()
+
 logger = get_logger(__name__)
 settings = get_settings()
 
@@ -74,6 +75,14 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         "/logout", "/auth/login", "/auth/validate"
     }
 
+    # Global shutdown flag to suppress auth errors during shutdown
+    _shutting_down = False
+
+    @classmethod
+    def set_shutdown_mode(cls):
+        """Set the middleware to shutdown mode to suppress auth errors."""
+        cls._shutting_down = True
+
     # Routes that should redirect to login if not authenticated
     PROTECTED_WEB_ROUTES = {
         "/dashboard", "/admin"
@@ -88,6 +97,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         method = request.method
 
+        # Skip authentication during shutdown to prevent errors
+        if self._shutting_down:
+            logger.debug(f"Shutdown mode - skipping auth for {path}")
+            return await call_next(request)
+
         # Always allow OPTIONS requests (CORS preflight) to pass through
         if method == "OPTIONS":
             logger.debug(f"OPTIONS request for {path} - allowing through")
@@ -98,9 +112,9 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             logger.debug(f"Public route {path} - skipping auth")
             return await call_next(request)
 
-        # Skip authentication for API routes (they handle their own auth)
-        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/"):
-            logger.debug(f"API/Auth route {path} - skipping middleware auth")
+        # Skip authentication for API routes and WebSocket routes (they handle their own auth)
+        if path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/app/") or path.startswith("/ws/"):
+            logger.debug(f"API/Auth/WebSocket route {path} - skipping middleware auth")
             return await call_next(request)
 
         # For protected web routes and unknown routes, check authentication
@@ -164,7 +178,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
-    logger.info("Starting Backend Service...")
+    logger.info("🚀 Starting Backend Service...")
+
+    # Initialize variables at the top level so they're available in finally block
+    worker_manager = None
 
     try:
         # Initialize database connection
@@ -175,7 +192,6 @@ async def lifespan(_: FastAPI):
             logger.warning("Database connection failed - service will continue with limited functionality")
 
         # Start ETL workers
-        worker_manager = None
         try:
             from app.workers.worker_manager import get_worker_manager
             worker_manager = get_worker_manager()
@@ -198,6 +214,25 @@ async def lifespan(_: FastAPI):
         else:
             logger.info("Session clearing disabled (development mode - DEBUG=True)")
 
+        # Start independent job scheduler for automatic ETL job execution
+        # Wait a moment to ensure database is fully ready
+        import asyncio
+        await asyncio.sleep(2)  # 2 second delay to ensure database is ready
+
+        logger.info("🚀 Attempting to start job scheduler...")
+        try:
+            from app.etl.job_scheduler import start_job_scheduler
+            logger.info("🔍 Job scheduler module imported successfully")
+            await start_job_scheduler()
+            logger.info("✅ Independent job scheduler started successfully")
+        except Exception as e:
+            logger.error(f"❌ CRITICAL: Error starting job scheduler: {e}")
+            logger.error(f"❌ Job scheduler error type: {type(e).__name__}")
+            logger.error(f"❌ Job scheduler error details: {str(e)}")
+            import traceback
+            logger.error(f"❌ Job scheduler traceback: {traceback.format_exc()}")
+            logger.warning("⚠️ Job scheduler not started - jobs will need manual triggering")
+
         logger.info("Backend Service started successfully")
         yield
 
@@ -212,28 +247,51 @@ async def lifespan(_: FastAPI):
             # Use print to avoid reentrant logging issues during shutdown
             print("[INFO] Shutting down Backend Service...")
 
-            # Stop ETL workers
+            # Set authentication middleware to shutdown mode to suppress auth errors
+            AuthenticationMiddleware.set_shutdown_mode()
+            print("[INFO] Authentication middleware set to shutdown mode")
+
+            # Stop ETL workers first to prevent new work from starting
             try:
-                if 'worker_manager' in locals() and worker_manager:
+                if worker_manager:
+                    print("[INFO] Stopping ETL workers...")
                     worker_manager.stop_all_workers()
                     print("[INFO] ETL workers stopped")
-            except (Exception, asyncio.CancelledError):
-                # Silently handle worker cleanup errors
+                else:
+                    print("[INFO] No worker manager to stop")
+            except (Exception, asyncio.CancelledError) as e:
+                print(f"[WARNING] Error stopping workers: {e}")
+
+            # Stop job scheduler
+            try:
+                print("[INFO] Stopping job scheduler...")
+                from app.etl.job_scheduler import stop_job_scheduler
+                await stop_job_scheduler()
+                print("[INFO] Job scheduler stopped")
+            except Exception as e:
+                print(f"[WARNING] Error stopping job scheduler: {e}")
+
+            # Give a moment for any remaining requests to complete
+            try:
+                import asyncio
+                await asyncio.sleep(1)
+                print("[INFO] Waited for pending requests to complete")
+            except Exception:
                 pass
 
             # Close database connections
             try:
+                print("[INFO] Closing database connections...")
                 database = get_database()
                 database.close_connections()
                 print("[INFO] Database connections closed")
-            except (Exception, asyncio.CancelledError):
-                # Silently handle database cleanup errors
-                pass
+            except Exception as e:
+                print(f"[WARNING] Error closing database connections: {e}")
 
             print("[INFO] Backend Service shutdown complete")
-        except (Exception, asyncio.CancelledError):
-            # Silently handle any remaining shutdown errors
-            pass
+        except Exception as e:
+            print(f"[ERROR] Error during shutdown: {e}")
+            # Continue with shutdown even if there are errors
 
 
 # Create FastAPI application
@@ -372,6 +430,10 @@ app.include_router(ai_query_router, prefix="/api/v1", tags=["AI Query Interface"
 # Include ETL routes
 from app.etl.router import router as etl_router
 app.include_router(etl_router, prefix="/app/etl", tags=["ETL Management"])
+
+# Include WebSocket routes
+from app.api.websocket_routes import router as websocket_router
+app.include_router(websocket_router, tags=["WebSocket"])
 
 # Backend Service - API only, no static files or web routes
 
@@ -559,7 +621,23 @@ async def clear_all_user_sessions():
 
 if __name__ == "__main__":
     # Configuration for direct execution - let uvicorn handle signals
+    import signal
+    import sys
+
+    def signal_handler(signum, frame):
+        """Handle shutdown signals gracefully."""
+        print(f"\n[INFO] Received signal {signum}, initiating graceful shutdown...")
+        # Set authentication middleware to shutdown mode
+        AuthenticationMiddleware.set_shutdown_mode()
+        # Let uvicorn handle the actual shutdown
+        sys.exit(0)
+
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     try:
+        print(f"[INFO] Starting Backend Service on {settings.HOST}:{settings.PORT}")
         uvicorn.run(
             "app.main:app",
             host=settings.HOST,
@@ -569,7 +647,7 @@ if __name__ == "__main__":
         )
     except KeyboardInterrupt:
         # This is expected during Ctrl+C - don't log it as an error
-        pass
+        print("[INFO] Shutdown complete")
     except Exception as e:
         print(f"[ERROR] Unexpected error during server execution: {e}")
 

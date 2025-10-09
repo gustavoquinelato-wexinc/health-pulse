@@ -4,6 +4,7 @@ Configures the application, routes, scheduling and initialization.
 """
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request

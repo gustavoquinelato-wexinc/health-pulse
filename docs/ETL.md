@@ -387,6 +387,17 @@ class VectorizationWorker:
 ### Supported Integrations
 
 #### 1. Jira Integration
+
+**🔧 Jira Endpoint Usage:**
+- **Automatic ETL Jobs**: Use `/rest/api/3/project/search` endpoint
+  - Returns `{values: [...]}` with `issueTypes` (camelCase)
+  - Used by job scheduler for regular data extraction
+  - Processed by `_process_jira_project_search()` transform function
+- **Manual Custom Fields Sync**: Use `/rest/api/3/issue/createmeta` endpoint
+  - Returns `{projects: [...]}` with `issuetypes` (lowercase)
+  - Triggered when user clicks "Jira sync" button in UI
+  - Processed by `_process_jira_projects_and_issue_types()` transform function
+
 ```python
 class JiraIntegration:
     def __init__(self, config: dict):
@@ -693,7 +704,7 @@ class QueueMonitor:
 ## 🚀 Evolution Plan Implementation Status
 
 ### ✅ Phase 0: Foundation (COMPLETED)
-- **ETL Frontend**: Modern React + TypeScript interface (Port 5174)
+- **ETL Frontend**: Modern React + TypeScript interface (Port 3333)
 - **Backend ETL Module**: FastAPI endpoints at `/app/etl/*`
 - **Basic Job Management**: Job cards, status tracking, manual controls
 
@@ -704,7 +715,8 @@ class QueueMonitor:
 - **Extract → Transform → Load**: True ETL separation
 
 ### ✅ Phase 2: Jira Enhancement with Simplified Custom Fields (IMPLEMENTED)
-- **Global Custom Fields**: Extract all custom fields globally from Jira createmeta API
+- **Global Custom Fields**: Extract all custom fields globally from Jira `/createmeta` API (manual sync only)
+- **Automatic ETL Jobs**: Use Jira `/project/search` API for regular job execution
 - **Direct FK Mapping**: 20 FK columns in custom_fields_mapping table point directly to custom_fields
 - **Tenant-Level Configuration**: One mapping configuration per tenant/integration
 - **Simplified Processing**: Transform workers use direct FK relationships for mapping
@@ -723,9 +735,10 @@ class QueueMonitor:
 - **Constraint Management**: Unique constraints on (tenant_id, integration_id, external_id)
 
 #### Phase 2.2: Global Custom Fields Extraction ✅
-- **Global Discovery**: Extract all custom fields from Jira createmeta API globally
+- **Manual Sync Only**: Extract all custom fields from Jira `/createmeta` API (user-triggered)
+- **Automatic Jobs**: Use Jira `/project/search` API for regular ETL job execution
 - **Deduplication Logic**: Process each custom field only once across all projects
-- **Raw Data Storage**: Store complete createmeta response for debugging/reprocessing
+- **Raw Data Storage**: Store complete API responses for debugging/reprocessing
 
 #### Phase 2.3: Transform & Load Processing ✅
 - **Transform Workers**: Global custom fields processing with deduplication

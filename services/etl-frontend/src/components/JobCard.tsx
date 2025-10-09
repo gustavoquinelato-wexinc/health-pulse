@@ -11,6 +11,7 @@ import {
   Settings
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
+import { etlWebSocketService, type ProgressUpdate, type StatusUpdate, type CompletionUpdate } from '../services/websocketService'
 
 interface JobCardProps {
   job: {
@@ -39,6 +40,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isToggling, setIsToggling] = useState(false)
   const [countdown, setCountdown] = useState<string>('Calculating...')
 
+  // Real-time progress tracking
+  const [progressPercentage, setProgressPercentage] = useState<number | null>(null)
+  const [currentStep, setCurrentStep] = useState<string | null>(null)
+  const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
+
   // Get status icon and color
   const getStatusInfo = () => {
     if (!job.active) {
@@ -50,7 +56,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       }
     }
 
-    switch (job.status) {
+    switch (realTimeStatus) {
       case 'RUNNING':
         return {
           icon: <Loader className="w-5 h-5 animate-spin" />,
@@ -187,6 +193,74 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active])
 
+  // WebSocket connection for real-time progress tracking - only for active jobs
+  useEffect(() => {
+    // Only establish WebSocket connection for active jobs
+    if (!job.active) {
+
+      return
+    }
+
+
+
+    const cleanup = etlWebSocketService.connectToJob(job.job_name, {
+      onProgress: (data: ProgressUpdate) => {
+
+        setProgressPercentage(data.percentage)
+        setCurrentStep(data.step)
+        // Update status to RUNNING when we receive progress updates
+        if (realTimeStatus !== 'RUNNING') {
+          setRealTimeStatus('RUNNING')
+        }
+      },
+      onStatus: (data: StatusUpdate) => {
+
+        setRealTimeStatus(data.status)
+
+        // Clear progress when job finishes
+        if (data.status !== 'RUNNING') {
+          setProgressPercentage(null)
+          setCurrentStep(null)
+        }
+      },
+      onCompletion: (data: CompletionUpdate) => {
+
+        setRealTimeStatus(data.success ? 'FINISHED' : 'FAILED')
+        setProgressPercentage(null)
+        setCurrentStep(null)
+
+        // Notify parent component to refresh jobs
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('etl-job-completed', {
+            detail: { jobId: job.id, success: data.success }
+          }))
+        }
+      }
+    })
+
+    // Clear progress if job is not running
+    if (realTimeStatus !== 'RUNNING') {
+      setProgressPercentage(null)
+      setCurrentStep(null)
+    }
+
+    return cleanup
+  }, [job.job_name, job.active]) // Include job.active dependency to reconnect when toggled
+
+  // Update real-time status when job status changes
+  useEffect(() => {
+    setRealTimeStatus(job.status)
+  }, [job.status])
+
+  // Clear progress when job becomes inactive
+  useEffect(() => {
+    if (!job.active) {
+      setProgressPercentage(null)
+      setCurrentStep(null)
+      setRealTimeStatus(job.status) // Reset to actual job status
+    }
+  }, [job.active, job.status])
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -276,7 +350,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               onClick={() => onRunNow(job.id)}
               className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
               title="Manually trigger job"
-              disabled={job.status === 'RUNNING'}
+              disabled={realTimeStatus === 'RUNNING'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>
@@ -339,15 +413,33 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       </div>
 
       {/* Progress Bar (if running) */}
-      {job.status === 'RUNNING' && (
+      {realTimeStatus === 'RUNNING' && (
         <div className="mt-4">
+          {/* Progress Bar */}
           <div className="w-full bg-tertiary rounded-full h-2 overflow-hidden">
             <motion.div
               className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
               initial={{ width: '0%' }}
-              animate={{ width: '100%' }}
-              transition={{ duration: 2, repeat: Infinity }}
+              animate={{
+                width: progressPercentage !== null ? `${progressPercentage}%` : '0%'
+              }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
             />
+          </div>
+
+          {/* Progress Info Row */}
+          <div className="flex justify-between items-center mt-1">
+            {/* Current Step Message (left) */}
+            <div className="text-xs text-secondary flex-1">
+              {currentStep || 'Processing...'}
+            </div>
+
+            {/* Progress Percentage (right) */}
+            {progressPercentage !== null && (
+              <div className="text-xs text-secondary ml-2">
+                {Math.round(progressPercentage)}%
+              </div>
+            )}
           </div>
         </div>
       )}

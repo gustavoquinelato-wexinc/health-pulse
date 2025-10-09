@@ -16,6 +16,9 @@ services:
       PGML_DASHBOARD_ENABLED: "false"
       PGML_API_ENABLED: "false"
       DATABASE_ONLY: "true"
+      # Timezone configuration
+      TZ: America/New_York
+      PGTZ: America/New_York
     ports:
       - "5432:5432"
     volumes:
@@ -49,6 +52,9 @@ services:
       POSTGRES_REPLICATION_PASSWORD: replicator_password
       POSTGRES_PRIMARY_HOST: postgres-primary
       POSTGRES_PRIMARY_PORT: 5432
+      # Timezone configuration
+      TZ: America/New_York
+      PGTZ: America/New_York
     ports:
       - "5433:5432"
     volumes:
