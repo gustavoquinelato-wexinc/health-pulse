@@ -20,6 +20,7 @@ from app.models.unified_models import (
 )
 from app.core.logging_config import get_logger
 from app.core.database import get_database
+from app.etl.queue.queue_manager import QueueManager
 
 logger = get_logger(__name__)
 
@@ -479,21 +480,29 @@ class TransformWorker(BaseWorker):
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_insert(session, 'projects', result['projects_to_insert'])
                     logger.info(f"Inserted {len(result['projects_to_insert'])} new projects")
+                    # Queue for vectorization
+                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_insert'])
 
                 if result['projects_to_update']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_update(session, 'projects', result['projects_to_update'])
                     logger.info(f"Updated {len(result['projects_to_update'])} projects")
+                    # Queue for vectorization
+                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_update'])
 
                 if result['wits_to_insert']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_insert(session, 'wits', result['wits_to_insert'])
                     logger.info(f"Inserted {len(result['wits_to_insert'])} new WITs")
+                    # Queue for vectorization
+                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_insert'])
 
                 if result['wits_to_update']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_update(session, 'wits', result['wits_to_update'])
                     logger.info(f"Updated {len(result['wits_to_update'])} WITs")
+                    # Queue for vectorization
+                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_update'])
 
                 # 4. Create project-wit relationships
                 if result['project_wit_relationships']:
@@ -1230,26 +1239,36 @@ class TransformWorker(BaseWorker):
             # 1. Bulk insert projects first
             if projects_to_insert:
                 BulkOperations.bulk_insert(session, 'projects', projects_to_insert)
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'projects', projects_to_insert)
 
             # 2. Bulk update projects
             if projects_to_update:
                 BulkOperations.bulk_update(session, 'projects', projects_to_update)
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'projects', projects_to_update)
 
             # 3. Bulk insert WITs
             if wits_to_insert:
                 BulkOperations.bulk_insert(session, 'wits', wits_to_insert)
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'wits', wits_to_insert)
 
             # 4. Bulk update WITs
             if wits_to_update:
                 BulkOperations.bulk_update(session, 'wits', wits_to_update)
+                # Queue for vectorization
+                self._queue_entities_for_vectorization(tenant_id, 'wits', wits_to_update)
 
             # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
                 BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
+                # Note: Custom fields are not vectorized (they're metadata)
 
             # 6. Bulk update custom fields
             if custom_fields_to_update:
                 BulkOperations.bulk_update(session, 'custom_fields', custom_fields_to_update)
+                # Note: Custom fields are not vectorized (they're metadata)
 
             # 7. Project-WIT relationships are handled separately using _create_project_wit_relationships_for_search
             # This ensures proper error handling and data validation
@@ -1569,5 +1588,73 @@ class TransformWorker(BaseWorker):
         except Exception as e:
             logger.error(f"Error processing project-status relationships data: {e}")
             raise
+
+    def _queue_entities_for_vectorization(
+        self,
+        tenant_id: int,
+        table_name: str,
+        entities: List[Dict[str, Any]]
+    ):
+        """
+        Queue entities for vectorization by publishing messages to vectorization queue.
+
+        Args:
+            tenant_id: Tenant ID
+            table_name: Name of the table (projects, wits, statuses, etc.)
+            entities: List of entity dictionaries with external_id or key
+        """
+        if not entities:
+            return
+
+        try:
+            queue_manager = QueueManager()
+            queued_count = 0
+
+            for entity in entities:
+                # Get external ID based on table type
+                external_id = None
+
+                if table_name == 'projects':
+                    external_id = entity.get('key')
+                elif table_name == 'wits':
+                    external_id = entity.get('external_id')
+                elif table_name == 'statuses':
+                    external_id = entity.get('external_id')
+                elif table_name == 'custom_fields':
+                    external_id = entity.get('external_id')
+                elif table_name == 'work_items':
+                    external_id = entity.get('key')
+                elif table_name == 'changelogs':
+                    external_id = entity.get('external_id')
+                elif table_name in ['prs', 'prs_commits', 'prs_reviews', 'prs_comments', 'repositories']:
+                    external_id = entity.get('external_id')
+                elif table_name == 'work_items_prs_links':
+                    # Special case: use internal ID
+                    external_id = str(entity.get('id'))
+                else:
+                    # Default: try external_id first, then key
+                    external_id = entity.get('external_id') or entity.get('key')
+
+                if not external_id:
+                    logger.warning(f"No external_id found for {table_name} entity: {entity}")
+                    continue
+
+                # Publish vectorization message
+                success = queue_manager.publish_vectorization_job(
+                    tenant_id=tenant_id,
+                    table_name=table_name,
+                    external_id=str(external_id),
+                    operation='insert'
+                )
+
+                if success:
+                    queued_count += 1
+
+            if queued_count > 0:
+                logger.info(f"Queued {queued_count} {table_name} entities for vectorization")
+
+        except Exception as e:
+            logger.error(f"Error queuing entities for vectorization: {e}")
+            # Don't raise - vectorization is async and shouldn't block transform
 
 

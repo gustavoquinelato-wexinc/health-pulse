@@ -1,0 +1,556 @@
+"""
+Vectorization Worker for ETL Pipeline
+
+Consumes messages from tenant-specific vectorization queues, fetches entities from database,
+generates embeddings using HybridProviderManager, and stores vectors in Qdrant.
+
+Replicates the vectorization logic from the old ETL service but uses RabbitMQ messages
+instead of a database queue table.
+"""
+
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from sqlalchemy.orm import Session
+
+from app.workers.base_worker import BaseWorker
+from app.core.logging_config import get_logger
+from app.models.unified_models import (
+    WorkItem, Changelog, Project, Status, Wit,
+    Pr, PrCommit, PrReview, PrComment, Repository,
+    WorkItemPrLink, Integration, QdrantVector
+)
+
+logger = get_logger(__name__)
+
+
+class VectorizationWorker(BaseWorker):
+    """
+    Worker that processes vectorization messages and stores vectors in Qdrant.
+    
+    Message Format:
+    {
+        "tenant_id": 1,
+        "table_name": "work_items",
+        "external_id": "BEN-12345",  # Or internal ID for work_items_prs_links
+        "operation": "insert"
+    }
+    """
+    
+    # Batch size for processing (same as old ETL)
+    PROCESSING_BATCH_SIZE = 5
+    
+    # Table name to model mapping
+    TABLE_MODEL_MAP = {
+        'work_items': WorkItem,
+        'changelogs': Changelog,
+        'projects': Project,
+        'statuses': Status,
+        'wits': Wit,
+        'prs': Pr,
+        'prs_commits': PrCommit,
+        'prs_reviews': PrReview,
+        'prs_comments': PrComment,
+        'repositories': Repository,
+        'work_items_prs_links': WorkItemPrLink
+    }
+    
+    def __init__(self, tenant_id: int):
+        """
+        Initialize vectorization worker for a specific tenant.
+        
+        Args:
+            tenant_id: Tenant ID to process vectorization for
+        """
+        queue_name = f"vectorization_queue_tenant_{tenant_id}"
+        super().__init__(queue_name)
+        self.tenant_id = tenant_id
+        
+        # Will be initialized on first use
+        self._hybrid_provider = None
+        self._qdrant_client = None
+        
+        logger.info(f"VectorizationWorker initialized for tenant {tenant_id}")
+    
+    def process_message(self, message: Dict[str, Any]) -> bool:
+        """
+        Process a single vectorization message.
+        
+        Args:
+            message: Message containing table_name, external_id, tenant_id, operation
+            
+        Returns:
+            bool: True if processing succeeded
+        """
+        try:
+            table_name = message.get('table_name')
+            external_id = message.get('external_id')
+            tenant_id = message.get('tenant_id')
+            operation = message.get('operation', 'insert')
+            
+            # Validate message
+            if not all([table_name, external_id, tenant_id]):
+                logger.error(f"Invalid message format: {message}")
+                return False
+            
+            # Validate table name
+            if table_name not in self.TABLE_MODEL_MAP:
+                logger.error(f"Unknown table name: {table_name}")
+                return False
+            
+            logger.info(f"Processing vectorization: {table_name} - {external_id}")
+            
+            # Fetch entity from database
+            with self.get_db_session() as session:
+                entity = self._fetch_entity(session, table_name, external_id, tenant_id)
+                
+                if not entity:
+                    logger.warning(f"Entity not found: {table_name} - {external_id}")
+                    return False
+                
+                # Prepare entity data for vectorization
+                entity_data = self._prepare_entity_data(entity, table_name)
+                
+                if not entity_data:
+                    logger.warning(f"No data to vectorize for {table_name} - {external_id}")
+                    return False
+                
+                # Generate embedding
+                embedding = self._generate_embedding(session, entity_data, table_name)
+                
+                if not embedding:
+                    logger.error(f"Failed to generate embedding for {table_name} - {external_id}")
+                    return False
+                
+                # Store in Qdrant
+                point_id = self._get_point_id(table_name, external_id, entity)
+                collection_name = f"client_{tenant_id}_{table_name}"
+                
+                success = self._store_in_qdrant(
+                    collection_name=collection_name,
+                    point_id=point_id,
+                    embedding=embedding,
+                    metadata=entity_data
+                )
+                
+                if not success:
+                    logger.error(f"Failed to store in Qdrant: {table_name} - {external_id}")
+                    return False
+                
+                # Store bridge record in qdrant_vectors table
+                self._store_bridge_record(
+                    session=session,
+                    tenant_id=tenant_id,
+                    table_name=table_name,
+                    record_id=entity.id,
+                    qdrant_point_id=point_id,
+                    collection_name=collection_name
+                )
+                
+                logger.info(f"✅ Vectorization complete: {table_name} - {external_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error processing vectorization message: {e}")
+            logger.exception(e)
+            return False
+    
+    def _fetch_entity(
+        self,
+        session: Session,
+        table_name: str,
+        external_id: str,
+        tenant_id: int
+    ) -> Optional[Any]:
+        """
+        Fetch entity from database by external_id.
+        
+        Args:
+            session: Database session
+            table_name: Name of the table
+            external_id: External ID (or internal ID for work_items_prs_links)
+            tenant_id: Tenant ID
+            
+        Returns:
+            Entity object or None
+        """
+        model = self.TABLE_MODEL_MAP[table_name]
+        
+        try:
+            # Special case for work_items: use 'key' field instead of 'external_id'
+            if table_name == 'work_items':
+                entity = session.query(model).filter(
+                    model.key == external_id,
+                    model.tenant_id == tenant_id,
+                    model.active == True
+                ).first()
+            
+            # Special case for work_items_prs_links: use internal ID
+            elif table_name == 'work_items_prs_links':
+                entity = session.query(model).filter(
+                    model.id == int(external_id),
+                    model.tenant_id == tenant_id,
+                    model.active == True
+                ).first()
+            
+            # All other tables: use external_id field
+            else:
+                entity = session.query(model).filter(
+                    model.external_id == external_id,
+                    model.tenant_id == tenant_id,
+                    model.active == True
+                ).first()
+            
+            return entity
+            
+        except Exception as e:
+            logger.error(f"Error fetching entity {table_name} - {external_id}: {e}")
+            return None
+    
+    def _prepare_entity_data(self, entity: Any, table_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Prepare entity data for vectorization (replicate from old ETL).
+        
+        Args:
+            entity: SQLAlchemy entity object
+            table_name: Name of the table
+            
+        Returns:
+            Dictionary with entity data for vectorization
+        """
+        try:
+            if table_name == "work_items":
+                return {
+                    "key": entity.key,
+                    "summary": entity.summary or "",
+                    "description": entity.description or "",
+                    "status_name": entity.status.name if entity.status else "",
+                    "wit_name": entity.wit.name if entity.wit else "",
+                    "priority": entity.priority or "",
+                    "assignee": entity.assignee or "",
+                    "reporter": entity.reporter or "",
+                    "created_date": self._serialize_datetime(entity.created_date),
+                    "updated_date": self._serialize_datetime(entity.updated_date)
+                }
+            
+            elif table_name == "changelogs":
+                return {
+                    "external_id": entity.external_id,
+                    "from_status_name": entity.from_status_name or "",
+                    "to_status_name": entity.to_status_name or "",
+                    "changed_by": entity.changed_by or "",
+                    "transition_change_date": self._serialize_datetime(entity.transition_change_date),
+                    "time_in_status_seconds": entity.time_in_status_seconds or 0,
+                    "work_item_key": entity.work_item.key if entity.work_item else ""
+                }
+            
+            elif table_name == "projects":
+                return {
+                    "key": entity.key,
+                    "name": entity.name or "",
+                    "description": entity.description or "",
+                    "project_type": entity.project_type or "",
+                    "lead": entity.lead or ""
+                }
+            
+            elif table_name == "statuses":
+                return {
+                    "name": entity.name or "",
+                    "description": entity.description or "",
+                    "category": entity.category or ""
+                }
+            
+            elif table_name == "wits":
+                return {
+                    "name": entity.name or "",
+                    "description": entity.description or "",
+                    "icon_url": entity.icon_url or ""
+                }
+            
+            elif table_name == "prs":
+                return {
+                    "title": entity.title or "",
+                    "description": entity.description or "",
+                    "status": entity.status or "",
+                    "author": entity.author or "",
+                    "created_at": self._serialize_datetime(entity.pr_created_at),
+                    "updated_at": self._serialize_datetime(entity.pr_updated_at)
+                }
+            
+            elif table_name == "prs_commits":
+                return {
+                    "sha": entity.sha or "",
+                    "message": entity.message or "",
+                    "author_name": entity.author_name or "",
+                    "author_email": entity.author_email or "",
+                    "authored_date": self._serialize_datetime(entity.authored_date),
+                    "committed_date": self._serialize_datetime(entity.committed_date)
+                }
+            
+            elif table_name == "prs_reviews":
+                return {
+                    "state": entity.state or "",
+                    "body": entity.body or "",
+                    "author_login": entity.author_login or "",
+                    "submitted_at": self._serialize_datetime(entity.submitted_at)
+                }
+            
+            elif table_name == "prs_comments":
+                return {
+                    "body": entity.body or "",
+                    "author_login": entity.author_login or "",
+                    "comment_type": entity.comment_type or "",
+                    "path": entity.path or "",
+                    "line": entity.line,
+                    "created_at": self._serialize_datetime(entity.created_at_github)
+                }
+            
+            elif table_name == "repositories":
+                return {
+                    "name": entity.name or "",
+                    "full_name": entity.full_name or "",
+                    "description": entity.description or "",
+                    "language": entity.language or "",
+                    "topics": entity.topics or "",
+                    "created_at": self._serialize_datetime(entity.created_at),
+                    "updated_at": self._serialize_datetime(entity.updated_at)
+                }
+            
+            elif table_name == "work_items_prs_links":
+                # Get work item key from relationship
+                work_item_key = ""
+                if entity.work_item:
+                    work_item_key = entity.work_item.key
+                
+                return {
+                    "work_item_key": work_item_key,
+                    "repo_full_name": entity.repo_full_name or "",
+                    "pull_request_number": entity.pull_request_number,
+                    "branch_name": entity.branch_name or "",
+                    "pr_status": entity.pr_status or "",
+                    "created_at": self._serialize_datetime(entity.created_at)
+                }
+            
+            else:
+                logger.warning(f"No entity data preparation defined for table: {table_name}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error preparing entity data for {table_name}: {e}")
+            return None
+
+    def _serialize_datetime(self, dt_value: Any) -> str:
+        """Convert datetime objects to ISO format strings."""
+        if dt_value is None:
+            return ""
+        if isinstance(dt_value, datetime):
+            return dt_value.isoformat()
+        if isinstance(dt_value, str):
+            return dt_value
+        return str(dt_value)
+
+    def _get_point_id(self, table_name: str, external_id: str, entity: Any) -> str:
+        """
+        Generate Qdrant point ID for the entity.
+
+        Args:
+            table_name: Name of the table
+            external_id: External ID
+            entity: Entity object
+
+        Returns:
+            Point ID string
+        """
+        # For work_items_prs_links, use table_name_{internal_id} format
+        if table_name == 'work_items_prs_links':
+            return f"{table_name}_{entity.id}"
+
+        # For all other tables, use external_id directly
+        return str(external_id)
+
+    def _generate_embedding(
+        self,
+        session: Session,
+        entity_data: Dict[str, Any],
+        table_name: str
+    ) -> Optional[List[float]]:
+        """
+        Generate embedding for entity data using HybridProviderManager.
+
+        Args:
+            session: Database session
+            entity_data: Prepared entity data
+            table_name: Name of the table
+
+        Returns:
+            List of floats representing the embedding vector
+        """
+        try:
+            # Initialize hybrid provider if not already done
+            if self._hybrid_provider is None:
+                from app.ai.hybrid_provider_manager import HybridProviderManager
+                self._hybrid_provider = HybridProviderManager()
+
+            # Get embedding integration for this tenant
+            embedding_integration = session.query(Integration).filter(
+                Integration.tenant_id == self.tenant_id,
+                Integration.provider == 'Embedding',
+                Integration.active == True
+            ).first()
+
+            if not embedding_integration:
+                logger.error(f"No active embedding integration found for tenant {self.tenant_id}")
+                return None
+
+            # Prepare text for embedding (concatenate relevant fields)
+            text_parts = []
+            for key, value in entity_data.items():
+                if value and isinstance(value, str) and value.strip():
+                    text_parts.append(f"{key}: {value}")
+
+            text_to_embed = " | ".join(text_parts)
+
+            if not text_to_embed.strip():
+                logger.warning(f"No text content to embed for {table_name}")
+                return None
+
+            # Generate embedding using hybrid provider
+            embedding = self._hybrid_provider.generate_embedding(
+                text=text_to_embed,
+                integration_id=embedding_integration.id
+            )
+
+            if embedding and len(embedding) > 0:
+                logger.debug(f"Generated embedding of dimension {len(embedding)}")
+                return embedding
+            else:
+                logger.error(f"Empty embedding generated for {table_name}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error generating embedding: {e}")
+            logger.exception(e)
+            return None
+
+    def _store_in_qdrant(
+        self,
+        collection_name: str,
+        point_id: str,
+        embedding: List[float],
+        metadata: Dict[str, Any]
+    ) -> bool:
+        """
+        Store embedding in Qdrant collection.
+
+        Args:
+            collection_name: Qdrant collection name
+            point_id: Point ID
+            embedding: Embedding vector
+            metadata: Metadata to store with the point
+
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Initialize Qdrant client if not already done
+            if self._qdrant_client is None:
+                from qdrant_client import QdrantClient
+                from app.core.config import AppConfig
+
+                config = AppConfig()
+                self._qdrant_client = QdrantClient(
+                    url=config.QDRANT_URL,
+                    api_key=config.QDRANT_API_KEY if hasattr(config, 'QDRANT_API_KEY') else None
+                )
+
+            # Ensure collection exists
+            from qdrant_client.models import Distance, VectorParams
+
+            try:
+                self._qdrant_client.get_collection(collection_name)
+            except Exception:
+                # Collection doesn't exist, create it
+                logger.info(f"Creating Qdrant collection: {collection_name}")
+                self._qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=len(embedding),
+                        distance=Distance.COSINE
+                    )
+                )
+
+            # Upsert point
+            from qdrant_client.models import PointStruct
+
+            self._qdrant_client.upsert(
+                collection_name=collection_name,
+                points=[
+                    PointStruct(
+                        id=point_id,
+                        vector=embedding,
+                        payload=metadata
+                    )
+                ]
+            )
+
+            logger.debug(f"Stored point {point_id} in collection {collection_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error storing in Qdrant: {e}")
+            logger.exception(e)
+            return False
+
+    def _store_bridge_record(
+        self,
+        session: Session,
+        tenant_id: int,
+        table_name: str,
+        record_id: int,
+        qdrant_point_id: str,
+        collection_name: str
+    ):
+        """
+        Store bridge record in qdrant_vectors table.
+
+        Args:
+            session: Database session
+            tenant_id: Tenant ID
+            table_name: Table name
+            record_id: Internal database record ID
+            qdrant_point_id: Qdrant point ID
+            collection_name: Qdrant collection name
+        """
+        try:
+            from sqlalchemy.dialects.postgresql import insert
+
+            # Use UPSERT to handle duplicates
+            stmt = insert(QdrantVector).values(
+                tenant_id=tenant_id,
+                table_name=table_name,
+                record_id=record_id,
+                qdrant_point_id=qdrant_point_id,
+                collection_name=collection_name,
+                created_at=datetime.utcnow(),
+                last_updated_at=datetime.utcnow()
+            )
+
+            # ON CONFLICT UPDATE last_updated_at
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['tenant_id', 'table_name', 'record_id'],
+                set_={
+                    'qdrant_point_id': qdrant_point_id,
+                    'collection_name': collection_name,
+                    'last_updated_at': datetime.utcnow()
+                }
+            )
+
+            session.execute(stmt)
+            session.commit()
+
+            logger.debug(f"Stored bridge record: {table_name} - {record_id} -> {qdrant_point_id}")
+
+        except Exception as e:
+            logger.error(f"Error storing bridge record: {e}")
+            session.rollback()
+            raise
+

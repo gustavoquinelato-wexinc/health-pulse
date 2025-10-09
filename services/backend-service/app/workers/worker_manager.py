@@ -9,6 +9,7 @@ from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 
 from .transform_worker import TransformWorker
+from .vectorization_worker import VectorizationWorker
 from app.etl.queue.queue_manager import QueueManager
 from app.core.logging_config import get_logger
 
@@ -68,7 +69,7 @@ class WorkerManager:
 
     def start_tenant_workers(self, tenant_id: int) -> bool:
         """
-        Start workers for a specific tenant.
+        Start workers for a specific tenant (both transform and vectorization).
 
         Args:
             tenant_id: Tenant ID to start workers for
@@ -80,32 +81,50 @@ class WorkerManager:
             if tenant_id not in self.tenant_workers:
                 self.tenant_workers[tenant_id] = {}
 
-            # Create tenant-specific transform worker
             queue_manager = QueueManager()
-            tenant_queue = queue_manager.get_tenant_queue_name(tenant_id, 'transform')
 
-            # Ensure tenant queue exists
+            # 1. Start Transform Worker
+            transform_queue = queue_manager.get_tenant_queue_name(tenant_id, 'transform')
             queue_manager.setup_tenant_queue(tenant_id, 'transform')
 
-            # Create worker for this tenant's queue
-            worker = TransformWorker(tenant_queue)
-            worker_key = f"transform_tenant_{tenant_id}"
+            transform_worker = TransformWorker(transform_queue)
+            transform_worker_key = f"transform_tenant_{tenant_id}"
 
-            # Start worker thread
-            thread = threading.Thread(
+            transform_thread = threading.Thread(
                 target=self._run_worker,
-                args=(worker_key, worker),
+                args=(transform_worker_key, transform_worker),
                 daemon=True,
-                name=f"Worker-{worker_key}"
+                name=f"Worker-{transform_worker_key}"
             )
-            thread.start()
+            transform_thread.start()
 
-            # Store references
-            self.workers[worker_key] = worker
-            self.worker_threads[worker_key] = thread
-            self.tenant_workers[tenant_id]['transform'] = worker
+            self.workers[transform_worker_key] = transform_worker
+            self.worker_threads[transform_worker_key] = transform_thread
+            self.tenant_workers[tenant_id]['transform'] = transform_worker
 
-            logger.info(f"Started transform worker for tenant {tenant_id}: {worker_key}")
+            logger.info(f"Started transform worker for tenant {tenant_id}: {transform_worker_key}")
+
+            # 2. Start Vectorization Worker
+            vectorization_queue = queue_manager.get_tenant_queue_name(tenant_id, 'vectorization')
+            queue_manager.setup_tenant_queue(tenant_id, 'vectorization')
+
+            vectorization_worker = VectorizationWorker(tenant_id)
+            vectorization_worker_key = f"vectorization_tenant_{tenant_id}"
+
+            vectorization_thread = threading.Thread(
+                target=self._run_worker,
+                args=(vectorization_worker_key, vectorization_worker),
+                daemon=True,
+                name=f"Worker-{vectorization_worker_key}"
+            )
+            vectorization_thread.start()
+
+            self.workers[vectorization_worker_key] = vectorization_worker
+            self.worker_threads[vectorization_worker_key] = vectorization_thread
+            self.tenant_workers[tenant_id]['vectorization'] = vectorization_worker
+
+            logger.info(f"Started vectorization worker for tenant {tenant_id}: {vectorization_worker_key}")
+
             return True
 
         except Exception as e:
@@ -150,7 +169,7 @@ class WorkerManager:
 
     def stop_tenant_workers(self, tenant_id: int) -> bool:
         """
-        Stop workers for a specific tenant.
+        Stop workers for a specific tenant (both transform and vectorization).
 
         Args:
             tenant_id: Tenant ID to stop workers for
@@ -163,33 +182,37 @@ class WorkerManager:
                 logger.warning(f"No workers found for tenant {tenant_id}")
                 return True
 
-            # Stop tenant-specific workers
-            worker_key = f"transform_tenant_{tenant_id}"
+            # Stop both transform and vectorization workers
+            worker_keys = [
+                f"transform_tenant_{tenant_id}",
+                f"vectorization_tenant_{tenant_id}"
+            ]
 
-            if worker_key in self.workers:
-                # Stop the worker
-                worker = self.workers[worker_key]
-                worker.stop()
+            for worker_key in worker_keys:
+                if worker_key in self.workers:
+                    # Stop the worker
+                    worker = self.workers[worker_key]
+                    worker.stop()
 
-                # Wait for thread to finish
-                if worker_key in self.worker_threads:
-                    thread = self.worker_threads[worker_key]
-                    thread.join(timeout=10)
+                    # Wait for thread to finish
+                    if worker_key in self.worker_threads:
+                        thread = self.worker_threads[worker_key]
+                        thread.join(timeout=10)
 
-                    if thread.is_alive():
-                        logger.warning(f"Worker thread {worker_key} did not stop gracefully")
-                    else:
-                        logger.info(f"Worker thread {worker_key} stopped")
+                        if thread.is_alive():
+                            logger.warning(f"Worker thread {worker_key} did not stop gracefully")
+                        else:
+                            logger.info(f"Worker thread {worker_key} stopped")
 
-                    # Remove references
-                    del self.worker_threads[worker_key]
+                        # Remove references
+                        del self.worker_threads[worker_key]
 
-                del self.workers[worker_key]
+                    del self.workers[worker_key]
 
             # Remove tenant worker references
             del self.tenant_workers[tenant_id]
 
-            logger.info(f"Stopped workers for tenant {tenant_id}")
+            logger.info(f"Stopped all workers for tenant {tenant_id}")
             return True
 
         except Exception as e:
