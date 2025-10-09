@@ -40,11 +40,19 @@ class ETLWebSocketService {
   private reconnectAttempts: Map<string, number> = new Map()
   private maxReconnectAttempts = 5
   private reconnectDelay = 3000
+  private isInitialized = false // Guard against double initialization in React.StrictMode
 
   /**
    * Initialize WebSocket service on app startup - proactive connection establishment
    */
   async initializeService() {
+    // Guard against double initialization (React.StrictMode in dev causes this)
+    if (this.isInitialized) {
+      console.log('⚠️ ETL WebSocket Service: Already initialized, skipping duplicate initialization')
+      return
+    }
+    this.isInitialized = true
+
     // Wait for backend to be available with retry logic
     const backendReady = await this.waitForBackend()
     if (!backendReady) {

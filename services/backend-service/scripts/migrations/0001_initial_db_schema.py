@@ -604,9 +604,9 @@ def apply(connection):
         """)
         print("   ✅ etl_jobs table created")
 
-        # 24. Jira PR links table (complete with all columns) - NO vector column
+        # 24. Work Items PR links table (complete with all columns) - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS wits_prs_links (
+            CREATE TABLE IF NOT EXISTS work_items_prs_links (
                 id SERIAL,
                 work_item_id INTEGER NOT NULL,
                 external_repo_id VARCHAR NOT NULL,
@@ -826,7 +826,7 @@ def apply(connection):
         ensure_primary_key('prs_comments', 'pk_prs_comments')
         ensure_primary_key('system_settings', 'pk_system_settings')
         # etl_jobs primary key already defined inline
-        ensure_primary_key('wits_prs_links', 'pk_wits_prs_links')
+        ensure_primary_key('work_items_prs_links', 'pk_work_items_prs_links')
         # raw_extraction_data primary key already defined inline
         ensure_primary_key('migration_history', 'pk_migration_history')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
@@ -1029,9 +1029,9 @@ def apply(connection):
         add_constraint_if_not_exists('fk_system_settings_tenant_id', 'system_settings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_etl_jobs_tenant_id', 'etl_jobs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_etl_jobs_integration_id', 'etl_jobs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_work_item_id', 'wits_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_tenant_id', 'wits_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_integration_id', 'wits_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_work_item_id', 'work_items_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_tenant_id', 'work_items_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_integration_id', 'work_items_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
         # Color table foreign key
         add_constraint_if_not_exists('fk_tenants_colors_tenant_id', 'tenants_colors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
@@ -1264,10 +1264,10 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_commits_pr_id ON prs_commits(pr_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_comments_pr_id ON prs_comments(pr_id);")
 
-        # Jira PR links indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_work_item_id ON wits_prs_links(work_item_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_pr ON wits_prs_links(external_repo_id, pull_request_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_full_name ON wits_prs_links(repo_full_name);")
+        # Work Items PR links indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_work_item_id ON work_items_prs_links(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_repo_pr ON work_items_prs_links(external_repo_id, pull_request_number);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_repo_full_name ON work_items_prs_links(repo_full_name);")
 
         # System table indexes - Autonomous ETL Architecture
         try:
@@ -1405,7 +1405,7 @@ def rollback(connection):
             'custom_fields',
 
             # Junction and link tables (depend on main tables)
-            'wits_prs_links',
+            'work_items_prs_links',
             'raw_extraction_data',  # Phase 1: Raw data storage
             'etl_jobs',
             'system_settings',

@@ -534,7 +534,7 @@ def apply(connection):
             {
                 "job_name": "Jira",
                 "integration_id": integrations.get('Jira'),
-                "schedule_interval_minutes": 2,  # 1 hour
+                "schedule_interval_minutes": 60,  # 1 hour
                 "status": "READY",
                 "active": True
             },
@@ -1186,7 +1186,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM prs_commits WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
         cursor.execute("DELETE FROM prs_comments WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
         cursor.execute("DELETE FROM changelogs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
-        cursor.execute("DELETE FROM wits_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+        cursor.execute("DELETE FROM work_items_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
         # Second: Remove tables that depend on work_items/repositories
         cursor.execute("DELETE FROM prs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")

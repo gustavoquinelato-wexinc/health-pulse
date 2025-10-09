@@ -152,8 +152,8 @@ async def update_user_theme_mode(
 
             logger.info(f"✅ User {user.email} theme mode updated to: {request.mode}")
 
-            # Notify ETL service of user theme change
-            await notify_etl_user_theme_change(user.id, request.mode)
+            # Note: ETL service notification removed - etl-service is deprecated
+            # Theme changes are now handled by frontend-app and etl-frontend independently
 
             return ThemeModeResponse(
                 success=True,
@@ -556,30 +556,8 @@ async def upload_profile_image(
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def notify_etl_user_theme_change(user_id: int, theme_mode: str):
-    """Notify ETL service of user theme change for cache invalidation"""
-    try:
-        settings = get_settings()
-        etl_service_url = settings.ETL_SERVICE_URL
-
-        if not etl_service_url:
-            logger.warning("ETL_SERVICE_URL not configured, skipping theme change notification")
-            return
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"{etl_service_url}/api/v1/internal/user-theme-changed",
-                json={
-                    "user_id": user_id,
-                    "theme_mode": theme_mode
-                }
-            )
-
-            if response.status_code == 200:
-                logger.info(f"✅ ETL service notified of theme change for user {user_id}")
-            else:
-                logger.warning(f"⚠️ Failed to notify ETL service of theme change: {response.status_code}")
-
-    except Exception as e:
-        logger.error(f"❌ Error notifying ETL service of theme change: {e}")
-        # Don't raise exception - theme change should succeed even if notification fails
+# DEPRECATED: ETL service notification removed - etl-service is deprecated
+# Theme changes are now handled by frontend-app and etl-frontend independently
+# async def notify_etl_user_theme_change(user_id: int, theme_mode: str):
+#     """Notify ETL service of user theme change for cache invalidation"""
+#     pass

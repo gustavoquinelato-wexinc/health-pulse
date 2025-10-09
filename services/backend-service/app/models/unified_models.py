@@ -57,7 +57,7 @@ class Tenant(Base):
     prs_reviews = relationship("PrReview", back_populates="tenant")
     prs_commits = relationship("PrCommit", back_populates="tenant")
     prs_comments = relationship("PrComment", back_populates="tenant")
-    wits_prs_links = relationship("WitPrLinks", back_populates="tenant")
+    work_items_prs_links = relationship("WorkItemPrLink", back_populates="tenant")
     system_settings = relationship("SystemSettings", back_populates="tenant")
     color_settings = relationship("TenantColors", back_populates="tenant")
 
@@ -237,7 +237,7 @@ class Integration(Base, BaseEntity):
     prs_reviews = relationship("PrReview", back_populates="integration")
     prs_commits = relationship("PrCommit", back_populates="integration")
     prs_comments = relationship("PrComment", back_populates="integration")
-    wits_prs_links = relationship("WitPrLinks", back_populates="integration")
+    work_items_prs_links = relationship("WorkItemPrLink", back_populates="integration")
     etl_jobs = relationship("JobSchedule", back_populates="integration")
     statuses_mappings = relationship("StatusMapping", back_populates="integration")
     wits_hierarchies = relationship("WitHierarchy", back_populates="integration")
@@ -561,7 +561,7 @@ class WorkItem(Base, IntegrationBaseEntity):
     # New relationships for development data
     prs = relationship("Pr", back_populates="work_item")
     changelogs = relationship("Changelog", back_populates="work_item")
-    pr_links = relationship("WitPrLinks", back_populates="work_item")
+    pr_links = relationship("WorkItemPrLink", back_populates="work_item")
 
 class Changelog(Base, IntegrationBaseEntity):
     """Work item status change history table"""
@@ -1039,15 +1039,15 @@ class JobSchedule(Base, IntegrationBaseEntity):
         return [repo for repo in queue if not repo.get("finished", False)]
 
 
-class WitPrLinks(Base, IntegrationBaseEntity):
+class WorkItemPrLink(Base, IntegrationBaseEntity):
     """
-    Permanent table storing Jira issue to PR links from dev_status API.
+    Permanent table storing work item (Jira issue) to PR links from dev_status API.
 
-    This table stores the facts about which PRs are linked to which Jira issues,
+    This table stores the facts about which PRs are linked to which work items,
     allowing for clean join-based queries without complex staging logic.
     """
 
-    __tablename__ = 'wits_prs_links'
+    __tablename__ = 'work_items_prs_links'
 
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -1067,8 +1067,8 @@ class WitPrLinks(Base, IntegrationBaseEntity):
 
     # Relationships
     work_item = relationship("WorkItem", back_populates="pr_links")
-    tenant = relationship("Tenant", back_populates="wits_prs_links")
-    integration = relationship("Integration", back_populates="wits_prs_links")
+    tenant = relationship("Tenant", back_populates="work_items_prs_links")
+    integration = relationship("Integration", back_populates="work_items_prs_links")
 
 class MigrationHistory(Base):
     """Migration history tracking table for database migrations."""

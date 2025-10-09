@@ -1165,7 +1165,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM prs_commits WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
         cursor.execute("DELETE FROM prs_comments WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
         cursor.execute("DELETE FROM changelogs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
-        cursor.execute("DELETE FROM wits_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
+        cursor.execute("DELETE FROM work_items_prs_links WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         # Second: Remove tables that depend on work_items/repositories
         cursor.execute("DELETE FROM prs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")

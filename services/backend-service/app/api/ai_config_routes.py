@@ -1484,12 +1484,12 @@ async def get_internal_ids_for_table(session, table_name: str, external_ids: lis
             results = session.query(Wit.id, Wit.external_id).filter(
                 Wit.external_id.in_(external_ids)
             ).all()
-        elif table_name == 'wits_prs_links':
-            # For wits_prs_links, the external_id is actually the internal database ID
+        elif table_name == 'work_items_prs_links':
+            # For work_items_prs_links, the external_id is actually the internal database ID
             # This is the only exception to the external ID rule
-            from app.models.unified_models import WitPrLinks
-            results = session.query(WitPrLinks.id, WitPrLinks.id).filter(
-                WitPrLinks.id.in_([int(eid) for eid in external_ids if eid.isdigit()])
+            from app.models.unified_models import WorkItemPrLink
+            results = session.query(WorkItemPrLink.id, WorkItemPrLink.id).filter(
+                WorkItemPrLink.id.in_([int(eid) for eid in external_ids if eid.isdigit()])
             ).all()
         elif table_name == 'repositories':
             from app.models.unified_models import Repository
