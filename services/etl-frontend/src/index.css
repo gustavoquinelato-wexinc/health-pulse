@@ -238,8 +238,8 @@ tbody tr:hover {
 
   /* Card Components - Enhanced Enterprise Style */
   .card {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background-color: #ffffff;
+    border: 1px solid #d1d5db;
     border-radius: 0.75rem;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -247,6 +247,12 @@ tbody tr:hover {
 
   .card:hover {
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Dark theme - keep white cards for contrast with dark header */
+  [data-theme="dark"] .card {
+    background-color: #ffffff;
+    border: 1px solid #d1d5db;
   }
 
   /* Enhanced Card Variants */
