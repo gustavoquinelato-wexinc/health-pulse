@@ -489,3 +489,16 @@ class HybridProviderManager:
                 'details': 'Configuration test failed',
                 'error': str(e)
             }
+
+    async def cleanup(self):
+        """Cleanup all provider resources to prevent event loop errors"""
+        try:
+            for provider_key, provider in self.providers.items():
+                if hasattr(provider, 'cleanup'):
+                    try:
+                        await provider.cleanup()
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up provider {provider_key}: {e}")
+            logger.debug("HybridProviderManager cleaned up all providers")
+        except Exception as e:
+            logger.warning(f"Error during HybridProviderManager cleanup: {e}")

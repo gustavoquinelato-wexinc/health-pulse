@@ -160,7 +160,7 @@ class VectorizationWorker(BaseWorker):
 
             # Step 3: Store in Qdrant (separate session created inside)
             point_id = self._get_point_id(table_name, external_id, record_id)
-            collection_name = f"client_{tenant_id}_{table_name}"
+            collection_name = f"tenant_{tenant_id}_{table_name}"
 
             success = self._store_in_qdrant(
                 collection_name=collection_name,
@@ -202,27 +202,36 @@ class VectorizationWorker(BaseWorker):
     ) -> Optional[Any]:
         """
         Fetch entity from database by external_id.
-        
+
         Args:
             session: Database session
             table_name: Name of the table
-            external_id: External ID (or internal ID for work_items_prs_links)
+            external_id: External ID (or key for projects/work_items, or internal ID for work_items_prs_links)
             tenant_id: Tenant ID
-            
+
         Returns:
             Entity object or None
         """
         model = self.TABLE_MODEL_MAP[table_name]
-        
+
         try:
-            # Special case for work_items: use 'key' field instead of 'external_id'
-            if table_name == 'work_items':
+            # Special case for projects: use 'key' field instead of 'external_id'
+            # TransformWorker queues projects with 'key' (e.g., "BDP", "BEN")
+            if table_name == 'projects':
                 entity = session.query(model).filter(
                     model.key == external_id,
                     model.tenant_id == tenant_id,
                     model.active == True
                 ).first()
-            
+
+            # Special case for work_items: use 'key' field instead of 'external_id'
+            elif table_name == 'work_items':
+                entity = session.query(model).filter(
+                    model.key == external_id,
+                    model.tenant_id == tenant_id,
+                    model.active == True
+                ).first()
+
             # Special case for work_items_prs_links: use internal ID
             elif table_name == 'work_items_prs_links':
                 entity = session.query(model).filter(
@@ -230,7 +239,7 @@ class VectorizationWorker(BaseWorker):
                     model.tenant_id == tenant_id,
                     model.active == True
                 ).first()
-            
+
             # All other tables: use external_id field
             else:
                 entity = session.query(model).filter(
@@ -238,9 +247,9 @@ class VectorizationWorker(BaseWorker):
                     model.tenant_id == tenant_id,
                     model.active == True
                 ).first()
-            
+
             return entity
-            
+
         except Exception as e:
             logger.error(f"Error fetching entity {table_name} - {external_id}: {e}")
             return None
@@ -284,11 +293,10 @@ class VectorizationWorker(BaseWorker):
             
             elif table_name == "projects":
                 return {
-                    "key": entity.key,
+                    "external_id": entity.external_id or "",
+                    "key": entity.key or "",
                     "name": entity.name or "",
-                    "description": entity.description or "",
-                    "project_type": entity.project_type or "",
-                    "lead": entity.lead or ""
+                    "project_type": entity.project_type or ""
                 }
             
             elif table_name == "statuses":
@@ -301,9 +309,10 @@ class VectorizationWorker(BaseWorker):
             
             elif table_name == "wits":
                 return {
-                    "name": entity.name or "",
+                    "external_id": entity.external_id or "",
+                    "original_name": entity.original_name or "",
                     "description": entity.description or "",
-                    "icon_url": entity.icon_url or ""
+                    "hierarchy_level": entity.hierarchy_level or 0
                 }
             
             elif table_name == "prs":
@@ -446,29 +455,36 @@ class VectorizationWorker(BaseWorker):
                 # Create fresh HybridProviderManager with its own session
                 hybrid_provider = HybridProviderManager(session)
 
-                # Initialize providers for this tenant (queries Integration table)
-                init_success = asyncio.run(hybrid_provider.initialize_providers(tenant_id))
+                # Use a single async context to initialize, generate, and cleanup
+                async def generate_with_cleanup():
+                    try:
+                        # Initialize providers for this tenant (queries Integration table)
+                        init_success = await hybrid_provider.initialize_providers(tenant_id)
 
-                if not init_success:
-                    logger.error(f"Failed to initialize AI providers for tenant {tenant_id}")
-                    return None
+                        if not init_success:
+                            logger.error(f"Failed to initialize AI providers for tenant {tenant_id}")
+                            return None
 
-                # Generate embeddings using the same method as old ETL
-                response = asyncio.run(
-                    hybrid_provider.generate_embeddings(
-                        texts=[text_to_embed],
-                        tenant_id=tenant_id
-                    )
-                )
+                        # Generate embeddings using the same method as old ETL
+                        response = await hybrid_provider.generate_embeddings(
+                            texts=[text_to_embed],
+                            tenant_id=tenant_id
+                        )
 
-                if response.success and response.data and len(response.data) > 0:
-                    embedding = response.data[0]  # Get first embedding from batch
-                    logger.debug(f"Generated embedding of dimension {len(embedding)}")
-                    return embedding
-                else:
-                    error_msg = response.error if hasattr(response, 'error') else "Unknown error"
-                    logger.error(f"Failed to generate embedding: {error_msg}")
-                    return None
+                        if response.success and response.data and len(response.data) > 0:
+                            embedding = response.data[0]  # Get first embedding from batch
+                            logger.debug(f"Generated embedding of dimension {len(embedding)}")
+                            return embedding
+                        else:
+                            error_msg = response.error if hasattr(response, 'error') else "Unknown error"
+                            logger.error(f"Failed to generate embedding: {error_msg}")
+                            return None
+                    finally:
+                        # Cleanup providers before event loop closes
+                        await hybrid_provider.cleanup()
+
+                # Run the async function with proper cleanup
+                return asyncio.run(generate_with_cleanup())
 
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
@@ -499,35 +515,38 @@ class VectorizationWorker(BaseWorker):
             import asyncio
             from app.ai.qdrant_client import PulseQdrantClient
 
-            # Create fresh Qdrant client (no database session needed)
-            qdrant_client = PulseQdrantClient()
-            asyncio.run(qdrant_client.initialize())
+            # Use a single async context for all Qdrant operations
+            async def store_with_cleanup():
+                # Create fresh Qdrant client (no database session needed)
+                qdrant_client = PulseQdrantClient()
+                await qdrant_client.initialize()
 
-            # Ensure collection exists (same as old ETL)
-            asyncio.run(
-                qdrant_client.ensure_collection_exists(
+                # Ensure collection exists (same as old ETL)
+                await qdrant_client.ensure_collection_exists(
                     collection_name=collection_name,
                     vector_size=len(embedding)
                 )
-            )
 
-            # Prepare vector data (same format as old ETL)
-            vector_data = [{
-                'id': point_id,  # UUID string
-                'vector': embedding,
-                'payload': {
-                    **metadata,
-                    'tenant_id': self.tenant_id
-                }
-            }]
+                # Prepare vector data (same format as old ETL)
+                vector_data = [{
+                    'id': point_id,  # UUID string
+                    'vector': embedding,
+                    'payload': {
+                        **metadata,
+                        'tenant_id': self.tenant_id
+                    }
+                }]
 
-            # Upsert using PulseQdrantClient (same as old ETL)
-            result = asyncio.run(
-                qdrant_client.upsert_vectors(
+                # Upsert using PulseQdrantClient (same as old ETL)
+                result = await qdrant_client.upsert_vectors(
                     collection_name=collection_name,
                     vectors=vector_data
                 )
-            )
+
+                return result
+
+            # Run the async function
+            result = asyncio.run(store_with_cleanup())
 
             if result.success:
                 logger.debug(f"Stored point {point_id} in collection {collection_name}")

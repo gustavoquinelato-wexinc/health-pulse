@@ -787,195 +787,199 @@ async def bulk_vector_operations(
             qdrant_client = PulseQdrantClient()
             await qdrant_client.initialize()
 
-            vectors_stored = 0
-            vectors_updated = 0
-            vectors_failed = 0
-            provider_used = None
+            try:
+                vectors_stored = 0
+                vectors_updated = 0
+                vectors_failed = 0
+                provider_used = None
 
-            if operation == "bulk_store":
-                # Bulk store new vectors
-                for entity in entities:
-                    try:
-                        entity_data = entity.get("entity_data", {})
-                        record_id = entity.get("record_id")
-                        table_name = entity.get("table_name")
+                if operation == "bulk_store":
+                    # Bulk store new vectors
+                    for entity in entities:
+                        try:
+                            entity_data = entity.get("entity_data", {})
+                            record_id = entity.get("record_id")
+                            table_name = entity.get("table_name")
 
-                        if not all([entity_data, record_id, table_name]):
-                            logger.warning(f"[ETL_REQUEST] Missing required data for entity: entity_data={bool(entity_data)}, record_id={record_id}, table_name={table_name}")
-                            vectors_failed += 1
-                            continue
+                            if not all([entity_data, record_id, table_name]):
+                                logger.warning(f"[ETL_REQUEST] Missing required data for entity: entity_data={bool(entity_data)}, record_id={record_id}, table_name={table_name}")
+                                vectors_failed += 1
+                                continue
 
-                        # Create text content for embedding
-                        logger.info(f"[ETL_REQUEST] Processing entity record_id={record_id}, table={table_name}")
-                        logger.info(f"[ETL_REQUEST] Entity data keys: {list(entity_data.keys())}")
+                            # Create text content for embedding
+                            logger.info(f"[ETL_REQUEST] Processing entity record_id={record_id}, table={table_name}")
+                            logger.info(f"[ETL_REQUEST] Entity data keys: {list(entity_data.keys())}")
 
-                        text_parts = []
-                        for key, value in entity_data.items():
-                            if value is not None:
-                                text_part = f"{key}: {str(value)}"
-                                text_parts.append(text_part)
-                                logger.info(f"[ETL_REQUEST] Added text part: '{text_part}'")
+                            text_parts = []
+                            for key, value in entity_data.items():
+                                if value is not None:
+                                    text_part = f"{key}: {str(value)}"
+                                    text_parts.append(text_part)
+                                    logger.info(f"[ETL_REQUEST] Added text part: '{text_part}'")
 
-                        text_content = " | ".join(text_parts)
-                        logger.info(f"[ETL_REQUEST] Generated text_content: '{text_content}' (length: {len(text_content)})")
+                            text_content = " | ".join(text_parts)
+                            logger.info(f"[ETL_REQUEST] Generated text_content: '{text_content}' (length: {len(text_content)})")
 
-                        if not text_content.strip():
-                            logger.error(f"[ETL_REQUEST] Empty text content for record_id={record_id}")
-                            vectors_failed += 1
-                            continue
+                            if not text_content.strip():
+                                logger.error(f"[ETL_REQUEST] Empty text content for record_id={record_id}")
+                                vectors_failed += 1
+                                continue
 
-                        # Generate embedding
-                        logger.info(f"[ETL_REQUEST] Generating embedding for record_id={record_id}")
-                        embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
-                        if not embedding_result.success:
-                            logger.error(f"[ETL_REQUEST] Embedding generation failed for record_id={record_id}: {embedding_result.error}")
-                            vectors_failed += 1
-                            continue
+                            # Generate embedding
+                            logger.info(f"[ETL_REQUEST] Generating embedding for record_id={record_id}")
+                            embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
+                            if not embedding_result.success:
+                                logger.error(f"[ETL_REQUEST] Embedding generation failed for record_id={record_id}: {embedding_result.error}")
+                                vectors_failed += 1
+                                continue
 
-                        logger.info(f"[ETL_REQUEST] Embedding generated successfully for record_id={record_id}, provider={embedding_result.provider_used}")
+                            logger.info(f"[ETL_REQUEST] Embedding generated successfully for record_id={record_id}, provider={embedding_result.provider_used}")
 
-                        provider_used = embedding_result.provider_used
-                        embedding = embedding_result.data[0]
+                            provider_used = embedding_result.provider_used
+                            embedding = embedding_result.data[0]
 
-                        # Store in Qdrant
-                        collection_name = f"client_{tenant_id}_{table_name}"
-                        logger.info(f"[ETL_REQUEST] Storing vector in Qdrant collection: {collection_name}")
-                        # Create deterministic UUID for point ID
-                        import uuid
-                        unique_string = f"{tenant_id}_{table_name}_{record_id}"
-                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+                            # Store in Qdrant
+                            collection_name = f"client_{tenant_id}_{table_name}"
+                            logger.info(f"[ETL_REQUEST] Storing vector in Qdrant collection: {collection_name}")
+                            # Create deterministic UUID for point ID
+                            import uuid
+                            unique_string = f"{tenant_id}_{table_name}_{record_id}"
+                            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
 
-                        # Ensure collection exists
-                        await qdrant_client.ensure_collection_exists(collection_name)
+                            # Ensure collection exists
+                            await qdrant_client.ensure_collection_exists(collection_name)
 
-                        # Prepare metadata payload
-                        metadata = {
-                            "tenant_id": tenant_id,
-                            "table_name": table_name,
-                            "record_id": record_id,
-                            **entity_data
-                        }
+                            # Prepare metadata payload
+                            metadata = {
+                                "tenant_id": tenant_id,
+                                "table_name": table_name,
+                                "record_id": record_id,
+                                **entity_data
+                            }
 
-                        # Store vector in Qdrant
-                        store_result = await qdrant_client.upsert_vectors(
-                            collection_name=collection_name,
-                            vectors=[{
-                                "id": point_id,
-                                "vector": embedding,
-                                "payload": metadata
-                            }]
-                        )
-
-                        if store_result.success:
-                            # Create bridge record in PostgreSQL
-                            bridge_record = QdrantVector(
-                                tenant_id=tenant_id,
-                                table_name=table_name,
-                                record_id=record_id,
-                                qdrant_collection=collection_name,
-                                qdrant_point_id=point_id,
-                                vector_type="entity_embedding",
-                                embedding_model=embedding_result.provider_used,
-                                embedding_provider=embedding_result.provider_used
+                            # Store vector in Qdrant
+                            store_result = await qdrant_client.upsert_vectors(
+                                collection_name=collection_name,
+                                vectors=[{
+                                    "id": point_id,
+                                    "vector": embedding,
+                                    "payload": metadata
+                                }]
                             )
-                            db_session.add(bridge_record)
-                            vectors_stored += 1
-                        else:
+
+                            if store_result.success:
+                                # Create bridge record in PostgreSQL
+                                bridge_record = QdrantVector(
+                                    tenant_id=tenant_id,
+                                    table_name=table_name,
+                                    record_id=record_id,
+                                    qdrant_collection=collection_name,
+                                    qdrant_point_id=point_id,
+                                    vector_type="entity_embedding",
+                                    embedding_model=embedding_result.provider_used,
+                                    embedding_provider=embedding_result.provider_used
+                                )
+                                db_session.add(bridge_record)
+                                vectors_stored += 1
+                            else:
+                                vectors_failed += 1
+
+                        except Exception as e:
+                            logger.error(f"Error storing vector for {entity.get('record_id')}: {e}")
                             vectors_failed += 1
 
-                    except Exception as e:
-                        logger.error(f"Error storing vector for {entity.get('record_id')}: {e}")
-                        vectors_failed += 1
+                    # Commit all bridge records
+                    db_session.commit()
 
-                # Commit all bridge records
-                db_session.commit()
+                elif operation == "bulk_update":
+                    # Bulk update existing vectors
+                    for entity in entities:
+                        try:
+                            entity_data = entity.get("entity_data", {})
+                            record_id = entity.get("record_id")
+                            table_name = entity.get("table_name")
 
-            elif operation == "bulk_update":
-                # Bulk update existing vectors
-                for entity in entities:
-                    try:
-                        entity_data = entity.get("entity_data", {})
-                        record_id = entity.get("record_id")
-                        table_name = entity.get("table_name")
+                            if not all([entity_data, record_id, table_name]):
+                                vectors_failed += 1
+                                continue
 
-                        if not all([entity_data, record_id, table_name]):
+                            # Find existing vector record
+                            existing_vector = db_session.query(QdrantVector).filter(
+                                QdrantVector.tenant_id == tenant_id,
+                                QdrantVector.table_name == table_name,
+                                QdrantVector.record_id == record_id
+                            ).first()
+
+                            if not existing_vector:
+                                vectors_failed += 1
+                                continue
+
+                            # Create text content for embedding
+                            text_parts = []
+                            for key, value in entity_data.items():
+                                if value and isinstance(value, str):
+                                    text_parts.append(f"{key}: {value}")
+
+                            text_content = " | ".join(text_parts)
+                            if not text_content.strip():
+                                vectors_failed += 1
+                                continue
+
+                            # Generate new embedding
+                            embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
+                            if not embedding_result.success:
+                                vectors_failed += 1
+                                continue
+
+                            provider_used = embedding_result.provider_used
+                            embedding = embedding_result.data[0]
+
+                            # Prepare metadata payload
+                            metadata = {
+                                "tenant_id": tenant_id,
+                                "table_name": table_name,
+                                "record_id": record_id,
+                                **entity_data
+                            }
+
+                            # Update vector in Qdrant
+                            update_result = await qdrant_client.upsert_vectors(
+                                collection_name=existing_vector.collection_name,
+                                vectors=[{
+                                    "id": existing_vector.point_id,
+                                    "vector": embedding,
+                                    "payload": metadata
+                                }]
+                            )
+
+                            if update_result.success:
+                                # Update bridge record metadata
+                                existing_vector.vector_metadata = entity_data
+                                existing_vector.updated_at = datetime.utcnow()
+                                vectors_updated += 1
+                            else:
+                                vectors_failed += 1
+
+                        except Exception as e:
+                            logger.error(f"Error updating vector for {entity.get('record_id')}: {e}")
                             vectors_failed += 1
-                            continue
 
-                        # Find existing vector record
-                        existing_vector = db_session.query(QdrantVector).filter(
-                            QdrantVector.tenant_id == tenant_id,
-                            QdrantVector.table_name == table_name,
-                            QdrantVector.record_id == record_id
-                        ).first()
+                    # Commit all updates
+                    db_session.commit()
 
-                        if not existing_vector:
-                            vectors_failed += 1
-                            continue
+                result = {
+                    "success": True,
+                    "vectors_stored": vectors_stored,
+                    "vectors_updated": vectors_updated,
+                    "vectors_failed": vectors_failed,
+                    "provider_used": provider_used
+                }
 
-                        # Create text content for embedding
-                        text_parts = []
-                        for key, value in entity_data.items():
-                            if value and isinstance(value, str):
-                                text_parts.append(f"{key}: {value}")
-
-                        text_content = " | ".join(text_parts)
-                        if not text_content.strip():
-                            vectors_failed += 1
-                            continue
-
-                        # Generate new embedding
-                        embedding_result = await hybrid_manager.generate_embeddings([text_content], tenant_id)
-                        if not embedding_result.success:
-                            vectors_failed += 1
-                            continue
-
-                        provider_used = embedding_result.provider_used
-                        embedding = embedding_result.data[0]
-
-                        # Prepare metadata payload
-                        metadata = {
-                            "tenant_id": tenant_id,
-                            "table_name": table_name,
-                            "record_id": record_id,
-                            **entity_data
-                        }
-
-                        # Update vector in Qdrant
-                        update_result = await qdrant_client.upsert_vectors(
-                            collection_name=existing_vector.collection_name,
-                            vectors=[{
-                                "id": existing_vector.point_id,
-                                "vector": embedding,
-                                "payload": metadata
-                            }]
-                        )
-
-                        if update_result.success:
-                            # Update bridge record metadata
-                            existing_vector.vector_metadata = entity_data
-                            existing_vector.updated_at = datetime.utcnow()
-                            vectors_updated += 1
-                        else:
-                            vectors_failed += 1
-
-                    except Exception as e:
-                        logger.error(f"Error updating vector for {entity.get('record_id')}: {e}")
-                        vectors_failed += 1
-
-                # Commit all updates
-                db_session.commit()
-
-        result = {
-            "success": True,
-            "vectors_stored": vectors_stored,
-            "vectors_updated": vectors_updated,
-            "vectors_failed": vectors_failed,
-            "provider_used": provider_used
-        }
-
-        logger.info(f"[ETL_REQUEST] Final result: {result}")
-        return result
+                logger.info(f"[ETL_REQUEST] Final result: {result}")
+                return result
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await hybrid_manager.cleanup()
 
     except Exception as e:
         logger.error(f"Error in bulk vector operations: {e}")
@@ -1097,10 +1101,10 @@ def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str
                 parts.append(f"Key: {entity_data['key']}")
             if entity_data.get("name"):
                 parts.append(f"Name: {entity_data['name']}")
-            if entity_data.get("description"):
-                parts.append(f"Description: {entity_data['description']}")
             if entity_data.get("project_type"):
                 parts.append(f"Type: {entity_data['project_type']}")
+            if entity_data.get("external_id"):
+                parts.append(f"ID: {entity_data['external_id']}")
 
             content = " | ".join(parts)
             logger.debug(f"[TEXT_CONTENT] Project content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")
@@ -1108,10 +1112,17 @@ def create_text_content_from_entity(entity_data: Dict[str, Any], table_name: str
 
         elif table_name == "wits":
             parts = []
-            if entity_data.get("name"):
-                parts.append(f"Name: {entity_data['name']}")
+            # Use original_name (not name) to match Wit model
+            if entity_data.get("original_name"):
+                parts.append(f"Name: {entity_data['original_name']}")
             if entity_data.get("description"):
                 parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get("hierarchy_level") is not None:
+                parts.append(f"Level: {entity_data['hierarchy_level']}")
+
+            # If no description, at least use the name
+            if not parts and entity_data.get("original_name"):
+                parts.append(f"Issue Type: {entity_data['original_name']}")
 
             content = " | ".join(parts)
             logger.debug(f"[TEXT_CONTENT] WIT content for table '{table_name}': '{content[:100]}...' (length: {len(content)})")

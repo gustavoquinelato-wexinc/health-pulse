@@ -664,7 +664,7 @@ async def delete_wit_mapping(
             # Check for dependent WITs
             from app.models.unified_models import Wit
             dependent_wits = session.query(Wit).filter(
-                Wit.wit_mapping_id == mapping_id,
+                Wit.wits_mapping_id == mapping_id,
                 Wit.active == True
             ).count()
 

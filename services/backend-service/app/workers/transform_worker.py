@@ -378,6 +378,7 @@ class TransformWorker(BaseWorker):
                         existing[4] != hierarchy_level or existing[5] != wits_mapping_id):
                         issue_types_to_update.append({
                             'id': existing[1],
+                            'external_id': external_id,  # Include external_id for queueing
                             'original_name': original_name,
                             'description': description,
                             'hierarchy_level': hierarchy_level,
@@ -480,29 +481,21 @@ class TransformWorker(BaseWorker):
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_insert(session, 'projects', result['projects_to_insert'])
                     logger.info(f"Inserted {len(result['projects_to_insert'])} new projects")
-                    # Queue for vectorization
-                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_insert'])
 
                 if result['projects_to_update']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_update(session, 'projects', result['projects_to_update'])
                     logger.info(f"Updated {len(result['projects_to_update'])} projects")
-                    # Queue for vectorization
-                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_update'])
 
                 if result['wits_to_insert']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_insert(session, 'wits', result['wits_to_insert'])
                     logger.info(f"Inserted {len(result['wits_to_insert'])} new WITs")
-                    # Queue for vectorization
-                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_insert'])
 
                 if result['wits_to_update']:
                     bulk_ops = BulkOperations()
                     bulk_ops.bulk_update(session, 'wits', result['wits_to_update'])
                     logger.info(f"Updated {len(result['wits_to_update'])} WITs")
-                    # Queue for vectorization
-                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_update'])
 
                 # 4. Create project-wit relationships
                 if result['project_wit_relationships']:
@@ -517,7 +510,19 @@ class TransformWorker(BaseWorker):
                     'UPDATE raw_extraction_data SET status = :status WHERE id = :raw_data_id'
                 ), {'status': 'completed', 'raw_data_id': raw_data_id})
 
+                # Commit all changes BEFORE queueing for vectorization
                 session.commit()
+
+                # 6. Queue entities for vectorization AFTER commit
+                if result['projects_to_insert']:
+                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_insert'])
+                if result['projects_to_update']:
+                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_update'])
+                if result['wits_to_insert']:
+                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_insert'])
+                if result['wits_to_update']:
+                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_update'])
+
                 logger.info(f"Successfully processed Jira project search data for raw_data_id={raw_data_id}")
                 return True
 
@@ -535,9 +540,14 @@ class TransformWorker(BaseWorker):
         tenant_id: int
     ) -> Dict[str, List]:
         """
-        Process projects data from project/search API endpoint.
+        Process projects data from /project/search API endpoint.
 
-        This handles the 'values' array with 'issueTypes' (camelCase) structure.
+        COMPLETELY SEPARATE from /createmeta processing!
+
+        Key features:
+        - Handles 'values' array with 'issueTypes' (camelCase)
+        - DEDUPLICATES WITs across all projects (same WIT can appear in multiple projects)
+        - Queues projects and WITs for vectorization
         """
         result = {
             'projects_to_insert': [],
@@ -564,40 +574,53 @@ class TransformWorker(BaseWorker):
             ).all()
         }
 
+        # Track unique WITs across all projects to avoid duplicates
+        wits_seen = {}  # external_id -> wit_data
+
         # Process each project
         for project_data in projects_data:
             project_external_id = project_data.get('id')
             project_key = project_data.get('key')
             project_name = project_data.get('name')
+            project_type = project_data.get('projectTypeKey')
 
             if not project_external_id:
                 logger.warning(f"Skipping project without external_id: {project_data}")
                 continue
 
+            logger.info(f"  📁 Processing project {project_key} ({project_name})")
+
             # Process project
             if project_external_id in existing_projects:
                 # Update existing project
                 existing_project = existing_projects[project_external_id]
-                result['projects_to_update'].append({
-                    'id': existing_project.id,
-                    'key': project_key,
-                    'name': project_name,
-                    'last_updated_at': datetime.now(timezone.utc)
-                })
+                if (existing_project.key != project_key or
+                    existing_project.name != project_name or
+                    existing_project.project_type != project_type):
+                    result['projects_to_update'].append({
+                        'id': existing_project.id,
+                        'key': project_key,  # Needed for queueing
+                        'name': project_name,
+                        'project_type': project_type,
+                        'last_updated_at': datetime.now(timezone.utc)
+                    })
+                    logger.info(f"    ✏️  Project {project_key} needs update")
             else:
                 # New project
                 result['projects_to_insert'].append({
                     'external_id': project_external_id,
                     'key': project_key,
                     'name': project_name,
+                    'project_type': project_type,
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
                     'created_at': datetime.now(timezone.utc),
                     'last_updated_at': datetime.now(timezone.utc)
                 })
+                logger.info(f"    ➕ Project {project_key} is new")
 
-            # Process issue types (WITs) - note: issueTypes (camelCase) for project/search API
+            # Process issue types (WITs) - DEDUPLICATE across all projects
             issue_types = project_data.get('issueTypes', [])
             project_wit_external_ids = []
 
@@ -613,34 +636,54 @@ class TransformWorker(BaseWorker):
 
                 project_wit_external_ids.append(wit_external_id)
 
-                if wit_external_id in existing_wits:
-                    # Update existing WIT
-                    existing_wit = existing_wits[wit_external_id]
-                    result['wits_to_update'].append({
-                        'id': existing_wit.id,
-                        'original_name': wit_name,
-                        'description': wit_description,
-                        'hierarchy_level': hierarchy_level,
-                        'last_updated_at': datetime.now(timezone.utc)
-                    })
-                else:
-                    # New WIT
-                    result['wits_to_insert'].append({
-                        'external_id': wit_external_id,
-                        'original_name': wit_name,
-                        'description': wit_description,
-                        'hierarchy_level': hierarchy_level,
-                        'tenant_id': tenant_id,
-                        'integration_id': integration_id,
-                        'active': True,
-                        'created_at': datetime.now(timezone.utc),
-                        'last_updated_at': datetime.now(timezone.utc)
-                    })
+                # Only process each unique WIT once (deduplicate)
+                if wit_external_id not in wits_seen:
+                    # Lookup wits_mapping_id
+                    wits_mapping_id = self._lookup_wit_mapping_id(wit_name, tenant_id)
+
+                    if wit_external_id in existing_wits:
+                        # Check if WIT needs update
+                        existing_wit = existing_wits[wit_external_id]
+                        if (existing_wit.original_name != wit_name or
+                            existing_wit.description != wit_description or
+                            existing_wit.hierarchy_level != hierarchy_level or
+                            existing_wit.wits_mapping_id != wits_mapping_id):
+                            result['wits_to_update'].append({
+                                'id': existing_wit.id,
+                                'external_id': wit_external_id,  # Needed for queueing
+                                'original_name': wit_name,
+                                'description': wit_description,
+                                'hierarchy_level': hierarchy_level,
+                                'wits_mapping_id': wits_mapping_id,
+                                'last_updated_at': datetime.now(timezone.utc)
+                            })
+                            logger.info(f"      ✏️  WIT {wit_name} (id={wit_external_id}) needs update")
+                    else:
+                        # New WIT
+                        result['wits_to_insert'].append({
+                            'external_id': wit_external_id,
+                            'original_name': wit_name,
+                            'description': wit_description,
+                            'hierarchy_level': hierarchy_level,
+                            'wits_mapping_id': wits_mapping_id,
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'active': True,
+                            'created_at': datetime.now(timezone.utc),
+                            'last_updated_at': datetime.now(timezone.utc)
+                        })
+                        logger.info(f"      ➕ WIT {wit_name} (id={wit_external_id}) is new")
+
+                    # Mark as seen
+                    wits_seen[wit_external_id] = True
 
             # Create project-wit relationships
             for wit_external_id in project_wit_external_ids:
                 relationship = (project_external_id, wit_external_id)
                 result['project_wit_relationships'].append(relationship)
+
+        logger.info(f"📊 Summary: {len(result['projects_to_insert'])} projects to insert, {len(result['projects_to_update'])} to update")
+        logger.info(f"📊 Summary: {len(result['wits_to_insert'])} WITs to insert, {len(result['wits_to_update'])} to update (deduplicated from {len(wits_seen)} unique)")
 
         return result
 
@@ -867,9 +910,9 @@ class TransformWorker(BaseWorker):
                         custom_fields_to_update.extend(cf_result.get('custom_fields_to_update', []))
 
                 logger.info(f"Custom fields to insert: {len(custom_fields_to_insert)}, to update: {len(custom_fields_to_update)}")
-                
+
                 # 4. Perform bulk operations (projects and WITs first)
-                self._perform_bulk_operations(
+                bulk_result = self._perform_bulk_operations(
                     session, projects_to_insert, projects_to_update,
                     wits_to_insert, wits_to_update,
                     custom_fields_to_insert, custom_fields_to_update,
@@ -884,12 +927,16 @@ class TransformWorker(BaseWorker):
                     )
                     logger.info(f"Created {relationships_created} project-wit relationships")
 
-
-                
                 # 6. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
-                
+
+                # Commit all changes
                 session.commit()
+
+                # NOTE: /createmeta is for custom fields discovery only
+                # Projects and WITs are NOT queued for vectorization here
+                # Only /project/search should queue for vectorization
+
                 logger.info(f"Successfully processed custom fields for raw_data_id={raw_data_id}")
                 return True
                 
@@ -1124,6 +1171,13 @@ class TransformWorker(BaseWorker):
                 logger.warning(f"🔍 DEBUG: Incomplete WIT data: external_id={wit_external_id}, name={wit_name}")
                 return result
 
+            # Lookup wits_mapping_id from wits_mappings table
+            wits_mapping_id = self._lookup_wit_mapping_id(wit_name, tenant_id)
+            if wits_mapping_id:
+                logger.info(f"🔍 DEBUG: Found wits_mapping_id={wits_mapping_id} for WIT '{wit_name}'")
+            else:
+                logger.info(f"🔍 DEBUG: No wits_mapping found for WIT '{wit_name}' - will be set to NULL")
+
             if wit_external_id in existing_wits:
                 # Check if WIT needs update
                 existing_wit = existing_wits[wit_external_id]
@@ -1131,13 +1185,16 @@ class TransformWorker(BaseWorker):
 
                 if (existing_wit.original_name != wit_name or
                     existing_wit.description != wit_description or
-                    existing_wit.hierarchy_level != hierarchy_level):
+                    existing_wit.hierarchy_level != hierarchy_level or
+                    existing_wit.wits_mapping_id != wits_mapping_id):
                     logger.info(f"🔍 DEBUG: WIT {wit_name} needs update")
                     result['wits_to_update'].append({
                         'id': existing_wit.id,
+                        'external_id': wit_external_id,  # Include for queueing
                         'original_name': wit_name,
                         'description': wit_description,
                         'hierarchy_level': hierarchy_level,
+                        'wits_mapping_id': wits_mapping_id,
                         'last_updated_at': datetime.now(timezone.utc)
                     })
                 else:
@@ -1150,7 +1207,7 @@ class TransformWorker(BaseWorker):
                     'original_name': wit_name,
                     'description': wit_description,
                     'hierarchy_level': hierarchy_level,
-                    'wits_mapping_id': None,  # Will be set by mapping logic later
+                    'wits_mapping_id': wits_mapping_id,
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
@@ -1164,6 +1221,35 @@ class TransformWorker(BaseWorker):
         except Exception as e:
             logger.error(f"Error processing WIT data: {e}")
             return result
+
+    def _lookup_wit_mapping_id(self, wit_name: str, tenant_id: int) -> Optional[int]:
+        """
+        Lookup wits_mapping_id from wits_mappings table based on wit_from (original_name).
+
+        Args:
+            wit_name: Original WIT name from Jira (e.g., "Story", "Bug", "Epic")
+            tenant_id: Tenant ID
+
+        Returns:
+            wits_mapping_id if found, None otherwise
+        """
+        try:
+            with self.get_db_session() as session:
+                from sqlalchemy import func
+                from app.models.unified_models import WitMapping
+
+                # Case-insensitive lookup
+                mapping = session.query(WitMapping).filter(
+                    func.lower(WitMapping.wit_from) == wit_name.lower(),
+                    WitMapping.tenant_id == tenant_id,
+                    WitMapping.active == True
+                ).first()
+
+                return mapping.id if mapping else None
+
+        except Exception as e:
+            logger.warning(f"Error looking up wit mapping for '{wit_name}': {e}")
+            return None
 
     def _process_custom_field_data(
         self,
@@ -1234,44 +1320,55 @@ class TransformWorker(BaseWorker):
         custom_fields_to_update: List[Dict],
         project_wit_relationships: List[tuple]
     ):
-        """Perform bulk database operations."""
+        """
+        Perform bulk database operations.
+
+        NOTE: This method only performs database operations.
+        Vectorization queueing should be done AFTER commit by the caller.
+        """
         try:
             # 1. Bulk insert projects first
             if projects_to_insert:
                 BulkOperations.bulk_insert(session, 'projects', projects_to_insert)
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'projects', projects_to_insert)
+                logger.info(f"Inserted {len(projects_to_insert)} projects")
 
             # 2. Bulk update projects
             if projects_to_update:
                 BulkOperations.bulk_update(session, 'projects', projects_to_update)
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'projects', projects_to_update)
+                logger.info(f"Updated {len(projects_to_update)} projects")
 
             # 3. Bulk insert WITs
             if wits_to_insert:
                 BulkOperations.bulk_insert(session, 'wits', wits_to_insert)
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'wits', wits_to_insert)
+                logger.info(f"Inserted {len(wits_to_insert)} WITs")
 
             # 4. Bulk update WITs
             if wits_to_update:
                 BulkOperations.bulk_update(session, 'wits', wits_to_update)
-                # Queue for vectorization
-                self._queue_entities_for_vectorization(tenant_id, 'wits', wits_to_update)
+                logger.info(f"Updated {len(wits_to_update)} WITs")
 
             # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
                 BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
+                logger.info(f"Inserted {len(custom_fields_to_insert)} custom fields")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 6. Bulk update custom fields
             if custom_fields_to_update:
                 BulkOperations.bulk_update(session, 'custom_fields', custom_fields_to_update)
+                logger.info(f"Updated {len(custom_fields_to_update)} custom fields")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 7. Project-WIT relationships are handled separately using _create_project_wit_relationships_for_search
             # This ensures proper error handling and data validation
+
+            # Return the entities that need vectorization (caller will queue after commit)
+            return {
+                'projects_to_insert': projects_to_insert,
+                'projects_to_update': projects_to_update,
+                'wits_to_insert': wits_to_insert,
+                'wits_to_update': wits_to_update
+            }
 
         except Exception as e:
             logger.error(f"Error in bulk operations: {e}")
@@ -1621,9 +1718,11 @@ class TransformWorker(BaseWorker):
             entities: List of entity dictionaries with external_id or key
         """
         if not entities:
+            logger.debug(f"No entities to queue for {table_name}")
             return
 
         try:
+            logger.info(f"Attempting to queue {len(entities)} {table_name} entities for vectorization")
             queue_manager = QueueManager()
             queued_count = 0
 
@@ -1633,6 +1732,7 @@ class TransformWorker(BaseWorker):
 
                 if table_name == 'projects':
                     external_id = entity.get('key')
+                    logger.debug(f"Project entity keys: {list(entity.keys())}, key value: {external_id}")
                 elif table_name == 'wits':
                     external_id = entity.get('external_id')
                 elif table_name == 'statuses':

@@ -198,3 +198,12 @@ class WEXGatewayProvider:
             "total_cost": self.total_cost,
             "status": "active"
         }
+
+    async def cleanup(self):
+        """Cleanup async resources to prevent event loop errors"""
+        try:
+            if self.client:
+                await self.client.close()
+                logger.debug("WEX Gateway provider cleaned up")
+        except Exception as e:
+            logger.warning(f"Error during WEX Gateway cleanup: {e}")

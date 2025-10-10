@@ -469,11 +469,11 @@ async def run_job_now(
         auth_type = auth_info.get("auth_type", "unknown")
         user = auth_info.get("user")
         if auth_type == "user" and user:
-            logger.info(f"Job {job_id} manually triggered by user: {user.email}")
+            logger.info(f"🔵 MANUAL TRIGGER: Job {job_id} manually triggered by user: {user.email}")
         elif auth_type == "service":
-            logger.info(f"Job {job_id} automatically triggered by job scheduler")
+            logger.info(f"🟢 AUTO TRIGGER: Job {job_id} automatically triggered by job scheduler")
         else:
-            logger.warning(f"Job {job_id} triggered with unknown auth type: {auth_type}")
+            logger.warning(f"⚠️ UNKNOWN TRIGGER: Job {job_id} triggered with unknown auth type: {auth_type}")
         from sqlalchemy import text
 
         # Get current job and integration details
@@ -491,6 +491,8 @@ async def run_job_now(
 
         job_name, current_status, active, integration_id, provider, integration_active = result
 
+        logger.info(f"📊 JOB STATUS CHECK: Job '{job_name}' current status = {current_status}")
+
         if not active:
             raise HTTPException(status_code=400, detail=f"Cannot run inactive job {job_name}")
 
@@ -498,9 +500,11 @@ async def run_job_now(
             raise HTTPException(status_code=400, detail=f"Cannot run job {job_name} - integration {provider} is inactive")
 
         if current_status == 'RUNNING':
+            logger.warning(f"⚠️ ALREADY RUNNING: Job '{job_name}' is already RUNNING - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
 
         # Set to RUNNING and record start time with proper timezone
+        # Use atomic update to prevent race conditions
         from app.core.utils import DateTimeHelper
         now = DateTimeHelper.now_default()
 
@@ -509,16 +513,21 @@ async def run_job_now(
             SET status = 'RUNNING',
                 last_run_started_at = :now,
                 last_updated_at = :now
-            WHERE id = :job_id AND tenant_id = :tenant_id
+            WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
         """)
-        db.execute(update_query, {
+        rows_updated = db.execute(update_query, {
             'job_id': job_id,
             'tenant_id': tenant_id,
             'now': now
-        })
+        }).rowcount
         db.commit()
 
-        logger.info(f"Job {job_name} (ID: {job_id}) manually triggered: {current_status} -> RUNNING")
+        # If no rows were updated, another process already set it to RUNNING
+        if rows_updated == 0:
+            logger.warning(f"⚠️ RACE CONDITION: Job '{job_name}' was already set to RUNNING by another process")
+            raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
+
+        logger.info(f"✅ JOB STARTED: Job '{job_name}' (ID: {job_id}) status changed: {current_status} -> RUNNING")
 
         # Trigger actual job execution based on job type
         if job_name.lower() == 'jira':

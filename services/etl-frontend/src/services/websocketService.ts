@@ -41,17 +41,20 @@ class ETLWebSocketService {
   private maxReconnectAttempts = 5
   private reconnectDelay = 3000
   private isInitialized = false // Guard against double initialization in React.StrictMode
+  private authToken: string | null = null // Store auth token for WebSocket connections
 
   /**
-   * Initialize WebSocket service on app startup - proactive connection establishment
+   * Initialize WebSocket service after user login with authentication token
+   * This should be called from AuthContext after successful login
    */
-  async initializeService() {
+  async initializeService(token: string) {
     // Guard against double initialization (React.StrictMode in dev causes this)
     if (this.isInitialized) {
-      console.log('⚠️ ETL WebSocket Service: Already initialized, skipping duplicate initialization')
+      // Silently skip - no need to log on every render
       return
     }
     this.isInitialized = true
+    this.authToken = token
 
     // Wait for backend to be available with retry logic
     const backendReady = await this.waitForBackend()
@@ -62,6 +65,44 @@ class ETLWebSocketService {
 
     // Discover and connect to active jobs
     await this.discoverAndConnectActiveJobs()
+  }
+
+  /**
+   * Update auth token for future WebSocket connections
+   *
+   * NOTE: We do NOT reconnect existing WebSocket connections when token refreshes because:
+   * 1. WebSocket authentication happens only at connection time (handshake)
+   * 2. Once connected, the WebSocket remains valid regardless of token expiry
+   * 3. Reconnecting causes unnecessary disruption and triggers status updates
+   * 4. New connections (when jobs start) will use the updated token
+   *
+   * Existing connections will only reconnect if:
+   * - Connection drops (network issue, server restart, etc.)
+   * - User explicitly disconnects/reconnects
+   * - User logs out
+   */
+  async updateToken(newToken: string) {
+    // Silently update token - no need to log on every refresh
+    this.authToken = newToken
+  }
+
+  /**
+   * Disconnect all WebSocket connections (called on logout)
+   */
+  disconnectAll() {
+    console.log('🔌 ETL WebSocket Service: Disconnecting all connections')
+    this.connections.forEach((ws, jobName) => {
+      try {
+        ws.close()
+      } catch (error) {
+        console.error(`Failed to close WebSocket for ${jobName}:`, error)
+      }
+    })
+    this.connections.clear()
+    this.listeners.clear()
+    this.reconnectAttempts.clear()
+    this.isInitialized = false
+    this.authToken = null
   }
 
   /**
@@ -84,12 +125,21 @@ class ETLWebSocketService {
 
   /**
    * Discover and connect only to active ETL jobs
-   * Service-to-service connections should only be established for active jobs
+   * Uses authenticated API call to fetch active jobs for the user's tenant
    */
   private async discoverAndConnectActiveJobs() {
     try {
-      // Fetch active jobs using the status endpoint with active_jobs=true
-      const response = await fetch('http://localhost:3001/api/v1/websocket/status?active_jobs=true&tenant_id=1')
+      if (!this.authToken) {
+        console.error('❌ ETL WebSocket Service: No auth token available')
+        return
+      }
+
+      // Fetch active jobs using authenticated API call (tenant_id extracted from token)
+      const response = await fetch('http://localhost:3001/api/v1/websocket/status?active_jobs=true', {
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`
+        }
+      })
 
       if (!response.ok) {
         console.error(`❌ ETL WebSocket Service: Failed to fetch active jobs - HTTP ${response.status}`)
@@ -186,14 +236,15 @@ class ETLWebSocketService {
 
   private createConnection(jobName: string) {
     try {
-      // Service-to-service WebSocket connection - no authentication required
-      // ETL services need to communicate autonomously without user login
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      if (!this.authToken) {
+        console.error(`❌ Cannot create WebSocket connection for ${jobName}: No auth token`)
+        return
+      }
 
-      // Default to tenant_id=1 for service-to-service communication
-      // In multi-tenant scenarios, this could be configured per service instance
-      const tenantId = 1
-      const wsUrl = `${protocol}//localhost:3001/ws/progress/${jobName}?tenant_id=${tenantId}`
+      // Authenticated WebSocket connection - token required
+      // Tenant ID is extracted from the JWT token on the backend
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsUrl = `${protocol}//localhost:3001/ws/progress/${jobName}?token=${encodeURIComponent(this.authToken)}`
 
       const ws = new WebSocket(wsUrl)
       this.connections.set(jobName, ws)
@@ -295,18 +346,6 @@ class ETLWebSocketService {
         this.createConnection(jobName)
       }
     }, delay)
-  }
-
-  /**
-   * Disconnect all WebSocket connections
-   */
-  disconnectAll() {
-    this.connections.forEach((ws, jobName) => {
-      ws.close(1000, 'Service shutdown')
-    })
-    this.connections.clear()
-    this.listeners.clear()
-    this.reconnectAttempts.clear()
   }
 }
 

@@ -2,6 +2,7 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import { colorDataService, type ColorData } from '../services/colorDataService'
 import { getColorSchemaMode } from '../utils/colorSchemaService'
+import { etlWebSocketService } from '../services/websocketService'
 
 interface ColorSchema {
   color1: string
@@ -289,6 +290,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'pulse_logout_event') {
         // Another tab/window logged out, logout this one too
+        etlWebSocketService.disconnectAll()
         setUser(null)
         localStorage.clear()
         sessionStorage.clear()
@@ -356,6 +358,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.warn('Failed to load color schema during cross-service auth:', error)
           }
 
+          // Initialize WebSocket service with cross-service token
+          try {
+            await etlWebSocketService.initializeService(event.data.token)
+            // WebSocket service initialized - only log errors
+          } catch (error) {
+            console.error('❌ Failed to initialize WebSocket service:', error)
+          }
+
           setIsLoading(false);
         } else {
           // Validate the token to get user data
@@ -380,7 +390,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [])
 
-  // Periodic session validation to detect logout from other services
+  // Periodic token refresh and session validation
   useEffect(() => {
     if (!user) return
 
@@ -389,58 +399,77 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const token = localStorage.getItem('pulse_token')
         if (!token) {
           // Token was removed, logout
+          console.warn('⚠️ Token removed from localStorage, logging out')
           setUser(null)
           window.location.replace('/login')
           return
         }
 
-        // Check if token is close to expiry (within 1 minute)
+        // Check if token is close to expiry and refresh proactively
         try {
           const payload = JSON.parse(atob(token.split('.')[1]))
           const expiryTime = payload.exp * 1000 // Convert to milliseconds
           const currentTime = Date.now()
           const timeUntilExpiry = expiryTime - currentTime
 
-          // If token expires in less than 1 minute, try to refresh it
-          if (timeUntilExpiry < 60000) {
-            console.log('Token expiring soon, attempting refresh...')
+          // Refresh token if it expires in less than 5 minutes (300 seconds)
+          // This gives us plenty of buffer time before actual expiry
+          if (timeUntilExpiry < 300000) {
+            // Silently refresh - only log errors
             const refreshed = await refreshToken()
             if (!refreshed) {
-              console.warn('Token refresh failed, logging out')
+              console.warn('❌ Token refresh failed, logging out')
               setUser(null)
               localStorage.clear()
               sessionStorage.clear()
               delete axios.defaults.headers.common['Authorization']
+              etlWebSocketService.disconnectAll()
               window.location.replace('/login')
               return
             }
+            // Token refreshed successfully - no need to log
           }
         } catch (tokenParseError) {
           console.warn('Failed to parse token for expiry check:', tokenParseError)
+          // Don't logout on parse error - token might still be valid
         }
 
-        // Quick validation check
-        const response = await axios.post('/api/v1/auth/validate', {}, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` }
-        })
+        // Periodic validation check (less aggressive - only logout on 401)
+        try {
+          const response = await axios.post('/api/v1/auth/validate', {}, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` }
+          })
 
-        if (!response.data.valid) {
-          // Session invalid, logout
-          setUser(null)
-          localStorage.clear()
-          sessionStorage.clear()
-          delete axios.defaults.headers.common['Authorization']
-          window.location.replace('/login')
+          if (!response.data.valid) {
+            // Session invalid, logout
+            console.warn('⚠️ Session validation failed, logging out')
+            setUser(null)
+            localStorage.clear()
+            sessionStorage.clear()
+            delete axios.defaults.headers.common['Authorization']
+            etlWebSocketService.disconnectAll()
+            window.location.replace('/login')
+          }
+        } catch (validationError: any) {
+          // Only logout on 401 Unauthorized - ignore network errors
+          if (validationError?.response?.status === 401) {
+            console.warn('⚠️ Session unauthorized (401), logging out')
+            setUser(null)
+            localStorage.clear()
+            sessionStorage.clear()
+            delete axios.defaults.headers.common['Authorization']
+            etlWebSocketService.disconnectAll()
+            window.location.replace('/login')
+          } else {
+            // Network error or other issue - don't logout, just log warning
+            console.warn('⚠️ Session validation error (non-401), keeping session:', validationError?.message)
+          }
         }
       } catch (error) {
-        // Session validation failed, logout
-        setUser(null)
-        localStorage.clear()
-        sessionStorage.clear()
-        delete axios.defaults.headers.common['Authorization']
-        window.location.replace('/login')
+        // Unexpected error in interval - log but don't logout
+        console.error('❌ Error in session validation interval:', error)
       }
-    }, 30000) // Check every 30 seconds for better responsiveness
+    }, 60000) // Check every 60 seconds (1 minute)
 
     return () => clearInterval(interval)
   }, [user])
@@ -574,6 +603,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } catch (error) {
           console.warn('Failed to load color schema during token validation:', error)
         }
+
+        // Initialize WebSocket service with existing token (user already logged in)
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            await etlWebSocketService.initializeService(token)
+            // WebSocket service initialized - only log errors
+          } catch (error) {
+            console.error('❌ Failed to initialize WebSocket service:', error)
+          }
+        }
       } else {
         localStorage.removeItem('pulse_token')
         delete axios.defaults.headers.common['Authorization']
@@ -641,6 +681,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set up cross-service cookie for other frontends
         setupCrossServiceCookie(token)
 
+        // Initialize WebSocket service with authenticated token
+        // This connects to all active ETL jobs for real-time progress updates
+        try {
+          await etlWebSocketService.initializeService(token)
+          // WebSocket service initialized - only log errors
+        } catch (error) {
+          console.error('❌ Failed to initialize WebSocket service:', error)
+        }
+
         return true
       } else {
         return false
@@ -690,7 +739,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Refresh colors to apply new accessibility preference
         await refreshUserColors()
 
-        console.log('✅ Accessibility preference updated:', useAccessibleColors)
+        // Accessibility preference updated - only log errors
         return true
       }
     } catch (error) {
@@ -741,6 +790,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = async () => {
     setUser(null)
+
+    // Disconnect all WebSocket connections
+    try {
+      etlWebSocketService.disconnectAll()
+      // WebSocket service disconnected - only log errors
+    } catch (error) {
+      console.error('❌ Failed to disconnect WebSocket service:', error)
+    }
 
     try {
       const token = localStorage.getItem('pulse_token')
@@ -808,13 +865,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const newToken = response.data.token
         localStorage.setItem('pulse_token', newToken)
         axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-        console.log('✅ Token refreshed successfully')
+
+        // Update WebSocket service with new token (keeps existing connections alive)
+        // Note: Existing WebSocket connections remain active - only new connections use the new token
+        try {
+          await etlWebSocketService.updateToken(newToken)
+          // Silently updated - no need to log on every refresh
+        } catch (wsError) {
+          console.error('❌ Failed to update WebSocket token:', wsError)
+          // Don't fail the refresh if WebSocket update fails
+        }
+
         return true
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to refresh token:', error)
-      // If refresh fails, logout user
-      logout()
+
+      // Only logout on 401 - other errors might be temporary
+      if (error?.response?.status === 401) {
+        console.warn('⚠️ Token refresh returned 401, logging out')
+        logout()
+      } else {
+        console.warn('⚠️ Token refresh failed with non-401 error, will retry on next interval')
+      }
     }
     return false
   }
