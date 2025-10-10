@@ -1346,19 +1346,19 @@ def apply(connection):
 
         # Phase 3-1: Qdrant and AI configuration table indexes
         try:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
+            # Note: qdrant_vectors indexes already created above (lines 711-720)
+            # - idx_qdrant_vectors_source_type (tenant_id, source_type)
+            # - idx_qdrant_vectors_point_id (qdrant_point_id) UNIQUE
+            # - idx_qdrant_vectors_active (tenant_id, active)
+
             # AI usage tracking table indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
-            print("✅ Qdrant and AI usage indexes created")
+            print("✅ AI usage indexes created")
         except Exception as e:
-            print(f"⚠️ Skipping Qdrant and AI usage indexes: {e}")
+            print(f"⚠️ Skipping AI usage indexes: {e}")
 
         # Note: vectorization_queue table removed - vectorization integrated into transform workers
 
