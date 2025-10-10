@@ -156,6 +156,186 @@ async def update_custom_field_mappings(
         raise HTTPException(status_code=500, detail="Failed to update custom field mappings")
 
 
+@router.get("/custom-fields/list/{integration_id}")
+async def list_custom_fields(
+    integration_id: int,
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
+    """
+    Get list of custom fields from custom_fields table for a specific integration.
+    Returns all discovered custom fields filtered by integration_id and tenant_id.
+    """
+    try:
+        # Verify integration access
+        integration = db.query(Integration).filter(
+            Integration.id == integration_id,
+            Integration.tenant_id == user.tenant_id,
+            Integration.active == True
+        ).first()
+
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+
+        # Query custom_fields table
+        from app.models.unified_models import CustomField
+
+        custom_fields = db.query(CustomField).filter(
+            CustomField.integration_id == integration_id,
+            CustomField.tenant_id == user.tenant_id,
+            CustomField.active == True
+        ).order_by(CustomField.name).all()
+
+        # Convert to response format
+        fields_list = [
+            {
+                "id": field.id,
+                "external_id": field.external_id,
+                "name": field.name,
+                "field_type": field.field_type,
+                "operations": field.operations
+            }
+            for field in custom_fields
+        ]
+
+        return {
+            "success": True,
+            "custom_fields": fields_list,
+            "total_count": len(fields_list),
+            "integration_id": integration_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching custom fields for integration {integration_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch custom fields")
+
+
+@router.get("/custom-fields/mappings-table/{integration_id}")
+async def get_custom_field_mappings_table(
+    integration_id: int,
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
+    """
+    Get custom field mappings from custom_fields_mapping table.
+    Returns the mapping of custom_field_XX_id to custom_fields.id.
+    """
+    try:
+        # Verify integration access
+        integration = db.query(Integration).filter(
+            Integration.id == integration_id,
+            Integration.tenant_id == user.tenant_id,
+            Integration.active == True
+        ).first()
+
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+
+        # Query custom_fields_mapping table
+        from app.models.unified_models import CustomFieldMapping
+
+        mapping_record = db.query(CustomFieldMapping).filter(
+            CustomFieldMapping.integration_id == integration_id,
+            CustomFieldMapping.tenant_id == user.tenant_id,
+            CustomFieldMapping.active == True
+        ).first()
+
+        # Build response with all 20 mappings
+        mappings = {}
+        if mapping_record:
+            for i in range(1, 21):
+                field_key = f"custom_field_{i:02d}"
+                field_id_attr = f"custom_field_{i:02d}_id"
+                field_id = getattr(mapping_record, field_id_attr, None)
+                mappings[field_key] = field_id
+        else:
+            # No mapping record exists yet, return empty mappings
+            for i in range(1, 21):
+                field_key = f"custom_field_{i:02d}"
+                mappings[field_key] = None
+
+        return {
+            "success": True,
+            "mappings": mappings,
+            "integration_id": integration_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching custom field mappings table for integration {integration_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch custom field mappings")
+
+
+@router.put("/custom-fields/mappings-table/{integration_id}")
+async def update_custom_field_mappings_table(
+    integration_id: int,
+    request_data: Dict[str, Any],
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
+    """
+    Update custom field mappings in custom_fields_mapping table.
+    Expects mappings in format: { "custom_field_01": 123, "custom_field_02": 456, ... }
+    """
+    try:
+        # Verify integration access
+        integration = db.query(Integration).filter(
+            Integration.id == integration_id,
+            Integration.tenant_id == user.tenant_id,
+            Integration.active == True
+        ).first()
+
+        if not integration:
+            raise HTTPException(status_code=404, detail="Integration not found")
+
+        # Get mappings from request
+        mappings = request_data.get('mappings', {})
+
+        # Query or create custom_fields_mapping record
+        from app.models.unified_models import CustomFieldMapping
+
+        mapping_record = db.query(CustomFieldMapping).filter(
+            CustomFieldMapping.integration_id == integration_id,
+            CustomFieldMapping.tenant_id == user.tenant_id
+        ).first()
+
+        if not mapping_record:
+            # Create new mapping record
+            mapping_record = CustomFieldMapping(
+                integration_id=integration_id,
+                tenant_id=user.tenant_id,
+                active=True
+            )
+            db.add(mapping_record)
+
+        # Update all 20 mapping fields
+        for i in range(1, 21):
+            field_key = f"custom_field_{i:02d}"
+            field_id_attr = f"custom_field_{i:02d}_id"
+            field_id = mappings.get(field_key)
+            setattr(mapping_record, field_id_attr, field_id)
+
+        db.commit()
+
+        logger.info(f"Updated custom field mappings table for integration {integration_id}")
+
+        return {
+            "success": True,
+            "message": "Custom field mappings updated successfully",
+            "integration_id": integration_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating custom field mappings table for integration {integration_id}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update custom field mappings")
+
+
 @router.get("/custom-fields/version-check")
 async def version_check():
     """Simple endpoint to verify the updated code is loaded"""

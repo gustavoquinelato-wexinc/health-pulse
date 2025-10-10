@@ -148,21 +148,24 @@ export default function Header() {
 
   return (
     <header
-      className="py-4 px-8 flex items-center justify-between sticky top-0 z-50 bg-primary"
+      className="px-6 flex items-center justify-between sticky top-0 z-50"
       style={{
-        boxShadow: theme === 'dark'
-          ? '0 4px 6px -1px rgba(255, 255, 255, 0.03), 0 2px 4px -1px rgba(255, 255, 255, 0.02)'
-          : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        minHeight: '72px' // Fixed height to prevent layout shift
+        backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
+        borderBottom: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+        height: '64px'
       }}
     >
       {/* Left Side - Logo and Title */}
-      <div className="flex items-center space-x-4">
-        {/* Tenant Logo - Fixed width to prevent layout shift */}
-        <div className="h-10 flex items-center justify-center" style={{ width: '120px' }}>
+      <div className="flex items-center space-x-3">
+        {/* Tenant Logo - Smaller, GitHub-style */}
+        <div className="h-7 flex items-center justify-center" style={{ width: '100px' }}>
           {tenantLoading ? (
-            // Loading placeholder - same size as container
-            <div className="h-6 w-20 bg-white bg-opacity-20 rounded animate-pulse"></div>
+            <div
+              className="h-5 w-16 rounded animate-pulse"
+              style={{
+                backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+              }}
+            ></div>
           ) : getLogoUrl() ? (
             <img
               src={getLogoUrl() || undefined}
@@ -170,36 +173,36 @@ export default function Header() {
               className="h-full max-w-full object-contain"
               style={{
                 filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none',
-                maxWidth: '120px',
+                maxWidth: '100px',
                 opacity: 1,
-                transition: 'none' // Disable transitions to prevent movement
+                transition: 'none'
               }}
               onError={(e) => {
-                // Hide broken image
                 e.currentTarget.style.display = 'none'
               }}
             />
           ) : (
-            // Fallback text when no logo is available
-            <span className="text-sm font-medium text-blue-700 whitespace-nowrap">
+            <span
+              className="text-sm font-medium whitespace-nowrap"
+              style={{ color: theme === 'dark' ? '#ffffff' : '#24292f' }}
+            >
               {currentTenant?.name || 'Tenant'}
             </span>
           )}
         </div>
 
         {/* Vertical Divisor */}
-        <div className="h-8 w-px" style={{
-          backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'
-        }}></div>
-
-        {/* Title Badge - Fixed to prevent layout shift */}
         <div
-          className="px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
+          className="h-6 w-px"
           style={{
-            background: 'var(--gradient-1-2)',
-            color: 'var(--on-gradient-1-2)',
-            minWidth: 'fit-content'
+            backgroundColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)'
           }}
+        ></div>
+
+        {/* Title - Simple text, no badge */}
+        <div
+          className="text-sm font-semibold whitespace-nowrap"
+          style={{ color: theme === 'dark' ? '#ffffff' : '#24292f' }}
         >
           PULSE - ETL MANAGEMENT
         </div>
@@ -229,9 +232,17 @@ export default function Header() {
               return false
             }
           }}
-          className="w-12 h-12 flex items-center justify-center mx-auto nav-item text-secondary hover:bg-tertiary hover:text-primary"
+          className="p-2 rounded-md transition-colors"
           style={{
+            color: theme === 'dark' ? '#ffffff' : '#24292f',
+            backgroundColor: 'transparent',
             border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent'
           }}
           aria-label="Analytics Dashboard"
           title="Analytics Dashboard (Ctrl+Click for new tab)"
@@ -244,9 +255,17 @@ export default function Header() {
         {/* Theme Toggle */}
         <motion.button
           onClick={toggleTheme}
-          className="w-12 h-12 flex items-center justify-center mx-auto nav-item text-secondary hover:bg-tertiary hover:text-primary"
+          className="p-2 rounded-md transition-colors"
           style={{
+            color: theme === 'dark' ? '#ffffff' : '#24292f',
+            backgroundColor: 'transparent',
             border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent'
           }}
           aria-label="Toggle theme"
           title="Toggle Theme"
@@ -258,20 +277,26 @@ export default function Header() {
         <div className="relative" ref={userMenuRef}>
           <motion.button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="h-12 rounded-lg flex items-center space-x-2 px-3 nav-item text-secondary hover:bg-tertiary hover:text-primary"
+            className="rounded-full transition-colors"
             style={{
-              border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'
+              backgroundColor: 'transparent',
+              border: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+              padding: '1px'
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent'
+            }}
+            aria-label={displayName}
+            title={displayName}
           >
-            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-3), var(--color-4))' }}>
-              <span className="text-sm font-medium" style={{ color: 'var(--on-gradient-3-4)' }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}>
+              <span className="text-xs font-medium text-white">
                 {getUserInitials(user)}
               </span>
             </div>
-            <span className="text-sm font-medium hidden md:block text-secondary">
-              {displayName}
-            </span>
-            <ChevronDown className="w-4 h-4 text-secondary" />
           </motion.button>
 
           {/* User Dropdown */}

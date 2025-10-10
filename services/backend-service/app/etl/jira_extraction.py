@@ -70,7 +70,7 @@ async def execute_projects_and_issue_types_extraction(
     2. Statuses & Project Relationships (40% total)
     3. Future phases can be added here (remaining 20%)
     """
-    logger.info(f"🚀 ETL JOB STARTED: 'Jira' (ID: {job_id}) - Beginning execution")
+    logger.info(f"Starting Jira extraction for integration {integration_id}, tenant {tenant_id}")
 
     progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id)
 
@@ -114,7 +114,6 @@ async def execute_projects_and_issue_types_extraction(
         await reset_job_countdown(tenant_id, job_id, "Complete Jira extraction finished successfully")
 
         logger.info(f"Complete Jira extraction completed for integration {integration_id}")
-        logger.info(f"🏁 ETL JOB FINISHED: 'Jira' (ID: {job_id}) - Execution completed successfully")
 
         return {
             "success": True,
@@ -126,7 +125,6 @@ async def execute_projects_and_issue_types_extraction(
         
     except Exception as e:
         logger.error(f"Complete Jira extraction failed for integration {integration_id}: {e}")
-        logger.error(f"💥 ETL JOB FAILED: 'Jira' (ID: {job_id}) - Execution failed with error: {e}")
 
         # Update job status to FAILED
         try:
@@ -268,6 +266,7 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str):
             # Update job completion and calculate next run time
             from app.core.utils import DateTimeHelper
             from datetime import timedelta
+            import asyncio
             now = DateTimeHelper.now_default()
 
             # Get schedule interval to calculate next run time
@@ -284,17 +283,53 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str):
             schedule_interval_minutes = schedule_result[0] if schedule_result else 360  # Default 6 hours
             next_run = now + timedelta(minutes=schedule_interval_minutes)
 
-            update_query = text("""
+            logger.info(f"⏰ TIMEZONE CHECK: Current time (now) = {now}")
+            logger.info(f"⏰ TIMEZONE CHECK: Next run calculated = {next_run}")
+            logger.info(f"⏰ TIMEZONE CHECK: Schedule interval = {schedule_interval_minutes} minutes")
+
+            # Step 1: Set status to FINISHED first
+            update_finished_query = text("""
                 UPDATE etl_jobs
-                SET status = 'READY',
+                SET status = 'FINISHED',
                     last_run_finished_at = :now,
                     error_message = NULL,
                     retry_count = 0,
-                    last_updated_at = :now,
-                    next_run = :next_run
+                    last_updated_at = :now
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
-            db.execute(update_query, {
+            db.execute(update_finished_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'now': now
+            })
+            db.commit()
+
+            logger.info(f"✅ Jira job marked as FINISHED")
+
+            # Step 2: Send WebSocket status update to FINISHED
+            from app.api.websocket_routes import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.send_status_update(tenant_id, "Jira", "FINISHED", message)
+
+            # Step 3: Send WebSocket completion update with success summary
+            await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
+                "message": message,
+                "schedule_interval_minutes": schedule_interval_minutes
+            })
+
+            logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
+
+            # Step 4: Wait a moment for frontend to process completion, then set to READY
+            await asyncio.sleep(2)  # 2 second delay for frontend to show success
+
+            update_ready_query = text("""
+                UPDATE etl_jobs
+                SET status = 'READY',
+                    next_run = :next_run,
+                    last_updated_at = :now
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_ready_query, {
                 'job_id': job_id,
                 'tenant_id': tenant_id,
                 'now': now,
@@ -302,18 +337,11 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str):
             })
             db.commit()
 
-            logger.info(f"✅ Jira job completed successfully - next run scheduled for {next_run}")
-
-            logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
+            logger.info(f"✅ Jira job set to READY - next run scheduled for {next_run}")
             logger.info(f"Next run will be calculated as: last_updated_at + {schedule_interval_minutes} minutes")
 
-            # Send WebSocket completion update
-            from app.api.websocket_routes import get_websocket_manager
-            websocket_manager = get_websocket_manager()
-            await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
-                "message": message,
-                "schedule_interval_minutes": schedule_interval_minutes
-            })
+            # Step 5: Send final status update to READY
+            await websocket_manager.send_status_update(tenant_id, "Jira", "READY", f"Next run at {next_run}")
 
         finally:
             db.close()
@@ -336,15 +364,16 @@ async def _extract_projects_and_issue_types(
     )
 
     # Extract projects with issue types using /project/search endpoint (not /createmeta)
-    projects_data = jira_client.get_projects_with_issue_types(
+    projects_list = jira_client.get_projects(
         project_keys=PROJECT_KEYS,
         expand="issueTypes"
     )
 
-    if not projects_data or 'values' not in projects_data:
+    if not projects_list:
         raise ValueError("No projects found in Jira project/search response")
 
-    projects_list = projects_data['values']
+    # Wrap in the expected structure for consistency with raw data storage
+    projects_data = {'values': projects_list}
 
     # Step 1 progress: Store raw data (0.3 -> 0.6)
     await progress_tracker.update_step_progress(
@@ -372,16 +401,25 @@ async def _extract_projects_and_issue_types(
     if not processed:
         raise ValueError("Failed to process projects transformation")
 
-    # Count results (project/search uses 'issueTypes' camelCase, not 'issuetypes')
-    issue_types_count = sum(len(project.get('issueTypes', [])) for project in projects_list)
+    # Count unique issue types (not n-n relationships)
+    # Get unique issue types from database for accurate count
+    from app.core.database import get_database
+    from app.models.unified_models import Wit
+    database = get_database()
+    with database.get_read_session_context() as session:
+        unique_issue_types_count = session.query(Wit).filter(
+            Wit.tenant_id == tenant_id,
+            Wit.integration_id == integration_id,
+            Wit.active == True
+        ).count()
 
     await progress_tracker.complete_step(
-        1, f"Phase 2.1 complete: {len(projects_list)} projects, {issue_types_count} issue types"
+        1, f"Phase 2.1 complete: {len(projects_list)} projects, {unique_issue_types_count} issue types"
     )
 
     return {
         "projects_count": len(projects_list),
-        "issue_types_count": issue_types_count,
+        "issue_types_count": unique_issue_types_count,
         "raw_data_id": raw_data_id
     }
 
@@ -492,12 +530,23 @@ async def _extract_statuses_and_relationships(
             continue
 
     # Step 2 complete (0.8 -> 1.0)
+    # Get unique statuses count from database for accurate reporting
+    from app.core.database import get_database
+    from app.models.unified_models import Status
+    database = get_database()
+    with database.get_read_session_context() as session:
+        unique_statuses_count = session.query(Status).filter(
+            Status.tenant_id == tenant_id,
+            Status.integration_id == integration_id,
+            Status.active == True
+        ).count()
+
     await progress_tracker.complete_step(
-        2, f"Phase 2.2 complete: {total_statuses_processed} statuses, {total_relationships_processed} project relationships across {len(project_keys)} projects"
+        2, f"Phase 2.2 complete: {unique_statuses_count} statuses, {total_relationships_processed} project relationships across {len(project_keys)} projects"
     )
 
     return {
-        "statuses_count": total_statuses_processed,
+        "statuses_count": unique_statuses_count,
         "project_relationships_count": total_relationships_processed,
         "projects_processed": len(project_keys)
     }

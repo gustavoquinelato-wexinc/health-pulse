@@ -140,22 +140,71 @@ class IndividualJobTimer:
 
             while self.running:
                 # Trigger this job
+                logger.info(f"⏰ ========== TIMER LOOP ITERATION START for '{self.job_name}' ==========")
                 logger.info(f"⏰ Time to run job '{self.job_name}' (ID: {self.job_id})")
                 await self._trigger_job()
 
+                # Wait for job to complete before calculating next interval
+                logger.info(f"⏳ Waiting for job '{self.job_name}' to complete...")
+                await self._wait_for_job_completion()
+                logger.info(f"✅ Job '{self.job_name}' completion detected")
+
                 # Calculate next run interval
+                logger.info(f"📊 Calculating next interval for '{self.job_name}'...")
                 next_interval = await self._get_next_interval()
+
                 if next_interval and next_interval > 0:
                     logger.info(f"⏱️ Job '{self.job_name}' scheduled to run again in {next_interval:.1f} minutes")
+                    logger.info(f"😴 Timer sleeping for {next_interval:.1f} minutes...")
                     await asyncio.sleep(next_interval * 60)  # Convert to seconds
+                    logger.info(f"⏰ Timer woke up for '{self.job_name}' - starting next iteration")
                 else:
-                    logger.info(f"⏹️ Job '{self.job_name}' not scheduled for next run")
+                    logger.info(f"⏹️ Job '{self.job_name}' not scheduled for next run - stopping timer")
                     break
 
         except asyncio.CancelledError:
             logger.info(f"⏹️ Timer cancelled for job '{self.job_name}'")
         except Exception as e:
             logger.error(f"Error in timer loop for job '{self.job_name}': {e}")
+
+    async def _wait_for_job_completion(self):
+        """Wait for the job to complete (status changes from RUNNING to READY/FINISHED/FAILED)"""
+        try:
+            max_wait_seconds = 3600  # 1 hour max wait
+            poll_interval = 2  # Check every 2 seconds
+            elapsed = 0
+
+            database = get_database()
+            while elapsed < max_wait_seconds:
+                with database.get_session_context() as session:
+                    query = text("""
+                        SELECT status
+                        FROM etl_jobs
+                        WHERE id = :job_id AND tenant_id = :tenant_id
+                    """)
+                    result = session.execute(query, {'job_id': self.job_id, 'tenant_id': self.tenant_id}).fetchone()
+
+                    if not result:
+                        logger.warning(f"Job '{self.job_name}' not found while waiting for completion")
+                        return
+
+                    status = result[0]
+
+                    # Job is no longer running - it's completed
+                    if status != 'RUNNING':
+                        logger.info(f"✅ Job '{self.job_name}' completed with status: {status}")
+                        # Wait a bit more to ensure job fully transitions to READY and next_run is set
+                        await asyncio.sleep(3)
+                        return
+
+                # Still running, wait a bit
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+            logger.warning(f"⚠️ Job '{self.job_name}' still running after {max_wait_seconds}s - continuing anyway")
+
+        except Exception as e:
+            logger.error(f"Error waiting for job completion '{self.job_name}': {e}")
 
     async def _get_next_interval(self) -> Optional[float]:
         """Get the interval (in minutes) until this job should run next based on next_run column"""
@@ -189,7 +238,40 @@ class IndividualJobTimer:
                 now = DateTimeHelper.now_default()
                 delay_minutes = (next_run - now).total_seconds() / 60
 
-                return max(0, delay_minutes)  # Don't return negative delays
+                logger.info(f"📅 Job '{self.job_name}' next_run calculation:")
+                logger.info(f"   Current time: {now}")
+                logger.info(f"   Next run time: {next_run}")
+                logger.info(f"   Delay: {delay_minutes:.2f} minutes")
+
+                # CRITICAL: If delay is negative or very small, it means next_run is in the past
+                # This can happen due to:
+                # 1. Clock skew between when job finished and when we check
+                # 2. Job took longer than expected
+                # 3. Manual trigger while automatic timer was waiting
+                # In all cases, we should use the schedule_interval_minutes as the delay
+                if delay_minutes < 1:  # Less than 1 minute means something is wrong
+                    logger.warning(f"⚠️ Delay too small ({delay_minutes:.2f} min) - next_run appears to be in the past")
+
+                    # Get the schedule interval and use that as the delay
+                    schedule_query = text("""
+                        SELECT schedule_interval_minutes
+                        FROM etl_jobs
+                        WHERE id = :job_id AND tenant_id = :tenant_id
+                    """)
+                    schedule_result = session.execute(schedule_query, {
+                        'job_id': self.job_id,
+                        'tenant_id': self.tenant_id
+                    }).fetchone()
+
+                    if schedule_result:
+                        fallback_delay = schedule_result[0]
+                        logger.warning(f"⚠️ Using schedule_interval_minutes ({fallback_delay} min) as fallback delay")
+                        return fallback_delay
+                    else:
+                        logger.error(f"⚠️ Could not get schedule_interval - stopping timer")
+                        return None
+
+                return delay_minutes
 
         except Exception as e:
             logger.error(f"Error getting next interval for job '{self.job_name}': {e}")
@@ -201,26 +283,54 @@ class IndividualJobTimer:
         try:
             database = get_database()
             with database.get_session_context() as session:
+                # First check if job is already running
+                check_query = text("""
+                    SELECT status
+                    FROM etl_jobs
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                result = session.execute(check_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id
+                }).fetchone()
+
+                if not result:
+                    logger.error(f"Job '{self.job_name}' (ID: {self.job_id}) not found")
+                    return
+
+                current_status = result[0]
+
+                # Don't trigger if already running
+                if current_status == 'RUNNING':
+                    logger.warning(f"⚠️ Job '{self.job_name}' is already RUNNING - skipping automatic trigger")
+                    return
+
                 # Set job to RUNNING status with proper timezone handling
                 from app.core.utils import DateTimeHelper
                 now = DateTimeHelper.now_default()
 
+                # Use atomic update with WHERE clause to prevent race conditions
                 update_query = text("""
                     UPDATE etl_jobs
                     SET status = 'RUNNING',
                         last_run_started_at = :now,
                         last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id
+                    WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
                 """)
 
-                session.execute(update_query, {
+                rows_updated = session.execute(update_query, {
                     'job_id': self.job_id,
                     'tenant_id': self.tenant_id,
                     'now': now
-                })
+                }).rowcount
                 session.commit()
 
-            logger.info(f"🚀 Triggered job '{self.job_name}' (ID: {self.job_id}) for tenant {self.tenant_id}")
+                # If no rows were updated, job was already set to RUNNING by another process
+                if rows_updated == 0:
+                    logger.warning(f"⚠️ Job '{self.job_name}' was set to RUNNING by another process - skipping")
+                    return
+
+            logger.info(f"🚀 AUTO-TRIGGERED job '{self.job_name}' (ID: {self.job_id}) for tenant {self.tenant_id}")
 
             # Execute the actual job based on job type
             asyncio.create_task(self._execute_actual_job())

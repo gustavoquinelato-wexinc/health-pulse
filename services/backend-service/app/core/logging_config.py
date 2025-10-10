@@ -6,6 +6,7 @@ Autonomous microservice logging - no shared dependencies.
 import logging
 import sys
 import os
+import re
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional
@@ -19,6 +20,100 @@ DEBUG = settings.DEBUG
 
 # Global flag to track if logging has been set up
 _logging_configured = False
+
+
+class TokenMaskingFilter(logging.Filter):
+    """Filter to mask JWT tokens in log messages (especially Uvicorn access logs)."""
+
+    # Pattern to match JWT tokens in URLs (e.g., ?token=eyJhbGciOi...)
+    TOKEN_PATTERN = re.compile(r'(\?|&)(token=)([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)')
+
+    def filter(self, record):
+        """Mask tokens in log message."""
+        # Mask in the raw message
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            record.msg = self.TOKEN_PATTERN.sub(
+                lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)[:10]}...{m.group(3)[-10:]}",
+                record.msg
+            )
+
+        # Also mask in args (Uvicorn uses args for formatting)
+        if hasattr(record, 'args') and record.args:
+            if isinstance(record.args, tuple):
+                record.args = tuple(
+                    self.TOKEN_PATTERN.sub(
+                        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)[:10]}...{m.group(3)[-10:]}",
+                        str(arg)
+                    ) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
+            elif isinstance(record.args, dict):
+                record.args = {
+                    k: self.TOKEN_PATTERN.sub(
+                        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)[:10]}...{m.group(3)[-10:]}",
+                        str(v)
+                    ) if isinstance(v, str) else v
+                    for k, v in record.args.items()
+                }
+
+        return True
+
+
+class UvicornAccessFilter(logging.Filter):
+    """Filter to reduce noise from routine HTTP requests while keeping important ones."""
+
+    # Routes to suppress (routine health checks, OPTIONS, etc.)
+    SUPPRESS_ROUTES = {
+        '/health', '/healthz', '/api/v1/auth/validate',
+        '/api/v1/user/theme-mode', '/api/v1/admin/color-schema/unified',
+        '/api/v1/websocket/status'
+    }
+
+    # Route prefixes to suppress
+    SUPPRESS_PREFIXES = []
+
+    # Methods to suppress for all routes
+    SUPPRESS_METHODS = {'OPTIONS'}
+
+    def filter(self, record):
+        """Filter out routine HTTP requests to reduce log noise."""
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            msg = record.msg
+
+            # Check if this is an HTTP request log
+            if ' - "' in msg and ' HTTP/' in msg:
+                # Extract method and path
+                try:
+                    # Format: "IP:PORT - "METHOD /path HTTP/1.1" STATUS"
+                    parts = msg.split('"')
+                    if len(parts) >= 2:
+                        request_line = parts[1]  # "METHOD /path HTTP/1.1"
+                        method_path = request_line.split(' ')
+                        if len(method_path) >= 2:
+                            method = method_path[0]
+                            path = method_path[1]
+
+                            # Remove query parameters for matching
+                            path_without_query = path.split('?')[0]
+
+                            # Suppress OPTIONS requests
+                            if method in self.SUPPRESS_METHODS:
+                                return False
+
+                            # Suppress specific routes
+                            if path_without_query in self.SUPPRESS_ROUTES:
+                                return False
+
+                            # Suppress route prefixes
+                            for prefix in self.SUPPRESS_PREFIXES:
+                                if path_without_query.startswith(prefix):
+                                    return False
+
+                except Exception:
+                    # If parsing fails, allow the log through
+                    pass
+
+        return True
 
 
 def setup_logging(force_reconfigure=False):
@@ -79,17 +174,46 @@ def setup_logging(force_reconfigure=False):
         backupCount=5,
         encoding='utf-8'
     )
-    file_handler.setLevel(logging.INFO)  # INFO+ to file, DEBUG console only
+    # Only log WARNING+ to file to reduce log file growth
+    # This keeps the file focused on errors and important events
+    file_handler.setLevel(logging.WARNING)
     file_handler.setFormatter(formatter)
+
+    # Add filter to allow important ETL job messages to file
+    def file_filter(record):
+        message = record.getMessage()
+        # Always show WARNING+ messages
+        if record.levelno >= logging.WARNING:
+            return True
+        # Allow critical ETL job lifecycle messages
+        if any(keyword in message for keyword in [
+            "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
+            "Job scheduler started successfully", "Backend Service started successfully",
+            "MANUAL TRIGGER:", "AUTO TRIGGER:"
+        ]):
+            return True
+        return False
+
+    file_handler.addFilter(file_filter)
     root_logger.addHandler(file_handler)
 
     # Set root logger level
     root_logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
-
+    # Apply token masking filter to all handlers (especially Uvicorn access logs)
+    token_filter = TokenMaskingFilter()
+    console_handler.addFilter(token_filter)
+    file_handler.addFilter(token_filter)
 
     # Silence noisy third-party libraries
     _silence_third_party_loggers()
+
+    # Apply token masking to Uvicorn access logger specifically
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    for handler in uvicorn_access_logger.handlers:
+        handler.addFilter(token_filter)
+    # Also add to future handlers
+    uvicorn_access_logger.addFilter(token_filter)
 
     _logging_configured = True
 
@@ -113,8 +237,8 @@ def _silence_third_party_loggers():
     logging.getLogger("pika").setLevel(logging.WARNING)
     logging.getLogger("aio_pika").setLevel(logging.WARNING)
 
-    # Web framework
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # Web framework - keep uvicorn.access at INFO to see masked WebSocket connections
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
     logging.getLogger("fastapi").setLevel(logging.WARNING)
 
     # Background jobs
@@ -269,6 +393,43 @@ class EnhancedLogger:
 def get_enhanced_logger(name: Optional[str] = None) -> EnhancedLogger:
     """Get an enhanced logger that supports kwargs."""
     return EnhancedLogger(name)
+
+
+def apply_uvicorn_filters():
+    """
+    Apply token masking and access filtering to Uvicorn loggers.
+
+    This must be called AFTER Uvicorn starts, as Uvicorn creates its own handlers.
+    Call this from the FastAPI lifespan startup event.
+    """
+    token_filter = TokenMaskingFilter()
+    access_filter = UvicornAccessFilter()
+
+    # Apply to uvicorn.access logger
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+
+    # Remove any existing filters of these types to avoid duplicates
+    for handler in uvicorn_access_logger.handlers:
+        # Remove old filters
+        handler.filters = [f for f in handler.filters
+                          if not isinstance(f, (TokenMaskingFilter, UvicornAccessFilter))]
+        # Add new filters
+        handler.addFilter(token_filter)
+        handler.addFilter(access_filter)
+
+    # Also add to the logger itself for any future handlers
+    uvicorn_access_logger.filters = [f for f in uvicorn_access_logger.filters
+                                      if not isinstance(f, (TokenMaskingFilter, UvicornAccessFilter))]
+    uvicorn_access_logger.addFilter(token_filter)
+    uvicorn_access_logger.addFilter(access_filter)
+
+    # Apply to uvicorn logger (for general uvicorn messages)
+    uvicorn_logger = logging.getLogger("uvicorn")
+    for handler in uvicorn_logger.handlers:
+        handler.filters = [f for f in handler.filters if not isinstance(f, TokenMaskingFilter)]
+        handler.addFilter(token_filter)
+
+    logging.getLogger(__name__).info("✅ Applied token masking and access filters to Uvicorn loggers")
 
 
 class LoggerMixin:

@@ -176,20 +176,35 @@ def get_websocket_manager() -> WebSocketManager:
 
 
 @router.websocket("/ws/progress/{job_name}")
-async def websocket_progress_endpoint(websocket: WebSocket, job_name: str, tenant_id: int = Query(1)):
+async def websocket_progress_endpoint(websocket: WebSocket, job_name: str, token: str = Query(...)):
     """
-    Service-to-service WebSocket endpoint for real-time job progress updates.
+    Authenticated WebSocket endpoint for real-time job progress updates.
 
     Args:
         job_name: Name of the ETL job to monitor (e.g., "Jira", "GitHub")
-        tenant_id: Tenant ID for isolation (defaults to 1, can be overridden)
+        token: JWT authentication token (required)
 
-    Note: This is a service-to-service connection - no user authentication required.
-    ETL jobs run autonomously and need real-time communication regardless of user login.
+    Note: This endpoint requires user authentication. The tenant_id is extracted from the JWT token.
+    All admins of the same tenant will see the same job progress (tenant-isolated broadcasting).
     """
-    logger.info(f"[WS] Service-to-service WebSocket connection for tenant {tenant_id} job: {job_name}")
-
     try:
+        # Mask token for logging (show first 10 chars only)
+        masked_token = f"{token[:10]}...{token[-10:]}" if len(token) > 20 else "***"
+
+        # Verify token and extract tenant_id
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        user = await auth_service.verify_token(token, suppress_errors=True)
+
+        if not user:
+            logger.warning(f"[WS] WebSocket connection rejected: Invalid token (token={masked_token})")
+            await websocket.close(code=1008, reason="Invalid or expired token")
+            return
+
+        tenant_id = user.tenant_id
+        logger.info(f"[WS] ✅ Authenticated WebSocket connection: user={user.email}, tenant={tenant_id}, job={job_name}, token={masked_token}")
+
         # Register client (this will accept the WebSocket connection)
         await websocket_manager.connect(websocket, tenant_id, job_name)
 
@@ -213,9 +228,18 @@ async def websocket_progress_endpoint(websocket: WebSocket, job_name: str, tenan
                 logger.error(f"[WS] Error in WebSocket connection for tenant {tenant_id} job '{job_name}': {e}")
                 break
 
+    except Exception as e:
+        logger.error(f"[WS] Error in WebSocket authentication: {e}")
+        try:
+            await websocket.close(code=1011, reason="Authentication error")
+        except:
+            pass
+        return
+
     finally:
-        # Clean up connection
-        await websocket_manager.disconnect(websocket, tenant_id, job_name)
+        # Clean up connection (only if we successfully connected)
+        if 'tenant_id' in locals():
+            await websocket_manager.disconnect(websocket, tenant_id, job_name)
 
 
 @router.get("/api/v1/websocket/status")

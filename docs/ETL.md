@@ -104,11 +104,15 @@ NOT_STARTED ──► READY ──► EXTRACT ──► TRANSFORM ──► LOAD
 - **Features**: Optimized bulk operations, relationship mapping
 
 #### 4. **Vectorization Stage**
-- **Purpose**: Generate embeddings for semantic search
-- **Queue**: `etl.vectorization`
-- **Input**: Final loaded data
-- **Output**: Vector embeddings in Qdrant database
-- **Features**: AI provider integration, batch processing
+- **Purpose**: Generate embeddings for semantic search and multi-agent AI
+- **Queue**: `vectorization_queue_tenant_{id}` (tenant-specific)
+- **Input**: Final loaded data from transform stage
+- **Output**: Vector embeddings in Qdrant database + bridge table tracking
+- **Features**:
+  - Multi-agent architecture with source_type filtering (JIRA, GITHUB)
+  - Integration-based embedding configuration
+  - Tenant isolation with dedicated collections
+  - Bridge table (qdrant_vectors) for PostgreSQL ↔ Qdrant mapping
 
 ### Job States & Transitions
 
@@ -295,22 +299,14 @@ DEAD_LETTER_QUEUE = {
 #### Vectorization Message
 ```json
 {
-  "entity_type": "issue",
-  "entity_id": "PROJ-123",
   "tenant_id": 1,
-  "table_name": "issues",
-  "content": "Issue title and description text...",
-  "metadata": {
-    "project_id": 789,
-    "integration_type": "jira",
-    "custom_fields": {"priority": "high"}
-  },
-  "embedding_config": {
-    "model": "text-embedding-ada-002",
-    "provider": "openai"
-  }
+  "table_name": "work_items",
+  "external_id": "PROJ-123",
+  "operation": "insert"
 }
 ```
+
+**Note:** The worker fetches the full entity from the database using the external_id, extracts embedding configuration from the integration table, and generates embeddings using the HybridProviderManager.
 
 ### Queue Workers
 

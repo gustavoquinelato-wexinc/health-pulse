@@ -20,22 +20,22 @@ class SentenceTransformersProvider:
 
     def __init__(self, integration: Integration):
         self.integration = integration
-        self.model_config = integration.ai_model_config or {}
 
-        # Use local model path if specified, otherwise use model name
-        self.model_path = self.model_config.get('model_path')
-        if self.model_path:
-            self.model_name = self.model_path  # Use local path
-        else:
-            self.model_name = integration.ai_model or "all-mpnet-base-v2"  # Fallback to download
-        
+        # Extract settings from JSON field (new schema)
+        settings = integration.settings or {}
+        self.model_config = settings
+
+        # Use model_path from settings
+        self.model_path = settings.get('model_path', 'all-mpnet-base-v2')
+        self.model_name = self.model_path
+
         # Model and performance tracking
         self.model = None
         self.model_loaded = False
         self.request_count = 0
         self.total_processing_time = 0.0
         self.avg_response_time = 0.0
-        
+
         # Thread pool for CPU-intensive operations
         self.executor = ThreadPoolExecutor(max_workers=2)
         self._lock = threading.Lock()

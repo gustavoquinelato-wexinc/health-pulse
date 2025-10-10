@@ -604,9 +604,9 @@ def apply(connection):
         """)
         print("   ✅ etl_jobs table created")
 
-        # 24. Jira PR links table (complete with all columns) - NO vector column
+        # 24. Work Items PR links table (complete with all columns) - NO vector column
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS wits_prs_links (
+            CREATE TABLE IF NOT EXISTS work_items_prs_links (
                 id SERIAL,
                 work_item_id INTEGER NOT NULL,
                 external_repo_id VARCHAR NOT NULL,
@@ -678,21 +678,45 @@ def apply(connection):
         """)
 
         # 26. Qdrant vectors table - tracks vector references with tenant isolation (Phase 3-1)
+        # Inherits from IntegrationBaseEntity pattern - integration_id links to embedding config
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS qdrant_vectors (
                 id SERIAL PRIMARY KEY,
-                tenant_id INTEGER NOT NULL,
-                table_name VARCHAR(50) NOT NULL,
-                record_id INTEGER NOT NULL,
-                qdrant_collection VARCHAR(100) NOT NULL,
-                qdrant_point_id UUID NOT NULL,
-                vector_type VARCHAR(50) NOT NULL, -- 'content', 'summary', 'metadata'
-                embedding_model VARCHAR(100) NOT NULL, -- Track which model generated this
-                embedding_provider VARCHAR(50) NOT NULL, -- 'openai', 'azure', 'sentence_transformers'
+
+                -- Agent scope and source identification
+                source_type VARCHAR(50) NOT NULL,           -- 'JIRA', 'GITHUB'
+                table_name VARCHAR(50) NOT NULL,            -- 'work_items', 'prs', etc.
+                record_id INTEGER NOT NULL,                 -- Internal DB record ID
+
+                -- Qdrant references
+                qdrant_collection VARCHAR(100) NOT NULL,    -- 'client_1_jira_work_items'
+                qdrant_point_id UUID NOT NULL,              -- UUID for Qdrant point
+
+                -- Vector metadata
+                vector_type VARCHAR(50) NOT NULL,           -- 'content', 'summary', 'metadata'
+
+                -- IntegrationBaseEntity fields (integration has embedding model/provider info)
+                integration_id INTEGER NOT NULL REFERENCES integrations(id),
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
+                -- Constraints
                 UNIQUE(tenant_id, table_name, record_id, vector_type)
             );
+        """)
+
+        # Indexes for qdrant_vectors table
+        cursor.execute("""
+            -- Index for agent filtering (fast queries by source_type)
+            CREATE INDEX idx_qdrant_vectors_source_type ON qdrant_vectors (tenant_id, source_type);
+
+            -- Unique index for reverse lookups (Qdrant → PostgreSQL)
+            CREATE UNIQUE INDEX idx_qdrant_vectors_point_id ON qdrant_vectors (qdrant_point_id);
+
+            -- Index for active filtering
+            CREATE INDEX idx_qdrant_vectors_active ON qdrant_vectors (tenant_id, active);
         """)
 
         # AI tables removed - tenant_ai_preferences and tenant_ai_configuration not needed yet
@@ -826,7 +850,7 @@ def apply(connection):
         ensure_primary_key('prs_comments', 'pk_prs_comments')
         ensure_primary_key('system_settings', 'pk_system_settings')
         # etl_jobs primary key already defined inline
-        ensure_primary_key('wits_prs_links', 'pk_wits_prs_links')
+        ensure_primary_key('work_items_prs_links', 'pk_work_items_prs_links')
         # raw_extraction_data primary key already defined inline
         ensure_primary_key('migration_history', 'pk_migration_history')
         ensure_primary_key('dora_market_benchmarks', 'pk_dora_market_benchmarks')
@@ -1029,9 +1053,9 @@ def apply(connection):
         add_constraint_if_not_exists('fk_system_settings_tenant_id', 'system_settings', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_etl_jobs_tenant_id', 'etl_jobs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_etl_jobs_integration_id', 'etl_jobs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_work_item_id', 'wits_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_tenant_id', 'wits_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
-        add_constraint_if_not_exists('fk_wits_prs_links_integration_id', 'wits_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_work_item_id', 'work_items_prs_links', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_tenant_id', 'work_items_prs_links', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
+        add_constraint_if_not_exists('fk_work_items_prs_links_integration_id', 'work_items_prs_links', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
         # Color table foreign key
         add_constraint_if_not_exists('fk_tenants_colors_tenant_id', 'tenants_colors', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
@@ -1264,10 +1288,10 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_commits_pr_id ON prs_commits(pr_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_comments_pr_id ON prs_comments(pr_id);")
 
-        # Jira PR links indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_work_item_id ON wits_prs_links(work_item_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_pr ON wits_prs_links(external_repo_id, pull_request_number);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_wits_prs_links_repo_full_name ON wits_prs_links(repo_full_name);")
+        # Work Items PR links indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_work_item_id ON work_items_prs_links(work_item_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_repo_pr ON work_items_prs_links(external_repo_id, pull_request_number);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_prs_links_repo_full_name ON work_items_prs_links(repo_full_name);")
 
         # System table indexes - Autonomous ETL Architecture
         try:
@@ -1322,19 +1346,19 @@ def apply(connection):
 
         # Phase 3-1: Qdrant and AI configuration table indexes
         try:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_tenant ON qdrant_vectors(tenant_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_table_record ON qdrant_vectors(table_name, record_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_collection ON qdrant_vectors(qdrant_collection);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_point_id ON qdrant_vectors(qdrant_point_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qdrant_vectors_provider ON qdrant_vectors(embedding_provider);")
+            # Note: qdrant_vectors indexes already created above (lines 711-720)
+            # - idx_qdrant_vectors_source_type (tenant_id, source_type)
+            # - idx_qdrant_vectors_point_id (qdrant_point_id) UNIQUE
+            # - idx_qdrant_vectors_active (tenant_id, active)
+
             # AI usage tracking table indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_tenant ON ai_usage_trackings(tenant_id);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_provider ON ai_usage_trackings(provider);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_operation ON ai_usage_trackings(operation);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_trackings_created_at ON ai_usage_trackings(created_at);")
-            print("✅ Qdrant and AI usage indexes created")
+            print("✅ AI usage indexes created")
         except Exception as e:
-            print(f"⚠️ Skipping Qdrant and AI usage indexes: {e}")
+            print(f"⚠️ Skipping AI usage indexes: {e}")
 
         # Note: vectorization_queue table removed - vectorization integrated into transform workers
 
@@ -1405,7 +1429,7 @@ def rollback(connection):
             'custom_fields',
 
             # Junction and link tables (depend on main tables)
-            'wits_prs_links',
+            'work_items_prs_links',
             'raw_extraction_data',  # Phase 1: Raw data storage
             'etl_jobs',
             'system_settings',

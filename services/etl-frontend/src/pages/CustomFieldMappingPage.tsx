@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sliders, Save, Database, Download } from 'lucide-react';
+import { Loader2, Sliders, Save, Download, FileText } from 'lucide-react';
 import Header from '../components/Header';
 import CollapsedSidebar from '../components/CollapsedSidebar';
 import ToastContainer from '../components/ToastContainer';
+import IntegrationLogo from '../components/IntegrationLogo';
 
 import { useToast } from '../hooks/useToast';
 import { customFieldsApi, integrationsApi } from '../services/etlApiService';
 import {
   Integration,
-  CustomFieldMappingConfig,
-  CustomFieldMapping,
-  GetCustomFieldMappingResponse
+  CustomField
 } from '../types';
+
+// Mapping state: maps custom_field_XX to custom_fields.id
+interface FieldMappingState {
+  [key: string]: number | null; // e.g., { "custom_field_01": 123, "custom_field_02": null, ... }
+}
 
 const CustomFieldMappingPage: React.FC = () => {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [selectedIntegration, setSelectedIntegration] = useState<number | null>(null);
-  const [mappingConfig, setMappingConfig] = useState<CustomFieldMappingConfig | null>(null);
-  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [fieldMappings, setFieldMappings] = useState<FieldMappingState>({});
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,13 +38,15 @@ const CustomFieldMappingPage: React.FC = () => {
     if (integrations.length > 0 && !selectedIntegration) {
       const jiraIntegration = integrations[0]; // Should be Jira since we filter for it
       setSelectedIntegration(jiraIntegration.id);
+      loadCustomFields(jiraIntegration.id);
       loadMappingConfig(jiraIntegration.id);
     }
   }, [integrations]);
 
-  // Load mapping config when integration is selected
+  // Load custom fields and mapping when integration is selected
   useEffect(() => {
     if (selectedIntegration) {
+      loadCustomFields(selectedIntegration);
       loadMappingConfig(selectedIntegration);
     }
   }, [selectedIntegration]);
@@ -61,28 +67,29 @@ const CustomFieldMappingPage: React.FC = () => {
     }
   };
 
+  const loadCustomFields = async (integrationId: number) => {
+    try {
+      const response = await customFieldsApi.listCustomFields(integrationId);
+      const data = response.data;
+
+      if (data.success) {
+        setCustomFields(data.custom_fields || []);
+      }
+    } catch (error) {
+      console.error('Failed to load custom fields:', error);
+      showError('Load Failed', 'Failed to load custom fields from database');
+    }
+  };
+
   const loadMappingConfig = async (integrationId: number) => {
     try {
       setLoading(true);
-      const response = await customFieldsApi.getMappings(integrationId);
-      const data: GetCustomFieldMappingResponse = response.data;
-      
-      setAvailableColumns(data.available_columns);
-      
-      // Convert the mapping data to our config format
-      const mappings: CustomFieldMapping[] = Object.entries(data.custom_field_mappings || {}).map(([jiraFieldId, config]: [string, any]) => ({
-        jira_field_id: jiraFieldId,
-        jira_field_name: config.field_name || jiraFieldId,
-        mapped_column: config.mapped_column,
-        is_active: config.is_active !== false
-      }));
+      const response = await customFieldsApi.getMappingsTable(integrationId);
+      const data = response.data;
 
-      setMappingConfig({
-        project_id: 0, // Will be set when we add project selection
-        integration_id: integrationId,
-        mappings,
-        last_updated: new Date().toISOString()
-      });
+      if (data.success) {
+        setFieldMappings(data.mappings || {});
+      }
     } catch (error) {
       console.error('Failed to load mapping config:', error);
       showError('Load Failed', 'Failed to load custom field mappings');
@@ -92,27 +99,23 @@ const CustomFieldMappingPage: React.FC = () => {
   };
 
   const saveMappingConfig = async () => {
-    if (!selectedIntegration || !mappingConfig) return;
+    if (!selectedIntegration) return;
 
     try {
       setSaving(true);
 
-      // Convert mappings back to the API format
-      const customFieldMappings = mappingConfig.mappings.reduce((acc, mapping) => {
-        acc[mapping.jira_field_id] = {
-          field_name: mapping.jira_field_name,
-          mapped_column: mapping.mapped_column,
-          is_active: mapping.is_active
-        };
-        return acc;
-      }, {} as Record<string, any>);
+      const response = await customFieldsApi.saveMappingsTable(selectedIntegration, fieldMappings);
+      const data = response.data;
 
-      await customFieldsApi.saveMappings(selectedIntegration, customFieldMappings);
-
-      showSuccess('Save Successful', 'Custom field mappings saved successfully');
-    } catch (error) {
+      if (data.success) {
+        showSuccess('Save Successful', 'Custom field mappings saved successfully');
+      } else {
+        showError('Save Failed', data.message || 'Failed to save custom field mappings');
+      }
+    } catch (error: any) {
       console.error('Failed to save mapping config:', error);
-      showError('Save Failed', 'Failed to save custom field mappings');
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to save custom field mappings';
+      showError('Save Failed', errorMessage);
     } finally {
       setSaving(false);
     }
@@ -136,8 +139,8 @@ const CustomFieldMappingPage: React.FC = () => {
           data.message || `Custom fields sync completed successfully. Discovered ${data.discovered_fields_count || 0} fields.`
         );
 
-        // Reload the mapping config to show any newly discovered fields
-        await loadMappingConfig(selectedIntegration);
+        // Reload custom fields to show newly discovered fields
+        await loadCustomFields(selectedIntegration);
       } else {
         showError('Sync Failed', data.message || 'Custom fields sync failed');
       }
@@ -155,53 +158,11 @@ const CustomFieldMappingPage: React.FC = () => {
     }
   };
 
-  const updateMapping = (index: number, field: keyof CustomFieldMapping, value: any) => {
-    if (!mappingConfig) return;
-
-    const updatedMappings = [...mappingConfig.mappings];
-    updatedMappings[index] = { ...updatedMappings[index], [field]: value };
-    
-    setMappingConfig({
-      ...mappingConfig,
-      mappings: updatedMappings,
-      last_updated: new Date().toISOString()
-    });
-  };
-
-  const addNewMapping = () => {
-    if (!mappingConfig) return;
-
-    const newMapping: CustomFieldMapping = {
-      jira_field_id: '',
-      jira_field_name: '',
-      mapped_column: undefined,
-      is_active: true
-    };
-
-    setMappingConfig({
-      ...mappingConfig,
-      mappings: [...mappingConfig.mappings, newMapping],
-      last_updated: new Date().toISOString()
-    });
-  };
-
-  const removeMapping = (index: number) => {
-    if (!mappingConfig) return;
-
-    const updatedMappings = mappingConfig.mappings.filter((_, i) => i !== index);
-    setMappingConfig({
-      ...mappingConfig,
-      mappings: updatedMappings,
-      last_updated: new Date().toISOString()
-    });
-  };
-
-  const getAvailableColumnsForMapping = (currentColumn?: string) => {
-    const usedColumns = mappingConfig?.mappings
-      .filter(m => m.mapped_column && m.mapped_column !== currentColumn)
-      .map(m => m.mapped_column) || [];
-    
-    return availableColumns.filter(col => !usedColumns.includes(col));
+  const updateFieldMapping = (fieldKey: string, customFieldId: number | null) => {
+    setFieldMappings(prev => ({
+      ...prev,
+      [fieldKey]: customFieldId
+    }));
   };
 
   return (
@@ -240,7 +201,11 @@ const CustomFieldMappingPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                      <Sliders className="h-5 w-5 text-accent" />
+                      <IntegrationLogo
+                        logoFilename={integrations.find(i => i.id === selectedIntegration)?.logo_filename}
+                        integrationName="Jira"
+                        className="h-8 w-8 object-contain"
+                      />
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-primary">Jira Custom Fields Configuration</h3>
@@ -263,40 +228,7 @@ const CustomFieldMappingPage: React.FC = () => {
               </div>
             )}
 
-            {/* Available Custom Field Columns */}
-            {selectedIntegration && !loading && (
-              <div className="mb-6 p-6 rounded-lg shadow-md border border-transparent bg-secondary"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-1)'
-                  e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'transparent'
-                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                }}
-              >
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                    <Database className="h-5 w-5 text-accent" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-primary">Available Database Columns</h3>
-                    <p className="text-sm text-secondary">20 dedicated custom field columns plus JSON overflow</p>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                  {availableColumns.filter(col => col !== 'overflow').map((column) => (
-                    <div key={column} className="px-3 py-2 bg-accent/5 rounded-lg border border-accent/20">
-                      <span className="text-sm font-medium text-primary">{column}</span>
-                    </div>
-                  ))}
-                  <div className="px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <span className="text-sm font-medium text-yellow-800">JSON Overflow</span>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Loading State */}
             {loading && (
@@ -334,8 +266,8 @@ const CustomFieldMappingPage: React.FC = () => {
               </div>
             )}
 
-            {/* Mapping Configuration */}
-            {selectedIntegration && mappingConfig && !loading && (
+            {/* Custom Field Mappings - Table View */}
+            {selectedIntegration && !loading && (
               <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-transparent"
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -347,120 +279,108 @@ const CustomFieldMappingPage: React.FC = () => {
                 }}
               >
                 <div className="px-6 py-5 flex justify-between items-center bg-table-header">
-                  <h2 className="text-lg font-semibold text-table-header">Custom Field Mappings</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={addNewMapping}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M5 12h14"></path>
-                        <path d="M12 5v14"></path>
-                      </svg>
-                      <span>Add Mapping</span>
-                    </button>
-                    <button
-                      onClick={saveMappingConfig}
-                      disabled={saving}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50"
-                    >
-                      <Save className="h-4 w-4" />
-                      <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-                    </button>
+                  <div>
+                    <h2 className="text-lg font-semibold text-table-header">Custom Field Mappings</h2>
+                    <p className="text-sm text-secondary mt-1">Map Jira custom fields to work_items table columns (20 dedicated columns)</p>
                   </div>
+                  <button
+                    onClick={saveMappingConfig}
+                    disabled={saving}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>{saving ? 'Saving...' : 'Save Mappings'}</span>
+                  </button>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-table-column-header">
-                        <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">
-                          Jira Field ID
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">
-                          Field Name
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">
-                          Mapped Column
-                        </th>
-                        <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">
-                          Active
-                        </th>
-                        <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-table-column-header">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mappingConfig.mappings.map((mapping, index) => (
-                        <tr
-                          key={index}
-                          className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}`}
-                        >
-                          <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row">
-                            <input
-                              type="text"
-                              value={mapping.jira_field_id}
-                              onChange={(e) => updateMapping(index, 'jira_field_id', e.target.value)}
-                              className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                              placeholder="customfield_10001"
-                            />
-                          </td>
-                          <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row">
-                            <input
-                              type="text"
-                              value={mapping.jira_field_name}
-                              onChange={(e) => updateMapping(index, 'jira_field_name', e.target.value)}
-                              className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                              placeholder="Field Name"
-                            />
-                          </td>
-                          <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row">
-                            <select
-                              value={mapping.mapped_column || ''}
-                              onChange={(e) => updateMapping(index, 'mapped_column', e.target.value || undefined)}
-                              className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
-                            >
-                              <option value="">Select column...</option>
-                              <option value="overflow">JSON Overflow</option>
-                              {getAvailableColumnsForMapping(mapping.mapped_column).map((column) => (
-                                <option key={column} value={column}>
-                                  {column}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-6 py-5 whitespace-nowrap text-center">
-                            <input
-                              type="checkbox"
-                              checked={mapping.is_active}
-                              onChange={(e) => updateMapping(index, 'is_active', e.target.checked)}
-                              className="h-4 w-4 text-accent focus:ring-accent border-tertiary/20 rounded"
-                            />
-                          </td>
-                          <td className="px-6 py-5 whitespace-nowrap text-center">
-                            <button
-                              onClick={() => removeMapping(index)}
-                              className="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1 rounded-md hover:bg-red-50 transition-colors"
-                            >
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {mappingConfig.mappings.length === 0 && (
+                {customFields.length === 0 ? (
                   <div className="text-center py-12">
-                    <div className="text-6xl mb-4">⚙️</div>
+                    <div className="flex justify-center mb-4">
+                      <FileText className="h-16 w-16 text-secondary" />
+                    </div>
                     <h3 className="text-xl font-semibold text-primary mb-2">
-                      No Mappings Configured
+                      No Custom Fields Found
                     </h3>
-                    <p className="text-secondary">
-                      No custom field mappings configured. Click "Add Mapping" to get started.
+                    <p className="text-secondary mb-4">
+                      Click "Sync from Jira" above to discover custom fields from your Jira projects.
                     </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-table-column-header">
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header w-48">
+                            Work Items Column
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header">
+                            Jira Custom Field
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header w-32">
+                            Field Type
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-table-column-header w-40">
+                            Jira Field ID
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: 20 }, (_, i) => i + 1).map((num, index) => {
+                          const fieldKey = `custom_field_${num.toString().padStart(2, '0')}`;
+                          const selectedFieldId = fieldMappings[fieldKey];
+                          const selectedField = customFields.find(f => f.id === selectedFieldId);
+                          const displayLabel = `Custom Field ${num.toString().padStart(2, '0')}`;
+
+                          return (
+                            <tr
+                              key={fieldKey}
+                              className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'} hover:bg-table-row-hover transition-colors`}
+                            >
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className="flex-shrink-0 w-8 mr-3">
+                                    <span className="text-sm font-medium text-secondary">{num.toString().padStart(2, '0')}</span>
+                                  </div>
+                                  <div className="text-sm font-medium text-primary">{displayLabel}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <select
+                                  value={selectedFieldId || ''}
+                                  onChange={(e) => updateFieldMapping(fieldKey, e.target.value ? parseInt(e.target.value) : null)}
+                                  className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary text-sm focus:ring-2 focus:ring-accent focus:border-accent transition-all"
+                                >
+                                  <option value="">-- Not Mapped --</option>
+                                  {customFields.map((field) => (
+                                    <option key={field.id} value={field.id}>
+                                      {field.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {selectedField ? (
+                                  <span className="text-sm text-secondary">
+                                    {selectedField.field_type}
+                                  </span>
+                                ) : (
+                                  <span className="text-sm text-secondary">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {selectedField ? (
+                                  <code className="text-xs text-secondary bg-tertiary/20 px-2 py-1 rounded">
+                                    {selectedField.external_id}
+                                  </code>
+                                ) : (
+                                  <span className="text-sm text-secondary">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

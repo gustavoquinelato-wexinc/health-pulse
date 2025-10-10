@@ -106,6 +106,15 @@ export interface WorkItem extends IntegrationBaseEntity {
 
 
 
+// Custom field from database
+export interface CustomField {
+  id: number;
+  external_id: string;  // e.g., "customfield_10001"
+  name: string;         // e.g., "Agile Team"
+  field_type: string;   // e.g., "team", "string", "option"
+  operations: string[]; // e.g., ["set"], ["add", "remove"]
+}
+
 // Custom field mapping interfaces
 export interface CustomFieldMapping {
   jira_field_id: string;

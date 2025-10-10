@@ -47,8 +47,8 @@ export default function HomePage() {
   useEffect(() => {
     if (user) {
       fetchJobs()
-      // Initialize WebSocket service when user accesses ETL page
-      etlWebSocketService.initializeService()
+      // WebSocket service is already initialized in AuthContext after login
+      // No need to initialize again here
       // Refresh every 30 seconds
       const interval = setInterval(fetchJobs, 30000)
       return () => clearInterval(interval)

@@ -50,13 +50,14 @@ class BackendDevServer:
         """Start the uvicorn server."""
         if self.process:
             self.stop_server()
-            
+
         cmd = [
             sys.executable, "-m", "uvicorn",
             "app.main:app",
             "--host", "0.0.0.0",
             "--port", "3001",
-            "--log-level", "info"
+            "--log-level", "info",
+            "--no-access-log"  # Disable access logs to reduce noise
         ]
         
         print(f"🚀 Starting backend service: {' '.join(cmd)}")

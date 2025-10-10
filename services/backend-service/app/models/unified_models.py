@@ -57,7 +57,7 @@ class Tenant(Base):
     prs_reviews = relationship("PrReview", back_populates="tenant")
     prs_commits = relationship("PrCommit", back_populates="tenant")
     prs_comments = relationship("PrComment", back_populates="tenant")
-    wits_prs_links = relationship("WitPrLinks", back_populates="tenant")
+    work_items_prs_links = relationship("WorkItemPrLink", back_populates="tenant")
     system_settings = relationship("SystemSettings", back_populates="tenant")
     color_settings = relationship("TenantColors", back_populates="tenant")
 
@@ -237,7 +237,7 @@ class Integration(Base, BaseEntity):
     prs_reviews = relationship("PrReview", back_populates="integration")
     prs_commits = relationship("PrCommit", back_populates="integration")
     prs_comments = relationship("PrComment", back_populates="integration")
-    wits_prs_links = relationship("WitPrLinks", back_populates="integration")
+    work_items_prs_links = relationship("WorkItemPrLink", back_populates="integration")
     etl_jobs = relationship("JobSchedule", back_populates="integration")
     statuses_mappings = relationship("StatusMapping", back_populates="integration")
     wits_hierarchies = relationship("WitHierarchy", back_populates="integration")
@@ -249,6 +249,9 @@ class Integration(Base, BaseEntity):
     # Phase 1: Raw extraction data relationships
     raw_extraction_data = relationship("RawExtractionData", back_populates="integration")
     custom_fields = relationship("CustomField", back_populates="integration")
+
+    # Phase 3-1: Vectorization relationships
+    qdrant_vectors = relationship("QdrantVector", back_populates="integration")
 
 class Project(Base, IntegrationBaseEntity):
     """Projects table"""
@@ -377,7 +380,7 @@ class Wit(Base, IntegrationBaseEntity):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")
     original_name = Column(String, quote=False, nullable=False, name="original_name")
-    wit_mapping_id = Column(Integer, ForeignKey('wits_mappings.id'), quote=False, nullable=True, name="wits_mapping_id")
+    wits_mapping_id = Column(Integer, ForeignKey('wits_mappings.id'), quote=False, nullable=True, name="wits_mapping_id")
     description = Column(String, quote=False, name="description")
     hierarchy_level = Column(Integer, quote=False, nullable=False, name="hierarchy_level")
 
@@ -561,7 +564,7 @@ class WorkItem(Base, IntegrationBaseEntity):
     # New relationships for development data
     prs = relationship("Pr", back_populates="work_item")
     changelogs = relationship("Changelog", back_populates="work_item")
-    pr_links = relationship("WitPrLinks", back_populates="work_item")
+    pr_links = relationship("WorkItemPrLink", back_populates="work_item")
 
 class Changelog(Base, IntegrationBaseEntity):
     """Work item status change history table"""
@@ -1039,15 +1042,15 @@ class JobSchedule(Base, IntegrationBaseEntity):
         return [repo for repo in queue if not repo.get("finished", False)]
 
 
-class WitPrLinks(Base, IntegrationBaseEntity):
+class WorkItemPrLink(Base, IntegrationBaseEntity):
     """
-    Permanent table storing Jira issue to PR links from dev_status API.
+    Permanent table storing work item (Jira issue) to PR links from dev_status API.
 
-    This table stores the facts about which PRs are linked to which Jira issues,
+    This table stores the facts about which PRs are linked to which work items,
     allowing for clean join-based queries without complex staging logic.
     """
 
-    __tablename__ = 'wits_prs_links'
+    __tablename__ = 'work_items_prs_links'
 
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
@@ -1067,8 +1070,8 @@ class WitPrLinks(Base, IntegrationBaseEntity):
 
     # Relationships
     work_item = relationship("WorkItem", back_populates="pr_links")
-    tenant = relationship("Tenant", back_populates="wits_prs_links")
-    integration = relationship("Integration", back_populates="wits_prs_links")
+    tenant = relationship("Tenant", back_populates="work_items_prs_links")
+    integration = relationship("Integration", back_populates="work_items_prs_links")
 
 class MigrationHistory(Base):
     """Migration history tracking table for database migrations."""
@@ -1230,28 +1233,39 @@ class MLAnomalyAlert(Base, BaseEntity):
 
 # ===== PHASE 3-1: NEW MODELS FOR CLEAN ARCHITECTURE =====
 
-class QdrantVector(Base):
-    """Tracks vector references in Qdrant with client isolation (Phase 3-1)."""
+class QdrantVector(Base, IntegrationBaseEntity):
+    """
+    Bridge table tracking vector references in Qdrant with tenant isolation.
+    Supports multi-agent architecture with source_type filtering.
+    Inherits from IntegrationBaseEntity to track which integration generated the embedding.
+    """
     __tablename__ = 'qdrant_vectors'
     __table_args__ = (
         UniqueConstraint('tenant_id', 'table_name', 'record_id', 'vector_type'),
         {'quote': False}
     )
 
+    # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
-    table_name = Column(String(50), nullable=False, quote=False, name="table_name")
-    record_id = Column(Integer, nullable=False, quote=False, name="record_id")
-    qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")
-    qdrant_point_id = Column(UUID(as_uuid=False), nullable=False, quote=False, name="qdrant_point_id")  # UUID type
-    vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
-    embedding_model = Column(String(100), nullable=False, quote=False, name="embedding_model")
-    embedding_provider = Column(String(50), nullable=False, quote=False, name="embedding_provider")
 
-    last_updated_at = Column(DateTime(timezone=True), default=func.now(), quote=False, name="last_updated_at")
+    # Agent scope and source identification
+    source_type = Column(String(50), nullable=False, quote=False, name="source_type")  # 'JIRA', 'GITHUB'
+    table_name = Column(String(50), nullable=False, quote=False, name="table_name")  # 'work_items', 'prs', etc.
+    record_id = Column(Integer, nullable=False, quote=False, name="record_id")  # Internal DB record ID
+
+    # Qdrant references
+    qdrant_collection = Column(String(100), nullable=False, quote=False, name="qdrant_collection")  # 'client_1_jira_work_items'
+    qdrant_point_id = Column(UUID(as_uuid=False), nullable=False, unique=True, quote=False, name="qdrant_point_id")  # UUID
+
+    # Vector metadata
+    vector_type = Column(String(50), nullable=False, quote=False, name="vector_type")  # 'content', 'summary', 'metadata'
+
+    # IntegrationBaseEntity provides: integration_id, tenant_id, active, created_at, last_updated_at
+    # The integration_id links to the Integration table which has the embedding model and provider info
 
     # Relationships
     tenant = relationship("Tenant", back_populates="qdrant_vectors")
+    integration = relationship("Integration", back_populates="qdrant_vectors")
 
 
 
