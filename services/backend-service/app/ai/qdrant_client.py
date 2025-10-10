@@ -53,8 +53,7 @@ class PulseQdrantClient:
             self.client = QdrantClient(
                 host=self.host,
                 port=self.port,
-                timeout=self.timeout,
-                check_compatibility=False  # Skip version check (client 1.15.1 vs server 1.11.0)
+                timeout=self.timeout
             )
 
             # Reduce HTTP request logging verbosity
