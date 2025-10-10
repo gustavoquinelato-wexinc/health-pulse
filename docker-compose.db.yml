@@ -118,7 +118,7 @@ services:
 
   # Qdrant Vector Database for Phase 3 Clean Architecture
   qdrant:
-    image: qdrant/qdrant:v1.11.0
+    image: qdrant/qdrant:v1.15.1
     container_name: pulse-qdrant
     restart: unless-stopped
     ports:
