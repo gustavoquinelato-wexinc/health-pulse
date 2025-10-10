@@ -27,7 +27,7 @@ from app.core.database import get_database
 from app.models.unified_models import (
     User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, Changelog,
     Repository, Pr, PrCommit, PrReview, PrComment,
-    WitPrLinks, Wit, Status, JobSchedule, SystemSettings, TenantColors,
+    WorkItemPrLink, Wit, Status, JobSchedule, SystemSettings, TenantColors,
     StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
     ProjectWits, ProjectsStatuses
 )
@@ -661,7 +661,7 @@ async def get_system_stats(
                 "prs_commits": PrCommit,
                 "prs_reviews": PrReview,
                 "prs_comments": PrComment,
-                "wits_prs_links": WitPrLinks,
+                "work_items_prs_links": WorkItemPrLink,
                 "wits": Wit,
                 "statuses": Status,
                 "statuses_mappings": StatusMapping,
@@ -766,7 +766,7 @@ async def get_system_stats(
                     'prs_comments': PrComment,
                     'prs_commits': PrCommit,
                     'prs_reviews': PrReview,
-                    'wits_prs_links': WitPrLinks
+                    'work_items_prs_links': WorkItemPrLink
                 }
 
                 for table_name, model in growth_tables.items():

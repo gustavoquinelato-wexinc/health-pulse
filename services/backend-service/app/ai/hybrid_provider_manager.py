@@ -72,15 +72,18 @@ class HybridProviderManager:
                 return False
 
             for integration in integrations:
+                # Extract settings from JSON field (new schema)
+                settings = integration.settings or {}
+
                 provider_config = ProviderConfig(
                     integration_id=integration.id,
                     provider=integration.provider,
                     type=integration.type,
                     base_url=integration.base_url,
                     api_key=AppConfig.decrypt_token(integration.password, AppConfig.load_key()) if integration.password else None,
-                    ai_model=integration.ai_model or "",
-                    ai_model_config=integration.ai_model_config or {},
-                    cost_config=integration.cost_config or {},
+                    ai_model=settings.get('model_path', ''),  # model_path from settings JSON
+                    ai_model_config=settings,  # Use entire settings as model config
+                    cost_config={'cost_tier': settings.get('cost_tier', 'free')},  # Extract cost_tier
                     fallback_integration_id=integration.fallback_integration_id,
                     active=integration.active
                 )
@@ -97,8 +100,7 @@ class HybridProviderManager:
 
                 elif integration.type == 'Embedding':
                     # Embedding Provider - decide based on source (local vs external)
-                    config = integration.ai_model_config or {}
-                    source = config.get('source', 'external')  # Default to external if not specified
+                    source = settings.get('source', 'external')  # Default to external if not specified
 
                     if source == 'local':
                         # Local embedding via Sentence Transformers
@@ -112,7 +114,7 @@ class HybridProviderManager:
                         provider_instance = WEXGatewayProvider(integration)
                         provider_key = f"embedding_external_{integration.id}"
                         self.providers[provider_key] = provider_instance
-                        gateway_route = config.get('gateway_route', False)
+                        gateway_route = settings.get('gateway_route', False)
                         route_type = "via gateway" if gateway_route else "direct"
                         logger.info(f"Initialized external embedding provider '{integration.provider}' ({route_type}) (ID: {integration.id}) for tenant {tenant_id}")
 
@@ -487,3 +489,16 @@ class HybridProviderManager:
                 'details': 'Configuration test failed',
                 'error': str(e)
             }
+
+    async def cleanup(self):
+        """Cleanup all provider resources to prevent event loop errors"""
+        try:
+            for provider_key, provider in self.providers.items():
+                if hasattr(provider, 'cleanup'):
+                    try:
+                        await provider.cleanup()
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up provider {provider_key}: {e}")
+            logger.debug("HybridProviderManager cleaned up all providers")
+        except Exception as e:
+            logger.warning(f"Error during HybridProviderManager cleanup: {e}")

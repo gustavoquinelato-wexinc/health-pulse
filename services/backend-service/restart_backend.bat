@@ -13,6 +13,6 @@ timeout /t 2 /nobreak >nul
 REM Start the backend service
 echo Starting backend service on port 3001...
 cd /d "%~dp0"
-python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --log-level info
+python -m uvicorn app.main:app --host 0.0.0.0 --port 3001 --log-level info --no-access-log
 
 pause

@@ -45,7 +45,7 @@ logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.CRITICAL)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
 logging.getLogger("sqlalchemy.dialects").setLevel(logging.CRITICAL)
 logging.getLogger("sqlalchemy.orm").setLevel(logging.CRITICAL)
-logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Suppress most access logs
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
 # Disable SQLAlchemy logging at the root level
@@ -179,6 +179,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 async def lifespan(_: FastAPI):
     """Manages the application lifecycle."""
     logger.info("🚀 Starting Backend Service...")
+
+    # Disable Uvicorn access logging completely
+    # This prevents HTTP request logs from cluttering the output
+    import logging
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_access_logger.disabled = True
+    uvicorn_access_logger.handlers = []
+
+    # Apply token masking filters to remaining loggers
+    from app.core.logging_config import apply_uvicorn_filters
+    apply_uvicorn_filters()
 
     # Initialize variables at the top level so they're available in finally block
     worker_manager = None
@@ -638,12 +649,16 @@ if __name__ == "__main__":
 
     try:
         print(f"[INFO] Starting Backend Service on {settings.HOST}:{settings.PORT}")
+
+        # Simplest solution: Disable Uvicorn access logs (we have our own logging)
+        # This prevents token exposure in logs while maintaining application logging
         uvicorn.run(
             "app.main:app",
             host=settings.HOST,
             port=settings.PORT,
             reload=settings.DEBUG,
-            log_level=settings.LOG_LEVEL.lower()
+            log_level=settings.LOG_LEVEL.lower(),
+            access_log=False  # Disable access logs to prevent token exposure
         )
     except KeyboardInterrupt:
         # This is expected during Ctrl+C - don't log it as an error

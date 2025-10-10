@@ -9,7 +9,7 @@ from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.models.unified_models import (
     WorkItem, Project, Status, StatusMapping, Wit, WitMapping,
-    WitHierarchy, WitPrLinks
+    WitHierarchy, WorkItemPrLink
 )
 
 router = APIRouter(prefix="/api/v1/metrics/dora", tags=["DORA Metrics"])
@@ -85,7 +85,7 @@ async def lead_time_trend(
                 AND i.work_last_completed_at >= NOW() - INTERVAL '365 days'
                 AND EXISTS (
                     SELECT 1
-                    FROM wits_prs_links jprl
+                    FROM work_items_prs_links jprl
                     WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here
@@ -244,9 +244,9 @@ async def lead_time_metrics(
                 WorkItem.custom_field_05.label('aha_milestone'),
                 WorkItem.tenant_id
             ).distinct().select_from(
-                WitPrLinks
+                WorkItemPrLink
             ).join(
-                WorkItem, WitPrLinks.work_item_id == WorkItem.id
+                WorkItem, WorkItemPrLink.work_item_id == WorkItem.id
             ).join(
                 Status, WorkItem.status_id == Status.id
             ).join(
@@ -263,7 +263,7 @@ async def lead_time_metrics(
                 StatusMapping.status_to == 'Done',
                 WitHierarchy.level_number == 0,
                 WitMapping.wit_to.in_(['Story', 'Tech Enhancement']),
-                WitPrLinks.pr_status == 'MERGED',
+                WorkItemPrLink.pr_status == 'MERGED',
                 WorkItem.total_lead_time_seconds > 0,
                 WorkItem.tenant_id == user.tenant_id,
                 # ✅ SECURITY: Exclude deactivated records at ANY level
@@ -271,7 +271,7 @@ async def lead_time_metrics(
                 Status.active == True,
                 Wit.active == True,
                 Project.active == True,
-                WitPrLinks.active == True
+                WorkItemPrLink.active == True
             )
             # Apply filters
             if start_date:
@@ -414,7 +414,7 @@ async def get_filter_options(
                 AND i.tenant_id = :tenant_id
                 AND EXISTS (
                     SELECT 1
-                    FROM wits_prs_links jprl
+                    FROM work_items_prs_links jprl
                     WHERE jprl.work_item_id = i.id
                       AND jprl.pr_status = 'MERGED'
                       AND jprl.active = true -- Also check for active here

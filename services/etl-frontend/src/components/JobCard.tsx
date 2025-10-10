@@ -146,7 +146,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
   // Calculate countdown timer
   useEffect(() => {
-    if (!job.next_run || !job.active) {
+    // Don't show countdown if job is not active or is currently running
+    if (!job.active || realTimeStatus === 'RUNNING') {
+      setCountdown('—')
+      return
+    }
+
+    if (!job.next_run) {
       setCountdown('Calculating...')
       return
     }
@@ -191,7 +197,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     const interval = setInterval(updateCountdown, 1000)
 
     return () => clearInterval(interval)
-  }, [job.next_run, job.active])
+  }, [job.next_run, job.active, realTimeStatus])
 
   // WebSocket connection for real-time progress tracking - only for active jobs
   useEffect(() => {

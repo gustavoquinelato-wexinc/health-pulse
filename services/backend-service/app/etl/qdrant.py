@@ -14,7 +14,7 @@ from app.models.unified_models import (
     User, WorkItem, Changelog, Project, Status, Wit,
     WitHierarchy, WitMapping, StatusMapping, Workflow,
     Pr, PrComment, PrReview, PrCommit, Repository,
-    WitPrLinks
+    WorkItemPrLink
 )
 
 router = APIRouter()
@@ -94,7 +94,7 @@ async def get_qdrant_dashboard(
                 get_entity_stats(Wit, "Work Item Types"),
                 get_entity_stats(WitHierarchy, "WIT Hierarchies"),
                 get_entity_stats(WitMapping, "WIT Mappings"),
-                get_entity_stats(WitPrLinks, "WIT PR Links"),
+                get_entity_stats(WorkItemPrLink, "Work Item PR Links"),
                 get_entity_stats(StatusMapping, "Status Mappings"),
                 get_entity_stats(Workflow, "Workflows"),
             ]

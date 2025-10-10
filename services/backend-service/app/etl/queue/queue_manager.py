@@ -48,6 +48,7 @@ class QueueManager:
 
         # Multi-tenant queue topology
         self.TRANSFORM_QUEUE_PREFIX = 'transform_queue_tenant_'
+        self.VECTORIZATION_QUEUE_PREFIX = 'vectorization_queue_tenant_'
 
         logger.info(f"QueueManager initialized: {self.username}@{self.host}:{self.port}/{self.vhost}")
 
@@ -114,7 +115,7 @@ class QueueManager:
     def setup_queues(self, tenant_ids: Optional[list] = None):
         """
         Set up multi-tenant queue topology.
-        Creates queues for specified tenants or discovers active tenants.
+        Creates transform and vectorization queues for specified tenants or discovers active tenants.
 
         Args:
             tenant_ids: List of tenant IDs to create queues for. If None, discovers active tenants.
@@ -124,19 +125,29 @@ class QueueManager:
             if tenant_ids is None:
                 tenant_ids = self._get_active_tenant_ids()
 
-            # Create tenant-specific queues
+            # Create tenant-specific queues (both transform and vectorization)
             for tenant_id in tenant_ids:
-                queue_name = self.get_tenant_queue_name(tenant_id, 'transform')
+                # Transform queue
+                transform_queue = self.get_tenant_queue_name(tenant_id, 'transform')
                 channel.queue_declare(
-                    queue=queue_name,
+                    queue=transform_queue,
                     durable=True,  # Survive broker restart
                     arguments={'x-message-ttl': 86400000}  # 24 hours TTL
                 )
-                logger.info(f"Queue declared: {queue_name}")
+                logger.info(f"Queue declared: {transform_queue}")
+
+                # Vectorization queue
+                vectorization_queue = self.get_tenant_queue_name(tenant_id, 'vectorization')
+                channel.queue_declare(
+                    queue=vectorization_queue,
+                    durable=True,  # Survive broker restart
+                    arguments={'x-message-ttl': 86400000}  # 24 hours TTL
+                )
+                logger.info(f"Queue declared: {vectorization_queue}")
 
             # Legacy queue removed - using only tenant-specific queues
 
-        logger.info(f"✅ Multi-tenant queue topology setup complete for {len(tenant_ids)} tenants")
+        logger.info(f"✅ Multi-tenant queue topology setup complete for {len(tenant_ids)} tenants (transform + vectorization)")
 
     def setup_tenant_queue(self, tenant_id: int, queue_type: str = 'transform'):
         """
@@ -208,6 +219,43 @@ class QueueManager:
             self.setup_tenant_queue(tenant_id, 'transform')
         except Exception as e:
             logger.warning(f"Failed to ensure tenant queue exists: {e}")
+
+        return self._publish_message(tenant_queue, message)
+
+    def publish_vectorization_job(
+        self,
+        tenant_id: int,
+        table_name: str,
+        external_id: str,
+        operation: str = "insert"
+    ) -> bool:
+        """
+        Publish a vectorization job to the tenant-specific vectorization queue.
+
+        Args:
+            tenant_id: Tenant ID
+            table_name: Name of the table (work_items, prs, etc.)
+            external_id: External ID of the entity (or internal ID for work_items_prs_links)
+            operation: Operation type ('insert', 'update', 'delete')
+
+        Returns:
+            bool: True if published successfully
+        """
+        message = {
+            'tenant_id': tenant_id,
+            'table_name': table_name,
+            'external_id': external_id,
+            'operation': operation
+        }
+
+        # Use tenant-specific vectorization queue
+        tenant_queue = self.get_tenant_queue_name(tenant_id, 'vectorization')
+
+        # Ensure tenant queue exists
+        try:
+            self.setup_tenant_queue(tenant_id, 'vectorization')
+        except Exception as e:
+            logger.warning(f"Failed to ensure vectorization queue exists: {e}")
 
         return self._publish_message(tenant_queue, message)
 

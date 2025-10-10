@@ -187,12 +187,29 @@ export const projectsApi = {
 
 // Custom Fields API (Phase 2.1)
 export const customFieldsApi = {
-  // Get custom field mappings for an integration
+  // Get list of custom fields from database for an integration
+  listCustomFields: async (integrationId: number) => {
+    return await etlApi.get(`/custom-fields/list/${integrationId}`)
+  },
+
+  // Get custom field mappings from custom_fields_mapping table
+  getMappingsTable: async (integrationId: number) => {
+    return await etlApi.get(`/custom-fields/mappings-table/${integrationId}`)
+  },
+
+  // Save custom field mappings to custom_fields_mapping table
+  saveMappingsTable: async (integrationId: number, mappings: Record<string, number | null>) => {
+    return await etlApi.put(`/custom-fields/mappings-table/${integrationId}`, {
+      mappings
+    })
+  },
+
+  // Get custom field mappings for an integration (legacy - from integration.custom_field_mappings)
   getMappings: async (integrationId: number) => {
     return await etlApi.get(`/custom-fields/mappings/${integrationId}`)
   },
 
-  // Save custom field mappings for an integration
+  // Save custom field mappings for an integration (legacy - to integration.custom_field_mappings)
   saveMappings: async (integrationId: number, mappings: Record<string, any>) => {
     return await etlApi.put(`/custom-fields/mappings/${integrationId}`, {
       custom_field_mappings: mappings

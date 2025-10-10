@@ -328,7 +328,7 @@ async def validate_token(request: Request):
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]  # Remove "Bearer " prefix
-            logger.info(f"[AUTH] Backend validating token from header (length: {len(token)})")
+            logger.debug(f"[AUTH] Backend validating token from header (length: {len(token)})")
 
         # 2. Fallback to cookie if no Authorization header
         if not token:
@@ -359,7 +359,7 @@ async def validate_token(request: Request):
                     if token_data.get("valid"):
                         user_data = token_data.get("user")
                         # Log success without exposing email address (PII)
-                        logger.info(f"[AUTH] Backend token validation successful (centralized) for user_id: {user_data.get('id')}")
+                        logger.debug(f"[AUTH] Backend token validation successful (centralized) for user_id: {user_data.get('id')}")
 
                         # Enforce revocation: require an ACTIVE DB session for this token
                         from app.core.database import get_database
@@ -388,9 +388,9 @@ async def validate_token(request: Request):
 
                         return TokenValidationResponse(valid=True, user=user_data)
         except Exception as e:
-            logger.warning(f"[AUTH] Error contacting centralized auth service: {e}")
+            logger.debug(f"[AUTH] Error contacting centralized auth service: {e}")
 
-        logger.warning(f"[AUTH] Backend token validation failed (token length: {len(token)})")
+        logger.debug(f"[AUTH] Backend token validation failed (token length: {len(token)})")
         return TokenValidationResponse(valid=False, user=None)
             
     except Exception as e:

@@ -21,16 +21,20 @@ class WEXGatewayProvider:
         self.integration = integration
         self.base_url = integration.base_url
         self.api_key = AppConfig.decrypt_token(integration.password, AppConfig.load_key()) if integration.password else None
-        self.model_config = integration.ai_model_config or {}
-        self.cost_config = integration.cost_config or {}
-        
+
+        # Extract settings from JSON field (new schema)
+        settings = integration.settings or {}
+        self.model_config = settings
+        self.cost_config = {'cost_tier': settings.get('cost_tier', 'free')}
+        self.model_name = settings.get('model_path', 'azure-text-embedding-3-small')
+
         # Initialize OpenAI client pointing to WEX Gateway
         self.client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=self.api_key,
             timeout=self.model_config.get('timeout', 120)
         )
-        
+
         # Performance tracking
         self.request_count = 0
         self.total_cost = 0.0
@@ -42,9 +46,9 @@ class WEXGatewayProvider:
             return []
 
         start_time = time.time()
-        
+
         # Use model from integration or parameter
-        model_name = model or self.integration.ai_model or "azure-text-embedding-3-small"
+        model_name = model or self.model_name
         batch_size = self.model_config.get('batch_size', 100)
         max_retries = self.model_config.get('max_retries', 3)
 
@@ -100,7 +104,7 @@ class WEXGatewayProvider:
             return ""
 
         start_time = time.time()
-        model_name = model or self.integration.ai_model or "azure-gpt-4o-mini"
+        model_name = model or self.model_name
         max_retries = self.model_config.get('max_retries', 3)
         
         # Merge model config with kwargs
@@ -155,7 +159,7 @@ class WEXGatewayProvider:
                 "status": "healthy" if test_response and len(test_response) > 0 else "unhealthy",
                 "provider": "WEX AI Gateway",
                 "base_url": self.base_url,
-                "model": self.integration.ai_model,
+                "model": self.model_name,
                 "request_count": self.request_count,
                 "total_cost": self.total_cost,
                 "avg_response_time": self.avg_response_time,
@@ -194,3 +198,12 @@ class WEXGatewayProvider:
             "total_cost": self.total_cost,
             "status": "active"
         }
+
+    async def cleanup(self):
+        """Cleanup async resources to prevent event loop errors"""
+        try:
+            if self.client:
+                await self.client.close()
+                logger.debug("WEX Gateway provider cleaned up")
+        except Exception as e:
+            logger.warning(f"Error during WEX Gateway cleanup: {e}")

@@ -39,9 +39,9 @@ Pulse Platform implements a hybrid AI architecture supporting multiple providers
 
 ## 🔍 Vectorization System
 
-### Comprehensive Data Vectorization
+### Multi-Agent Vectorization Architecture
 
-All ETL data tables are vectorized for unified semantic search:
+All ETL data tables are vectorized with source_type classification for specialized AI agents:
 
 ```
 ┌─────────────────┐    Embedding    ┌─────────────────┐    Storage    ┌─────────────────┐
@@ -102,6 +102,93 @@ def store_vector(entity_id: str, vector: List[float], metadata: dict):
         }
     }
     qdrant_client.upsert(collection_name="pulse_vectors", points=[point])
+```
+
+### Multi-Agent Architecture
+
+#### Source Type Classification
+
+All vectorized data is classified by source_type for specialized agent access:
+
+```python
+SOURCE_TYPE_MAPPING = {
+    # Jira Agent's scope
+    'work_items': 'JIRA',
+    'changelogs': 'JIRA',
+    'projects': 'JIRA',
+    'statuses': 'JIRA',
+    'workflows': 'JIRA',
+    'wits': 'JIRA',
+    'wits_prs_links': 'JIRA',  # Jira agent owns cross-system links
+
+    # GitHub Agent's scope
+    'prs': 'GITHUB',
+    'prs_commits': 'GITHUB',
+    'prs_reviews': 'GITHUB',
+    'prs_comments': 'GITHUB',
+    'repositories': 'GITHUB',
+    'dora_metric_insights': 'GITHUB',
+    'dora_market_benchmarks': 'GITHUB',
+}
+```
+
+#### Agent Query Patterns
+
+```python
+# Jira Agent: Get all Jira vectors
+jira_vectors = session.query(QdrantVector).filter(
+    QdrantVector.tenant_id == tenant_id,
+    QdrantVector.source_type == 'JIRA',
+    QdrantVector.active == True
+).all()
+
+# GitHub Agent: Get all GitHub vectors
+github_vectors = session.query(QdrantVector).filter(
+    QdrantVector.tenant_id == tenant_id,
+    QdrantVector.source_type == 'GITHUB',
+    QdrantVector.active == True
+).all()
+
+# Master Agent: Orchestrate across all agents
+all_vectors = session.query(QdrantVector).join(Integration).filter(
+    QdrantVector.tenant_id == tenant_id,
+    QdrantVector.source_type.in_(['JIRA', 'GITHUB']),
+    QdrantVector.active == True
+).all()
+```
+
+#### Bridge Table Schema
+
+The `qdrant_vectors` table provides PostgreSQL ↔ Qdrant mapping:
+
+```sql
+CREATE TABLE qdrant_vectors (
+    id SERIAL PRIMARY KEY,
+
+    -- Agent scope and source identification
+    source_type VARCHAR(50) NOT NULL,           -- 'JIRA', 'GITHUB'
+    table_name VARCHAR(50) NOT NULL,            -- 'work_items', 'prs', etc.
+    record_id INTEGER NOT NULL,                 -- Internal DB record ID
+
+    -- Qdrant references
+    qdrant_collection VARCHAR(100) NOT NULL,    -- 'client_1_jira_work_items'
+    qdrant_point_id UUID NOT NULL UNIQUE,       -- UUID for Qdrant point
+
+    -- Vector metadata
+    vector_type VARCHAR(50) NOT NULL,           -- 'content', 'summary', 'metadata'
+
+    -- IntegrationBaseEntity fields
+    integration_id INTEGER NOT NULL REFERENCES integrations(id),
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for multi-agent queries
+CREATE INDEX idx_qdrant_vectors_source_type ON qdrant_vectors (tenant_id, source_type);
+CREATE UNIQUE INDEX idx_qdrant_vectors_point_id ON qdrant_vectors (qdrant_point_id);
+CREATE INDEX idx_qdrant_vectors_active ON qdrant_vectors (tenant_id, active);
 ```
 
 ### Vectorized Data Tables
