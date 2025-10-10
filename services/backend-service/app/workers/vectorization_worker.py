@@ -140,8 +140,12 @@ class VectorizationWorker(BaseWorker):
                 entity_data = self._prepare_entity_data(entity, table_name)
                 record_id = entity.id
 
-                # Get integration_id from entity (most entities have integration_id)
+                # Get integration_id from entity (all vectorized entities have integration_id)
                 integration_id = getattr(entity, 'integration_id', None)
+
+                if not integration_id:
+                    logger.error(f"Entity missing integration_id: {table_name} - {external_id}")
+                    return False
 
                 if not entity_data:
                     logger.warning(f"No data to vectorize for {table_name} - {external_id}")
