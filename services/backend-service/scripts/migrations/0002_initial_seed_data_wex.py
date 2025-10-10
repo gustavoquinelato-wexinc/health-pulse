@@ -1234,6 +1234,9 @@ def rollback(connection):
         print("📋 Removing custom fields...")
         cursor.execute("DELETE FROM custom_fields WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
+        print("📋 Removing qdrant vectors...")
+        cursor.execute("DELETE FROM qdrant_vectors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+
         print("📋 Removing all integrations for WEX tenant...")
         cursor.execute("DELETE FROM integrations WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
