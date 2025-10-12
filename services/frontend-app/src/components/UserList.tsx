@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { User, UsersResponse } from '../types';
+import { UsersResponse } from '../types';
 import apiService from '../services/apiService';
 
 interface UserListProps {

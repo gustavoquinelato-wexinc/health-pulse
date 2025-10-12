@@ -39,10 +39,10 @@ function pulse-frontend {
     Write-Host "[PULSE] Frontend App" -ForegroundColor Blue
 }
 
-# ETL Frontend app directory
-function pulse-etl-frontend {
-    Set-Location C:\workspace\health-pulse\services\etl-frontend\
-    Write-Host "[PULSE] ETL Frontend" -ForegroundColor Blue
+# Frontend ETL app directory
+function pulse-frontend-etl {
+    Set-Location C:\workspace\health-pulse\services\frontend-etl\
+    Write-Host "[PULSE] Frontend ETL" -ForegroundColor Blue
 }
 
 
@@ -82,10 +82,10 @@ function run-frontend {
     npm run dev
 }
 
-# Starts the ETL frontend dev server
-function run-etl-frontend {
-    pulse-etl-frontend
-    Write-Host "[START] Starting ETL frontend dev server..." -ForegroundColor Green
+# Starts the Frontend ETL dev server
+function run-frontend-etl {
+    pulse-frontend-etl
+    Write-Host "[START] Starting Frontend ETL dev server..." -ForegroundColor Green
     npm run dev
 }
 
@@ -195,7 +195,7 @@ function run-all {
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "run-backend"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "run-auth"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "run-frontend"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "run-etl-frontend"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "run-frontend-etl"
     Start-Sleep -Seconds 3
     run-qdrant
     run-rabbit
@@ -208,7 +208,7 @@ function run-all-tabs {
     wt -w 0 new-tab --title "Backend"      powershell.exe -NoExit -Command "run-backend"
     wt -w 0 new-tab --title "Auth"         powershell.exe -NoExit -Command "run-auth"
     wt -w 0 new-tab --title "Frontend"     powershell.exe -NoExit -Command "run-frontend"
-    wt -w 0 new-tab --title "ETL-Frontend" powershell.exe -NoExit -Command "run-etl-frontend"
+    wt -w 0 new-tab --title "Frontend-ETL" powershell.exe -NoExit -Command "run-frontend-etl"
     Start-Sleep -Seconds 3
     run-qdrant
     run-rabbit
@@ -236,7 +236,7 @@ function dev-setup {
 
     Write-Host "[INSTALL] Installing Node.js dependencies..." -ForegroundColor Cyan
     pulse-frontend; npm install
-    pulse-etl-frontend; npm install
+    pulse-frontend-etl; npm install
 
     Write-Host "[SUCCESS] Development setup complete!" -ForegroundColor Green
 }
@@ -273,7 +273,7 @@ function pulse-health {
 Set-Alias -Name p -Value pulse
 Set-Alias -Name pb -Value pulse-backend
 Set-Alias -Name pf -Value pulse-frontend
-Set-Alias -Name pe -Value pulse-etl-frontend
+Set-Alias -Name pfe -Value pulse-frontend-etl
 Set-Alias -Name rb -Value restart-backend
 Set-Alias -Name dbr -Value db-rollback
 Set-Alias -Name dbm -Value db-migrate

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
-from app.models.unified_models import Status, StatusMapping, Workflow, Integration, User
+from app.models.unified_models import Status, StatusMapping, Workflow, Integration, User, QdrantVector
 
 router = APIRouter()
 
@@ -368,6 +368,16 @@ async def update_status_mapping(
             if mapping_data.active is not None:
                 mapping.active = mapping_data.active
 
+                # Update corresponding vectors in qdrant_vectors
+                session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == user.tenant_id,
+                    QdrantVector.table_name == 'status_mappings',
+                    QdrantVector.record_id == mapping_id
+                ).update({
+                    'active': mapping_data.active,
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
+
             mapping.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
@@ -440,6 +450,16 @@ async def update_workflow(
                 workflow.integration_id = workflow_data.integration_id
             if workflow_data.active is not None:
                 workflow.active = workflow_data.active
+
+                # Update corresponding vectors in qdrant_vectors
+                session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == user.tenant_id,
+                    QdrantVector.table_name == 'workflows',
+                    QdrantVector.record_id == workflow_id
+                ).update({
+                    'active': workflow_data.active,
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
 
             workflow.last_updated_at = DateTimeHelper.now_default()
             session.commit()

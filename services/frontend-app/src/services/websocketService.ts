@@ -1,6 +1,9 @@
 /**
  * WebSocket service for real-time updates in the frontend
  * Handles color schema updates and other real-time notifications
+ *
+ * NOTE: Currently disabled - WebSocket endpoint /ws/notifications not yet implemented on backend service
+ * To enable: Implement /ws/notifications endpoint on backend-service and set shouldReconnect = true
  */
 
 interface WebSocketMessage {
@@ -24,10 +27,11 @@ class WebSocketService {
   private reconnectDelay = 1000
   private messageHandlers: Map<string, MessageHandler[]> = new Map()
   private isConnecting = false
-  private shouldReconnect = true
+  private shouldReconnect = false // Disabled by default - WebSocket endpoint not yet implemented
 
   constructor() {
-    this.connect()
+    // Don't auto-connect - WebSocket endpoint /ws/notifications not yet implemented on backend
+    // this.connect()
   }
 
   private connect(): void {
@@ -38,11 +42,11 @@ class WebSocketService {
     this.isConnecting = true
 
     try {
-      // Connect to ETL service WebSocket for color updates
-      // We'll use the orchestrator WebSocket endpoint since it's always available
+      // Connect to Backend service WebSocket for color updates
+      // Using backend service (port 3001) instead of legacy ETL service (port 8000)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const etlHost = import.meta.env.VITE_ETL_SERVICE_URL?.replace(/^https?:\/\//, '') || 'localhost:8000'
-      const wsUrl = `${protocol}//${etlHost}/ws/progress/orchestrator`
+      const backendHost = import.meta.env.VITE_API_BASE_URL?.replace(/^https?:\/\//, '') || 'localhost:3001'
+      const wsUrl = `${protocol}//${backendHost}/ws/notifications`
 
 
 

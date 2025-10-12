@@ -9,7 +9,6 @@ import ColorSchemeSettingsPage from './pages/ColorSchemeSettingsPage'
 import DeploymentFrequencyPage from './pages/DeploymentFrequencyPage'
 import DoraCombinedPage from './pages/DoraCombinedPage'
 import DoraOverviewPage from './pages/DoraOverviewPage'
-import EngineeringAnalyticsPage from './pages/EngineeringAnalyticsPage'
 
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import TenantManagementPage from './pages/TenantManagementPage'
@@ -24,16 +23,6 @@ import UserManagementPage from './pages/UserManagementPage'
 import UserPreferencesPage from './pages/UserPreferencesPage'
 import AIConfigurationPage from './pages/ai/AIConfigurationPage'
 import AIPerformancePage from './pages/ai/AIPerformancePage'
-import BranchingPage from './pages/engineering/Deployments/BranchingPage'
-import CadencePage from './pages/engineering/Deployments/CadencePage'
-import FlowEfficiencyPage from './pages/engineering/LeadTime/FlowEfficiencyPage'
-import PRLifecyclePage from './pages/engineering/LeadTime/PRLifecyclePage'
-import ReviewsPage from './pages/engineering/LeadTime/ReviewsPage'
-import WipBatchPage from './pages/engineering/LeadTime/WipBatchPage'
-import HotfixesPage from './pages/engineering/Quality/HotfixesPage'
-import PostReleasePage from './pages/engineering/Quality/PostReleasePage'
-import IncidentsPage from './pages/engineering/Reliability/IncidentsPage'
-import RecoveryPage from './pages/engineering/Reliability/RecoveryPage'
 
 
 function App() {
@@ -114,34 +103,6 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-
-                {/* Engineering Analytics Routes */}
-                <Route
-                  path="/engineering"
-                  element={
-                    <ProtectedRoute>
-                      <EngineeringAnalyticsPage />
-                    </ProtectedRoute>
-                  }
-                />
-                {/* Lead-Time Drivers */}
-                <Route path="/engineering/lead-time" element={<ProtectedRoute><EngineeringAnalyticsPage /></ProtectedRoute>} />
-                <Route path="/engineering/lead-time/pr-lifecycle" element={<ProtectedRoute><PRLifecyclePage /></ProtectedRoute>} />
-                <Route path="/engineering/lead-time/reviews" element={<ProtectedRoute><ReviewsPage /></ProtectedRoute>} />
-                <Route path="/engineering/lead-time/wip-batch" element={<ProtectedRoute><WipBatchPage /></ProtectedRoute>} />
-                <Route path="/engineering/lead-time/flow-efficiency" element={<ProtectedRoute><FlowEfficiencyPage /></ProtectedRoute>} />
-                {/* Deployment Drivers */}
-                <Route path="/engineering/deployments" element={<ProtectedRoute><EngineeringAnalyticsPage /></ProtectedRoute>} />
-                <Route path="/engineering/deployments/branching" element={<ProtectedRoute><BranchingPage /></ProtectedRoute>} />
-                <Route path="/engineering/deployments/cadence" element={<ProtectedRoute><CadencePage /></ProtectedRoute>} />
-                {/* Quality Drivers */}
-                <Route path="/engineering/quality" element={<ProtectedRoute><EngineeringAnalyticsPage /></ProtectedRoute>} />
-                <Route path="/engineering/quality/post-release" element={<ProtectedRoute><PostReleasePage /></ProtectedRoute>} />
-                <Route path="/engineering/quality/hotfixes" element={<ProtectedRoute><HotfixesPage /></ProtectedRoute>} />
-                {/* Reliability Drivers */}
-                <Route path="/engineering/reliability" element={<ProtectedRoute><EngineeringAnalyticsPage /></ProtectedRoute>} />
-                <Route path="/engineering/reliability/incidents" element={<ProtectedRoute><IncidentsPage /></ProtectedRoute>} />
-                <Route path="/engineering/reliability/recovery" element={<ProtectedRoute><RecoveryPage /></ProtectedRoute>} />
 
 
 

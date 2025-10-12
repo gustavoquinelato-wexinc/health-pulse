@@ -17,7 +17,8 @@ from app.core.logging_config import get_logger
 from app.models.unified_models import (
     WorkItem, Changelog, Project, Status, Wit,
     Pr, PrCommit, PrReview, PrComment, Repository,
-    WorkItemPrLink, Integration, QdrantVector
+    WorkItemPrLink, Integration, QdrantVector,
+    WitHierarchy, WitMapping, StatusMapping, Workflow
 )
 
 logger = get_logger(__name__)
@@ -75,7 +76,12 @@ class VectorizationWorker(BaseWorker):
         'prs_reviews': PrReview,
         'prs_comments': PrComment,
         'repositories': Repository,
-        'work_items_prs_links': WorkItemPrLink
+        'work_items_prs_links': WorkItemPrLink,
+        # Mapping tables (use internal ID)
+        'wits_hierarchies': WitHierarchy,
+        'wits_mappings': WitMapping,
+        'statuses_mappings': StatusMapping,
+        'workflows': Workflow
     }
     
     def __init__(self, tenant_id: int):
@@ -140,10 +146,12 @@ class VectorizationWorker(BaseWorker):
                 entity_data = self._prepare_entity_data(entity, table_name)
                 record_id = entity.id
 
-                # Get integration_id from entity (all vectorized entities have integration_id)
+                # Get integration_id from entity
                 integration_id = getattr(entity, 'integration_id', None)
 
-                if not integration_id:
+                # For mapping tables, integration_id can be NULL (global/tenant-level configs)
+                # For other tables, integration_id is required
+                if not integration_id and table_name not in ['wits_hierarchies', 'wits_mappings', 'statuses_mappings', 'workflows']:
                     logger.error(f"Entity missing integration_id: {table_name} - {external_id}")
                     return False
 
@@ -234,6 +242,14 @@ class VectorizationWorker(BaseWorker):
 
             # Special case for work_items_prs_links: use internal ID
             elif table_name == 'work_items_prs_links':
+                entity = session.query(model).filter(
+                    model.id == int(external_id),
+                    model.tenant_id == tenant_id,
+                    model.active == True
+                ).first()
+
+            # Special case for mapping tables: use internal ID
+            elif table_name in ['wits_hierarchies', 'wits_mappings', 'statuses_mappings', 'workflows']:
                 entity = session.query(model).filter(
                     model.id == int(external_id),
                     model.tenant_id == tenant_id,
@@ -369,7 +385,7 @@ class VectorizationWorker(BaseWorker):
                 work_item_key = ""
                 if entity.work_item:
                     work_item_key = entity.work_item.key
-                
+
                 return {
                     "work_item_key": work_item_key,
                     "repo_full_name": entity.repo_full_name or "",
@@ -378,7 +394,77 @@ class VectorizationWorker(BaseWorker):
                     "pr_status": entity.pr_status or "",
                     "created_at": self._serialize_datetime(entity.created_at)
                 }
-            
+
+            elif table_name == "wits_hierarchies":
+                # Get integration name from relationship
+                integration_name = ""
+                if entity.integration:
+                    integration_name = entity.integration.provider or ""
+
+                return {
+                    "level_name": entity.level_name or "",
+                    "level_number": entity.level_number or 0,
+                    "description": entity.description or "",
+                    "integration_name": integration_name
+                }
+
+            elif table_name == "wits_mappings":
+                # Get hierarchy level from relationship
+                hierarchy_level = None
+                hierarchy_name = ""
+                if entity.wit_hierarchy:
+                    hierarchy_level = entity.wit_hierarchy.level_number
+                    hierarchy_name = entity.wit_hierarchy.level_name or ""
+
+                # Get integration name from relationship
+                integration_name = ""
+                if entity.integration:
+                    integration_name = entity.integration.provider or ""
+
+                return {
+                    "wit_from": entity.wit_from or "",
+                    "wit_to": entity.wit_to or "",
+                    "hierarchy_level": hierarchy_level or 0,
+                    "hierarchy_name": hierarchy_name,
+                    "integration_name": integration_name
+                }
+
+            elif table_name == "statuses_mappings":
+                # Get workflow step info from relationship
+                workflow_step_name = ""
+                workflow_step_number = None
+                if entity.workflow:
+                    workflow_step_name = entity.workflow.step_name or ""
+                    workflow_step_number = entity.workflow.step_number
+
+                # Get integration name from relationship
+                integration_name = ""
+                if entity.integration:
+                    integration_name = entity.integration.provider or ""
+
+                return {
+                    "status_from": entity.status_from or "",
+                    "status_to": entity.status_to or "",
+                    "status_category": entity.status_category or "",
+                    "workflow_step_name": workflow_step_name,
+                    "workflow_step_number": workflow_step_number or 0,
+                    "integration_name": integration_name
+                }
+
+            elif table_name == "workflows":
+                # Get integration name from relationship
+                integration_name = ""
+                if entity.integration:
+                    integration_name = entity.integration.provider or ""
+
+                return {
+                    "step_name": entity.step_name or "",
+                    "step_number": entity.step_number or 0,
+                    "step_category": entity.step_category or "",
+                    "is_commitment_point": entity.is_commitment_point or False,
+                    "integration_name": integration_name
+                }
+
             else:
                 logger.warning(f"No entity data preparation defined for table: {table_name}")
                 return None

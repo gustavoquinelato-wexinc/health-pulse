@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Pr, PrsResponse } from '../types';
+import { PrsResponse } from '../types';
 import apiService from '../services/apiService';
 
 interface PrListProps {

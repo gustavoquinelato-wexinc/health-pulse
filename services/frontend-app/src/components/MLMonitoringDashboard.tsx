@@ -194,7 +194,7 @@ export const MLMonitoringDashboard: React.FC<MLMonitoringDashboardProps> = ({
                 <div className="text-secondary">No learning memories found</div>
               </div>
             ) : (
-              learningMemory.learning_memories.map((memory, index) => (
+              learningMemory.learning_memories.map((memory) => (
                 <div key={memory.id} className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-start justify-between mb-2">
                     <h4 className="font-medium text-primary">{memory.error_type}</h4>
@@ -223,7 +223,7 @@ export const MLMonitoringDashboard: React.FC<MLMonitoringDashboardProps> = ({
                 <div className="text-secondary">No predictions found</div>
               </div>
             ) : (
-              predictions.predictions.map((prediction, index) => (
+              predictions.predictions.map((prediction) => (
                 <div key={prediction.id} className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-start justify-between mb-2">
                     <h4 className="font-medium text-primary">{prediction.model_name}</h4>
@@ -258,7 +258,7 @@ export const MLMonitoringDashboard: React.FC<MLMonitoringDashboardProps> = ({
                 <div className="text-secondary">No anomaly alerts found</div>
               </div>
             ) : (
-              anomalyAlerts.anomaly_alerts.map((alert, index) => (
+              anomalyAlerts.anomaly_alerts.map((alert) => (
                 <div key={alert.id} className={`border rounded-lg p-4 ${
                   alert.severity === 'high' ? 'bg-red-50 border-red-200' :
                   alert.severity === 'medium' ? 'bg-yellow-50 border-yellow-200' :

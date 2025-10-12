@@ -26,7 +26,7 @@ Ensure these ports are available:
 - **3001**: Backend service API
 - **4000**: Auth service
 - **5173**: Frontend development server
-- **3333**: ETL frontend
+- **3333**: Frontend ETL
 - **8000**: ETL service
 - **5432**: PostgreSQL primary database
 - **5433**: PostgreSQL replica database
@@ -296,10 +296,10 @@ npm run dev
 npm run build
 ```
 
-### ETL Frontend Setup
+### Frontend ETL Setup
 
 ```bash
-cd services/etl-frontend
+cd services/frontend-etl
 
 # Install dependencies
 npm install
@@ -376,7 +376,7 @@ curl http://localhost:8000/health    # ETL Service (Legacy)
 
 # Frontend applications
 curl http://localhost:3000           # Frontend App
-curl http://localhost:3333           # ETL Frontend
+curl http://localhost:3333           # Frontend ETL
 
 # Database and infrastructure
 curl http://localhost:3001/health/db     # PostgreSQL connectivity
@@ -390,7 +390,7 @@ curl http://localhost:15672             # RabbitMQ management UI
 | Service | Port | Purpose |
 |---------|------|---------|
 | **Frontend App** | 3000 | Main React application |
-| **ETL Frontend** | 3333 | ETL management interface |
+| **Frontend ETL** | 3333 | ETL management interface |
 | **Backend Service** | 3001 | Main API and business logic |
 | **Auth Service** | 4000 | Authentication and authorization |
 | **ETL Service** | 8000 | ⚠️ LEGACY - Reference only |

@@ -366,6 +366,3 @@ export const HealthCheck: React.FC<HealthCheckProps> = ({
 };
 
 export default HealthCheck;
-
-// Export component for use in admin pages
-export { HealthCheck };

@@ -61,7 +61,7 @@ Pulse Platform transforms raw development data into actionable business intellig
                     │                       │
                     ▼                       ▼
 ┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
-│  Backend        │              │  ETL Frontend   │              │  Auth Service   │
+│  Backend        │              │  Frontend ETL   │              │  Auth Service   │
 │  Service        │◄────────────►│  (React/TS)     │              │  (FastAPI)      │
 │  (FastAPI)      │              │  Port: 3333     │              │  Port: 4000     │
 │  Port: 3001     │              │                 │              │                 │
@@ -147,7 +147,7 @@ The platform provides comprehensive API documentation through OpenAPI/Swagger:
 
 - **Auth Service**: `http://localhost:4000/health` (API-only authentication backend)
 - **Backend Service API**: `http://localhost:3001/docs` (Core business logic and ETL endpoints)
-- **ETL Frontend**: `http://localhost:3333` (ETL management interface)
+- **Frontend ETL**: `http://localhost:3333` (ETL management interface)
 - **Legacy ETL Service**: `http://localhost:8002/docs` (⚠️ DEPRECATED - Reference only)
 
 ## 🎯 Target Audience
