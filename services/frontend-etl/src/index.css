@@ -3,6 +3,77 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Variables matching old ETL service */
+:root {
+    --crud-create: #059669; /* Green for active/create states */
+    --status-neutral: #6b7280; /* Gray for inactive/neutral states */
+}
+
+/* Enhanced toggle switches matching old ETL service style */
+.job-toggle-switch {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    justify-content: center;
+}
+
+.toggle-switch {
+    position: relative;
+    width: 36px !important;
+    height: 18px !important;
+    background-color: var(--status-neutral) !important; /* Gray for OFF state */
+    border-radius: 9px !important;
+    transition: background-color 0.3s ease !important;
+    cursor: pointer !important;
+    margin-right: 6px !important;
+}
+
+.toggle-switch input {
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+.toggle-slider {
+    position: absolute !important;
+    top: 1px !important;
+    left: 1px !important;
+    width: 16px !important;
+    height: 16px !important;
+    background-color: white !important;
+    border-radius: 50% !important;
+    transition: transform 0.3s ease !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    transform: translateX(18px) !important;
+}
+
+.toggle-switch.active {
+    background-color: var(--crud-create) !important; /* Green for ON state - matches old ETL */
+}
+
+.toggle-switch.active .toggle-slider {
+    transform: translateX(18px) !important;
+}
+
+.toggle-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 6px;
+}
+
+/* Table row hover effects - border color change only */
+tbody tr:hover {
+    box-shadow: inset 0 0 0 2px var(--color-1) !important; /* Colorful border on hover */
+    position: relative !important; /* Ensure visibility above other rows */
+    z-index: 1 !important; /* Bring hovered row to front */
+    transition: box-shadow 0.15s ease-in-out !important;
+}
+
 /* CSS Custom Properties - Enterprise Color System */
 :root {
   /* Universal System Colors - Never change regardless of theme/client */
@@ -58,22 +129,82 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
-  /* Border Radius */
+  /* Table-specific Variables - Light Theme */
+  --table-container: #334155;
+  --table-header: #1a2332;
+  --table-header-text: #ffffff;
+  --table-column-header: #253746;
+  --table-column-header-text: #ffffff;
+  --table-row-even: #f9fafb;
+  --table-row-odd: #e5e7eb;
+  --table-row-text: #111827;
+
+  /* Shadcn/UI Variables - Light Theme */
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222.2 84% 4.9%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222.2 84% 4.9%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 80%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
 }
 
-/* Dark Theme Variables */
+/* Dark Theme Variables - VS Code Theme */
 [data-theme="dark"] {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --border-color: #475569;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --text-primary: #cccccc;
+  --text-secondary: #cccccc;
+  --text-muted: #858585;
+  --border-color: #3e3e42;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+
+  /* Table-specific Variables - Dark Theme (VS Code) */
+  --table-container: #252526;
+  --table-header: #002925;
+  --table-header-text: #ffffff;
+  --table-column-header: #10544c;
+  --table-column-header-text: #ffffff;
+  --table-row-even: #1e1e1e;
+  --table-row-odd: #252526;
+  --table-row-text: #cccccc;
+
+  /* Shadcn/UI Variables - Dark Theme */
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 30%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
 }
 
 /* Custom Color Schema Override removed. Colors are applied dynamically via ThemeContext. */
@@ -230,6 +361,13 @@
     @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
   }
 
+  .input:disabled {
+    background-color: var(--bg-tertiary);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   /* Navigation Styles */
   .nav-link {
     color: var(--text-secondary);
@@ -270,6 +408,39 @@
 
   .border-default {
     border-color: var(--border-color);
+  }
+
+  /* Table-specific utility classes */
+  .bg-table-container {
+    background-color: var(--table-container);
+  }
+
+  .bg-table-header {
+    background-color: var(--table-header);
+  }
+
+  .text-table-header {
+    color: var(--table-header-text);
+  }
+
+  .bg-table-column-header {
+    background-color: var(--table-column-header);
+  }
+
+  .text-table-column-header {
+    color: var(--table-column-header-text);
+  }
+
+  .bg-table-row-even {
+    background-color: var(--table-row-even);
+  }
+
+  .bg-table-row-odd {
+    background-color: var(--table-row-odd);
+  }
+
+  .text-table-row {
+    color: var(--table-row-text);
   }
 
   /* Custom Color Utilities */
@@ -492,7 +663,7 @@
   [data-theme="dark"] .sidebar-container {
     @apply bg-gradient-to-b from-gray-800 to-gray-900;
     border-right: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+    box-shadow: 2px 0 10px rgba(255, 255, 255, 0.05);
   }
 
   /* Enhanced Form Elements */

@@ -1,26 +1,27 @@
-import { motion } from 'framer-motion';
+import { motion } from 'framer-motion'
 import {
-  BarChart3,
+  Activity,
+  ArrowLeftRight,
+  Database,
   Home,
-  Settings
-} from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
+  Plug
+} from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface NavigationItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  path: string;
-  adminOnly?: boolean;
-  isAction?: boolean;
+  id: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  path: string
+  adminOnly?: boolean
   subItems?: Array<{
-    id: string;
-    label: string;
-    path: string;
-  }>;
+    id: string
+    label: string
+    path: string
+  }>
 }
 
 const navigationItems: NavigationItem[] = [
@@ -31,33 +32,33 @@ const navigationItems: NavigationItem[] = [
     path: '/home'
   },
   {
-    id: 'dora',
-    label: 'DORA Metrics',
-    icon: BarChart3,
-    path: '/dora',
-    subItems: [
-      { id: 'deployment-frequency', label: 'Deployment Frequency', path: '/dora/deployment-frequency' },
-      { id: 'lead-time', label: 'Lead Time for Changes', path: '/dora/lead-time' },
-      { id: 'time-to-restore', label: 'Time to Restore', path: '/dora/time-to-restore' },
-      { id: 'change-failure-rate', label: 'Change Failure Rate', path: '/dora/change-failure-rate' },
-      { id: 'dora-flow', label: 'DORA + Flow', path: '/dora/combined' }
-    ]
+    id: 'mappings',
+    label: 'Mappings',
+    icon: ArrowLeftRight,
+    path: '/mappings'
   },
   {
-    id: 'settings',
-    label: 'Settings',
-    icon: Settings,
-    path: '/settings',
-    adminOnly: true,
-    subItems: [
-      { id: 'ai-config', label: 'AI Configuration', path: '/settings/ai-config' },
-      { id: 'ai-performance', label: 'AI Performance', path: '/settings/ai-performance' },
-      { id: 'color-scheme', label: 'Color Scheme', path: '/settings/color-scheme' },
-      { id: 'notifications', label: 'Notifications', path: '/settings/notifications' },
-      { id: 'client-management', label: 'Tenant Management', path: '/settings/client-management' },
-      { id: 'user-management', label: 'User Management', path: '/settings/user-management' }
-    ]
+    id: 'integrations',
+    label: 'Integrations',
+    icon: Plug,
+    path: '/integrations'
+  },
+  {
+    id: 'qdrant',
+    label: 'Qdrant',
+    icon: Database,
+    path: '/qdrant'
+  },
+  {
+    id: 'queue-management',
+    label: 'Queue Management',
+    icon: Activity,
+    path: '/queue-management'
   }
+]
+
+const adminItems: NavigationItem[] = [
+  // Admin-only items can be added here if needed
 ]
 
 export default function CollapsedSidebar() {
@@ -79,21 +80,17 @@ export default function CollapsedSidebar() {
     }
   }
 
-  // Smart positioning approach
   const handleMouseEnter = (e: React.MouseEvent, item: any) => {
     clearHoverTimeout()
 
     const rect = e.currentTarget.getBoundingClientRect()
     const viewportHeight = window.innerHeight
-    const submenuHeight = item.subItems ? (item.subItems.length * 40 + 60) : 40 // Estimate submenu height
+    const submenuHeight = item.subItems ? (item.subItems.length * 40 + 60) : 40
 
-    // Calculate optimal Y position
     let yPosition = rect.top
 
-    // If submenu would extend below viewport, position it above the item
     if (rect.top + submenuHeight > viewportHeight) {
       yPosition = rect.bottom - submenuHeight
-      // Ensure it doesn't go above the top of the viewport
       if (yPosition < 0) {
         yPosition = Math.max(0, viewportHeight - submenuHeight - 10)
       }
@@ -102,7 +99,6 @@ export default function CollapsedSidebar() {
     setTooltipPosition({ x: rect.right + 8, y: yPosition })
     setHoveredItem(item.id)
 
-    // For items with submenus, show the submenu panel immediately
     if (item.subItems) {
       setOpenSubmenu(item.id)
     } else {
@@ -113,19 +109,17 @@ export default function CollapsedSidebar() {
   const handleMouseLeave = () => {
     clearHoverTimeout()
 
-    // For simple items, hide tooltip immediately
     if (hoveredItem && !openSubmenu) {
       setHoveredItem(null)
       return
     }
 
-    // For submenu items, use a delay to allow moving to the submenu
     hoverTimeoutRef.current = setTimeout(() => {
       if (!isHoveringSubmenu) {
         setHoveredItem(null)
         setOpenSubmenu(null)
       }
-    }, 200) // 200ms delay like gustractor_pulse
+    }, 200)
   }
 
   const handleSubmenuMouseEnter = () => {
@@ -138,14 +132,8 @@ export default function CollapsedSidebar() {
       setIsHoveringSubmenu(false)
       setHoveredItem(null)
       setOpenSubmenu(null)
-    }, 100) // 100ms delay like gustractor_pulse
+    }, 100)
   }
-
-
-
-
-
-
 
   const isActive = (item: any) => {
     if (item.path === '/home' && location.pathname === '/home') return true
@@ -156,7 +144,7 @@ export default function CollapsedSidebar() {
     return false
   }
 
-  // Cleanup & Outside Click Handling - gustractor_pulse approach
+  // Cleanup & Outside Click Handling
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const t = event.target as Node
@@ -174,32 +162,6 @@ export default function CollapsedSidebar() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
       clearHoverTimeout()
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const t = event.target as Node
-      const insideSidebar = sidebarRef.current?.contains(t)
-      const insideSubmenu = submenuRef.current?.contains(t)
-      if (!insideSidebar && !insideSubmenu) {
-        clearHoverTimeout()
-        setOpenSubmenu(null)
-        setHoveredItem(null)
-        setIsHoveringSubmenu(false)
-        // Remove any existing native submenu
-        const existing = document.getElementById('native-submenu')
-        if (existing) existing.remove()
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      clearHoverTimeout()
-      // Clean up native submenu on unmount
-      const existing = document.getElementById('native-submenu')
-      if (existing) existing.remove()
     }
   }, [])
 
@@ -208,14 +170,10 @@ export default function CollapsedSidebar() {
       {/* Collapsed Sidebar */}
       <aside
         ref={sidebarRef}
-        className="fixed left-0 w-16 z-40 overflow-visible flex flex-col"
-        style={{
-          top: '64px',
-          height: 'calc(100vh - 64px)',
-          background: 'transparent'
-        }}
+        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 z-40 overflow-visible flex flex-col"
+        style={{ background: 'transparent' }}
       >
-        {/* Main Navigation - Centered with background */}
+        {/* Main Navigation */}
         <div className="flex-1 flex flex-col justify-center">
           <div className="flex flex-col space-y-3 py-4 w-full" style={{
             backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
@@ -225,41 +183,79 @@ export default function CollapsedSidebar() {
               : '2px 0 3px 0 rgba(0, 0, 0, 0.1), 0 -3px 3px 0 rgba(0, 0, 0, 0.1), 0 3px 3px 0 rgba(0, 0, 0, 0.1)'
           }}>
             {navigationItems
-              .filter(item => !item.adminOnly || isAdmin)
-              .map((item) => (
-                <div key={item.id} className="relative">
-                  <motion.div
-                    onMouseEnter={(e) => handleMouseEnter(e, item)}
-                    onMouseLeave={handleMouseLeave}
+            .filter(item => !item.adminOnly || isAdmin)
+            .map((item) => (
+              <div key={item.id} className="relative">
+                <motion.div
+                  onMouseEnter={(e) => handleMouseEnter(e, item)}
+                  onMouseLeave={handleMouseLeave}
+                >
+                  <Link
+                    to={item.path}
+                    className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                      ? 'nav-item-active'
+                      : 'text-secondary hover:bg-tertiary hover:text-primary'
+                      }`}
+                    style={isActive(item) ? {
+                      background: 'var(--gradient-1-2)',
+                      color: 'var(--on-gradient-1-2)'
+                    } : {}}
+                    onMouseEnter={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = 'none'
+                      }
+                    }}
                   >
-                    <Link
-                      to={item.path}
-                      className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
-                        ? 'nav-item-active'
-                        : 'text-secondary hover:bg-tertiary hover:text-primary'
-                        }`}
-                      style={isActive(item) ? {
-                        background: 'var(--gradient-1-2)',
-                        color: 'var(--on-gradient-1-2)'
-                      } : {}}
-                      onMouseEnter={(e) => {
-                        if (!isActive(item)) {
-                          e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive(item)) {
-                          e.currentTarget.style.border = 'none'
-                        }
-                      }}
-                    >
-                      <item.icon className="w-[18px] h-[18px]" />
-                    </Link>
-                  </motion.div>
-                </div>
-              ))}
+                    <item.icon className="w-[18px] h-[18px]" />
+                  </Link>
+                </motion.div>
+              </div>
+            ))}
           </div>
         </div>
+
+        {/* Admin Settings */}
+        {isAdmin && (
+          <div className="px-2 py-4">
+            {adminItems.map((item) => (
+              <div key={item.id} className="relative">
+                <motion.div
+                  onMouseEnter={(e) => handleMouseEnter(e, item)}
+                  onMouseLeave={handleMouseLeave}
+                >
+                  <Link
+                    to={item.path}
+                    className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
+                      ? 'nav-item-active'
+                      : 'text-secondary hover:bg-tertiary hover:text-primary'
+                      }`}
+                    style={isActive(item) ? {
+                      background: 'var(--gradient-1-2)',
+                      color: 'var(--on-gradient-1-2)'
+                    } : {}}
+                    onMouseEnter={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive(item)) {
+                        e.currentTarget.style.border = 'none'
+                      }
+                    }}
+                  >
+                    <item.icon className="w-[18px] h-[18px]" />
+                  </Link>
+                </motion.div>
+              </div>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* Simple Tooltips for items without submenus */}
@@ -269,7 +265,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = navigationItems.find(i => i.id === hoveredItem)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === hoveredItem)
             if (!item || (item as any).subItems) return null
 
             return (
@@ -285,7 +281,7 @@ export default function CollapsedSidebar() {
         </div>
       )}
 
-      {/* Submenu Panels for items with subpages */}
+      {/* Submenu Panels */}
       {openSubmenu && (
         <div
           ref={submenuRef}
@@ -293,7 +289,7 @@ export default function CollapsedSidebar() {
           style={{ left: tooltipPosition.x, top: tooltipPosition.y }}
         >
           {(() => {
-            const item = navigationItems.find(i => i.id === openSubmenu)
+            const item = [...navigationItems, ...adminItems].find(i => i.id === openSubmenu)
             if (!item || !(item as any).subItems) return null
 
             return (

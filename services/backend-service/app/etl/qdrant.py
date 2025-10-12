@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func
+import logging
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
@@ -14,10 +15,63 @@ from app.models.unified_models import (
     User, WorkItem, Changelog, Project, Status, Wit,
     WitHierarchy, WitMapping, StatusMapping, Workflow,
     Pr, PrComment, PrReview, PrCommit, Repository,
-    WorkItemPrLink
+    WorkItemPrLink, QdrantVector
 )
+from app.ai.qdrant_client import PulseQdrantClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/qdrant/test-connection")
+async def test_qdrant_connection(user: User = Depends(require_authentication)):
+    """Test Qdrant connection and list collections"""
+    try:
+        qdrant_client = PulseQdrantClient()
+        connected = await qdrant_client.initialize()
+
+        if not connected:
+            return {
+                "success": False,
+                "error": "Failed to connect to Qdrant"
+            }
+
+        collections_response = await qdrant_client.list_collections()
+
+        # Get detailed info for first collection if any exist
+        collection_details = []
+        for collection_name in collections_response.get("collections", [])[:3]:  # Test first 3
+            try:
+                import asyncio
+                info = await asyncio.get_event_loop().run_in_executor(
+                    None, qdrant_client.client.get_collection, collection_name
+                )
+                collection_details.append({
+                    "name": collection_name,
+                    "type": str(type(info)),
+                    "attributes": [attr for attr in dir(info) if not attr.startswith('_')],
+                    "points_count": getattr(info, 'points_count', 'N/A'),
+                    "vectors_count": getattr(info, 'vectors_count', 'N/A'),
+                })
+            except Exception as e:
+                collection_details.append({
+                    "name": collection_name,
+                    "error": str(e)
+                })
+
+        return {
+            "success": True,
+            "connected": connected,
+            "collections": collections_response,
+            "sample_details": collection_details
+        }
+    except Exception as e:
+        logger.error(f"Test connection error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 class EntityStats(BaseModel):
@@ -25,6 +79,8 @@ class EntityStats(BaseModel):
     database_count: int
     qdrant_count: int
     completion: int
+    qdrant_collection_exists: bool = False
+    qdrant_actual_vectors: int = 0
 
 
 class IntegrationGroup(BaseModel):
@@ -51,61 +107,133 @@ async def get_qdrant_dashboard(
         database = get_database()
         tenant_id = user.tenant_id
 
+        # Initialize Qdrant client to get actual collection data
+        qdrant_client = PulseQdrantClient()
+        qdrant_connected = await qdrant_client.initialize()
+
+        logger.info(f"🔌 Qdrant connection status: {qdrant_connected}")
+        logger.info(f"🔌 Qdrant host: {qdrant_client.host}:{qdrant_client.port}")
+
+        # Get all collections from Qdrant if connected
+        qdrant_collections = {}
+        if qdrant_connected:
+            try:
+                import asyncio
+
+                # Get collections list
+                collections_response = await qdrant_client.list_collections()
+                logger.info(f"📦 Qdrant collections response: {collections_response}")
+                logger.info(f"📦 Collections list: {collections_response.get('collections', [])}")
+
+                # Build a map of collection names to their info
+                for collection_name in collections_response.get("collections", []):
+                    logger.info(f"🔍 Checking collection: {collection_name} (tenant_id: {tenant_id})")
+                    # Extract table name from collection name (format: tenant_{tenant_id}_{table_name})
+                    if collection_name.startswith(f"tenant_{tenant_id}_"):
+                        table_name = collection_name.replace(f"tenant_{tenant_id}_", "")
+                        logger.info(f"✅ Found collection for table: {table_name}")
+
+                        try:
+                            # Get collection info using asyncio executor
+                            collection_info = await asyncio.get_event_loop().run_in_executor(
+                                None, qdrant_client.client.get_collection, collection_name
+                            )
+
+                            # Extract points count - collection_info.points_count is the correct attribute
+                            points_count = getattr(collection_info, 'points_count', 0)
+
+                            logger.info(f"✓ Collection {table_name}: {points_count} points")
+
+                            qdrant_collections[table_name] = {
+                                "exists": True,
+                                "vectors_count": points_count,
+                                "points_count": points_count
+                            }
+
+                        except Exception as e:
+                            logger.warning(f"Could not get detailed info for {collection_name}: {e}")
+                            # Still mark as existing even if we can't get count
+                            qdrant_collections[table_name] = {
+                                "exists": True,
+                                "vectors_count": 0,
+                                "points_count": 0
+                            }
+
+            except Exception as e:
+                logger.error(f"❌ Error fetching Qdrant collections: {e}", exc_info=True)
+        else:
+            logger.warning("⚠️ Qdrant client not connected")
+
+        logger.info(f"📊 Final qdrant_collections map: {qdrant_collections}")
+
         with database.get_read_session_context() as session:
             # Helper function to get count and vectorized count for a table
-            def get_entity_stats(model, name: str) -> EntityStats:
+            def get_entity_stats(model, name: str, table_name: str) -> EntityStats:
                 try:
                     # Get database count
                     db_count = session.query(func.count(model.id)).filter(
                         model.tenant_id == tenant_id
                     ).scalar() or 0
 
-                    # NOTE: vectorization_queue table was removed in migration 0005
-                    # Vectorization is now integrated into transform workers
-                    # TODO: Query Qdrant directly for actual vectorized counts
-                    # For now, set to 0 (no vectorization tracking)
-                    vectorized_count = 0
+                    # Query qdrant_vectors table for tracking count
+                    vectorized_count = session.query(func.count(QdrantVector.id)).filter(
+                        QdrantVector.tenant_id == tenant_id,
+                        QdrantVector.table_name == table_name,
+                        QdrantVector.active == True
+                    ).scalar() or 0
+
+                    # Get actual Qdrant collection data if available
+                    qdrant_info = qdrant_collections.get(table_name, {})
+                    collection_exists = qdrant_info.get("exists", False)
+                    actual_vectors = qdrant_info.get("points_count", 0)
+
+                    # Use actual Qdrant count if available, otherwise use bridge table count
+                    effective_count = actual_vectors if collection_exists else vectorized_count
 
                     # Calculate completion percentage
-                    completion = int((vectorized_count / db_count * 100)) if db_count > 0 else 0
+                    completion = int((effective_count / db_count * 100)) if db_count > 0 else 0
 
                     return EntityStats(
                         name=name,
                         database_count=db_count,
-                        qdrant_count=vectorized_count,
-                        completion=completion
+                        qdrant_count=effective_count,
+                        completion=completion,
+                        qdrant_collection_exists=collection_exists,
+                        qdrant_actual_vectors=actual_vectors
                     )
                 except Exception as e:
-                    print(f"Error getting stats for {name}: {str(e)}")
+                    logger.error(f"Error getting stats for {name}: {str(e)}")
                     # Return zero stats if there's an error
                     return EntityStats(
                         name=name,
                         database_count=0,
                         qdrant_count=0,
-                        completion=0
+                        completion=0,
+                        qdrant_collection_exists=False,
+                        qdrant_actual_vectors=0
                     )
 
             # Jira entities
             jira_entities = [
-                get_entity_stats(WorkItem, "Work Items"),
-                get_entity_stats(Changelog, "Changelogs"),
-                get_entity_stats(Project, "Projects"),
-                get_entity_stats(Status, "Statuses"),
-                get_entity_stats(Wit, "Work Item Types"),
-                get_entity_stats(WitHierarchy, "WIT Hierarchies"),
-                get_entity_stats(WitMapping, "WIT Mappings"),
-                get_entity_stats(WorkItemPrLink, "Work Item PR Links"),
-                get_entity_stats(StatusMapping, "Status Mappings"),
-                get_entity_stats(Workflow, "Workflows"),
+                get_entity_stats(WorkItem, "Work Items", "work_items"),
+                get_entity_stats(Changelog, "Changelogs", "changelogs"),
+                get_entity_stats(Project, "Projects", "projects"),
+                get_entity_stats(Status, "Statuses", "statuses"),
+                get_entity_stats(Wit, "Work Item Types", "wits"),
+                get_entity_stats(WitHierarchy, "WIT Hierarchies", "wits_hierarchies"),
+                get_entity_stats(WitMapping, "WIT Mappings", "wits_mappings"),
+                get_entity_stats(WorkItemPrLink, "Work Item PR Links", "wits_prs_links"),
+                get_entity_stats(StatusMapping, "Status Mappings", "statuses_mappings"),
+                get_entity_stats(Workflow, "Workflows", "workflows"),
             ]
 
             # GitHub entities
             github_entities = [
-                get_entity_stats(Pr, "Pull Requests"),
-                get_entity_stats(PrComment, "PR Comments"),
-                get_entity_stats(PrReview, "PR Reviews"),
-                get_entity_stats(PrCommit, "PR Commits"),
-                get_entity_stats(Repository, "Repositories"),
+                get_entity_stats(Pr, "Pull Requests", "prs"),
+                get_entity_stats(PrComment, "PR Comments", "prs_comments"),
+                get_entity_stats(PrReview, "PR Reviews", "prs_reviews"),
+                get_entity_stats(PrCommit, "PR Commits", "prs_commits"),
+                get_entity_stats(Repository, "Repositories", "repositories"),
             ]
 
             # Create integration groups

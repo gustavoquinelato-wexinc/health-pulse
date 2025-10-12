@@ -6,10 +6,13 @@ import DoraTrendChart from '../components/DoraTrendChart'
 import ForecastingControls from '../components/ForecastingControls'
 import Header from '../components/Header'
 import useDocumentTitle from '../hooks/useDocumentTitle'
+import { useTheme } from '../contexts/ThemeContext'
 
 export default function DoraOverviewPage() {
   // Set document title
   useDocumentTitle('DORA Metrics')
+
+  const { theme } = useTheme()
 
   // State for selected metric in trend chart
   const [selectedMetric, setSelectedMetric] = useState('lead-time')
@@ -142,56 +145,56 @@ export default function DoraOverviewPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen">
       <Header />
 
       <div className="flex">
         <CollapsedSidebar />
 
-        <main className="flex-1 p-6 ml-16">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="space-y-6"
-          >
-            <div className="space-y-2">
+        <main className="flex-1 ml-16 py-8">
+          <div className="ml-12 mr-12">
+            {/* Page Header */}
+            <div className="mb-8">
               <h1 className="text-3xl font-bold text-primary">
                 DORA Metrics Overview
               </h1>
-              <p className="text-secondary">
+              <p className="text-lg text-secondary">
                 DevOps Research and Assessment metrics dashboard
               </p>
             </div>
 
             {/* DORA Metrics Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {doraMetrics.map((metric, index) => (
-                <motion.div
+                <div
                   key={metric.title}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="rounded-xl p-6 space-y-4 backdrop-blur-sm hover:shadow-md transition-all duration-300"
-                  style={{
-                    background: metric.gradient,
-                    color: metric.onColor
+                  className="card p-6 space-y-4 cursor-pointer transition-all duration-200"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--color-1)'
+                    e.currentTarget.style.boxShadow = theme === 'dark'
+                      ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+                      : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+                    e.currentTarget.style.boxShadow = theme === 'dark'
+                      ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+                      : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
                   }}
                 >
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium opacity-90">{metric.title}</h3>
-                    <div className="w-3 h-3 bg-white bg-opacity-30 rounded-full"></div>
+                    <h3 className="text-sm font-semibold text-primary">{metric.title}</h3>
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-2xl font-bold">{metric.value}</div>
-                    <div className="text-xs opacity-80">{metric.description}</div>
+                    <div className="text-3xl font-bold text-primary">{metric.value}</div>
+                    <div className="text-sm text-secondary">{metric.description}</div>
                   </div>
-                </motion.div>
+                </div>
               ))}
             </div>
 
-            {/* Filters and Forecasting Section - Match DORA metrics grid */}
+            {/* Filters and Forecasting Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {/* Filters - Same size as first 3 DORA cards (3/4 width) */}
               <div className="lg:col-span-3">
@@ -235,9 +238,9 @@ export default function DoraOverviewPage() {
               forecastLoading={forecastLoading}
               onForecastLoadingChange={setForecastLoading}
             />
-          </motion.div>
+          </div>
         </main>
       </div>
-    </div >
+    </div>
   )
 }

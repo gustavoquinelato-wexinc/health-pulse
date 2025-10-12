@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
-from app.models.unified_models import Wit, WitMapping, WitHierarchy, Integration, User
+from app.models.unified_models import Wit, WitMapping, WitHierarchy, Integration, User, QdrantVector
 
 router = APIRouter()
 
@@ -265,6 +265,16 @@ async def update_wit_hierarchy(
             if hierarchy_update.active is not None:
                 hierarchy.active = hierarchy_update.active
 
+                # Update corresponding vectors in qdrant_vectors
+                session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == user.tenant_id,
+                    QdrantVector.table_name == 'wits_hierarchies',
+                    QdrantVector.record_id == hierarchy_id
+                ).update({
+                    'active': hierarchy_update.active,
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
+
             # Update the last_updated_at timestamp using configured timezone
             hierarchy.last_updated_at = DateTimeHelper.now_default()
             session.commit()
@@ -328,7 +338,7 @@ async def get_wit_hierarchy_dependencies(
             mapping_details = []
             for mapping in dependent_mappings:
                 wit_count = session.query(Wit).filter(
-                    Wit.wit_mapping_id == mapping.id,
+                    Wit.wits_mapping_id == mapping.id,
                     Wit.active == True
                 ).count()
                 total_affected_wits += wit_count
@@ -590,6 +600,16 @@ async def update_wit_mapping(
                 mapping.integration_id = mapping_data.integration_id
             if mapping_data.active is not None:
                 mapping.active = mapping_data.active
+
+                # Update corresponding vectors in qdrant_vectors
+                session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == user.tenant_id,
+                    QdrantVector.table_name == 'wits_mappings',
+                    QdrantVector.record_id == mapping_id
+                ).update({
+                    'active': mapping_data.active,
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
 
             # Handle hierarchy level update
             if mapping_data.hierarchy_level is not None:

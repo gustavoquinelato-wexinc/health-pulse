@@ -12,7 +12,7 @@ The ETL system uses a modern, queue-based architecture with complete Extract →
 
 ```
 ┌─────────────────┐    API Calls    ┌─────────────────┐    Queue Msgs    ┌─────────────────┐
-│  ETL Frontend   │─────────────────►│ Backend Service │─────────────────►│   RabbitMQ      │
+│  Frontend ETL   │─────────────────►│ Backend Service │─────────────────►│   RabbitMQ      │
 │  (Port 3333)    │                 │   /app/etl/*    │                 │  (Port 5672)    │
 ├─────────────────┤                 ├─────────────────┤                 ├─────────────────┤
 │ • Job Dashboard │                 │ • ETL Endpoints │                 │ • Extract Queue │
@@ -700,7 +700,7 @@ class QueueMonitor:
 ## 🚀 Evolution Plan Implementation Status
 
 ### ✅ Phase 0: Foundation (COMPLETED)
-- **ETL Frontend**: Modern React + TypeScript interface (Port 3333)
+- **Frontend ETL**: Modern React + TypeScript interface (Port 3333)
 - **Backend ETL Module**: FastAPI endpoints at `/app/etl/*`
 - **Basic Job Management**: Job cards, status tracking, manual controls
 

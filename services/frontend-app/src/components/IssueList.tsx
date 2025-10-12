@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { WorkItem, WorkItemsResponse } from '../types';
+import { WorkItemsResponse } from '../types';
 import apiService from '../services/apiService';
 
 interface WorkItemListProps {
