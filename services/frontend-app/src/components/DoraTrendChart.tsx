@@ -770,7 +770,21 @@ export default function DoraTrendChart({
         transition={{ duration: 0.5 }}
         className="w-full"
       >
-        <div className="card p-6 space-y-4">
+        <div
+        className="card p-6 space-y-4 transition-all duration-200"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--color-1)'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
+        }}
+      >
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-primary">Lead Time for Changes Trend</h3>
             <div className="text-sm text-secondary">Loading...</div>
@@ -925,7 +939,21 @@ export default function DoraTrendChart({
         transition={{ duration: 0.5 }}
         className="w-full"
       >
-        <div className="card p-6 space-y-4">
+        <div
+          className="card p-6 space-y-4 transition-all duration-200"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--color-1)'
+            e.currentTarget.style.boxShadow = theme === 'dark'
+              ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+              : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+            e.currentTarget.style.boxShadow = theme === 'dark'
+              ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+              : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
+          }}
+        >
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-primary">Lead Time for Changes Trend</h3>
             {error && (
@@ -952,7 +980,21 @@ export default function DoraTrendChart({
     >
 
 
-      <div className="card p-6 space-y-4">
+      <div
+        className="card p-6 space-y-4 transition-all duration-200"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--color-1)'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
+        }}
+      >
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-primary">
             {config.title} Trend

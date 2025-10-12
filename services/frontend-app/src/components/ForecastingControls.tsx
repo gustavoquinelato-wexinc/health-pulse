@@ -1,5 +1,6 @@
 
 import { useState } from 'react'
+import { useTheme } from '../contexts/ThemeContext'
 
 type ForecastModel = 'Linear Regression' | 'Exponential Smoothing' | 'Prophet'
 type ForecastDuration = '3M' | '6M'
@@ -25,12 +26,27 @@ export default function ForecastingControls({
   onApplyForecast,
   onClearForecast
 }: ForecastingControlsProps) {
+  const { theme } = useTheme()
   const [showHelp, setShowHelp] = useState(false)
 
   return (
     <>
       {/* Forecasting Controls Card - All elements in same row */}
-      <div className="card p-4 hover:shadow-md transition-all duration-300">
+      <div
+        className="card p-4 transition-all duration-200"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--color-1)'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+          e.currentTarget.style.boxShadow = theme === 'dark'
+            ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+            : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
+        }}
+      >
         <div className="flex items-end space-x-2">
           {/* Forecasting Model with Help */}
           <div className="flex flex-col flex-1">

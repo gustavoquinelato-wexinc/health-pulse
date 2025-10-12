@@ -14,6 +14,7 @@ from .jobs import router as jobs_router
 from .custom_fields import router as custom_fields_router
 from .projects import router as projects_router
 from .jira_extraction import router as jira_extraction_router
+from .vectorization import router as vectorization_router
 
 # Create main ETL router
 router = APIRouter()
@@ -28,3 +29,4 @@ router.include_router(raw_data_router, tags=["ETL - Raw Data"])
 router.include_router(jobs_router, tags=["ETL - Jobs"])
 router.include_router(custom_fields_router, tags=["ETL - Custom Fields"])
 router.include_router(jira_extraction_router, tags=["ETL - Jira Extraction"])
+router.include_router(vectorization_router, tags=["ETL - Vectorization"])

@@ -32,13 +32,15 @@ class VectorOperationResult:
 class PulseQdrantClient:
     """High-performance Qdrant client with tenant isolation and batch operations"""
 
-    def __init__(self, host: str = "localhost", port: int = 6333, timeout: int = 120):
-        self.host = host
-        self.port = port
-        self.timeout = timeout
+    def __init__(self, host: str = None, port: int = None, timeout: int = None):
+        import os
+        # Read from environment variables if not provided
+        self.host = host or os.getenv("QDRANT_HOST", "localhost")
+        self.port = port or int(os.getenv("QDRANT_PORT", "6333"))
+        self.timeout = timeout or int(os.getenv("QDRANT_TIMEOUT", "120"))
         self.client = None
         self.connected = False
-        
+
         # Performance tracking
         self.operation_count = 0
         self.total_processing_time = 0.0

@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
 import {
-  Database,
   LogOut,
   Moon,
   Sun,
@@ -26,61 +25,46 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // Tenant state
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null)
   const [tenantLoading, setTenantLoading] = useState(true)
-  const [userProfileImage, setUserProfileImage] = useState<string | null>(null)
 
-  // Function to get authentication token from localStorage or cookies
-  const getAuthToken = () => {
-    // Try localStorage first
-    let token = localStorage.getItem('pulse_token')
-    if (token) return token
-
-    // Fallback to cookies
-    const cookies = document.cookie.split(';')
-    for (let cookie of cookies) {
-      const [name, value] = cookie.trim().split('=')
-      if (name === 'pulse_token') {
-        return decodeURIComponent(value)
-      }
-    }
-    return null
-  }
-
-  // Fetch current user's client information
-  const fetchCurrentTenant = async () => {
-    try {
-      setTenantLoading(true)
-      const token = getAuthToken()
-      if (!token) {
-        setTenantLoading(false)
-        return
-      }
-
-      const response = await axios.get('/api/v1/admin/tenants', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      // Assuming the API returns the current user's tenant (should be filtered by backend)
-      if (response.data && response.data.length > 0) {
-        setCurrentTenant(response.data[0])
-      }
-    } catch (error) {
-      console.error('Failed to fetch tenant information:', error)
-    } finally {
-      setTenantLoading(false)
-    }
-  }
-
-  // Load tenant data when component mounts or user changes
+  // Fetch tenant data
   useEffect(() => {
+    const fetchTenant = async () => {
+      try {
+        setTenantLoading(true)
+        const response = await axios.get('/api/v1/admin/tenants')
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+          setCurrentTenant(response.data[0]) // Get the first (current user's) tenant
+        }
+      } catch (error) {
+        console.error('Failed to fetch tenant data:', error)
+      } finally {
+        setTenantLoading(false)
+      }
+    }
+
     if (user) {
-      fetchCurrentTenant()
-      loadUserProfileImage()
+      fetchTenant()
     }
   }, [user])
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
 
   // Listen for logo update events
   useEffect(() => {
@@ -107,18 +91,6 @@ export default function Header() {
     }
   }, [currentTenant])
 
-  // Listen for profile image updates
-  useEffect(() => {
-    const handleProfileImageUpdate = () => {
-      loadUserProfileImage()
-    }
-
-    window.addEventListener('profileImageUpdated', handleProfileImageUpdate)
-    return () => {
-      window.removeEventListener('profileImageUpdated', handleProfileImageUpdate)
-    }
-  }, [])
-
   // Function to get logo URL with cache busting
   const getLogoUrl = () => {
     if (currentTenant?.assets_folder && currentTenant?.logo_filename) {
@@ -134,23 +106,7 @@ export default function Header() {
     return null
   }
 
-  const userMenuRef = useRef<HTMLDivElement>(null)
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setShowUserMenu(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [])
-
-  // Helper function to get user initials from first and last name
+  // Helper function to get user initials
   const getUserInitials = (user: any) => {
     if (!user) return 'U'
 
@@ -159,25 +115,20 @@ export default function Header() {
     const fi = first ? first[0] : ''
     const li = last ? last[0] : ''
 
-    // If both provided
     if (fi && li) return (fi + li).toUpperCase()
 
-    // Derive from email username
     const uname = (user.email || '').split('@')[0]
     const parts = uname.split(/[.\-_]+/).filter(Boolean)
 
     if (fi && !li) {
       const second = (parts[1]?.[0]) || (parts[0]?.[1]) || ''
-      const res = (fi + (second || '')).toUpperCase()
-      return res || 'U'
+      return (fi + (second || '')).toUpperCase() || 'U'
     }
     if (!fi && li) {
       const firstFromEmail = (parts[0]?.[0]) || ''
-      const res = ((firstFromEmail || '') + li).toUpperCase()
-      return res || 'U'
+      return ((firstFromEmail || '') + li).toUpperCase() || 'U'
     }
 
-    // No names: use email parts
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
     if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase()
     return 'U'
@@ -188,36 +139,11 @@ export default function Header() {
     ? `${toTitle(user.first_name)} ${toTitle(user.last_name)}`
     : (user?.first_name || user?.last_name)
       ? toTitle(user.first_name || user.last_name)
-      : (() => { const u = (user?.email || '').split('@')[0]; const parts = u.split(/[.\-_]+/).filter(Boolean); return parts.length >= 2 ? `${toTitle(parts[0])} ${toTitle(parts[1])}` : toTitle(u) })()
-
-  // Function to load user profile image
-  const loadUserProfileImage = async () => {
-    try {
-      const token = getAuthToken()
-      if (!token) return
-
-      const response = await axios.get('/api/v1/user/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      const profileData = response.data
-      if (profileData.profile_image_filename && profileData.email) {
-        // Generate user folder using exact email (sanitized for filesystem)
-        const userFolder = profileData.email.toLowerCase().replace('@', '_at_').replace(/\./g, '_').replace(/-/g, '_')
-        const timestamp = Date.now()
-        // Use client-specific folder structure: /assets/[client]/users/[email]/[filename]
-        const imageUrl = `/assets/wex/users/${userFolder}/${profileData.profile_image_filename}?t=${timestamp}`
-        setUserProfileImage(imageUrl)
-      } else {
-        setUserProfileImage(null)
-      }
-    } catch (error) {
-      console.error('Failed to load user profile image:', error)
-      setUserProfileImage(null)
-    }
-  }
+      : (() => { 
+          const u = (user?.email || '').split('@')[0]
+          const parts = u.split(/[.\-_]+/).filter(Boolean)
+          return parts.length >= 2 ? `${toTitle(parts[0])} ${toTitle(parts[1])}` : toTitle(u)
+        })()
 
   return (
     <header
@@ -272,26 +198,24 @@ export default function Header() {
           }}
         ></div>
 
-        {/* Title - Simple text */}
+        {/* Title - Simple text, no badge */}
         <div
           className="text-sm font-semibold whitespace-nowrap"
           style={{ color: theme === 'dark' ? '#ffffff' : '#24292f' }}
         >
-          Pulse
+          PULSE - ETL MANAGEMENT
         </div>
       </div>
 
-
-
       {/* Right Side Actions */}
       <div className="flex items-center space-x-2">
-        {/* ETL Management Link */}
+        {/* Analytics Dashboard Link */}
         <motion.a
-          href={`${import.meta.env.VITE_ETL_FRONTEND_URL || 'http://localhost:3333'}/home`}
+          href={`${import.meta.env.VITE_API_BASE_URL?.replace(':3001', ':3000') || 'http://localhost:3000'}/home`}
           onClick={(e) => {
             e.preventDefault()
             const openInNewTab = e.ctrlKey || e.metaKey
-            const url = `${import.meta.env.VITE_ETL_FRONTEND_URL || 'http://localhost:3333'}/home`
+            const url = `${import.meta.env.VITE_API_BASE_URL?.replace(':3001', ':3000') || 'http://localhost:3000'}/home`
             if (openInNewTab) {
               window.open(url, '_blank')
             } else {
@@ -302,7 +226,7 @@ export default function Header() {
           onAuxClick={(e) => {
             if (e.button === 1) {
               e.preventDefault()
-              const url = `${import.meta.env.VITE_ETL_FRONTEND_URL || 'http://localhost:3333'}/home`
+              const url = `${import.meta.env.VITE_API_BASE_URL?.replace(':3001', ':3000') || 'http://localhost:3000'}/home`
               window.open(url, '_blank')
               return false
             }
@@ -319,10 +243,12 @@ export default function Header() {
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent'
           }}
-          aria-label="ETL Management"
-          title="ETL Management (Ctrl+Click for new tab)"
+          aria-label="Analytics Dashboard"
+          title="Analytics Dashboard (Ctrl+Click for new tab)"
         >
-          <Database className="w-5 h-5" />
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
         </motion.a>
 
         {/* Theme Toggle */}
@@ -346,8 +272,6 @@ export default function Header() {
           {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
         </motion.button>
 
-
-
         {/* User Menu */}
         <div className="relative" ref={userMenuRef}>
           <motion.button
@@ -367,25 +291,17 @@ export default function Header() {
             aria-label={displayName}
             title={displayName}
           >
-            {userProfileImage ? (
-              <img
-                src={userProfileImage}
-                alt="Profile"
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center"
-                style={{
-                  background: 'linear-gradient(135deg, var(--color-3), var(--color-4))',
-                  color: 'var(--on-gradient-3-4)'
-                }}
-              >
-                <span className="text-xs font-medium">
-                  {getUserInitials(user)}
-                </span>
-              </div>
-            )}
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{
+                background: 'linear-gradient(135deg, var(--color-3), var(--color-4))',
+                color: 'var(--on-gradient-3-4)'
+              }}
+            >
+              <span className="text-xs font-medium">
+                {getUserInitials(user)}
+              </span>
+            </div>
           </motion.button>
 
           {/* User Dropdown */}

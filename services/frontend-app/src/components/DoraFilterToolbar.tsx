@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from 'react'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface FilterOptions {
   team: string[]
@@ -40,6 +41,7 @@ export default function DoraFilterToolbar({
   onFiltersChange,
   disabled = false
 }: DoraFilterToolbarProps) {
+  const { theme } = useTheme()
 
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     team: [],
@@ -95,7 +97,21 @@ export default function DoraFilterToolbar({
   }
 
   return (
-    <div className="card p-4 hover:shadow-md transition-all duration-300">
+    <div
+      className="card p-4 transition-all duration-200"
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'var(--color-1)'
+        e.currentTarget.style.boxShadow = theme === 'dark'
+          ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+          : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = theme === 'dark' ? '#4a5568' : '#9ca3af'
+        e.currentTarget.style.boxShadow = theme === 'dark'
+          ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
+          : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
+      }}
+    >
       {/* Single Row - All Filters - Use full width */}
       <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
         <div className="flex flex-col">

@@ -10,7 +10,7 @@ This folder contains documentation for completed implementation phases.
 **Document**: [Phase 0 Implementation Summary](phase_0_implementation_summary.md)
 
 **What Was Built:**
-- ETL Frontend (React SPA on port 3333)
+- Frontend ETL (React SPA on port 3333)
   - Home page with dashboard
   - WITs Mappings & Hierarchies pages
   - Status Mappings & Workflows pages

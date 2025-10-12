@@ -25,7 +25,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
                     │                       │
                     ▼                       ▼
 ┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
-│  Backend        │              │  ETL Frontend   │              │  Auth Service   │
+│  Backend        │              │  Frontend ETL   │              │  Auth Service   │
 │  Service        │◄────────────►│  (React/TS)     │              │  (FastAPI)      │
 │  (FastAPI)      │              │  Port: 3333     │              │  Port: 4000     │
 │  Port: 3001     │              │                 │              │                 │
@@ -76,7 +76,7 @@ Pulse Platform follows a modern microservices architecture with centralized auth
 - **Purpose**: Core business logic and API gateway
 - **Responsibilities**: User authentication, RBAC, multi-tenant data isolation, AI operations, analytics, ETL endpoints
 
-#### ETL Frontend (Port 3333)
+#### Frontend ETL (Port 3333)
 - **Technology**: React, TypeScript, Tailwind CSS
 - **Purpose**: ETL management interface
 
@@ -145,7 +145,7 @@ graph TD
     B -->|Validate Token| C[Auth Service :4000]
     C -->|User Data| B
 
-    D[ETL Frontend] -->|JWT Token| B
+    D[Frontend ETL] -->|JWT Token| B
     B -->|ETL Endpoints /app/etl/*| E[ETL Processing]
 
     F[RabbitMQ Workers] -->|Direct Access| G[Database]
@@ -192,7 +192,7 @@ The platform includes smart middleware that:
 Developer Machine
 ├── Frontend (npm run dev)
 ├── Backend (uvicorn --reload)
-├── ETL Frontend (npm run dev)
+├── Frontend ETL (npm run dev)
 ├── Auth Service (uvicorn --reload)
 └── Docker Compose (databases only)
 ```
@@ -202,7 +202,7 @@ Developer Machine
 Load Balancer
 ├── Frontend Cluster (3 replicas)
 ├── Backend Cluster (3 replicas)
-├── ETL Frontend Cluster (2 replicas)
+├── Frontend ETL Cluster (2 replicas)
 ├── Auth Service Cluster (2 replicas)
 └── Database Cluster (Primary + Replica)
 ```
