@@ -48,20 +48,6 @@ class Tenant(Base):
     workflows = relationship("Workflow", back_populates="tenant")
     wits_mappings = relationship("WitMapping", back_populates="tenant")
     wits_hierarchies = relationship("WitHierarchy", back_populates="tenant")
-
-
-class WorkerConfig(Base, BaseEntity):
-    """Worker configuration for dynamic worker scaling per tenant."""
-    __tablename__ = 'worker_configs'
-    __table_args__ = (
-        UniqueConstraint('tenant_id', name='unique_tenant_worker_configs'),
-        {'quote': False}
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    transform_workers = Column(Integer, nullable=False, default=1, quote=False, name="transform_workers")
-    vectorization_workers = Column(Integer, nullable=False, default=1, quote=False, name="vectorization_workers")
-    # tenant_id, active, created_at, last_updated_at inherited from BaseEntity
     work_items = relationship("WorkItem", back_populates="tenant")
     changelogs = relationship("Changelog", back_populates="tenant")
     custom_fields = relationship("CustomField", back_populates="tenant")
@@ -91,7 +77,6 @@ class WorkerConfig(Base, BaseEntity):
 
     # Phase 1: Raw extraction data relationships
     raw_extraction_data = relationship("RawExtractionData", back_populates="tenant")
-    custom_fields = relationship("CustomField", back_populates="tenant")
 
 
 class BaseEntity:
@@ -109,6 +94,21 @@ class IntegrationBaseEntity:
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+
+
+# Worker Configuration Table
+class WorkerConfig(Base, BaseEntity):
+    """Worker configuration for dynamic worker scaling per tenant."""
+    __tablename__ = 'worker_configs'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', name='unique_tenant_worker_configs'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    transform_workers = Column(Integer, nullable=False, default=1, quote=False, name="transform_workers")
+    vectorization_workers = Column(Integer, nullable=False, default=1, quote=False, name="vectorization_workers")
+    # tenant_id, active, created_at, last_updated_at inherited from BaseEntity
 
 
 # Authentication and User Management Tables
