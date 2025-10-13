@@ -105,7 +105,7 @@ export default function QueueManagementPage() {
     }
   }
 
-  const fetchWorkerConfig = async () => {
+  const fetchWorkerConfig = async (updateLocalState = false) => {
     try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config`, {
@@ -122,9 +122,11 @@ export default function QueueManagementPage() {
       const data = await response.json()
       setWorkerConfig(data)
 
-      // Update local state with current config
-      setTransformWorkers(data.transform_workers)
-      setVectorizationWorkers(data.vectorization_workers)
+      // Only update local state on initial load or after successful save
+      if (updateLocalState) {
+        setTransformWorkers(data.transform_workers)
+        setVectorizationWorkers(data.vectorization_workers)
+      }
     } catch (err) {
       console.error('Failed to fetch worker config:', err)
     }
@@ -154,8 +156,8 @@ export default function QueueManagementPage() {
 
       const data = await response.json()
 
-      // Refresh config
-      await fetchWorkerConfig()
+      // Refresh config and update local state to match saved values
+      await fetchWorkerConfig(true)
 
       // Show success message
       setError(null)
@@ -207,17 +209,17 @@ export default function QueueManagementPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchWorkerStatus(), fetchWorkerLogs(), fetchWorkerConfig()])
+      await Promise.all([fetchWorkerStatus(), fetchWorkerLogs(), fetchWorkerConfig(true)]) // Update local state on initial load
       setLoading(false)
     }
 
     loadData()
 
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 10 seconds (don't update local state on refresh)
     const interval = setInterval(() => {
       fetchWorkerStatus()
       fetchWorkerLogs()
-      fetchWorkerConfig()
+      fetchWorkerConfig(false) // Don't reset user's selections
     }, 10000)
 
     return () => clearInterval(interval)
