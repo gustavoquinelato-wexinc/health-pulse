@@ -287,20 +287,20 @@ class VectorizationWorker(BaseWorker):
                     "key": entity.key,
                     "summary": entity.summary or "",
                     "description": entity.description or "",
-                    "status_name": entity.status.name if entity.status else "",
-                    "wit_name": entity.wit.name if entity.wit else "",
+                    "status_name": entity.status.original_name if entity.status else "",
+                    "wit_name": entity.wit.original_name if entity.wit else "",
                     "priority": entity.priority or "",
                     "assignee": entity.assignee or "",
-                    "reporter": entity.reporter or "",
-                    "created_date": self._serialize_datetime(entity.created_date),
-                    "updated_date": self._serialize_datetime(entity.updated_date)
+                    "team": entity.team or "",
+                    "created": self._serialize_datetime(entity.created),
+                    "updated": self._serialize_datetime(entity.updated)
                 }
-            
+
             elif table_name == "changelogs":
                 return {
                     "external_id": entity.external_id,
-                    "from_status_name": entity.from_status_name or "",
-                    "to_status_name": entity.to_status_name or "",
+                    "from_status_name": entity.from_status.original_name if entity.from_status else "",
+                    "to_status_name": entity.to_status.original_name if entity.to_status else "",
                     "changed_by": entity.changed_by or "",
                     "transition_change_date": self._serialize_datetime(entity.transition_change_date),
                     "time_in_status_seconds": entity.time_in_status_seconds or 0,

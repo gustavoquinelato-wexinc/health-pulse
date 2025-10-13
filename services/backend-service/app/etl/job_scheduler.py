@@ -425,8 +425,8 @@ class IndividualJobTimer:
             # Execute job based on type
             if job_name.lower() == 'jira':
                 logger.info("🚀 Executing Jira extraction job...")
-                from app.etl.jira_extraction import execute_projects_and_issue_types_extraction
-                await execute_projects_and_issue_types_extraction(integration_id, self.tenant_id, self.job_id)
+                from app.etl.jira_extraction import execute_complete_jira_extraction
+                await execute_complete_jira_extraction(integration_id, self.tenant_id, self.job_id)
 
             elif job_name.lower() == 'github':
                 logger.info("🚀 Executing GitHub extraction job...")

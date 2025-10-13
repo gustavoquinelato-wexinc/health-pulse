@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Clock, AlertCircle, Calendar, Activity, GitBranch } from 'lucide-react'
-import axios from 'axios'
 import { useAuth } from '../contexts/AuthContext'
+import { etlApi } from '../services/etlApiService'
 
 interface JobDetails {
   id: number
@@ -54,14 +54,7 @@ export default function GitHubJobDetailsModal({ jobId, onClose }: GitHubJobDetai
     setError(null)
 
     try {
-      const response = await axios.get(
-        `http://localhost:3001/app/etl/jobs/${jobId}?tenant_id=${user.tenant_id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`
-          }
-        }
-      )
+      const response = await etlApi.get(`/jobs/${jobId}?tenant_id=${user.tenant_id}`)
       setJobDetails(response.data)
     } catch (err: any) {
       console.error('Error fetching job details:', err)

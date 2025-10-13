@@ -28,14 +28,14 @@ class WorkerManager:
         """Initialize worker manager."""
         self.workers: Dict[str, object] = {}  # worker_key -> worker_instance
         self.worker_threads: Dict[str, threading.Thread] = {}  # worker_key -> thread
-        self.tenant_workers: Dict[int, Dict[str, object]] = {}  # tenant_id -> {worker_type -> worker}
-        self.executor = ThreadPoolExecutor(max_workers=20)  # Increased for multi-tenant
+        self.tenant_workers: Dict[int, Dict[str, List[object]]] = {}  # tenant_id -> {worker_type -> [workers]}
+        self.executor = ThreadPoolExecutor(max_workers=100)  # Increased for multi-worker support
         self.running = False
 
         # Note: Signal handlers removed to avoid conflicts with FastAPI's lifespan management
         # FastAPI's lifespan context manager will handle graceful shutdown
 
-        logger.info("Multi-tenant WorkerManager initialized")
+        logger.info("Multi-tenant WorkerManager initialized with dynamic scaling support")
     
     def start_all_workers(self):
         """Start workers for all active tenants."""
@@ -69,7 +69,7 @@ class WorkerManager:
 
     def start_tenant_workers(self, tenant_id: int) -> bool:
         """
-        Start workers for a specific tenant (both transform and vectorization).
+        Start workers for a specific tenant with dynamic scaling based on worker_config.
 
         Args:
             tenant_id: Tenant ID to start workers for
@@ -81,50 +81,62 @@ class WorkerManager:
             if tenant_id not in self.tenant_workers:
                 self.tenant_workers[tenant_id] = {}
 
+            # Get worker configuration for this tenant
+            worker_counts = self._get_worker_counts(tenant_id)
+            transform_count = worker_counts['transform_workers']
+            vectorization_count = worker_counts['vectorization_workers']
+
+            logger.info(f"Starting {transform_count} transform + {vectorization_count} vectorization workers for tenant {tenant_id}")
+
             queue_manager = QueueManager()
 
-            # 1. Start Transform Worker
+            # 1. Start MULTIPLE Transform Workers
             transform_queue = queue_manager.get_tenant_queue_name(tenant_id, 'transform')
             queue_manager.setup_tenant_queue(tenant_id, 'transform')
 
-            transform_worker = TransformWorker(transform_queue)
-            transform_worker_key = f"transform_tenant_{tenant_id}"
+            self.tenant_workers[tenant_id]['transform'] = []
+            for worker_num in range(transform_count):
+                transform_worker = TransformWorker(transform_queue)
+                transform_worker_key = f"transform_tenant_{tenant_id}_worker_{worker_num}"
 
-            transform_thread = threading.Thread(
-                target=self._run_worker,
-                args=(transform_worker_key, transform_worker),
-                daemon=True,
-                name=f"Worker-{transform_worker_key}"
-            )
-            transform_thread.start()
+                transform_thread = threading.Thread(
+                    target=self._run_worker,
+                    args=(transform_worker_key, transform_worker),
+                    daemon=True,
+                    name=f"Worker-{transform_worker_key}"
+                )
+                transform_thread.start()
 
-            self.workers[transform_worker_key] = transform_worker
-            self.worker_threads[transform_worker_key] = transform_thread
-            self.tenant_workers[tenant_id]['transform'] = transform_worker
+                self.workers[transform_worker_key] = transform_worker
+                self.worker_threads[transform_worker_key] = transform_thread
+                self.tenant_workers[tenant_id]['transform'].append(transform_worker)
 
-            logger.info(f"Started transform worker for tenant {tenant_id}: {transform_worker_key}")
+                logger.info(f"Started transform worker {worker_num+1}/{transform_count} for tenant {tenant_id}")
 
-            # 2. Start Vectorization Worker
+            # 2. Start MULTIPLE Vectorization Workers
             vectorization_queue = queue_manager.get_tenant_queue_name(tenant_id, 'vectorization')
             queue_manager.setup_tenant_queue(tenant_id, 'vectorization')
 
-            vectorization_worker = VectorizationWorker(tenant_id)
-            vectorization_worker_key = f"vectorization_tenant_{tenant_id}"
+            self.tenant_workers[tenant_id]['vectorization'] = []
+            for worker_num in range(vectorization_count):
+                vectorization_worker = VectorizationWorker(tenant_id)
+                vectorization_worker_key = f"vectorization_tenant_{tenant_id}_worker_{worker_num}"
 
-            vectorization_thread = threading.Thread(
-                target=self._run_worker,
-                args=(vectorization_worker_key, vectorization_worker),
-                daemon=True,
-                name=f"Worker-{vectorization_worker_key}"
-            )
-            vectorization_thread.start()
+                vectorization_thread = threading.Thread(
+                    target=self._run_worker,
+                    args=(vectorization_worker_key, vectorization_worker),
+                    daemon=True,
+                    name=f"Worker-{vectorization_worker_key}"
+                )
+                vectorization_thread.start()
 
-            self.workers[vectorization_worker_key] = vectorization_worker
-            self.worker_threads[vectorization_worker_key] = vectorization_thread
-            self.tenant_workers[tenant_id]['vectorization'] = vectorization_worker
+                self.workers[vectorization_worker_key] = vectorization_worker
+                self.worker_threads[vectorization_worker_key] = vectorization_thread
+                self.tenant_workers[tenant_id]['vectorization'].append(vectorization_worker)
 
-            logger.info(f"Started vectorization worker for tenant {tenant_id}: {vectorization_worker_key}")
+                logger.info(f"Started vectorization worker {worker_num+1}/{vectorization_count} for tenant {tenant_id}")
 
+            logger.info(f"✅ Successfully started {transform_count + vectorization_count} workers for tenant {tenant_id}")
             return True
 
         except Exception as e:
@@ -169,7 +181,7 @@ class WorkerManager:
 
     def stop_tenant_workers(self, tenant_id: int) -> bool:
         """
-        Stop workers for a specific tenant (both transform and vectorization).
+        Stop all workers for a specific tenant (both transform and vectorization).
 
         Args:
             tenant_id: Tenant ID to stop workers for
@@ -182,13 +194,16 @@ class WorkerManager:
                 logger.warning(f"No workers found for tenant {tenant_id}")
                 return True
 
-            # Stop both transform and vectorization workers
-            worker_keys = [
-                f"transform_tenant_{tenant_id}",
-                f"vectorization_tenant_{tenant_id}"
+            # Find all worker keys for this tenant (handles multiple workers per type)
+            worker_keys_to_stop = [
+                key for key in self.workers.keys()
+                if key.startswith(f"transform_tenant_{tenant_id}_") or
+                   key.startswith(f"vectorization_tenant_{tenant_id}_")
             ]
 
-            for worker_key in worker_keys:
+            logger.info(f"Stopping {len(worker_keys_to_stop)} workers for tenant {tenant_id}")
+
+            for worker_key in worker_keys_to_stop:
                 if worker_key in self.workers:
                     # Stop the worker
                     worker = self.workers[worker_key]
@@ -197,7 +212,7 @@ class WorkerManager:
                     # Wait for thread to finish
                     if worker_key in self.worker_threads:
                         thread = self.worker_threads[worker_key]
-                        thread.join(timeout=10)
+                        thread.join(timeout=3)
 
                         if thread.is_alive():
                             logger.warning(f"Worker thread {worker_key} did not stop gracefully")
@@ -212,7 +227,7 @@ class WorkerManager:
             # Remove tenant worker references
             del self.tenant_workers[tenant_id]
 
-            logger.info(f"Stopped all workers for tenant {tenant_id}")
+            logger.info(f"✅ Stopped all workers for tenant {tenant_id}")
             return True
 
         except Exception as e:
@@ -258,7 +273,7 @@ class WorkerManager:
         return status
 
     def get_tenant_worker_status(self, tenant_id: int):
-        """Get worker status for a specific tenant."""
+        """Get worker status for a specific tenant with multiple workers per type."""
         if tenant_id not in self.tenant_workers:
             return {
                 'tenant_id': tenant_id,
@@ -268,23 +283,37 @@ class WorkerManager:
             }
 
         tenant_workers = self.tenant_workers[tenant_id]
+        total_worker_count = sum(len(workers) if isinstance(workers, list) else 1 for workers in tenant_workers.values())
+
         status = {
             'tenant_id': tenant_id,
             'has_workers': True,
-            'worker_count': len(tenant_workers),
+            'worker_count': total_worker_count,
             'workers': {}
         }
 
-        for worker_type, worker in tenant_workers.items():
-            worker_key = f"{worker_type}_tenant_{tenant_id}"
-            thread = self.worker_threads.get(worker_key)
+        # Handle both old single-worker and new multi-worker format
+        for worker_type, workers in tenant_workers.items():
+            # Convert to list if single worker (backward compatibility)
+            worker_list = workers if isinstance(workers, list) else [workers]
+
             status['workers'][worker_type] = {
-                'worker_key': worker_key,
-                'worker_running': getattr(worker, 'running', False),
-                'thread_alive': thread.is_alive() if thread else False,
-                'thread_name': thread.name if thread else None,
-                'queue_name': getattr(worker, 'queue_name', None)
+                'count': len(worker_list),
+                'instances': []
             }
+
+            for idx, worker in enumerate(worker_list):
+                worker_key = f"{worker_type}_tenant_{tenant_id}_worker_{idx}"
+                thread = self.worker_threads.get(worker_key)
+
+                status['workers'][worker_type]['instances'].append({
+                    'worker_key': worker_key,
+                    'worker_number': idx,
+                    'worker_running': getattr(worker, 'running', False),
+                    'thread_alive': thread.is_alive() if thread else False,
+                    'thread_name': thread.name if thread else None,
+                    'queue_name': getattr(worker, 'queue_name', None)
+                })
 
         return status
 
@@ -303,6 +332,58 @@ class WorkerManager:
         except Exception as e:
             logger.error(f"Failed to get active tenant IDs: {e}")
             return [1]  # Fallback to tenant 1
+
+    def _get_worker_counts(self, tenant_id: int) -> Dict[str, int]:
+        """
+        Get worker counts for a tenant from worker_config table.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            Dict with transform_workers and vectorization_workers counts
+        """
+        try:
+            from app.core.database import get_database
+            from app.models.unified_models import WorkerConfig
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_session() as session:
+                # Try to get existing config
+                config = session.query(WorkerConfig).filter(
+                    WorkerConfig.tenant_id == tenant_id,
+                    WorkerConfig.active == True
+                ).first()
+
+                if config:
+                    logger.info(f"Worker config for tenant {tenant_id}: transform={config.transform_workers}, vectorization={config.vectorization_workers}")
+                    return {
+                        'transform_workers': config.transform_workers,
+                        'vectorization_workers': config.vectorization_workers
+                    }
+                else:
+                    # Create default config if not exists
+                    logger.info(f"No worker config found for tenant {tenant_id}, creating default (1 transform + 1 vectorization)")
+                    insert_query = text("""
+                        INSERT INTO worker_configs (tenant_id, transform_workers, vectorization_workers)
+                        VALUES (:tenant_id, 1, 1)
+                        ON CONFLICT (tenant_id) DO NOTHING
+                    """)
+                    session.execute(insert_query, {'tenant_id': tenant_id})
+                    session.commit()
+
+                    return {
+                        'transform_workers': 1,
+                        'vectorization_workers': 1
+                    }
+        except Exception as e:
+            logger.error(f"Failed to get worker counts for tenant {tenant_id}: {e}")
+            # Fallback to default
+            return {
+                'transform_workers': 1,
+                'vectorization_workers': 1
+            }
     
     def restart_worker(self, worker_name: str) -> bool:
         """Restart a specific worker."""

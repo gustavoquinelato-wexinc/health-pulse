@@ -460,7 +460,13 @@ async def run_job_now(
     Manually trigger a job to run immediately.
     Sets status to RUNNING and triggers actual job execution.
 
-    Phase 2.1: Supports Jira projects and issue types extraction.
+    For Jira jobs: Executes complete extraction with all 4 steps:
+    1. Projects & Issue Types (0% -> 25%)
+    2. Statuses & Project Relationships (25% -> 50%)
+    3. Issues & Changelogs (50% -> 75%)
+    4. Dev Status (75% -> 100%)
+
+    Uses the same function as the automatic scheduler: execute_complete_jira_extraction()
 
     Supports both user authentication (manual triggers) and service-to-service auth (automatic scheduler).
     """
@@ -532,16 +538,18 @@ async def run_job_now(
         # Trigger actual job execution based on job type
         if job_name.lower() == 'jira':
             # Import here to avoid circular imports
-            from app.etl.jira_extraction import execute_projects_and_issue_types_extraction
+            from app.etl.jira_extraction import execute_complete_jira_extraction
 
-            # Execute in background using FastAPI BackgroundTasks
+            logger.info(f"🚀 Triggering complete Jira extraction with 4 steps for integration {integration_id}")
+
+            # Execute in background using FastAPI BackgroundTasks (same as automatic scheduler)
             background_tasks.add_task(
-                execute_projects_and_issue_types_extraction, integration_id, tenant_id, job_id
+                execute_complete_jira_extraction, integration_id, tenant_id, job_id
             )
 
             return JobActionResponse(
                 success=True,
-                message=f"Job {job_name} started successfully - executing complete Jira extraction",
+                message=f"Job {job_name} started successfully - executing complete Jira extraction (4 steps)",
                 job_id=job_id,
                 new_status="RUNNING"
             )

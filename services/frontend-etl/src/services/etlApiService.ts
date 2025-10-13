@@ -38,6 +38,7 @@ etlApi.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
+    // Handle 401 Unauthorized - try token refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
 
@@ -61,7 +62,8 @@ etlApi.interceptors.response.use(
           }
         }
       } catch (refreshError) {
-        console.error('Token refresh failed:', refreshError)
+        // Only log refresh errors, not the original 401
+        console.warn('Token refresh failed - redirecting to login')
       }
 
       // If refresh fails, logout
@@ -69,6 +71,14 @@ etlApi.interceptors.response.use(
       window.location.href = '/login'
     }
 
+    // For 400 errors (business logic validation), don't log to console
+    // The error will be handled by the calling code with user-friendly toast messages
+    if (error.response?.status === 400) {
+      // Silently pass the error to the caller without console logging
+      return Promise.reject(error)
+    }
+
+    // For other errors (500, 404, etc.), reject normally
     return Promise.reject(error)
   }
 )

@@ -3,6 +3,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from 'react
 import { colorDataService, type ColorData } from '../services/colorDataService'
 import { getColorSchemaMode } from '../utils/colorSchemaService'
 import { etlWebSocketService } from '../services/websocketService'
+import { sessionWebSocketService } from '../services/sessionWebSocketService'
 
 interface ColorSchema {
   color1: string
@@ -284,13 +285,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [user])
   */
 
-  // Listen for logout events from other frontends
+  // Listen for logout events from same-origin tabs via localStorage
+  // Note: This is a backup mechanism. Session WebSocket is the primary sync method.
+  // localStorage events only work for same-origin tabs (e.g., multiple tabs on port 3333)
   useEffect(() => {
-    // Listen for localStorage logout events (same origin)
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'pulse_logout_event') {
-        // Another tab/window logged out, logout this one too
+        // Another tab on same origin logged out, logout this one too
         etlWebSocketService.disconnectAll()
+        sessionWebSocketService.disconnect()
         setUser(null)
         localStorage.clear()
         sessionStorage.clear()
@@ -299,10 +302,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     }
 
-    // Listen for postMessage events (cross origin) - both auth and logout
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [])
+
+  // Listen for cross-service authentication from old ETL service
+  // Note: This is for backward compatibility with old etl-service (port 8000)
+  // New authentication flow uses Session WebSocket
+  useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Only accept messages from trusted origins for AUTH_SUCCESS
-      const trustedOrigins = ['http://localhost:8000']; // ETL service
+      // Only accept AUTH_SUCCESS messages from trusted origins
+      const trustedOrigins = ['http://localhost:8000']; // Old ETL service
 
       if (event.data.type === 'AUTH_SUCCESS' && event.data.token) {
         if (!trustedOrigins.includes(event.origin)) {
@@ -358,7 +368,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.warn('Failed to load color schema during cross-service auth:', error)
           }
 
-          // Initialize WebSocket service with cross-service token
+          // Initialize WebSocket services
           try {
             await etlWebSocketService.initializeService(event.data.token)
             // WebSocket service initialized - only log errors
@@ -366,28 +376,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.error('❌ Failed to initialize WebSocket service:', error)
           }
 
+          // Connect to session WebSocket
+          sessionWebSocketService.connect(event.data.token, {
+            onLogout: () => logout(),
+            onThemeModeChange: (mode: string) => {
+              localStorage.setItem('pulse_theme', mode)
+              document.documentElement.setAttribute('data-theme', mode)
+              ;(window as any).__INITIAL_THEME__ = mode
+            },
+            onColorSchemaChange: (colors: any) => refreshUserColors()
+          })
+
           setIsLoading(false);
         } else {
           // Validate the token to get user data
           validateToken();
         }
-      } else if (event.data.type === 'LOGOUT_EVENT' && event.data.source !== 'etl-frontend') {
-        // Another frontend logged out, logout this one too
-        setUser(null)
-        localStorage.clear()
-        sessionStorage.clear()
-        delete axios.defaults.headers.common['Authorization']
-        window.location.replace('/login')
       }
+      // Note: LOGOUT_EVENT via postMessage removed - now handled by Session WebSocket
     }
 
-    window.addEventListener('storage', handleStorageChange)
     window.addEventListener('message', handleMessage)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('message', handleMessage)
-    }
+    return () => window.removeEventListener('message', handleMessage)
   }, [])
 
   // Periodic token refresh and session validation
@@ -545,6 +555,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } catch (error) {
           console.warn('Failed to load color schema during session check:', error)
         }
+
+        // Initialize WebSocket services after successful session detection
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          try {
+            await etlWebSocketService.initializeService(token)
+          } catch (error) {
+            console.error('❌ Failed to initialize WebSocket service:', error)
+          }
+
+          // Connect to session WebSocket
+          sessionWebSocketService.connect(token, {
+            onLogout: () => logout(),
+            onThemeModeChange: (mode: string) => {
+              localStorage.setItem('pulse_theme', mode)
+              document.documentElement.setAttribute('data-theme', mode)
+              ;(window as any).__INITIAL_THEME__ = mode
+            },
+            onColorSchemaChange: (colors: any) => refreshUserColors()
+          })
+        }
+
+        // IMPORTANT: Set loading to false after successful session detection
+        setIsLoading(false)
       } else {
         // No existing session found
         setIsLoading(false)
@@ -613,6 +647,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
           } catch (error) {
             console.error('❌ Failed to initialize WebSocket service:', error)
           }
+
+          // Connect to session WebSocket for real-time sync
+          sessionWebSocketService.connect(token, {
+            onLogout: () => {
+              console.log('[SessionWS] Logout event received - logging out')
+              logout()
+            },
+            onThemeModeChange: (mode: string) => {
+              console.log('[SessionWS] Theme mode changed to:', mode)
+              // Update theme immediately
+              localStorage.setItem('pulse_theme', mode)
+              document.documentElement.setAttribute('data-theme', mode)
+              ;(window as any).__INITIAL_THEME__ = mode
+            },
+            onColorSchemaChange: (colors: any) => {
+              console.log('[SessionWS] Color schema changed')
+              // Refresh color schema
+              refreshUserColors()
+            }
+          })
         }
       } else {
         localStorage.removeItem('pulse_token')
@@ -794,31 +848,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Disconnect all WebSocket connections
     try {
       etlWebSocketService.disconnectAll()
-      // WebSocket service disconnected - only log errors
+      sessionWebSocketService.disconnect()
+      // WebSocket services disconnected - only log errors
     } catch (error) {
-      console.error('❌ Failed to disconnect WebSocket service:', error)
+      console.error('❌ Failed to disconnect WebSocket services:', error)
     }
 
     try {
       const token = localStorage.getItem('pulse_token')
       if (token) {
         // Logout from backend service
+        // The backend will broadcast logout to all other devices via WebSocket
         await axios.post('/api/v1/auth/logout', {}, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
-
-        // Notify other frontends about logout
-        try {
-          // Frontend-app logout (best-effort, do not block)
-          const frontendAppUrl = import.meta.env.VITE_ANALYTICS_DASHBOARD_URL || 'http://localhost:3000'
-          fetch(`${frontendAppUrl}/api/logout-notification`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' }
-          }).catch(() => { })
-        } catch (error) {
-          // Ignore cross-service notification errors
-        }
       }
     } catch (error) {
       // Ignore logout errors
@@ -829,21 +872,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     sessionStorage.clear()
     delete axios.defaults.headers.common['Authorization']
 
-    // Broadcast logout to other tabs/windows on same origin
+    // Broadcast logout to other tabs/windows on same origin (backup mechanism)
+    // Note: Session WebSocket is the primary sync mechanism, but localStorage
+    // events still work as a fallback for same-origin tabs
     localStorage.setItem('pulse_logout_event', Date.now().toString())
     localStorage.removeItem('pulse_logout_event')
-
-    // Broadcast to other origins via postMessage (if in iframe or popup)
-    try {
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: 'LOGOUT_EVENT', source: 'etl-frontend' }, '*')
-      }
-      if (window.opener) {
-        window.opener.postMessage({ type: 'LOGOUT_EVENT', source: 'etl-frontend' }, '*')
-      }
-    } catch (error) {
-      // Ignore postMessage errors
-    }
 
     window.location.replace('/login')
   }

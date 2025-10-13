@@ -97,6 +97,15 @@ def apply(connection):
         tenant_id = tenant_result['id']
         print(f"   ✅ Apple tenant created/found with ID: {tenant_id}")
 
+        # 2b. Create default worker configuration for Apple tenant
+        print("📋 Creating default worker configuration...")
+        cursor.execute("""
+            INSERT INTO worker_configs (transform_workers, vectorization_workers, tenant_id, active)
+            VALUES (1, 1, %s, TRUE)
+            ON CONFLICT (tenant_id) DO NOTHING;
+        """, (tenant_id,))
+        print("   ✅ Worker configuration created (1 transform + 1 vectorization worker)")
+
         # 3. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
 
@@ -1215,6 +1224,9 @@ def rollback(connection):
 
         print("📋 Removing colors...")
         cursor.execute("DELETE FROM tenants_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+
+        print("📋 Removing worker configuration...")
+        cursor.execute("DELETE FROM worker_configs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing Apple tenant...")
         cursor.execute("DELETE FROM tenants WHERE name = 'Apple';")

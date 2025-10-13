@@ -9,9 +9,10 @@ Provides WebSocket endpoints for:
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Query
 from app.core.logging_config import get_logger
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 import asyncio
+from datetime import datetime
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -175,6 +176,151 @@ def get_websocket_manager() -> WebSocketManager:
     return websocket_manager
 
 
+# Session WebSocket Manager for cross-service session synchronization
+class SessionWebSocketManager:
+    """
+    Manages WebSocket connections for real-time session synchronization.
+
+    Handles:
+    - Logout events (instant logout across all tabs/devices)
+    - Login events (sync new sessions)
+    - Color schema changes (real-time theme updates)
+    - Dark/Light mode changes (instant mode sync)
+    """
+
+    def __init__(self):
+        # Store connections by user_id: user_id -> List[WebSocket]
+        self.user_connections: Dict[int, List[WebSocket]] = {}
+        logger.info("[SessionWS] 🔧 Session WebSocket Manager initialized")
+
+    async def connect(self, websocket: WebSocket, user_id: int, user_email: str):
+        """Accept a new WebSocket connection for a user's session."""
+        await websocket.accept()
+
+        if user_id not in self.user_connections:
+            self.user_connections[user_id] = []
+
+        self.user_connections[user_id].append(websocket)
+        connection_count = len(self.user_connections[user_id])
+        logger.info(f"[SessionWS] ✅ User connected: {user_email} (user_id={user_id}, connections={connection_count})")
+
+    async def disconnect(self, websocket: WebSocket, user_id: int, user_email: str):
+        """Remove a WebSocket connection."""
+        if user_id in self.user_connections:
+            try:
+                self.user_connections[user_id].remove(websocket)
+                remaining = len(self.user_connections[user_id])
+
+                # Clean up empty user lists
+                if not self.user_connections[user_id]:
+                    del self.user_connections[user_id]
+                    logger.info(f"[SessionWS] 🔌 User disconnected: {user_email} (user_id={user_id}, no more connections)")
+                else:
+                    logger.info(f"[SessionWS] 🔌 User disconnected: {user_email} (user_id={user_id}, remaining={remaining})")
+            except ValueError:
+                pass  # Connection already removed
+
+    async def broadcast_to_user(self, user_id: int, message: dict, event_type: str = "unknown"):
+        """
+        Broadcast a message to all of a user's active WebSocket connections.
+
+        Args:
+            user_id: User ID to broadcast to
+            message: Message dictionary to send
+            event_type: Type of event for logging (logout, login, color_change, theme_change)
+        """
+        if user_id not in self.user_connections:
+            logger.debug(f"[SessionWS] No connections for user_id={user_id}, event={event_type}")
+            return
+
+        connections = self.user_connections[user_id]
+        logger.info(f"[SessionWS] 📢 Broadcasting {event_type} to user_id={user_id} ({len(connections)} connections)")
+
+        disconnected = []
+        success_count = 0
+
+        for ws in connections:
+            try:
+                await ws.send_text(json.dumps(message))
+                success_count += 1
+            except Exception as e:
+                logger.warning(f"[SessionWS] Failed to send {event_type} to connection: {e}")
+                disconnected.append(ws)
+
+        # Remove disconnected clients
+        for ws in disconnected:
+            try:
+                self.user_connections[user_id].remove(ws)
+            except ValueError:
+                pass
+
+        # Clean up empty user lists
+        if user_id in self.user_connections and not self.user_connections[user_id]:
+            del self.user_connections[user_id]
+
+        logger.info(f"[SessionWS] ✅ Broadcast complete: {success_count}/{len(connections)} successful, {len(disconnected)} failed")
+
+    async def broadcast_logout(self, user_id: int, reason: str = "logout"):
+        """Broadcast logout event to all user's connections."""
+        message = {
+            "type": "SESSION_INVALIDATED",
+            "event": "logout",
+            "reason": reason,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        await self.broadcast_to_user(user_id, message, "logout")
+
+    async def broadcast_login(self, user_id: int, user_email: str):
+        """Broadcast login event to all user's connections (for multi-device sync)."""
+        message = {
+            "type": "SESSION_CREATED",
+            "event": "login",
+            "user_email": user_email,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        await self.broadcast_to_user(user_id, message, "login")
+
+    async def broadcast_color_schema_change(self, user_id: int, colors: dict):
+        """Broadcast color schema change to all user's connections."""
+        message = {
+            "type": "COLOR_SCHEMA_UPDATED",
+            "event": "color_change",
+            "colors": colors,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        await self.broadcast_to_user(user_id, message, "color_change")
+
+    async def broadcast_theme_mode_change(self, user_id: int, theme_mode: str):
+        """Broadcast theme mode (dark/light) change to all user's connections."""
+        message = {
+            "type": "THEME_MODE_UPDATED",
+            "event": "theme_change",
+            "theme_mode": theme_mode,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        await self.broadcast_to_user(user_id, message, "theme_change")
+
+    def get_connection_count(self, user_id: int) -> int:
+        """Get number of connections for a user."""
+        return len(self.user_connections.get(user_id, []))
+
+    def get_total_connections(self) -> int:
+        """Get total number of session connections across all users."""
+        return sum(len(connections) for connections in self.user_connections.values())
+
+    def get_all_connected_users(self) -> List[int]:
+        """Get list of all user IDs with active connections."""
+        return list(self.user_connections.keys())
+
+
+# Global session WebSocket manager instance
+session_websocket_manager = SessionWebSocketManager()
+
+def get_session_websocket_manager() -> SessionWebSocketManager:
+    """Get the global session WebSocket manager instance."""
+    return session_websocket_manager
+
+
 @router.websocket("/ws/progress/{job_name}")
 async def websocket_progress_endpoint(websocket: WebSocket, job_name: str, token: str = Query(...)):
     """
@@ -327,4 +473,102 @@ async def test_websocket_message(job_name: str, tenant_id: int = Query(1)):
         "percentage": 75.0,
         "step": "Test progress message",
         "connections": connections
+    }
+
+
+@router.websocket("/ws/session")
+async def websocket_session_endpoint(websocket: WebSocket, token: str = Query(...)):
+    """
+    Authenticated WebSocket endpoint for real-time session synchronization.
+
+    Handles:
+    - Logout events (instant logout across all tabs/devices)
+    - Login events (sync new sessions)
+    - Color schema changes (real-time theme updates)
+    - Dark/Light mode changes (instant mode sync)
+
+    Args:
+        token: JWT authentication token (required)
+
+    The connection stays open and receives real-time events for:
+    - SESSION_INVALIDATED: User logged out (logout from any device)
+    - SESSION_CREATED: User logged in (login from another device)
+    - COLOR_SCHEMA_UPDATED: User changed color schema
+    - THEME_MODE_UPDATED: User toggled dark/light mode
+    """
+    user_id = None
+    user_email = None
+
+    try:
+        # Mask token for logging
+        masked_token = f"{token[:10]}...{token[-10:]}" if len(token) > 20 else "***"
+
+        # Verify token and extract user info
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        user = await auth_service.verify_token(token, suppress_errors=True)
+
+        if not user:
+            logger.warning(f"[SessionWS] Connection rejected: Invalid token (token={masked_token})")
+            await websocket.close(code=1008, reason="Invalid or expired token")
+            return
+
+        user_id = user.id
+        user_email = user.email
+        logger.info(f"[SessionWS] ✅ Authenticated connection: user={user_email}, user_id={user_id}, token={masked_token}")
+
+        # Register client (this will accept the WebSocket connection)
+        await session_websocket_manager.connect(websocket, user_id, user_email)
+
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                # Wait for client messages (ping/pong, etc.)
+                data = await websocket.receive_text()
+
+                # Handle client messages
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "ping":
+                        await websocket.send_text(json.dumps({
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
+                except json.JSONDecodeError:
+                    logger.warning(f"[SessionWS] Invalid JSON from user {user_email}: {data}")
+
+            except WebSocketDisconnect:
+                logger.info(f"[SessionWS] Client disconnected: {user_email}")
+                break
+            except Exception as e:
+                logger.error(f"[SessionWS] Error in connection for user {user_email}: {e}")
+                break
+
+    except Exception as e:
+        logger.error(f"[SessionWS] Error in authentication: {e}")
+        try:
+            await websocket.close(code=1011, reason="Authentication error")
+        except:
+            pass
+        return
+
+    finally:
+        # Clean up connection
+        if user_id is not None and user_email is not None:
+            await session_websocket_manager.disconnect(websocket, user_id, user_email)
+
+
+@router.get("/api/v1/websocket/session/status")
+async def session_websocket_status():
+    """
+    Get session WebSocket connection status and statistics.
+
+    Returns:
+        dict: Session WebSocket connection statistics
+    """
+    return {
+        "total_connections": session_websocket_manager.get_total_connections(),
+        "connected_users": session_websocket_manager.get_all_connected_users(),
+        "user_count": len(session_websocket_manager.get_all_connected_users())
     }

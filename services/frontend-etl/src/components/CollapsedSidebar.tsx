@@ -63,7 +63,7 @@ const adminItems: NavigationItem[] = [
 
 export default function CollapsedSidebar() {
   const { isAdmin } = useAuth()
-  const { theme } = useTheme()
+  const { theme, colorSchema } = useTheme()
   const location = useLocation()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
@@ -170,18 +170,24 @@ export default function CollapsedSidebar() {
       {/* Collapsed Sidebar */}
       <aside
         ref={sidebarRef}
-        className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-16 z-40 overflow-visible flex flex-col"
+        className="fixed left-0 top-0 bottom-0 w-16 z-40 overflow-visible flex flex-col items-center justify-center py-4"
         style={{ background: 'transparent' }}
       >
-        {/* Main Navigation */}
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="flex flex-col space-y-3 py-4 w-full" style={{
+        {/* Main Navigation - Vertically centered with dynamic height + 2 extra item spaces */}
+        <div
+          className="flex flex-col space-y-3 w-full overflow-visible"
+          style={{
             backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
             borderRight: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
             boxShadow: theme === 'dark'
-              ? '2px 0 3px 0 rgba(255, 255, 255, 0.05), 0 -3px 3px 0 rgba(255, 255, 255, 0.05), 0 3px 3px 0 rgba(255, 255, 255, 0.05)'
-              : '2px 0 3px 0 rgba(0, 0, 0, 0.1), 0 -3px 3px 0 rgba(0, 0, 0, 0.1), 0 3px 3px 0 rgba(0, 0, 0, 0.1)'
-          }}>
+              ? '2px 0 4px 0 rgba(0, 0, 0, 0.2), 0 -2px 4px 0 rgba(0, 0, 0, 0.1), 0 2px 4px 0 rgba(0, 0, 0, 0.1)'
+              : '2px 0 4px 0 rgba(0, 0, 0, 0.1), 0 -2px 4px 0 rgba(0, 0, 0, 0.05), 0 2px 4px 0 rgba(0, 0, 0, 0.05)',
+            borderTopRightRadius: '32px',
+            borderBottomRightRadius: '32px',
+            paddingTop: '64px',
+            paddingBottom: '64px'
+          }}
+        >
             {navigationItems
             .filter(item => !item.adminOnly || isAdmin)
             .map((item) => (
@@ -194,20 +200,24 @@ export default function CollapsedSidebar() {
                     to={item.path}
                     className={`w-12 h-12 flex items-center justify-center mx-auto nav-item ${isActive(item)
                       ? 'nav-item-active'
-                      : 'text-secondary hover:bg-tertiary hover:text-primary'
+                      : ''
                       }`}
                     style={isActive(item) ? {
                       background: 'var(--gradient-1-2)',
-                      color: 'var(--on-gradient-1-2)'
-                    } : {}}
+                      color: 'var(--on-gradient-1-2)',
+                      borderRadius: '12px'
+                    } : {
+                      color: theme === 'dark' ? '#ffffff' : '#24292f',
+                      borderRadius: '8px'
+                    }}
                     onMouseEnter={(e) => {
                       if (!isActive(item)) {
-                        e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+                        e.currentTarget.style.backgroundColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive(item)) {
-                        e.currentTarget.style.border = 'none'
+                        e.currentTarget.style.backgroundColor = 'transparent'
                       }
                     }}
                   >
@@ -216,11 +226,10 @@ export default function CollapsedSidebar() {
                 </motion.div>
               </div>
             ))}
-          </div>
         </div>
 
-        {/* Admin Settings */}
-        {isAdmin && (
+        {/* Admin Settings - Can be added here if needed */}
+        {isAdmin && adminItems.length > 0 && (
           <div className="px-2 py-4">
             {adminItems.map((item) => (
               <div key={item.id} className="relative">
@@ -236,8 +245,11 @@ export default function CollapsedSidebar() {
                       }`}
                     style={isActive(item) ? {
                       background: 'var(--gradient-1-2)',
-                      color: 'var(--on-gradient-1-2)'
-                    } : {}}
+                      color: 'var(--on-gradient-1-2)',
+                      borderRadius: '12px'
+                    } : {
+                      color: theme === 'dark' ? '#ffffff' : '#24292f'
+                    }}
                     onMouseEnter={(e) => {
                       if (!isActive(item)) {
                         e.currentTarget.style.border = '1px solid rgba(0, 0, 0, 0.1)'
@@ -313,8 +325,11 @@ export default function CollapsedSidebar() {
                         }`}
                       style={location.pathname === subItem.path ? {
                         background: 'var(--gradient-1-2)',
-                        color: 'var(--on-gradient-1-2)'
-                      } : {}}
+                        color: 'var(--on-gradient-1-2)',
+                        borderRadius: '8px'
+                      } : {
+                        color: theme === 'dark' ? '#ffffff' : '#24292f'
+                      }}
                     >
                       {subItem.label}
                     </Link>

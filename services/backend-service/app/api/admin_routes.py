@@ -62,6 +62,19 @@ class WorkerActionRequest(BaseModel):
     action: str  # 'start', 'stop', 'restart'
 
 
+class WorkerScaleRequest(BaseModel):
+    """Request model for worker scale configuration."""
+    transform_workers: int  # 1-10
+    vectorization_workers: int  # 1-10
+
+
+class WorkerConfigResponse(BaseModel):
+    """Response model for worker configuration."""
+    tenant_id: int
+    transform_workers: int
+    vectorization_workers: int
+
+
 class WorkerLogsResponse(BaseModel):
     """Response model for worker logs."""
     logs: List[str]
@@ -1273,8 +1286,9 @@ async def update_color_schema_mode(
 
             session.commit()
 
-            # 🚀 NEW: Notify ETL service of color schema mode change
-            await notify_etl_color_schema_mode_change(user.tenant_id, request.mode)
+            # Note: Color schema changes are now broadcasted via browser events
+            # from frontend-app ThemeContext to frontend-etl ThemeContext
+            # No need for backend-to-ETL service notifications
 
             return {
                 "success": True,
@@ -1438,6 +1452,28 @@ async def update_unified_color_schema(
             session.commit()
 
             logger.info(f"User {user.email} updated unified color schema")
+
+            # Broadcast color schema change to all tenant users' WebSocket connections
+            try:
+                from app.api.websocket_routes import get_session_websocket_manager
+                session_ws_manager = get_session_websocket_manager()
+
+                # Get all users in this tenant to broadcast to
+                tenant_users = session.query(User).filter(User.tenant_id == user.tenant_id).all()
+
+                # Prepare color data for broadcast
+                colors_data = {
+                    'light': request.light_colors,
+                    'dark': request.dark_colors
+                }
+
+                # Broadcast to all tenant users
+                for tenant_user in tenant_users:
+                    await session_ws_manager.broadcast_color_schema_change(tenant_user.id, colors_data)
+
+                logger.info(f"✅ Color schema change broadcast sent to {len(tenant_users)} users in tenant {user.tenant_id}")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast color schema change via WebSocket: {e}")
 
             return {
                 "success": True,
@@ -1997,6 +2033,118 @@ async def worker_action(
     except Exception as e:
         logger.error(f"Error controlling workers: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to control workers: {str(e)}")
+
+
+@router.get("/workers/config", response_model=WorkerConfigResponse)
+async def get_worker_config(
+    current_user: User = Depends(require_authentication)
+):
+    """Get worker configuration for current user's tenant."""
+    try:
+        from app.core.database import get_database
+        from app.models.unified_models import WorkerConfig
+        from sqlalchemy import text
+
+        tenant_id = current_user.tenant_id
+        database = get_database()
+
+        with database.get_session() as session:
+            config = session.query(WorkerConfig).filter(
+                WorkerConfig.tenant_id == tenant_id,
+                WorkerConfig.active == True
+            ).first()
+
+            if not config:
+                # Create default config
+                insert_query = text("""
+                    INSERT INTO worker_configs (tenant_id, transform_workers, vectorization_workers)
+                    VALUES (:tenant_id, 1, 1)
+                    ON CONFLICT (tenant_id) DO NOTHING
+                    RETURNING id
+                """)
+                session.execute(insert_query, {'tenant_id': tenant_id})
+                session.commit()
+
+                # Fetch the newly created config
+                config = session.query(WorkerConfig).filter(
+                    WorkerConfig.tenant_id == tenant_id
+                ).first()
+
+            return WorkerConfigResponse(
+                tenant_id=config.tenant_id,
+                transform_workers=config.transform_workers,
+                vectorization_workers=config.vectorization_workers
+            )
+
+    except Exception as e:
+        logger.error(f"Error getting worker config: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get worker config: {str(e)}")
+
+
+@router.post("/workers/config/scale")
+async def set_worker_scale(
+    request: WorkerScaleRequest,
+    current_user: User = Depends(require_authentication)
+):
+    """Set worker counts for current user's tenant (1-10 workers per type)."""
+    try:
+        from app.core.database import get_database
+        from sqlalchemy import text
+
+        tenant_id = current_user.tenant_id
+        transform_workers = request.transform_workers
+        vectorization_workers = request.vectorization_workers
+
+        # Validate worker counts (1-10)
+        if not (1 <= transform_workers <= 10):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid transform_workers: {transform_workers}. Must be between 1 and 10"
+            )
+
+        if not (1 <= vectorization_workers <= 10):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid vectorization_workers: {vectorization_workers}. Must be between 1 and 10"
+            )
+
+        database = get_database()
+
+        with database.get_session() as session:
+            # Update or insert worker config
+            update_query = text("""
+                INSERT INTO worker_configs (tenant_id, transform_workers, vectorization_workers, last_updated_at)
+                VALUES (:tenant_id, :transform_workers, :vectorization_workers, NOW())
+                ON CONFLICT (tenant_id)
+                DO UPDATE SET
+                    transform_workers = :transform_workers,
+                    vectorization_workers = :vectorization_workers,
+                    last_updated_at = NOW()
+            """)
+
+            session.execute(update_query, {
+                'tenant_id': tenant_id,
+                'transform_workers': transform_workers,
+                'vectorization_workers': vectorization_workers
+            })
+            session.commit()
+
+        logger.info(f"Worker config set to {transform_workers} transform + {vectorization_workers} vectorization for tenant {tenant_id} by user {current_user.email}")
+
+        return {
+            "success": True,
+            "message": f"Worker configuration updated. Restart workers to apply changes.",
+            "tenant_id": tenant_id,
+            "transform_workers": transform_workers,
+            "vectorization_workers": vectorization_workers,
+            "requires_restart": True
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting worker scale: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set worker scale: {str(e)}")
 
 
 # Tenant-specific worker management endpoints

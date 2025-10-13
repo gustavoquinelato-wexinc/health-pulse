@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
 import json
+import os
 
 from app.core.database import get_db_session
 from app.auth.auth_middleware import require_authentication, UserData
@@ -411,7 +412,7 @@ async def sync_custom_fields(
                 all_discovered_fields = extract_custom_fields_from_createmeta(createmeta_response)
                 total_custom_fields = len(all_discovered_fields)
 
-                # Queue single message with ORIGINAL full payload containing all projects
+                # Queue createmeta response (first message)
                 await queue_custom_fields_for_processing(
                     integration_id=integration_id,
                     tenant_id=user.tenant_id,
@@ -421,7 +422,30 @@ async def sync_custom_fields(
                     createmeta_response=createmeta_response  # FULL original response with all projects
                 )
 
-                logger.info(f"Stored raw data and queued custom fields for processing: projects_count={projects_processed}, fields_count={total_custom_fields}")
+                logger.info(f"Stored createmeta raw data and queued for processing: projects_count={projects_processed}, fields_count={total_custom_fields}")
+
+                # Fetch special fields separately (not available in createmeta)
+                # This creates a SECOND queue message and raw_extraction_data entry with different type
+                development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+                logger.info(f"Fetching special field (development): {development_field_id}")
+
+                development_field_response = jira_client.get_field_by_id(development_field_id)
+                if development_field_response:
+                    logger.info(f"Successfully fetched special field: {development_field_response.get('id')} - {development_field_response.get('name')}")
+
+                    # Queue special field as SECOND message with type 'jira_special_fields'
+                    await queue_special_fields_for_processing(
+                        integration_id=integration_id,
+                        tenant_id=user.tenant_id,
+                        field_search_response=development_field_response  # Field search API response
+                    )
+
+                    total_custom_fields += 1
+                    logger.info(f"Stored special field raw data and queued for processing")
+                else:
+                    logger.warning(f"Special field {development_field_id} not found")
+
+                logger.info(f"Total custom fields sync completed: {total_custom_fields} fields (including development field)")
             else:
                 logger.warning("User tenant_id is None, skipping queue processing")
 
@@ -591,8 +615,8 @@ async def queue_custom_fields_for_processing(
 
         with database.get_session_context() as db:
             try:
-                # Note: With simplified table, we only store the raw API response
-                # Processed data (discovered_fields) will be handled in the queue message
+                # Store the raw API response (either createmeta or field search)
+                # Each API call gets its own raw_extraction_data entry
 
                 # Insert into raw_extraction_data (simplified structure)
                 insert_query = text("""
@@ -652,6 +676,86 @@ async def queue_custom_fields_for_processing(
 
     except Exception as e:
         logger.error(f"Failed to store/queue custom fields data: {e}")
+        # Don't raise exception here - the discovery was successful even if storage/queuing failed
+
+
+async def queue_special_fields_for_processing(
+    integration_id: int,
+    tenant_id: int,
+    field_search_response: Dict[str, Any]
+):
+    """
+    Store special field response in raw_extraction_data and queue for processing.
+    Uses type 'jira_special_fields' to differentiate from createmeta.
+
+    Special fields are those not available in createmeta API (e.g., development field).
+    This function can handle any field fetched via /rest/api/3/field/search API.
+
+    Args:
+        integration_id: Integration ID
+        tenant_id: Tenant ID
+        field_search_response: Response from /rest/api/3/field/search API
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+        from sqlalchemy import text
+        import json
+        from app.core.database import get_database
+
+        database = get_database()
+
+        with database.get_session_context() as db:
+            try:
+                # Insert into raw_extraction_data with type 'jira_special_fields'
+                insert_query = text("""
+                    INSERT INTO raw_extraction_data (
+                        type, raw_data, status, tenant_id, integration_id, created_at, last_updated_at, active
+                    ) VALUES (
+                        :type, CAST(:raw_data AS jsonb), 'pending', :tenant_id, :integration_id, NOW(), NOW(), TRUE
+                    ) RETURNING id
+                """)
+
+                raw_data_json = json.dumps(field_search_response)
+                logger.info(f"🔍 DEBUG: Storing special field in database")
+
+                result = db.execute(insert_query, {
+                    'type': 'jira_special_fields',  # Generic type for special fields
+                    'raw_data': raw_data_json,
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id
+                })
+
+                row = result.fetchone()
+                if row is None:
+                    raise Exception("Failed to insert special field raw data - no ID returned")
+                raw_data_id = row[0]
+                db.commit()
+
+                logger.info(f"🔍 DEBUG: Successfully stored special field raw_data with ID: {raw_data_id}")
+
+            except Exception as db_error:
+                db.rollback()
+                logger.error(f"Database error storing special field raw data: {db_error}")
+                raise
+
+        # Queue message to tenant-specific transform queue
+        queue_manager = QueueManager()
+
+        success = queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            raw_data_id=raw_data_id,
+            data_type='jira_special_fields'  # Generic data type for worker routing
+        )
+
+        if success:
+            logger.info(f"✅ Queued special field for processing: raw_data_id={raw_data_id}, tenant={tenant_id}")
+        else:
+            logger.error(f"❌ Failed to queue special field for processing: raw_data_id={raw_data_id}, tenant={tenant_id}")
+            raise Exception("Failed to queue special field for processing")
+
+    except Exception as e:
+        logger.error(f"Failed to store/queue special field data: {e}")
         # Don't raise exception here - the discovery was successful even if storage/queuing failed
 
 

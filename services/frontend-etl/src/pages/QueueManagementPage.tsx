@@ -39,13 +39,25 @@ interface WorkerLogs {
   total_lines: number
 }
 
+interface WorkerConfig {
+  tenant_id: number
+  transform_workers: number
+  vectorization_workers: number
+}
+
 export default function QueueManagementPage() {
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
+  const [workerConfig, setWorkerConfig] = useState<WorkerConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [scaleLoading, setScaleLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+
+  // Local state for worker count selectors
+  const [transformWorkers, setTransformWorkers] = useState(1)
+  const [vectorizationWorkers, setVectorizationWorkers] = useState(1)
 
   const fetchWorkerStatus = async () => {
     try {
@@ -71,7 +83,7 @@ export default function QueueManagementPage() {
   }
 
   const fetchWorkerLogs = async () => {
-    try {
+    try:
       // Use backend service URL directly for admin endpoints
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/logs?lines=20`, {
@@ -90,6 +102,68 @@ export default function QueueManagementPage() {
     } catch (err) {
       console.error('Failed to fetch worker logs:', err)
       // Don't set error for logs - it's not critical
+    }
+  }
+
+  const fetchWorkerConfig = async () => {
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch worker config: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      setWorkerConfig(data)
+
+      // Update local state with current config
+      setTransformWorkers(data.transform_workers)
+      setVectorizationWorkers(data.vectorization_workers)
+    } catch (err) {
+      console.error('Failed to fetch worker config:', err)
+    }
+  }
+
+  const setWorkerScale = async (transformWorkers: number, vectorizationWorkers: number) => {
+    setScaleLoading(true)
+    setError(null)
+
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/scale`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          transform_workers: transformWorkers,
+          vectorization_workers: vectorizationWorkers
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to set worker scale: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      // Refresh config
+      await fetchWorkerConfig()
+
+      // Show success message
+      setError(null)
+      alert(`Worker configuration updated to ${transformWorkers} transform + ${vectorizationWorkers} vectorization workers. Please restart workers to apply changes.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to set worker scale`)
+    } finally {
+      setScaleLoading(false)
     }
   }
 
@@ -133,7 +207,7 @@ export default function QueueManagementPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchWorkerStatus(), fetchWorkerLogs()])
+      await Promise.all([fetchWorkerStatus(), fetchWorkerLogs(), fetchWorkerConfig()])
       setLoading(false)
     }
 
@@ -143,6 +217,7 @@ export default function QueueManagementPage() {
     const interval = setInterval(() => {
       fetchWorkerStatus()
       fetchWorkerLogs()
+      fetchWorkerConfig()
     }, 10000)
 
     return () => clearInterval(interval)
@@ -228,7 +303,16 @@ export default function QueueManagementPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Worker Status Card */}
-          <Card>
+          <Card className="border border-gray-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
@@ -271,7 +355,16 @@ export default function QueueManagementPage() {
           </Card>
 
           {/* Queue Statistics Card */}
-          <Card>
+          <Card className="border border-gray-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
@@ -317,8 +410,141 @@ export default function QueueManagementPage() {
           </Card>
         </div>
 
+        {/* Worker Scale Configuration */}
+        <Card className="mb-8 border border-gray-400"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--color-1)'
+            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#9ca3af'
+            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
+          <CardHeader>
+            <CardTitle>Worker Scale Configuration</CardTitle>
+            <CardDescription>
+              Configure the number of workers (1-10 per type) based on your data volume. Changes require worker restart.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Current Configuration */}
+              {workerConfig && (
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-secondary">Transform Workers:</span>
+                      <div className="font-semibold text-lg mt-1">{workerConfig.transform_workers}</div>
+                    </div>
+                    <div>
+                      <span className="text-secondary">Vectorization Workers:</span>
+                      <div className="font-semibold text-lg mt-1">{workerConfig.vectorization_workers}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Worker Count Selectors */}
+              <div className="space-y-4">
+                <h4 className="font-medium">Configure Worker Counts (1-10):</h4>
+
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Transform Workers */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Transform Workers</label>
+                    <select
+                      value={transformWorkers}
+                      onChange={(e) => setTransformWorkers(Number(e.target.value))}
+                      disabled={scaleLoading}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                        <option key={num} value={num}>{num} worker{num > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-secondary">Process custom fields, projects, issues, PRs</p>
+                  </div>
+
+                  {/* Vectorization Workers */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Vectorization Workers</label>
+                    <select
+                      value={vectorizationWorkers}
+                      onChange={(e) => setVectorizationWorkers(Number(e.target.value))}
+                      disabled={scaleLoading}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                        <option key={num} value={num}>{num} worker{num > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-secondary">Generate embeddings and store in Qdrant</p>
+                  </div>
+                </div>
+
+                {/* Apply Button */}
+                <Button
+                  onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
+                  disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
+                  className="w-full"
+                >
+                  {scaleLoading ? 'Applying...' : 'Apply Worker Configuration'}
+                </Button>
+              </div>
+
+              {/* Performance Impact Information */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-sm">Performance Impact:</h4>
+                <div className="grid grid-cols-4 gap-3 text-xs">
+                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                    <div className="font-semibold mb-1">Throughput</div>
+                    <div className="text-secondary">~{(transformWorkers + vectorizationWorkers) * 50} msg/hour</div>
+                  </div>
+                  <div className="p-3 bg-purple-50 rounded border border-purple-200">
+                    <div className="font-semibold mb-1">Memory</div>
+                    <div className="text-secondary">~{(transformWorkers + vectorizationWorkers) * 50}MB</div>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded border border-green-200">
+                    <div className="font-semibold mb-1">CPU Cores</div>
+                    <div className="text-secondary">{Math.ceil((transformWorkers + vectorizationWorkers) / 3)}-{Math.ceil((transformWorkers + vectorizationWorkers) / 2)}</div>
+                  </div>
+                  <div className="p-3 bg-orange-50 rounded border border-orange-200">
+                    <div className="font-semibold mb-1">DB Connections</div>
+                    <div className="text-secondary">{(transformWorkers + vectorizationWorkers) * 2}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Important Notes */}
+              <Alert className="border-yellow-200 bg-yellow-50">
+                <AlertCircle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800 space-y-2">
+                  <div><strong>Important Notes:</strong></div>
+                  <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li><strong>Restart Required:</strong> Worker count changes only apply after restart</li>
+                    <li><strong>Resource Usage:</strong> More workers = more memory/CPU usage</li>
+                    <li><strong>Database Connections:</strong> Each worker needs DB connection pool</li>
+                    <li><strong>Queue Depth:</strong> Monitor queue depth to determine optimal scale</li>
+                    <li><strong>Recommended for Full Load:</strong> Set to 8-10 workers before Jira/GitHub sync, then reduce to 1-2 after</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Worker Controls */}
-        <Card className="mb-8">
+        <Card className="mb-8 border border-gray-400"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--color-1)'
+            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#9ca3af'
+            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
           <CardHeader>
             <CardTitle>Worker Controls</CardTitle>
             <CardDescription>
@@ -361,7 +587,16 @@ export default function QueueManagementPage() {
 
         {/* Current Tenant Worker Details */}
         {workerStatus?.tenants && Object.keys(workerStatus.tenants).length > 0 && (
-          <Card className="mb-8">
+          <Card className="mb-8 border border-gray-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
             <CardHeader>
               <CardTitle>Your Tenant Workers</CardTitle>
               <CardDescription>
@@ -405,7 +640,16 @@ export default function QueueManagementPage() {
 
         {/* Worker Logs */}
         {workerLogs && (
-          <Card>
+          <Card className="border border-gray-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
             <CardHeader>
               <CardTitle>Recent Worker Logs</CardTitle>
               <CardDescription>

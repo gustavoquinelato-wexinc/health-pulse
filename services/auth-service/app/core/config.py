@@ -36,7 +36,7 @@ class AuthServiceSettings(BaseSettings):
     AUTH_SERVICE_URL: str = "http://localhost:4000"
 
     # CORS Configuration
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000,http://localhost:3001"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3333,http://localhost:5173,http://localhost:8000,http://localhost:3001"
 
     # Cookie Configuration
     COOKIE_DOMAIN: str = ".localhost"

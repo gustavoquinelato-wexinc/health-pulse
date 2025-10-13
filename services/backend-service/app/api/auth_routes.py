@@ -204,27 +204,40 @@ async def login(login_request: LoginRequest, request: Request):
 async def logout(request: Request):
     """
     User logout endpoint.
-    Invalidates the current session.
+    Invalidates the current session and broadcasts logout to all user's devices.
     """
     logger.info("🔐 Logout request received")
-    
+
     try:
         # Get token from Authorization header
         auth_header = request.headers.get("Authorization")
-        
+
         if not auth_header or not auth_header.startswith("Bearer "):
             logger.warning("❌ Logout: Missing or invalid authorization header")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing or invalid authorization header"
             )
-        
+
         token = auth_header[7:]  # Remove "Bearer " prefix
-        
-        # Invalidate session
+
+        # Get user info before invalidating session
         auth_service = get_auth_service()
+        user_data = await auth_service.verify_token(token, suppress_errors=True)
+
+        # Invalidate session
         success = await auth_service.logout(token)
-        
+
+        # Broadcast logout to all user's WebSocket connections
+        if success and user_data:
+            try:
+                from app.api.websocket_routes import get_session_websocket_manager
+                session_ws_manager = get_session_websocket_manager()
+                await session_ws_manager.broadcast_logout(user_data.id, reason="user_logout")
+                logger.info(f"✅ Logout broadcast sent to user_id={user_data.id}")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast logout via WebSocket: {e}")
+
         if success:
             logger.info("✅ Logout successful - session invalidated")
             response = JSONResponse(content={"message": "Logout successful", "success": True})
@@ -253,7 +266,7 @@ async def logout(request: Request):
             response.headers["Expires"] = "0"
             response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
             return response
-            
+
     except HTTPException:
         raise
     except Exception as e:

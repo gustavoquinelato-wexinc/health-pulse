@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Download, FileText, Save } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Loader2, Download, FileText, Save, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CollapsedSidebar from '../components/CollapsedSidebar';
 import ToastContainer from '../components/ToastContainer';
@@ -19,6 +19,115 @@ interface FieldMappingState {
 interface CustomFieldMappingPageProps {
   embedded?: boolean
 }
+
+// Searchable Select Component
+interface SearchableSelectProps {
+  value: string | number;
+  onChange: (value: string) => void;
+  options: CustomField[];
+  placeholder: string;
+}
+
+const SearchableSelect: React.FC<SearchableSelectProps> = ({ value, onChange, options, placeholder }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery.trim()) return options;
+
+    const query = searchQuery.toLowerCase();
+    return options.filter(field =>
+      field.name.toLowerCase().includes(query) ||
+      field.external_id.toLowerCase().includes(query)
+    );
+  }, [options, searchQuery]);
+
+  const selectedOption = options.find(f => f.id === Number(value));
+
+  // Reset search when closing
+  const handleClose = () => {
+    setIsOpen(false);
+    setSearchQuery('');
+  };
+
+  return (
+    <div className="relative">
+      {/* Display button showing current selection */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary text-sm focus:ring-2 focus:ring-accent focus:border-accent transition-all text-left flex items-center justify-between"
+      >
+        <span className={selectedOption ? '' : 'text-secondary'}>
+          {selectedOption ? `${selectedOption.name} (${selectedOption.external_id})` : placeholder}
+        </span>
+        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <>
+          {/* Backdrop to close dropdown */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={handleClose}
+          />
+
+          {/* Dropdown */}
+          <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg">
+            <div className="p-2 border-b border-gray-200">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name or ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="max-h-60 overflow-y-auto">
+              <div
+                className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                onClick={() => {
+                  onChange('');
+                  handleClose();
+                }}
+              >
+                {placeholder}
+              </div>
+              {filteredOptions.map((field) => (
+                <div
+                  key={field.id}
+                  className={`px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm ${
+                    field.id === Number(value) ? 'bg-blue-50' : ''
+                  }`}
+                  onClick={() => {
+                    onChange(String(field.id));
+                    handleClose();
+                  }}
+                >
+                  <div className="font-medium">
+                    {field.name} <span className="text-xs text-gray-500">({field.external_id})</span>
+                  </div>
+                </div>
+              ))}
+              {filteredOptions.length === 0 && (
+                <div className="px-3 py-2 text-sm text-gray-500 text-center">
+                  No fields found
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedded = false }) => {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -149,8 +258,8 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
           data.message || `Custom fields sync completed successfully. Discovered ${data.discovered_fields_count || 0} fields.`
         );
 
-        // Reload custom fields to show newly discovered fields
-        await loadCustomFields(selectedIntegration);
+        // Poll for transform worker completion and reload
+        pollForTransformCompletion();
       } else {
         showError('Sync Failed', data.message || 'Custom fields sync failed');
       }
@@ -166,6 +275,44 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
     } finally {
       setSyncing(false);
     }
+  };
+
+  const pollForTransformCompletion = () => {
+    if (!selectedIntegration) return;
+
+    // Poll every 2 seconds for up to 30 seconds
+    let pollCount = 0;
+    const maxPolls = 15;
+
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+
+      try {
+        // Reload custom fields to check if new fields appeared
+        const response = await customFieldsApi.listCustomFields(selectedIntegration);
+        const data = response.data;
+
+        if (data.success && data.custom_fields) {
+          const newFieldsCount = data.custom_fields.length;
+          const currentFieldsCount = customFields.length;
+
+          // If we have new fields, reload and stop polling
+          if (newFieldsCount > currentFieldsCount) {
+            setCustomFields(data.custom_fields);
+            clearInterval(pollInterval);
+            showSuccess('Fields Updated', `${newFieldsCount - currentFieldsCount} new custom fields discovered`);
+          }
+        }
+
+        // Stop polling after max attempts
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+        }
+      } catch (error) {
+        console.error('Error polling for custom fields:', error);
+        clearInterval(pollInterval);
+      }
+    }, 2000);
   };
 
   const content = (
@@ -277,6 +424,63 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                         </tr>
                       </thead>
                       <tbody>
+                        {/* Special Fields Section */}
+                        {[
+                          { key: 'team_field', label: 'TEAM' },
+                          { key: 'development_field', label: 'DEVELOPMENT' },
+                          { key: 'story_points_field', label: 'STORY POINTS' }
+                        ].map((specialField, index) => {
+                          const selectedFieldId = fieldMappings[specialField.key];
+                          const selectedField = customFields.find(f => f.id === selectedFieldId);
+
+                          return (
+                            <tr key={specialField.key} className={index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-bold" style={{ color: 'var(--table-column-header)' }}>{specialField.label}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <SearchableSelect
+                                  value={selectedFieldId || ''}
+                                  onChange={(value) => {
+                                    setFieldMappings(prev => ({
+                                      ...prev,
+                                      [specialField.key]: value ? parseInt(value) : null
+                                    }));
+                                  }}
+                                  options={customFields}
+                                  placeholder="-- Not Mapped --"
+                                />
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                                {selectedField?.field_type || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {selectedField ? (
+                                  <code className="text-xs text-secondary bg-tertiary/20 px-2 py-1 rounded">
+                                    {selectedField.external_id}
+                                  </code>
+                                ) : (
+                                  <span className="text-sm text-secondary">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {/* Divider Row */}
+                        <tr>
+                          <td colSpan={4} className="px-6 py-3 bg-gray-100">
+                            <div className="flex items-center">
+                              <div className="flex-grow border-t border-gray-400"></div>
+                              <span className="px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                Custom Fields (20 Available)
+                              </span>
+                              <div className="flex-grow border-t border-gray-400"></div>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Regular Custom Fields Section */}
                         {Array.from({ length: 20 }, (_, i) => i + 1).map((num, index) => {
                           const fieldKey = `custom_field_${num.toString().padStart(2, '0')}`;
                           const selectedFieldId = fieldMappings[fieldKey];
@@ -297,18 +501,12 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                                 </div>
                               </td>
                               <td className="px-6 py-4">
-                                <select
+                                <SearchableSelect
                                   value={selectedFieldId || ''}
-                                  onChange={(e) => updateFieldMapping(fieldKey, e.target.value ? parseInt(e.target.value) : null)}
-                                  className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary text-sm focus:ring-2 focus:ring-accent focus:border-accent transition-all"
-                                >
-                                  <option value="">-- Not Mapped --</option>
-                                  {customFields.map((field) => (
-                                    <option key={field.id} value={field.id}>
-                                      {field.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(value) => updateFieldMapping(fieldKey, value ? parseInt(value) : null)}
+                                  options={customFields}
+                                  placeholder="-- Not Mapped --"
+                                />
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {selectedField ? (

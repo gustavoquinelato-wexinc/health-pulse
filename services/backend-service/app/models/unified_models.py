@@ -48,6 +48,20 @@ class Tenant(Base):
     workflows = relationship("Workflow", back_populates="tenant")
     wits_mappings = relationship("WitMapping", back_populates="tenant")
     wits_hierarchies = relationship("WitHierarchy", back_populates="tenant")
+
+
+class WorkerConfig(Base, BaseEntity):
+    """Worker configuration for dynamic worker scaling per tenant."""
+    __tablename__ = 'worker_configs'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', name='unique_tenant_worker_configs'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    transform_workers = Column(Integer, nullable=False, default=1, quote=False, name="transform_workers")
+    vectorization_workers = Column(Integer, nullable=False, default=1, quote=False, name="vectorization_workers")
+    # tenant_id, active, created_at, last_updated_at inherited from BaseEntity
     work_items = relationship("WorkItem", back_populates="tenant")
     changelogs = relationship("Changelog", back_populates="tenant")
     custom_fields = relationship("CustomField", back_populates="tenant")
@@ -314,7 +328,7 @@ class CustomField(Base, IntegrationBaseEntity):
 
 
 class CustomFieldMapping(Base, IntegrationBaseEntity):
-    """Custom fields mapping table - stores direct mapping to 20 work item columns"""
+    """Custom fields mapping table - stores direct mapping to special + 20 work item columns"""
     __tablename__ = 'custom_fields_mapping'
     __table_args__ = (
         UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mapping_integration'),
@@ -322,6 +336,11 @@ class CustomFieldMapping(Base, IntegrationBaseEntity):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
+    team_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="team_field_id")
+    development_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="development_field_id")
+    story_points_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="story_points_field_id")
 
     # === 20 CUSTOM FIELD MAPPINGS ===
     custom_field_01_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="custom_field_01_id")
@@ -348,6 +367,11 @@ class CustomFieldMapping(Base, IntegrationBaseEntity):
     # Relationships
     tenant = relationship("Tenant", back_populates="custom_field_mappings")
     integration = relationship("Integration", back_populates="custom_field_mappings")
+
+    # Relationships to special fields
+    team_field = relationship("CustomField", foreign_keys=[team_field_id])
+    development_field = relationship("CustomField", foreign_keys=[development_field_id])
+    story_points_field = relationship("CustomField", foreign_keys=[story_points_field_id])
 
     # Relationships to custom fields
     custom_field_01 = relationship("CustomField", foreign_keys=[custom_field_01_id])
@@ -508,7 +532,7 @@ class WorkItem(Base, IntegrationBaseEntity):
     work_last_completed_at = Column(DateTime, quote=False, name="work_last_completed_at")
     priority = Column(String, quote=False, name="priority")
     parent_external_id = Column(String, quote=False, name="parent_external_id")  # Changed to external_id reference
-    code_changed = Column(Boolean, quote=False, name="code_changed")
+    development = Column(Boolean, quote=False, name="development")
 
     # Enhanced workflow counter columns
     total_work_starts = Column(Integer, quote=False, name="total_work_starts", default=0)
@@ -795,6 +819,7 @@ class JobSchedule(Base, IntegrationBaseEntity):
     next_run = Column(DateTime, nullable=True, quote=False, name="next_run")  # When job should run next
 
     # Execution tracking
+    last_sync_date = Column(DateTime, nullable=True, quote=False, name="last_sync_date")  # Last successful data sync - used for incremental extraction
     last_run_started_at = Column(DateTime, nullable=True, quote=False, name="last_run_started_at")
     last_run_finished_at = Column(DateTime, nullable=True, quote=False, name="last_run_finished_at")
     error_message = Column(Text, nullable=True, quote=False, name="error_message")
@@ -823,7 +848,12 @@ class JobSchedule(Base, IntegrationBaseEntity):
         self.last_run_started_at = DateTimeHelper.now_default()
 
     def set_finished(self):
-        """Mark job as finished and calculate next run time."""
+        """
+        Mark job as finished and calculate next run time.
+
+        Note: last_sync_date is NOT updated here - it should be set explicitly by the job
+        to the job_start_time (not completion time) for proper bounded incremental extraction.
+        """
         from app.core.utils import DateTimeHelper
         from datetime import timedelta
 

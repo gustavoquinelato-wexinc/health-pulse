@@ -117,12 +117,14 @@ const QdrantPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Total Records Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -137,12 +139,14 @@ const QdrantPage: React.FC = () => {
 
                   {/* Vectorized Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -157,12 +161,14 @@ const QdrantPage: React.FC = () => {
 
                   {/* Completion Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -181,7 +187,7 @@ const QdrantPage: React.FC = () => {
                   {entityGroups.map((group, groupIndex) => (
                     <div
                       key={groupIndex}
-                      className="bg-secondary rounded-lg shadow-md border border-border overflow-hidden"
+                      className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400"
                     >
                       {/* Group Header */}
                       <div className="px-6 py-5 bg-table-header border-b border-border flex items-center justify-between">

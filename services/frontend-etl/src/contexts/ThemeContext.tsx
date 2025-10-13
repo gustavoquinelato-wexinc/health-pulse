@@ -283,6 +283,23 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return () => window.removeEventListener('themeChanged', handleThemeChange as EventListener)
   }, [theme, unifiedColorData])
 
+  // Listen for color schema changes from other frontends (e.g., frontend-app)
+  useEffect(() => {
+    const handleColorSchemaChange = (event: CustomEvent) => {
+      const newUnifiedColors = event.detail.unifiedColors
+      if (newUnifiedColors) {
+        console.log('🎨 [ETL Frontend] Received color schema change from another frontend')
+        setUnifiedColorData(newUnifiedColors)
+        const currentColors = getCurrentActiveColors(newUnifiedColors, theme)
+        setColorSchema(currentColors)
+        localStorage.setItem('pulse_unified_colors', JSON.stringify(newUnifiedColors))
+      }
+    }
+
+    window.addEventListener('colorSchemaChanged', handleColorSchemaChange as EventListener)
+    return () => window.removeEventListener('colorSchemaChanged', handleColorSchemaChange as EventListener)
+  }, [theme])
+
   const toggleTheme = async () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
 

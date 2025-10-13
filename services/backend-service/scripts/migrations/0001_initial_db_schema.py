@@ -119,6 +119,25 @@ def apply(connection):
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
+
+        # 1b. Worker configurations table (per-tenant worker scaling) - Inherits from BaseEntity pattern
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS worker_configs (
+                id SERIAL PRIMARY KEY,
+                transform_workers INTEGER NOT NULL DEFAULT 1 CHECK (transform_workers >= 1 AND transform_workers <= 10),
+                vectorization_workers INTEGER NOT NULL DEFAULT 1 CHECK (vectorization_workers >= 1 AND vectorization_workers <= 10),
+                tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT unique_tenant_worker_configs UNIQUE (tenant_id)
+            );
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_worker_configs_tenant ON worker_configs(tenant_id);")
+        cursor.execute("COMMENT ON TABLE worker_configs IS 'Worker scaling configuration per tenant (1-10 workers per type)';")
+        cursor.execute("COMMENT ON COLUMN worker_configs.transform_workers IS 'Number of transform workers (1-10)';")
+        cursor.execute("COMMENT ON COLUMN worker_configs.vectorization_workers IS 'Number of vectorization workers (1-10)';")
+        # Note: Default worker configs data inserted in migration 0002 (after tenant creation)
         
         # 2. Users table - NO vector column
         cursor.execute("""
@@ -383,7 +402,7 @@ def apply(connection):
                 workflow_complexity_score INTEGER DEFAULT 0,
                 rework_indicator BOOLEAN DEFAULT FALSE,
                 direct_completion BOOLEAN DEFAULT FALSE,
-                code_changed BOOLEAN,
+                development BOOLEAN,
                 custom_field_01 VARCHAR,
                 custom_field_02 VARCHAR,
                 custom_field_03 VARCHAR,
@@ -587,6 +606,7 @@ def apply(connection):
                 status VARCHAR(20) NOT NULL DEFAULT 'READY',
                 schedule_interval_minutes INTEGER NOT NULL DEFAULT 360,
                 retry_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                last_sync_date TIMESTAMP,
                 last_run_started_at TIMESTAMP,
                 last_run_finished_at TIMESTAMP,
                 error_message TEXT,
@@ -601,6 +621,9 @@ def apply(connection):
                 UNIQUE(job_name, tenant_id),
                 CHECK (status IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
             );
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs.last_sync_date IS 'Last successful data sync timestamp - used for incremental extraction. NULL = first run (full sync)';
         """)
         print("   ✅ etl_jobs table created")
 
@@ -1146,10 +1169,15 @@ def apply(connection):
         print("✅ Custom fields table created")
         print("📋 Creating custom fields mapping tables...")
 
-        # Custom fields mapping table - stores direct mapping to 20 work_item columns
+        # Custom fields mapping table - stores direct mapping to special + 20 custom work_item columns
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS custom_fields_mapping (
                 id SERIAL PRIMARY KEY,
+
+                -- === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
+                team_field_id INTEGER REFERENCES custom_fields(id),
+                development_field_id INTEGER REFERENCES custom_fields(id),
+                story_points_field_id INTEGER REFERENCES custom_fields(id),
 
                 -- === 20 CUSTOM FIELD MAPPINGS ===
                 custom_field_01_id INTEGER REFERENCES custom_fields(id),
@@ -1417,6 +1445,7 @@ def rollback(connection):
             'qdrant_vectors',  # Added missing vector table
 
             # Configuration and color tables
+            'worker_configs',  # Worker scaling configuration (depends on tenants)
             'tenants_colors',
             'tenant_colors',  # Old color table (wrong name)
             'dora_metric_insights',

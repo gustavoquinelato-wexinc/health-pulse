@@ -23,6 +23,7 @@ interface Job {
   active: boolean
   schedule_interval_minutes: number
   retry_interval_minutes: number
+  integration_id?: number
   integration_type?: string
   integration_logo_filename?: string
   last_run_started_at?: string
@@ -43,6 +44,15 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [selectedJobForSettings, setSelectedJobForSettings] = useState<Job | null>(null)
+
+  // Activation confirmation modal state
+  const [activationModal, setActivationModal] = useState({
+    isOpen: false,
+    jobId: 0,
+    jobName: '',
+    integrationId: 0,
+    integrationName: ''
+  })
 
   useEffect(() => {
     if (user) {
@@ -128,7 +138,7 @@ export default function HomePage() {
       )
 
     } catch (err: any) {
-      console.error('Error running job:', err)
+      // Show error toast (no console.error - toast is enough)
       showError(
         'Failed to run job',
         err.response?.data?.detail || 'An error occurred'
@@ -141,7 +151,50 @@ export default function HomePage() {
   const handleToggleJobActive = async (jobId: number, active: boolean) => {
     if (!user) return
 
+    // If activating, check if integration is inactive first
+    if (active) {
+      const job = jobs.find(j => j.id === jobId)
+      if (job && job.integration_id) {
+        // Get all integrations to check if this job's integration is inactive
+        try {
+          const integrationsResponse = await etlApi.get('/integrations')
+          const integrations = integrationsResponse.data
+          const integration = integrations.find((i: any) => i.id === job.integration_id)
+
+          if (integration && !integration.active) {
+            // Show confirmation modal
+            setActivationModal({
+              isOpen: true,
+              jobId,
+              jobName: job.job_name,
+              integrationId: job.integration_id,
+              integrationName: integration.name
+            })
+            return
+          }
+        } catch (err) {
+          // If we can't check integration, proceed with normal activation
+          // This will let the backend handle the validation
+        }
+      }
+    }
+
+    // Proceed with toggle
+    await performToggleJobActive(jobId, active)
+  }
+
+  const performToggleJobActive = async (jobId: number, active: boolean, activateIntegration: boolean = false) => {
+    if (!user) return
+
     try {
+      // If we need to activate integration first
+      if (activateIntegration && activationModal.integrationId) {
+        await etlApi.post(
+          `/integrations/${activationModal.integrationId}/toggle-active`,
+          { active: true }
+        )
+      }
+
       const response = await etlApi.post(
         `/jobs/${jobId}/toggle-active?tenant_id=${user.tenant_id}`,
         { active }
@@ -155,18 +208,35 @@ export default function HomePage() {
       }
 
       // Show success toast
+      const message = activateIntegration
+        ? `Integration and job activated successfully`
+        : response.data.message || `Job ${active ? 'activated' : 'deactivated'} successfully`
+
       showSuccess(
         'Job Status Updated',
-        response.data.message || `Job ${active ? 'activated' : 'deactivated'} successfully`
+        message
       )
+
+      // Close modal if open
+      setActivationModal({ isOpen: false, jobId: 0, jobName: '', integrationId: 0, integrationName: '' })
 
       await fetchJobs()
     } catch (err: any) {
-      console.error('Error toggling job active status:', err)
+      // Extract error message from response
+      const errorDetail = err.response?.data?.detail || 'An error occurred'
+
+      // Show more helpful error message (no console.error - toast is enough)
       showError(
-        'Failed to update job status',
-        err.response?.data?.detail || 'An error occurred'
+        'Cannot Toggle Job Status',
+        errorDetail
       )
+
+      // Close modal if open
+      setActivationModal({ isOpen: false, jobId: 0, jobName: '', integrationId: 0, integrationName: '' })
+
+      // Don't update the UI - keep the toggle in its current state
+      // The fetchJobs() call will ensure the UI reflects the actual state
+      await fetchJobs()
     }
   }
 
@@ -334,6 +404,54 @@ export default function HomePage() {
           }}
           jobName={selectedJobForSettings.job_name}
         />
+      )}
+
+      {/* Activation Confirmation Modal */}
+      {activationModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Activate Integration?
+              </h3>
+
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3 mb-4">
+                <div className="flex">
+                  <svg className="w-5 h-5 text-yellow-400 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <div>
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      <strong>Integration is inactive</strong>
+                    </p>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                      The job <strong>{activationModal.jobName}</strong> requires the integration <strong>{activationModal.integrationName}</strong> to be active.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Would you like to activate both the integration and the job?
+              </p>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setActivationModal({ isOpen: false, jobId: 0, jobName: '', integrationId: 0, integrationName: '' })}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => performToggleJobActive(activationModal.jobId, true, true)}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Activate Both
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast Notifications */}

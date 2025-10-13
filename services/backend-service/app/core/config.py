@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     ETL_INTERNAL_SECRET: str = "dev-internal-secret-change"
 
     # CORS Configuration
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3333,http://localhost:5173"
 
     # Cookie Configuration
     COOKIE_DOMAIN: str = ".localhost"
