@@ -4,9 +4,10 @@ import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings } from 'lucide-react'
 
 interface WorkerStatus {
   running: boolean
@@ -58,6 +59,7 @@ export default function QueueManagementPage() {
   // Local state for worker count selectors
   const [transformWorkers, setTransformWorkers] = useState(1)
   const [vectorizationWorkers, setVectorizationWorkers] = useState(1)
+  const [activeTab, setActiveTab] = useState('overview')
 
   const fetchWorkerStatus = async () => {
     try {
@@ -303,6 +305,20 @@ export default function QueueManagementPage() {
           </Alert>
         )}
 
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsTrigger value="overview" className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="configuration" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Configuration
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Worker Status Card */}
           <Card className="border border-gray-400"
@@ -411,9 +427,12 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         </div>
+          </TabsContent>
 
+          {/* Configuration Tab */}
+          <TabsContent value="configuration" className="space-y-6">
         {/* Worker Scale Configuration */}
-        <Card className="mb-8 border border-gray-400"
+        <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
             e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -669,6 +688,8 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         )}
+          </TabsContent>
+        </Tabs>
           </div>
         </main>
       </div>
