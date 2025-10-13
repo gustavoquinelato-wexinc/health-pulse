@@ -83,7 +83,7 @@ export default function QueueManagementPage() {
   }
 
   const fetchWorkerLogs = async () => {
-    try:
+    try {
       // Use backend service URL directly for admin endpoints
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/logs?lines=20`, {
