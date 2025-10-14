@@ -518,11 +518,14 @@ class WorkItem(Base, IntegrationBaseEntity):
     wit_id = Column(Integer, ForeignKey('wits.id'), quote=False, name="wit_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
     resolution = Column(String, quote=False, name="resolution")
-    story_points = Column(Integer, quote=False, name="story_points")
     assignee = Column(String, quote=False, name="assignee")
     labels = Column(String, quote=False, name="labels")
+    priority = Column(String, quote=False, name="priority")
+    parent_external_id = Column(String, quote=False, name="parent_external_id")
     created = Column(DateTime, quote=False, name="created")
     updated = Column(DateTime, quote=False, name="updated")
+    code_changed = Column(Boolean, quote=False, name="code_changed", default=False)
+    story_points = Column(Float, quote=False, name="story_points")
 
     # Enhanced workflow timing columns
     work_first_committed_at = Column(DateTime, quote=False, name="work_first_committed_at")
@@ -530,8 +533,6 @@ class WorkItem(Base, IntegrationBaseEntity):
     work_last_started_at = Column(DateTime, quote=False, name="work_last_started_at")
     work_first_completed_at = Column(DateTime, quote=False, name="work_first_completed_at")
     work_last_completed_at = Column(DateTime, quote=False, name="work_last_completed_at")
-    priority = Column(String, quote=False, name="priority")
-    parent_external_id = Column(String, quote=False, name="parent_external_id")  # Changed to external_id reference
     development = Column(Boolean, quote=False, name="development")
 
     # Enhanced workflow counter columns
