@@ -705,9 +705,9 @@ export default function QueueManagementPage() {
           </div>
         </main>
       </div>
-    </div>
 
-    {/* Toast Container */}
-    <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
+    </div>
   )
 }
