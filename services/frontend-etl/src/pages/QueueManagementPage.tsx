@@ -568,7 +568,53 @@ export default function QueueManagementPage() {
         {/* Configuration Tab Content */}
         {activeTab === 'configuration' && (
           <div className="space-y-6">
-        {/* Worker Scale Configuration */}
+
+        {/* Configuration Header with Apply Button */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold">Worker Scale Configuration</h2>
+            <p className="text-sm text-secondary mt-1">
+              Configure the number of workers (1-10 per type) based on your data volume
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {/* Status Indicator */}
+            {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers ? (
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>Saved</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-orange-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <span>Unsaved Changes</span>
+              </div>
+            )}
+
+            {/* Apply Button */}
+            <Button
+              onClick={() => {
+                console.log('Apply button clicked:', { transformWorkers, vectorizationWorkers, workerConfig })
+                setWorkerScale(transformWorkers, vectorizationWorkers)
+              }}
+              disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>{scaleLoading ? 'Applying...' : `Apply Configuration`}</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Worker Scale Configuration Card */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -579,12 +625,6 @@ export default function QueueManagementPage() {
             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
           }}
         >
-          <CardHeader>
-            <CardTitle>Worker Scale Configuration</CardTitle>
-            <CardDescription>
-              Configure the number of workers (1-10 per type) based on your data volume. Changes require worker restart.
-            </CardDescription>
-          </CardHeader>
           <CardContent>
             <div className="space-y-6">
               {/* Current Configuration */}
