@@ -13,24 +13,25 @@ import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
 import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save } from 'lucide-react'
 
+interface WorkerInstance {
+  worker_key: string
+  worker_number: number
+  worker_running: boolean
+  thread_alive: boolean
+  thread_name: string | null
+  queue_name: string | null
+}
+
+interface WorkerTypeStatus {
+  count: number
+  instances: WorkerInstance[]
+}
+
 interface WorkerStatus {
   running: boolean
   worker_count: number
   tenant_count: number
-  workers: Record<string, {
-    worker_running: boolean
-    thread_alive: boolean
-    thread_name: string
-  }>
-  tenants: Record<string, {
-    worker_count: number
-    workers: Record<string, {
-      worker_key: string
-      worker_running: boolean
-      thread_alive: boolean
-      thread_name: string
-    }>
-  }>
+  workers: Record<string, WorkerTypeStatus>
   queue_stats: Record<string, any>
   raw_data_stats: Record<string, {
     count: number
@@ -413,21 +414,64 @@ export default function QueueManagementPage() {
                 <Separator />
 
                 <div className="space-y-3">
-                  <h4 className="font-medium text-sm">Individual Workers:</h4>
-                  {workerStatus?.workers && Object.entries(workerStatus.workers).map(([name, status]) => (
-                    <div key={name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(status.worker_running, status.thread_alive)}
-                        <span className="font-medium capitalize">{name}</span>
+                  <h4 className="font-medium text-sm">Worker Status:</h4>
+
+                  {/* Transform Workers */}
+                  {workerStatus?.workers?.transform && (
+                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
+                        <Badge variant={workerStatus.workers.transform.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
+                          {workerStatus.workers.transform.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerStatus.workers.transform.count} Running
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(status.worker_running, status.thread_alive)}
-                        {status.thread_name && (
-                          <span className="text-xs text-secondary">({status.thread_name})</span>
-                        )}
+                      <div className="space-y-1">
+                        {workerStatus.workers.transform.instances.map((instance) => (
+                          <div key={instance.worker_key} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                              <span>Worker {instance.worker_number + 1}</span>
+                            </div>
+                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
+                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Vectorization Workers */}
+                  {workerStatus?.workers?.vectorization && (
+                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-purple-900">Vectorization Workers</span>
+                        <Badge variant={workerStatus.workers.vectorization.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
+                          {workerStatus.workers.vectorization.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerStatus.workers.vectorization.count} Running
+                        </Badge>
+                      </div>
+                      <div className="space-y-1">
+                        {workerStatus.workers.vectorization.instances.map((instance) => (
+                          <div key={instance.worker_key} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                              <span>Worker {instance.worker_number + 1}</span>
+                            </div>
+                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
+                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No workers message */}
+                  {(!workerStatus?.workers?.transform && !workerStatus?.workers?.vectorization) && (
+                    <div className="text-center text-sm text-secondary p-4 bg-gray-50 rounded-lg">
+                      No workers running
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
