@@ -202,6 +202,19 @@ async def lifespan(_: FastAPI):
         else:
             logger.warning("Database connection failed - service will continue with limited functionality")
 
+        # Initialize Qdrant collections for all active tenants
+        # This prevents race conditions when multiple workers try to create collections
+        try:
+            from app.ai.qdrant_setup import initialize_qdrant_collections
+            qdrant_result = await initialize_qdrant_collections()
+            if qdrant_result.get("success"):
+                logger.info(f"✅ Qdrant collections initialized: {qdrant_result.get('collections_created', 0)} created, {qdrant_result.get('collections_already_exist', 0)} already existed")
+            else:
+                logger.warning(f"⚠️ Qdrant collection initialization had issues: {qdrant_result.get('error', 'Unknown error')}")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Qdrant collections: {e}")
+            logger.warning("Qdrant collections not initialized - vectorization may have race conditions")
+
         # Start ETL workers
         try:
             from app.workers.worker_manager import get_worker_manager

@@ -881,9 +881,13 @@ async def _extract_issues_with_changelogs_for_complete_job(
                 'created_at': datetime.now(timezone.utc),
                 'last_updated_at': datetime.now(timezone.utc)
             })
+
+            # Fetch the ID before commit to avoid cursor closed error
+            raw_data_id = result.fetchone()[0]
+
+            # Now commit
             db.commit()
 
-            raw_data_id = result.fetchone()[0]
             batches_stored += 1
             logger.info(f"Step 3: ✅ Stored batch #{batches_stored} with raw_data_id={raw_data_id} ({batch_size} issues)")
 

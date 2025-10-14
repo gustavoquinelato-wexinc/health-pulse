@@ -180,14 +180,26 @@ class PulseQdrantClient:
             )
 
         except Exception as e:
-            logger.error(f"Failed to create collection {collection_name}: {e}")
-            return VectorOperationResult(
-                success=False,
-                operation="create_collection",
-                count=0,
-                processing_time=time.time() - start_time,
-                error=str(e)
-            )
+            error_msg = str(e)
+            # Don't log "already exists" as ERROR - it's expected in concurrent scenarios
+            if "already exists" in error_msg.lower() or "409" in error_msg:
+                logger.debug(f"Collection {collection_name} already exists (concurrent creation)")
+                return VectorOperationResult(
+                    success=True,
+                    operation="create_collection",
+                    count=0,
+                    processing_time=time.time() - start_time,
+                    error=f"Collection {collection_name} already exists"
+                )
+            else:
+                logger.error(f"Failed to create collection {collection_name}: {e}")
+                return VectorOperationResult(
+                    success=False,
+                    operation="create_collection",
+                    count=0,
+                    processing_time=time.time() - start_time,
+                    error=error_msg
+                )
 
     async def upsert_vectors(self, collection_name: str, vectors: Union[List[List[float]], List[Dict[str, Any]]],
                            payloads: Optional[List[Dict[str, Any]]] = None, ids: Optional[List[str]] = None) -> VectorOperationResult:
