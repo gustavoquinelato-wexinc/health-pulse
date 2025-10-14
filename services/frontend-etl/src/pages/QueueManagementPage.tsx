@@ -160,9 +160,21 @@ export default function QueueManagementPage() {
       // Refresh config and update local state to match saved values
       await fetchWorkerConfig(true)
 
-      // Show success message
+      // Show success message with restart prompt
       setError(null)
-      alert(`Worker configuration updated to ${transformWorkers} transform + ${vectorizationWorkers} vectorization workers. Please restart workers to apply changes.`)
+      const shouldRestart = window.confirm(
+        `✅ Worker configuration saved successfully!\n\n` +
+        `New configuration:\n` +
+        `• Transform Workers: ${transformWorkers}\n` +
+        `• Vectorization Workers: ${vectorizationWorkers}\n\n` +
+        `⚠️ IMPORTANT: Changes will NOT take effect until workers are restarted.\n\n` +
+        `Would you like to restart workers now?`
+      )
+
+      if (shouldRestart) {
+        // Automatically restart workers
+        await performWorkerAction('restart')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to set worker scale`)
     } finally {
@@ -603,14 +615,23 @@ export default function QueueManagementPage() {
                   </div>
                 </div>
 
-                {/* Apply Button */}
-                <Button
-                  onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
-                  disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
-                  className="w-full"
-                >
-                  {scaleLoading ? 'Applying...' : 'Apply Worker Configuration'}
-                </Button>
+                {/* Apply Button - Show when values differ from saved config */}
+                {(transformWorkers !== workerConfig?.transform_workers || vectorizationWorkers !== workerConfig?.vectorization_workers) && (
+                  <Button
+                    onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
+                    disabled={scaleLoading}
+                    className="w-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    {scaleLoading ? 'Applying...' : `Apply Configuration (${transformWorkers} + ${vectorizationWorkers} workers)`}
+                  </Button>
+                )}
+
+                {/* Info when no changes */}
+                {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers && (
+                  <div className="text-center text-sm text-secondary p-3 bg-gray-50 rounded-lg">
+                    ✓ Configuration matches current settings
+                  </div>
+                )}
               </div>
 
               {/* Performance Impact Information */}
@@ -642,7 +663,9 @@ export default function QueueManagementPage() {
                 <AlertDescription className="text-yellow-800 space-y-2">
                   <div><strong>Important Notes:</strong></div>
                   <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li><strong>Restart Required:</strong> Worker count changes only apply after restart</li>
+                    <li><strong>Configuration Only:</strong> Clicking "Apply" only saves the configuration to the database</li>
+                    <li><strong>Restart Required:</strong> Workers will NOT start automatically - you must click "Restart Workers" in the Overview tab</li>
+                    <li><strong>Two-Step Process:</strong> 1) Apply configuration, 2) Restart workers to activate new worker counts</li>
                     <li><strong>Resource Usage:</strong> More workers = more memory/CPU usage</li>
                     <li><strong>Database Connections:</strong> Each worker needs DB connection pool</li>
                     <li><strong>Queue Depth:</strong> Monitor queue depth to determine optimal scale</li>
