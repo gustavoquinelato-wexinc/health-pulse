@@ -40,10 +40,7 @@ interface WorkerStatus {
   }>
 }
 
-interface WorkerLogs {
-  logs: string[]
-  total_lines: number
-}
+
 
 interface WorkerConfig {
   tenant_id: number
@@ -59,7 +56,6 @@ export default function QueueManagementPage() {
   const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
-  const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
   const [workerConfig, setWorkerConfig] = useState<WorkerConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -116,28 +112,7 @@ export default function QueueManagementPage() {
     }
   }
 
-  const fetchWorkerLogs = async () => {
-    try {
-      // Use backend service URL directly for admin endpoints
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/logs?lines=20`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
-          'Content-Type': 'application/json'
-        }
-      })
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch worker logs: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-      setWorkerLogs(data)
-    } catch (err) {
-      console.error('Failed to fetch worker logs:', err)
-      // Don't set error for logs - it's not critical
-    }
-  }
 
   const fetchWorkerConfig = async (updateLocalState = false) => {
     try {
@@ -256,7 +231,7 @@ export default function QueueManagementPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchWorkerStatus(), fetchWorkerLogs(), fetchWorkerConfig(true)]) // Update local state on initial load
+      await Promise.all([fetchWorkerStatus(), fetchWorkerConfig(true)]) // Update local state on initial load
       setLoading(false)
     }
 
@@ -265,7 +240,6 @@ export default function QueueManagementPage() {
     // Auto-refresh every 10 seconds (don't update local state on refresh)
     const interval = setInterval(() => {
       fetchWorkerStatus()
-      fetchWorkerLogs()
       fetchWorkerConfig(false) // Don't reset user's selections
     }, 10000)
 
@@ -584,35 +558,7 @@ export default function QueueManagementPage() {
           </CardContent>
         </Card>
 
-        {/* Recent Worker Logs */}
-        {workerLogs && (
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle>Recent Worker Logs</CardTitle>
-              <CardDescription>
-                Last {workerLogs.logs.length} log entries from worker log files (Total: {workerLogs.total_lines} lines)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto">
-                {workerLogs.logs.map((log, index) => (
-                  <div key={index} className="mb-1">
-                    {log}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+
           </div>
         )}
 
