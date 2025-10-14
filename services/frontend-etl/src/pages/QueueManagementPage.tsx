@@ -4,7 +4,6 @@ import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings } from 'lucide-react'
@@ -305,20 +304,37 @@ export default function QueueManagementPage() {
           </Alert>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="configuration" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Configuration
-            </TabsTrigger>
-          </TabsList>
+        {/* Tabs */}
+        <div className="border-b border-gray-300 mb-6">
+          <nav className="flex space-x-8">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
+                activeTab === 'overview'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              <span>Overview</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('configuration')}
+              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
+                activeTab === 'configuration'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Configuration</span>
+            </button>
+          </nav>
+        </div>
 
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
+        {/* Overview Tab Content */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Worker Status Card */}
           <Card className="border border-gray-400"
@@ -427,10 +443,12 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         </div>
-          </TabsContent>
+          </div>
+        )}
 
-          {/* Configuration Tab */}
-          <TabsContent value="configuration" className="space-y-6">
+        {/* Configuration Tab Content */}
+        {activeTab === 'configuration' && (
+          <div className="space-y-6">
         {/* Worker Scale Configuration */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
@@ -688,8 +706,8 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
           </div>
         </main>
       </div>
