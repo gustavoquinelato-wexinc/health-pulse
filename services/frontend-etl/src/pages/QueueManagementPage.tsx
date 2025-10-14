@@ -615,23 +615,23 @@ export default function QueueManagementPage() {
                   </div>
                 </div>
 
-                {/* Apply Button - Show when values differ from saved config */}
-                {(transformWorkers !== workerConfig?.transform_workers || vectorizationWorkers !== workerConfig?.vectorization_workers) && (
+                {/* Apply Button - Always visible */}
+                <div className="space-y-2">
                   <Button
                     onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
-                    disabled={scaleLoading}
-                    className="w-full bg-blue-600 hover:bg-blue-700"
+                    disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
+                    className="w-full"
                   >
                     {scaleLoading ? 'Applying...' : `Apply Configuration (${transformWorkers} + ${vectorizationWorkers} workers)`}
                   </Button>
-                )}
 
-                {/* Info when no changes */}
-                {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers && (
-                  <div className="text-center text-sm text-secondary p-3 bg-gray-50 rounded-lg">
-                    ✓ Configuration matches current settings
-                  </div>
-                )}
+                  {/* Info when no changes */}
+                  {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers && (
+                    <div className="text-center text-xs text-secondary">
+                      Configuration matches current settings
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Performance Impact Information */}
