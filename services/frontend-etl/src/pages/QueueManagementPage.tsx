@@ -355,6 +355,58 @@ export default function QueueManagementPage() {
         {/* Overview Tab Content */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+
+        {/* Worker Controls */}
+        <Card className="border border-gray-400"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--color-1)'
+            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#9ca3af'
+            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
+          <CardHeader>
+            <CardTitle>Worker Controls</CardTitle>
+            <CardDescription>
+              Start, stop, or restart ETL background workers for your tenant
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4">
+              <Button
+                onClick={() => performWorkerAction('start')}
+                disabled={actionLoading === 'start'}
+                className="flex items-center gap-2"
+              >
+                <Play className="h-4 w-4" />
+                {actionLoading === 'start' ? 'Starting...' : 'Start Workers'}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => performWorkerAction('stop')}
+                disabled={actionLoading === 'stop'}
+                className="flex items-center gap-2"
+              >
+                <Square className="h-4 w-4" />
+                {actionLoading === 'stop' ? 'Stopping...' : 'Stop Workers'}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => performWorkerAction('restart')}
+                disabled={actionLoading === 'restart'}
+                className="flex items-center gap-2"
+              >
+                <RotateCcw className="h-4 w-4" />
+                {actionLoading === 'restart' ? 'Restarting...' : 'Restart Workers'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Worker Status Card */}
           <Card className="border border-gray-400"
@@ -506,58 +558,6 @@ export default function QueueManagementPage() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Worker Controls */}
-        <Card className="border border-gray-400"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--color-1)'
-            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#9ca3af'
-            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-          }}
-        >
-          <CardHeader>
-            <CardTitle>Worker Controls</CardTitle>
-            <CardDescription>
-              Start, stop, or restart ETL background workers for your tenant
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4">
-              <Button
-                onClick={() => performWorkerAction('start')}
-                disabled={actionLoading === 'start'}
-                className="flex items-center gap-2"
-              >
-                <Play className="h-4 w-4" />
-                {actionLoading === 'start' ? 'Starting...' : 'Start Workers'}
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('stop')}
-                disabled={actionLoading === 'stop'}
-                className="flex items-center gap-2"
-              >
-                <Square className="h-4 w-4" />
-                {actionLoading === 'stop' ? 'Stopping...' : 'Stop Workers'}
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('restart')}
-                disabled={actionLoading === 'restart'}
-                className="flex items-center gap-2"
-              >
-                <RotateCcw className="h-4 w-4" />
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart Workers'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
 
           </div>
         )}
