@@ -8,7 +8,9 @@ import { Alert, AlertDescription } from '../components/ui/alert'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import ToastContainer from '../components/ToastContainer'
+import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
+import { useConfirmation } from '../hooks/useConfirmation'
 import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save } from 'lucide-react'
 
 interface WorkerStatus {
@@ -53,6 +55,7 @@ type Tab = 'overview' | 'configuration'
 export default function QueueManagementPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { toasts, removeToast, showSuccess, showError } = useToast()
+  const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
@@ -193,17 +196,16 @@ export default function QueueManagementPage() {
       setError(null)
       showSuccess('Configuration Saved', 'Worker configuration saved successfully. Restart workers to apply changes.')
 
-      // Ask if user wants to restart workers
-      const shouldRestart = window.confirm(
-        `Worker configuration saved successfully!\n\n` +
-        `⚠️ IMPORTANT: Changes will NOT take effect until workers are restarted.\n\n` +
-        `Would you like to restart workers now?`
+      // Ask if user wants to restart workers using confirmation modal
+      confirmAction(
+        'Restart Workers?',
+        'Worker configuration saved successfully! Changes will NOT take effect until workers are restarted. Would you like to restart workers now?',
+        async () => {
+          // Automatically restart workers
+          await performWorkerAction('restart')
+        },
+        'Restart Workers'
       )
-
-      if (shouldRestart) {
-        // Automatically restart workers
-        await performWorkerAction('restart')
-      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to save worker configuration'
       setError(errorMessage)
@@ -708,6 +710,19 @@ export default function QueueManagementPage() {
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmation.isOpen}
+        onClose={hideConfirmation}
+        onConfirm={confirmation.onConfirm}
+        title={confirmation.title}
+        message={confirmation.message}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        type={confirmation.type}
+        icon={confirmation.icon}
+      />
     </div>
   )
 }
