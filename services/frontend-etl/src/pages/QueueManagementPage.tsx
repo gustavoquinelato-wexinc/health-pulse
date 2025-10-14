@@ -7,7 +7,9 @@ import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings } from 'lucide-react'
+import ToastContainer from '../components/ToastContainer'
+import { useToast } from '../hooks/useToast'
+import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save } from 'lucide-react'
 
 interface WorkerStatus {
   running: boolean
@@ -50,6 +52,7 @@ type Tab = 'overview' | 'configuration'
 
 export default function QueueManagementPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { toasts, removeToast, showSuccess, showError } = useToast()
 
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
@@ -186,13 +189,13 @@ export default function QueueManagementPage() {
       // Refresh config and update local state to match saved values
       await fetchWorkerConfig(true)
 
-      // Show success message with restart prompt
+      // Show success message
       setError(null)
+      showSuccess('Configuration Saved', 'Worker configuration saved successfully. Restart workers to apply changes.')
+
+      // Ask if user wants to restart workers
       const shouldRestart = window.confirm(
-        `✅ Worker configuration saved successfully!\n\n` +
-        `New configuration:\n` +
-        `• Transform Workers: ${transformWorkers}\n` +
-        `• Vectorization Workers: ${vectorizationWorkers}\n\n` +
+        `Worker configuration saved successfully!\n\n` +
         `⚠️ IMPORTANT: Changes will NOT take effect until workers are restarted.\n\n` +
         `Would you like to restart workers now?`
       )
@@ -202,7 +205,9 @@ export default function QueueManagementPage() {
         await performWorkerAction('restart')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to set worker scale`)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save worker configuration'
+      setError(errorMessage)
+      showError('Save Failed', errorMessage)
     } finally {
       setScaleLoading(false)
     }
@@ -570,47 +575,17 @@ export default function QueueManagementPage() {
           <div className="space-y-6">
 
         {/* Configuration Header with Apply Button */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-semibold">Worker Scale Configuration</h2>
-            <p className="text-sm text-secondary mt-1">
-              Configure the number of workers (1-10 per type) based on your data volume
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {/* Status Indicator */}
-            {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers ? (
-              <div className="flex items-center gap-2 text-sm text-green-600">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                <span>Saved</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-sm text-orange-600">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="12"></line>
-                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                </svg>
-                <span>Unsaved Changes</span>
-              </div>
-            )}
-
-            {/* Apply Button */}
-            <Button
-              onClick={() => {
-                console.log('Apply button clicked:', { transformWorkers, vectorizationWorkers, workerConfig })
-                setWorkerScale(transformWorkers, vectorizationWorkers)
-              }}
-              disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
+          <div className="px-6 py-5 flex justify-between items-center bg-table-header">
+            <h2 className="text-lg font-semibold text-table-header">Worker Scale Configuration</h2>
+            <button
+              onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
+              disabled={scaleLoading}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span>{scaleLoading ? 'Applying...' : `Apply Configuration`}</span>
-            </Button>
+              <Save className="h-4 w-4" />
+              <span>{scaleLoading ? 'Saving...' : 'Save Configuration'}</span>
+            </button>
           </div>
         </div>
 
@@ -681,34 +656,6 @@ export default function QueueManagementPage() {
                   </div>
                 </div>
 
-                {/* Apply Button - Always visible */}
-                <div className="space-y-2 pt-2">
-                  <Button
-                    onClick={() => {
-                      console.log('Apply button clicked:', { transformWorkers, vectorizationWorkers, workerConfig })
-                      setWorkerScale(transformWorkers, vectorizationWorkers)
-                    }}
-                    disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3"
-                  >
-                    {scaleLoading ? 'Applying...' : `Apply Configuration (${transformWorkers} + ${vectorizationWorkers} workers)`}
-                  </Button>
-
-                  {/* Info when no changes */}
-                  {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers && (
-                    <div className="text-center text-xs text-secondary p-2 bg-green-50 rounded">
-                      ✓ Configuration matches current settings
-                    </div>
-                  )}
-
-                  {/* Debug info */}
-                  {process.env.NODE_ENV === 'development' && (
-                    <div className="text-xs text-gray-500 p-2 bg-gray-100 rounded">
-                      Debug: transform={transformWorkers}, vectorization={vectorizationWorkers},
-                      saved_transform={workerConfig?.transform_workers}, saved_vectorization={workerConfig?.vectorization_workers}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Performance Impact Information */}
@@ -759,5 +706,8 @@ export default function QueueManagementPage() {
         </main>
       </div>
     </div>
+
+    {/* Toast Container */}
+    <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
   )
 }
