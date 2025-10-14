@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
@@ -45,7 +46,11 @@ interface WorkerConfig {
   vectorization_workers: number
 }
 
+type Tab = 'overview' | 'configuration'
+
 export default function QueueManagementPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerLogs, setWorkerLogs] = useState<WorkerLogs | null>(null)
   const [workerConfig, setWorkerConfig] = useState<WorkerConfig | null>(null)
@@ -58,7 +63,28 @@ export default function QueueManagementPage() {
   // Local state for worker count selectors
   const [transformWorkers, setTransformWorkers] = useState(1)
   const [vectorizationWorkers, setVectorizationWorkers] = useState(1)
-  const [activeTab, setActiveTab] = useState('overview')
+
+  // Initialize active tab from URL or default to 'overview'
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const tabFromUrl = searchParams.get('tab') as Tab
+    const validTabs: Tab[] = ['overview', 'configuration']
+    return validTabs.includes(tabFromUrl) ? tabFromUrl : 'overview'
+  })
+
+  // Update document title based on active tab
+  useEffect(() => {
+    const titles = {
+      'overview': 'Queue Management - Overview',
+      'configuration': 'Queue Management - Configuration'
+    }
+    document.title = `${titles[activeTab]} - PEM`
+  }, [activeTab])
+
+  // Handle tab change and update URL
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab)
+    setSearchParams({ tab })
+  }
 
   const fetchWorkerStatus = async () => {
     try {
@@ -320,7 +346,7 @@ export default function QueueManagementPage() {
         <div className="border-b border-gray-300 mb-6">
           <nav className="flex space-x-8">
             <button
-              onClick={() => setActiveTab('overview')}
+              onClick={() => handleTabChange('overview')}
               className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
                 activeTab === 'overview'
                   ? 'border-primary text-primary'
@@ -331,7 +357,7 @@ export default function QueueManagementPage() {
               <span>Overview</span>
             </button>
             <button
-              onClick={() => setActiveTab('configuration')}
+              onClick={() => handleTabChange('configuration')}
               className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
                 activeTab === 'configuration'
                   ? 'border-primary text-primary'
@@ -616,19 +642,30 @@ export default function QueueManagementPage() {
                 </div>
 
                 {/* Apply Button - Always visible */}
-                <div className="space-y-2">
+                <div className="space-y-2 pt-2">
                   <Button
-                    onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
+                    onClick={() => {
+                      console.log('Apply button clicked:', { transformWorkers, vectorizationWorkers, workerConfig })
+                      setWorkerScale(transformWorkers, vectorizationWorkers)
+                    }}
                     disabled={scaleLoading || (transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers)}
-                    className="w-full"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3"
                   >
                     {scaleLoading ? 'Applying...' : `Apply Configuration (${transformWorkers} + ${vectorizationWorkers} workers)`}
                   </Button>
 
                   {/* Info when no changes */}
                   {transformWorkers === workerConfig?.transform_workers && vectorizationWorkers === workerConfig?.vectorization_workers && (
-                    <div className="text-center text-xs text-secondary">
-                      Configuration matches current settings
+                    <div className="text-center text-xs text-secondary p-2 bg-green-50 rounded">
+                      ✓ Configuration matches current settings
+                    </div>
+                  )}
+
+                  {/* Debug info */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="text-xs text-gray-500 p-2 bg-gray-100 rounded">
+                      Debug: transform={transformWorkers}, vectorization={vectorizationWorkers},
+                      saved_transform={workerConfig?.transform_workers}, saved_vectorization={workerConfig?.vectorization_workers}
                     </div>
                   )}
                 </div>
