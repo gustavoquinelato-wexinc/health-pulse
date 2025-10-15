@@ -64,7 +64,7 @@ async def get_ai_provider_types(user: UserData = Depends(require_admin)):
             ORDER BY provider
         """)
 
-        with db.get_session_context() as session:
+        with db.get_read_session_context() as session:
             result = session.execute(query, {"tenant_id": user.tenant_id})
             provider_types = result.fetchall()
 
@@ -144,7 +144,7 @@ async def get_ai_providers(user: UserData = Depends(require_admin)):
             ORDER BY provider
         """)
 
-        with db.get_session_context() as session:
+        with db.get_read_session_context() as session:
             result = session.execute(query, {"tenant_id": user.tenant_id})
             providers = result.fetchall()
 
@@ -197,7 +197,7 @@ async def get_ai_performance_metrics(
             ORDER BY total_requests DESC
         """)
 
-        with db.get_session_context() as session:
+        with db.get_read_session_context() as session:
             # First check if table exists
             table_check = session.execute(text("SELECT to_regclass('ai_usage_trackings')")).scalar()
             logger.info(f"Table check result: {table_check}")
@@ -316,7 +316,7 @@ async def create_ai_provider(
             RETURNING id
         """)
 
-        with db.get_session_context() as session:
+        with db.get_write_session_context() as session:
             result = session.execute(query, {
                 "tenant_id": user.tenant_id,
                 "provider": provider_config.provider,
@@ -405,7 +405,7 @@ async def delete_ai_provider(
             WHERE id = :provider_id AND tenant_id = :tenant_id AND LOWER(type) = 'ai'
         """)
 
-        with db.get_session_context() as session:
+        with db.get_read_session_context() as session:
             result = session.execute(check_query, {"provider_id": provider_id, "tenant_id": user.tenant_id})
             existing = result.fetchone()
 
@@ -447,7 +447,7 @@ async def get_ai_provider(
             WHERE id = :provider_id AND tenant_id = :tenant_id AND LOWER(type) = 'ai'
         """)
 
-        with db.get_session_context() as session:
+        with db.get_read_session_context() as session:
             result = session.execute(query, {"provider_id": provider_id, "tenant_id": user.tenant_id})
             provider = result.fetchone()
 

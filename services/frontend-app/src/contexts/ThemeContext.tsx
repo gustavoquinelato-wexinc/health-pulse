@@ -657,6 +657,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
           const currentColors = getCurrentActiveColors(res.data.unified_colors, theme)
           setColorSchema(currentColors)
           localStorage.setItem('pulse_unified_colors', JSON.stringify(res.data.unified_colors))
+
+          // Broadcast color schema change to other frontends (e.g., frontend-etl)
+          window.dispatchEvent(new CustomEvent('colorSchemaChanged', {
+            detail: { unifiedColors: res.data.unified_colors }
+          }))
+          console.log('🎨 [Frontend-App] Broadcasted color schema change to other frontends')
         }
       } catch (e) {
         console.warn('Failed to refresh unified color schema after save', e)

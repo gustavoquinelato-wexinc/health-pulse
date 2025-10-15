@@ -42,6 +42,8 @@ class ETLWebSocketService {
   private reconnectDelay = 3000
   private isInitialized = false // Guard against double initialization in React.StrictMode
   private authToken: string | null = null // Store auth token for WebSocket connections
+  private initializationVersion = 0 // Incremented on each initialization to force reconnection
+  private closeTimers: Map<string, NodeJS.Timeout> = new Map() // Debounce connection cleanup for StrictMode
 
   /**
    * Initialize WebSocket service after user login with authentication token
@@ -55,6 +57,7 @@ class ETLWebSocketService {
     }
     this.isInitialized = true
     this.authToken = token
+    this.initializationVersion++ // Increment version to signal reconnection needed
 
     // Wait for backend to be available with retry logic
     const backendReady = await this.waitForBackend()
@@ -68,6 +71,14 @@ class ETLWebSocketService {
   }
 
   /**
+   * Get current initialization version
+   * This can be used by components to detect when service has been reinitialized
+   */
+  getInitializationVersion(): number {
+    return this.initializationVersion
+  }
+
+  /**
    * Update auth token for future WebSocket connections
    *
    * NOTE: We do NOT reconnect existing WebSocket connections when token refreshes because:
@@ -75,6 +86,8 @@ class ETLWebSocketService {
    * 2. Once connected, the WebSocket remains valid regardless of token expiry
    * 3. Reconnecting causes unnecessary disruption and triggers status updates
    * 4. New connections (when jobs start) will use the updated token
+   *
+   * However, we DO reset reconnect attempts to prevent failed reconnects with old token
    *
    * Existing connections will only reconnect if:
    * - Connection drops (network issue, server restart, etc.)
@@ -84,6 +97,10 @@ class ETLWebSocketService {
   async updateToken(newToken: string) {
     // Silently update token - no need to log on every refresh
     this.authToken = newToken
+
+    // Reset reconnect attempts for all jobs to prevent reconnecting with old token
+    // This ensures that any pending reconnects will use the new token
+    this.reconnectAttempts.clear()
   }
 
   /**
@@ -223,8 +240,11 @@ class ETLWebSocketService {
     }
     this.listeners.get(jobName)!.push(listener)
 
-    // Create connection if it doesn't exist
-    if (!this.connections.has(jobName)) {
+    // Create connection if it doesn't exist or if existing connection is closed/failed
+    const existingConnection = this.connections.get(jobName)
+    if (!existingConnection ||
+        existingConnection.readyState === WebSocket.CLOSED ||
+        existingConnection.readyState === WebSocket.CLOSING) {
       this.createConnection(jobName)
     }
 
@@ -238,6 +258,15 @@ class ETLWebSocketService {
     try {
       if (!this.authToken) {
         console.error(`❌ Cannot create WebSocket connection for ${jobName}: No auth token`)
+        return
+      }
+
+      // Check if there's already a connection in CONNECTING or OPEN state
+      const existingConnection = this.connections.get(jobName)
+      if (existingConnection &&
+          (existingConnection.readyState === WebSocket.CONNECTING ||
+           existingConnection.readyState === WebSocket.OPEN)) {
+        // Connection already exists and is active, don't create a duplicate
         return
       }
 
@@ -266,9 +295,23 @@ class ETLWebSocketService {
       ws.onclose = (event) => {
         this.connections.delete(jobName)
 
-        // Only log if it's an unexpected close (not normal closure or intentional disconnect)
-        if (event.code !== 1000 && event.code !== 1001) {
+        // Suppress warnings for:
+        // - 1000: Normal closure (intentional disconnect)
+        // - 1001: Going away (page navigation)
+        // - 1006: Abnormal closure during React StrictMode double-mount (development only)
+        const isNormalClosure = event.code === 1000 || event.code === 1001
+        const isStrictModeClose = event.code === 1006 && ws.readyState === WebSocket.CLOSED
+
+        if (!isNormalClosure && !isStrictModeClose) {
           console.warn(`⚠️ WebSocket closed for job: ${jobName} (code: ${event.code})`)
+        }
+
+        // Don't reconnect on 403 (authentication failure) - wait for token refresh
+        // The version change will trigger reconnection with new token
+        if (event.code === 1008 || event.code === 1002) {
+          console.warn(`⚠️ WebSocket authentication failed for ${jobName} - waiting for token refresh`)
+          this.reconnectAttempts.delete(jobName) // Reset attempts for clean reconnect after token refresh
+          return
         }
 
         // Attempt to reconnect if not intentionally closed
@@ -333,9 +376,15 @@ class ETLWebSocketService {
   private closeConnection(jobName: string) {
     const ws = this.connections.get(jobName)
     if (ws) {
-      // Only close if the connection is open or connecting
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(1000, 'No more listeners')
+      // Silently close connections in any state
+      // In React StrictMode (development), this may be called during double-mount cleanup
+      try {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1000, 'No more listeners')
+        }
+      } catch (error) {
+        // Suppress errors from closing already-closed connections (React StrictMode)
+        // This is expected behavior in development
       }
       this.connections.delete(jobName)
     }

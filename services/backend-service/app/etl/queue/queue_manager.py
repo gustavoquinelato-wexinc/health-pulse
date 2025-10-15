@@ -17,10 +17,18 @@ class QueueManager:
     """
     Manages RabbitMQ connections and queue operations for ETL pipeline.
 
-    Multi-Tenant Queue Topology:
-    - transform_queue_tenant_{tenant_id}: Process raw data → final tables (per tenant)
-    - Supports dynamic queue creation and worker management per tenant
+    Tier-Based Queue Topology:
+    - extraction_queue_{tier}: Extract additional data (free, basic, premium, enterprise)
+    - transform_queue_{tier}: Process raw data → final tables (free, basic, premium, enterprise)
+    - vectorization_queue_{tier}: Generate embeddings (free, basic, premium, enterprise)
+
+    Total: 12 queues (4 tiers × 3 types)
+    Messages include tenant_id for routing after consumption.
     """
+
+    # Tier definitions
+    TIERS = ['free', 'basic', 'premium', 'enterprise']
+    QUEUE_TYPES = ['extraction', 'transform', 'vectorization']
 
     def __init__(
         self,
@@ -46,24 +54,20 @@ class QueueManager:
         self.password: str = password or os.getenv('RABBITMQ_PASSWORD', 'etl_password')
         self.vhost: str = vhost or os.getenv('RABBITMQ_VHOST', 'pulse_etl')
 
-        # Multi-tenant queue topology
-        self.TRANSFORM_QUEUE_PREFIX = 'transform_queue_tenant_'
-        self.VECTORIZATION_QUEUE_PREFIX = 'vectorization_queue_tenant_'
-
         logger.info(f"QueueManager initialized: {self.username}@{self.host}:{self.port}/{self.vhost}")
 
-    def get_tenant_queue_name(self, tenant_id: int, queue_type: str = 'transform') -> str:
+    def get_tier_queue_name(self, tier: str, queue_type: str = 'transform') -> str:
         """
-        Get tenant-specific queue name.
+        Get tier-based queue name.
 
         Args:
-            tenant_id: Tenant ID
-            queue_type: Type of queue ('transform', 'vectorization', etc.)
+            tier: Tenant tier ('free', 'basic', 'premium', 'enterprise')
+            queue_type: Type of queue ('extraction', 'transform', 'vectorization')
 
         Returns:
-            str: Tenant-specific queue name
+            str: Tier-based queue name (e.g., 'transform_queue_premium')
         """
-        return f"{queue_type}_queue_tenant_{tenant_id}"
+        return f"{queue_type}_queue_{tier}"
     
     def _get_connection(self) -> pika.BlockingConnection:
         """
@@ -112,62 +116,32 @@ class QueueManager:
             if connection and connection.is_open:
                 connection.close()
     
-    def setup_queues(self, tenant_ids: Optional[list] = None):
+    def setup_queues(self):
         """
-        Set up multi-tenant queue topology.
-        Creates transform and vectorization queues for specified tenants or discovers active tenants.
+        Set up tier-based queue topology.
+        Creates 12 queues total: 4 tiers × 3 queue types (extraction, transform, vectorization).
 
-        Args:
-            tenant_ids: List of tenant IDs to create queues for. If None, discovers active tenants.
+        Queues created:
+        - extraction_queue_free, extraction_queue_basic, extraction_queue_premium, extraction_queue_enterprise
+        - transform_queue_free, transform_queue_basic, transform_queue_premium, transform_queue_enterprise
+        - vectorization_queue_free, vectorization_queue_basic, vectorization_queue_premium, vectorization_queue_enterprise
         """
         with self.get_channel() as channel:
-            # Get active tenant IDs if not provided
-            if tenant_ids is None:
-                tenant_ids = self._get_active_tenant_ids()
+            queue_count = 0
 
-            # Create tenant-specific queues (both transform and vectorization)
-            for tenant_id in tenant_ids:
-                # Transform queue
-                transform_queue = self.get_tenant_queue_name(tenant_id, 'transform')
-                channel.queue_declare(
-                    queue=transform_queue,
-                    durable=True,  # Survive broker restart
-                    arguments={'x-message-ttl': 86400000}  # 24 hours TTL
-                )
-                logger.info(f"Queue declared: {transform_queue}")
+            # Create tier-based queues for each tier and queue type
+            for tier in self.TIERS:
+                for queue_type in self.QUEUE_TYPES:
+                    queue_name = self.get_tier_queue_name(tier, queue_type)
+                    channel.queue_declare(
+                        queue=queue_name,
+                        durable=True,  # Survive broker restart
+                        arguments={'x-message-ttl': 86400000}  # 24 hours TTL
+                    )
+                    logger.info(f"Queue declared: {queue_name}")
+                    queue_count += 1
 
-                # Vectorization queue
-                vectorization_queue = self.get_tenant_queue_name(tenant_id, 'vectorization')
-                channel.queue_declare(
-                    queue=vectorization_queue,
-                    durable=True,  # Survive broker restart
-                    arguments={'x-message-ttl': 86400000}  # 24 hours TTL
-                )
-                logger.info(f"Queue declared: {vectorization_queue}")
-
-            # Legacy queue removed - using only tenant-specific queues
-
-        logger.info(f"✅ Multi-tenant queue topology setup complete for {len(tenant_ids)} tenants (transform + vectorization)")
-
-    def setup_tenant_queue(self, tenant_id: int, queue_type: str = 'transform'):
-        """
-        Set up queue for a specific tenant.
-
-        Args:
-            tenant_id: Tenant ID
-            queue_type: Type of queue to create
-        """
-        queue_name = self.get_tenant_queue_name(tenant_id, queue_type)
-
-        with self.get_channel() as channel:
-            channel.queue_declare(
-                queue=queue_name,
-                durable=True,
-                arguments={'x-message-ttl': 86400000}
-            )
-            logger.info(f"Tenant queue declared: {queue_name}")
-
-        return queue_name
+        logger.info(f"✅ Tier-based queue topology setup complete: {queue_count} queues created (4 tiers × 3 types)")
 
     def _get_active_tenant_ids(self) -> list:
         """Get list of active tenant IDs from database."""
@@ -176,7 +150,7 @@ class QueueManager:
             from app.models.unified_models import Tenant
 
             database = get_database()
-            with database.get_session() as session:
+            with database.get_read_session_context() as session:
                 tenants = session.query(Tenant).filter(Tenant.active == True).all()
                 tenant_ids = [tenant.id for tenant in tenants]
                 logger.info(f"Found {len(tenant_ids)} active tenants: {tenant_ids}")
@@ -184,6 +158,32 @@ class QueueManager:
         except Exception as e:
             logger.error(f"Failed to get active tenant IDs: {e}")
             return [1]  # Fallback to tenant 1
+
+    def _get_tenant_tier(self, tenant_id: int) -> str:
+        """
+        Get tier for a specific tenant.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            str: Tenant tier ('free', 'basic', 'premium', 'enterprise')
+        """
+        try:
+            from app.core.database import get_database
+            from app.models.unified_models import Tenant
+
+            database = get_database()
+            with database.get_read_session_context() as session:
+                tenant = session.query(Tenant).filter(Tenant.id == tenant_id).first()
+                if tenant:
+                    return tenant.tier
+                else:
+                    logger.warning(f"Tenant {tenant_id} not found, defaulting to 'free' tier")
+                    return 'free'
+        except Exception as e:
+            logger.error(f"Failed to get tenant tier for tenant {tenant_id}: {e}")
+            return 'free'  # Fallback to free tier
     
     def publish_transform_job(
         self,
@@ -193,7 +193,7 @@ class QueueManager:
         data_type: str
     ) -> bool:
         """
-        Publish a transform job to the tenant-specific transform queue.
+        Publish a transform job to the tier-based transform queue.
 
         Args:
             tenant_id: Tenant ID
@@ -211,16 +211,43 @@ class QueueManager:
             'type': data_type
         }
 
-        # Use tenant-specific queue
-        tenant_queue = self.get_tenant_queue_name(tenant_id, 'transform')
+        # Get tenant tier and route to tier-based queue
+        tier = self._get_tenant_tier(tenant_id)
+        tier_queue = self.get_tier_queue_name(tier, 'transform')
 
-        # Ensure tenant queue exists
-        try:
-            self.setup_tenant_queue(tenant_id, 'transform')
-        except Exception as e:
-            logger.warning(f"Failed to ensure tenant queue exists: {e}")
+        return self._publish_message(tier_queue, message)
 
-        return self._publish_message(tenant_queue, message)
+    def publish_extraction_job(
+        self,
+        tenant_id: int,
+        integration_id: int,
+        extraction_type: str,
+        extraction_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Publish an extraction job to the tier-based extraction queue.
+
+        Args:
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            extraction_type: Type of extraction ('jira_dev_status_fetch', etc.)
+            extraction_data: Additional data for extraction (issue_id, issue_key, etc.)
+
+        Returns:
+            bool: True if published successfully
+        """
+        message = {
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'type': extraction_type,
+            **extraction_data  # Merge additional data (issue_id, issue_key, etc.)
+        }
+
+        # Get tenant tier and route to tier-based queue
+        tier = self._get_tenant_tier(tenant_id)
+        tier_queue = self.get_tier_queue_name(tier, 'extraction')
+
+        return self._publish_message(tier_queue, message)
 
     def publish_vectorization_job(
         self,
@@ -230,7 +257,7 @@ class QueueManager:
         operation: str = "insert"
     ) -> bool:
         """
-        Publish a vectorization job to the tenant-specific vectorization queue.
+        Publish a vectorization job to the tier-based vectorization queue.
 
         Args:
             tenant_id: Tenant ID
@@ -248,16 +275,11 @@ class QueueManager:
             'operation': operation
         }
 
-        # Use tenant-specific vectorization queue
-        tenant_queue = self.get_tenant_queue_name(tenant_id, 'vectorization')
+        # Get tenant tier and route to tier-based queue
+        tier = self._get_tenant_tier(tenant_id)
+        tier_queue = self.get_tier_queue_name(tier, 'vectorization')
 
-        # Ensure tenant queue exists
-        try:
-            self.setup_tenant_queue(tenant_id, 'vectorization')
-        except Exception as e:
-            logger.warning(f"Failed to ensure vectorization queue exists: {e}")
-
-        return self._publish_message(tenant_queue, message)
+        return self._publish_message(tier_queue, message)
 
     def publish_message(self, queue_name: str, message: Dict[str, Any]) -> bool:
         """

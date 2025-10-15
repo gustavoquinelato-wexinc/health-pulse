@@ -8,12 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from pydantic import BaseModel
+import logging
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
 from app.models.unified_models import Integration, User
 from app.core.config import AppConfig
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 

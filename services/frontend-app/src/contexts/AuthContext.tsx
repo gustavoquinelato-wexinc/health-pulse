@@ -3,6 +3,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from 'react
 import { colorDataService, type ColorData } from '../services/colorDataService'
 import notificationService from '../services/notificationService'
 import websocketService from '../services/websocketService'
+import { sessionWebSocketService } from '../services/sessionWebSocketService'
 import clientLogger from '../utils/clientLogger'
 import { getColorSchemaMode } from '../utils/colorSchemaService'
 
@@ -69,7 +70,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Configure axios defaults - Use direct backend URL since CORS is properly configured
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-// Note: withCredentials is set per-request basis to avoid CORS issues
+axios.defaults.withCredentials = true  // Enable cookies for cross-service authentication
 
 // Global axios response interceptor for handling authentication errors
 let isInterceptorSetup = false
@@ -241,16 +242,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const token = localStorage.getItem('pulse_token')
         if (token) {
           try {
-            // Check if token is close to expiry (within 1 minute)
+            // Check if token is close to expiry (within 3 minutes)
             try {
               const payload = JSON.parse(atob(token.split('.')[1]))
               const expiryTime = payload.exp * 1000 // Convert to milliseconds
               const currentTime = Date.now()
               const timeUntilExpiry = expiryTime - currentTime
+              const minutesRemaining = Math.floor(timeUntilExpiry / 60000)
+              const secondsRemaining = Math.floor(timeUntilExpiry / 1000)
 
-              // If token expires in less than 1 minute, try to refresh it
-              if (timeUntilExpiry < 60000) {
-                console.log('Token expiring soon, attempting refresh...')
+              // If token is already expired, logout immediately
+              if (timeUntilExpiry <= 0) {
+                console.warn(`❌ Token already expired (${secondsRemaining}s ago), logging out`)
+                logout()
+                return
+              }
+
+              // If token expires in less than 3 minutes, try to refresh it
+              if (timeUntilExpiry < 180000) {
+                console.log(`🔄 Token expiring in ${minutesRemaining}m ${secondsRemaining % 60}s, refreshing...`)
                 const refreshed = await refreshToken()
                 if (!refreshed) {
                   console.warn('Token refresh failed, logging out')
@@ -430,8 +440,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setIsLoading(true)
 
-      // Check if there's an existing session in Backend Service (via cookies)
-      // Don't send Authorization header since we don't have a token
+      // OPTIMIZATION: Check cookie FIRST before making API call
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('pulse_token='))
+        ?.split('=')[1]
+
+      if (cookieToken) {
+        // Found token in cookie! Store it and validate
+        localStorage.setItem('pulse_token', cookieToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+
+        // Validate the token (this will be fast since we already have it)
+        await validateToken()
+        return
+      }
+
+      // No cookie found, check if there's an existing session in Backend Service
       const response = await axios.post('/api/v1/auth/validate', {}, {
         headers: {
           // Remove Authorization header for this request
@@ -442,19 +467,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       })
 
       if (response.data.valid && response.data.user) {
-        // Found existing session! The token should already be in cookies
+        // Found existing session via backend validation
         const { user } = response.data
-
-        // Try to get token from cookies (set by ETL service)
-        const cookieToken = document.cookie
-          .split('; ')
-          .find(row => row.startsWith('pulse_token='))
-          ?.split('=')[1]
-
-        if (cookieToken) {
-          localStorage.setItem('pulse_token', cookieToken)
-          axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
-        }
 
         const formattedUser = {
           id: user.id.toString(),
@@ -557,6 +571,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Setup axios interceptor and start periodic session validation
         setupAxiosInterceptor()
         startSessionValidation()
+
+        // Connect to session WebSocket for real-time sync
+        const token = localStorage.getItem('pulse_token')
+        if (token) {
+          sessionWebSocketService.connect(token, {
+            onLogout: () => {
+              console.log('[SessionWS] Logout event received - logging out')
+              logout()
+            },
+            onThemeModeChange: (mode: string) => {
+              console.log('[SessionWS] Theme mode changed to:', mode)
+              // Update theme immediately
+              localStorage.setItem('pulse_theme', mode)
+              document.documentElement.setAttribute('data-theme', mode)
+              ;(window as any).__INITIAL_THEME__ = mode
+            },
+            onColorSchemaChange: (colors: any) => {
+              console.log('[SessionWS] Color schema changed')
+              // Refresh color schema
+              refreshUserColors()
+            }
+          })
+        }
 
         // Load color schema after user is set (non-blocking)
         loadColorSchema().then(colorSchemaData => {
@@ -747,6 +784,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Immediately stop session validation to prevent any interference
     stopSessionValidation()
 
+    // Disconnect session WebSocket
+    sessionWebSocketService.disconnect()
+
     // Clear state first to prevent any React updates during cleanup
     setUser(null)
 
@@ -755,6 +795,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       // Try to invalidate session on the backend (await to ensure DB is updated before redirect)
+      // The backend will broadcast logout to all other devices via WebSocket
       let token = localStorage.getItem('pulse_token')
       if (!token) {
         // Fallback to cookie if needed
@@ -768,22 +809,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } catch (e) {
           // Ignore backend failures, continue cleanup
         }
-
-        // ETL service logout (best-effort, do not block)
-        const etlServiceUrl = import.meta.env.VITE_ETL_SERVICE_URL || 'http://localhost:8000'
-        fetch(`${etlServiceUrl}/api/logout`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }
-        }).catch(() => { })
-
-        // ETL frontend logout notification (best-effort, do not block)
-        const etlFrontendUrl = import.meta.env.VITE_ETL_FRONTEND_URL || 'http://localhost:3333'
-        fetch(`${etlFrontendUrl}/api/logout-notification`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }
-        }).catch(() => { })
       }
     } catch (error) {
       // Silently handle any logout API errors
@@ -796,24 +821,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Silently handle any auth data clearing errors
     }
 
-    // Broadcast logout to other tabs/windows on same origin
+    // Broadcast logout to other tabs/windows on same origin (backup mechanism)
+    // Note: Session WebSocket is the primary sync mechanism, but localStorage
+    // events still work as a fallback for same-origin tabs
     try {
       localStorage.setItem('pulse_logout_event', Date.now().toString())
       localStorage.removeItem('pulse_logout_event')
     } catch (error) {
       // Ignore localStorage errors
-    }
-
-    // Broadcast to other origins via postMessage (if in iframe or popup)
-    try {
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: 'LOGOUT_EVENT', source: 'frontend-app' }, '*')
-      }
-      if (window.opener) {
-        window.opener.postMessage({ type: 'LOGOUT_EVENT', source: 'frontend-app' }, '*')
-      }
-    } catch (error) {
-      // Ignore postMessage errors
     }
 
     // Clear browser cache asynchronously (don't block redirect)
@@ -986,12 +1001,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // Validate the token to get user data
           validateToken();
         }
-      } else if (event.data.type === 'LOGOUT_EVENT' && event.data.source !== 'frontend-app') {
-        // Another frontend logged out, logout this one too
-        setUser(null)
-        clearAllAuthenticationData()
-        window.location.replace('/login')
       }
+      // Note: LOGOUT_EVENT via postMessage removed - now handled by Session WebSocket
     };
 
     window.addEventListener('message', handleCrossServiceAuth);
@@ -1000,11 +1011,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
-  // Listen for logout events from other frontends via localStorage
+  // Listen for logout events from same-origin tabs via localStorage
+  // Note: This is a backup mechanism. Session WebSocket is the primary sync method.
+  // localStorage events only work for same-origin tabs (e.g., multiple tabs on port 3000)
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'pulse_logout_event') {
-        // Another tab/window logged out, logout this one too
+        // Another tab on same origin logged out, logout this one too
         setUser(null)
         clearAllAuthenticationData()
         window.location.replace('/login')

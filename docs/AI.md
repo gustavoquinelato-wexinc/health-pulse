@@ -589,4 +589,238 @@ def update_ai_provider(tenant_id: int, provider_config: dict):
 
 ---
 
-**The AI & Vectorization system provides comprehensive semantic search capabilities across all platform data, enabling intelligent insights and content discovery.**
+## 📊 Detailed Vectorization Strategy
+
+### Vectorized Fields by Entity Type
+
+#### Projects
+**Database Columns**:
+- `id`, `external_id`, `key`, `name`, `project_type`, `integration_id`, `tenant_id`, `active`, `created_at`, `last_updated_at`
+
+**Vectorized Fields**:
+```python
+{
+    "external_id": entity.external_id or "",
+    "key": entity.key or "",
+    "name": entity.name or "",
+    "project_type": entity.project_type or ""
+}
+```
+
+**Text Content for Embedding**:
+```
+"Key: BEN | Name: Benefits Platform | Type: software | ID: 10000"
+```
+
+**Missing from Vectorization**: None - all meaningful fields are vectorized
+
+---
+
+#### Statuses
+**Database Columns**:
+- `id`, `external_id`, `original_name`, `status_mapping_id`, `category`, `description`, `integration_id`, `tenant_id`, `active`, `created_at`, `last_updated_at`
+
+**Vectorized Fields**:
+```python
+{
+    "external_id": entity.external_id or "",
+    "original_name": entity.original_name or "",
+    "description": entity.description or "",
+    "category": entity.category or ""
+}
+```
+
+**Text Content for Embedding**:
+```
+"Name: In Progress | Category: indeterminate | Description: Work is in progress"
+```
+
+**Missing from Vectorization**: `status_mapping_id` (internal reference, not meaningful for semantic search)
+
+---
+
+#### Work Item Types (WITs)
+**Database Columns**:
+- `id`, `external_id`, `original_name`, `wits_mapping_id`, `description`, `hierarchy_level`, `integration_id`, `tenant_id`, `active`, `created_at`, `last_updated_at`
+
+**Vectorized Fields**:
+```python
+{
+    "external_id": entity.external_id or "",
+    "original_name": entity.original_name or "",
+    "description": entity.description or "",
+    "hierarchy_level": entity.hierarchy_level or 0
+}
+```
+
+**Text Content for Embedding**:
+```
+"Name: Epic | Description: A big user story that needs to be broken down | Level: 1"
+```
+
+**Missing from Vectorization**: `wits_mapping_id` (internal reference, not meaningful for semantic search)
+
+---
+
+### Vectorization Summary
+
+| Entity Type | Total Columns | Vectorized | Not Vectorized | Reason for Exclusion |
+|-------------|---------------|------------|----------------|---------------------|
+| **Projects** | 10 | 4 | 6 | IDs, timestamps, flags (not semantic) |
+| **Statuses** | 11 | 4 | 7 | IDs, timestamps, flags (not semantic) |
+| **WITs** | 11 | 4 | 7 | IDs, timestamps, flags (not semantic) |
+
+**Excluded Fields (Common Pattern)**:
+- `id` - Internal database ID
+- `integration_id` - Foreign key reference
+- `tenant_id` - Foreign key reference
+- `active` - Boolean flag
+- `created_at` - Timestamp
+- `last_updated_at` - Timestamp
+- `*_mapping_id` - Internal mapping references
+
+**Why These Are Excluded**: These fields are for database operations, not semantic meaning. They're available in the metadata payload stored in Qdrant, but not used for embedding generation.
+
+---
+
+## 🤖 Multi-Agent Architecture with Custom Fields
+
+### Custom Fields Integration
+
+#### Work Items Table Structure
+```sql
+CREATE TABLE work_items (
+    -- Standard fields
+    id, external_id, key, project_id, team, summary, description,
+    acceptance_criteria, wit_id, status_id, resolution, story_points,
+    assignee, labels, priority, parent_external_id,
+
+    -- Special mapped fields (from custom_fields_mapping)
+    team, code_changed, story_points,
+
+    -- 20 dedicated custom field columns
+    custom_field_01, custom_field_02, ..., custom_field_20,
+
+    -- Overflow for additional custom fields
+    custom_fields_overflow JSONB,
+
+    -- Workflow metrics
+    work_first_committed_at, work_first_started_at, ...
+)
+```
+
+#### Custom Fields Mapping Table
+```sql
+CREATE TABLE custom_fields_mapping (
+    id SERIAL PRIMARY KEY,
+
+    -- Special field mappings
+    team_field_id INTEGER REFERENCES custom_fields(id),
+    code_changed_field_id INTEGER REFERENCES custom_fields(id),
+    story_points_field_id INTEGER REFERENCES custom_fields(id),
+
+    -- 20 custom field mappings
+    custom_field_01_id INTEGER REFERENCES custom_fields(id),
+    custom_field_02_id INTEGER REFERENCES custom_fields(id),
+    ...
+    custom_field_20_id INTEGER REFERENCES custom_fields(id),
+
+    integration_id INTEGER,
+    tenant_id INTEGER
+)
+```
+
+### Hybrid Retrieval Strategy (Recommended)
+
+```
+User Query → Orchestrator Agent
+    ↓
+    ├─→ Vector Search (semantic similarity)
+    │   └─→ Finds: "bugs", "login", "John", "Benefits"
+    │
+    └─→ Metadata Filters (exact matches)
+        └─→ Filters: priority='High', custom_field_X='Y'
+```
+
+**How It Works**:
+1. **Vector Search**: Finds semantically similar work items based on summary/description
+2. **Qdrant Metadata Filters**: Applies exact filters on custom fields, priority, assignee, etc.
+3. **Combine Results**: Returns work items that match both semantic AND exact criteria
+
+**Advantages**:
+- ✅ Works with ANY custom field (no need to re-vectorize)
+- ✅ Exact matching on custom fields
+- ✅ Fast Qdrant metadata filtering
+- ✅ Semantic search on standard fields
+
+---
+
+### Metadata-Based Filtering (Recommended Approach)
+
+```python
+# Store custom fields in Qdrant metadata
+vector_data = {
+    'id': 'BEN-123',
+    'vector': embedding,  # From standard fields only
+    'payload': {
+        'key': 'BEN-123',
+        'summary': 'Fix login bug',
+        'priority': 'High',
+        'assignee': 'John Doe',
+        # Custom fields in metadata
+        'custom_fields': {
+            'security_level': 'Critical',
+            'target_release': 'Q1 2025',
+            'notes': 'This is a critical security issue'
+        }
+    }
+}
+```
+
+**Query Pattern**:
+```python
+# Qdrant supports filtering on metadata
+results = qdrant_client.search(
+    collection_name="tenant_1_work_items",
+    query_vector=embedding,
+    query_filter={
+        "must": [
+            {"key": "priority", "match": {"value": "High"}},
+            {"key": "custom_fields.security_level", "match": {"value": "Critical"}}
+        ]
+    }
+)
+```
+
+**Advantages**:
+- ✅ Semantic search on standard fields
+- ✅ Exact filtering on custom fields
+- ✅ No need to re-vectorize when custom fields change
+- ✅ Qdrant handles the filtering efficiently
+- ✅ Tenant-specific custom fields supported
+
+---
+
+### Multi-Agent Query Flow
+
+```
+User: "Show me high-priority bugs in Benefits with security_level=Critical"
+    ↓
+Orchestrator Agent
+    ↓
+    ├─→ Parse Query
+    │   ├─ Semantic: "bugs", "Benefits"
+    │   └─ Filters: priority="High", custom_fields.security_level="Critical"
+    │
+    ├─→ Route to Jira Agent
+    │   └─→ Qdrant Vector Search with Metadata Filters
+    │       └─→ Returns: BEN-123, BEN-456
+    │
+    └─→ Enrich with Database Data
+        └─→ SQL JOIN to get full work item details + custom fields
+        └─→ Returns: Complete work item objects
+```
+
+---
+
+**The AI & Vectorization system provides comprehensive semantic search capabilities across all platform data, enabling intelligent insights and content discovery with full support for custom fields and metadata filtering.**

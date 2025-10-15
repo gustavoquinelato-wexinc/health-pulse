@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { Loader2, Database } from 'lucide-react'
+import { Loader2, Database, RefreshCw } from 'lucide-react'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import IntegrationLogo from '../components/IntegrationLogo'
+import ToastContainer from '../components/ToastContainer'
 import { qdrantApi } from '../services/etlApiService'
+import { useToast } from '../hooks/useToast'
 
 interface EntityData {
   name: string
@@ -33,24 +35,51 @@ const QdrantPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+  const [creatingCollections, setCreatingCollections] = useState(false)
+  const { toasts, removeToast, showSuccess, showError } = useToast()
+
+  const fetchQdrantData = async () => {
+    try {
+      setLoading(true)
+      const response = await qdrantApi.getDashboard()
+      setDashboardData(response.data)
+      setError(null)
+    } catch (err) {
+      console.error('Error fetching Qdrant data:', err)
+      setError('Failed to load Qdrant database information')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchQdrantData = async () => {
-      try {
-        setLoading(true)
-        const response = await qdrantApi.getDashboard()
-        setDashboardData(response.data)
-        setError(null)
-      } catch (err) {
-        console.error('Error fetching Qdrant data:', err)
-        setError('Failed to load Qdrant database information')
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchQdrantData()
   }, [])
+
+  const handleCreateCollections = async () => {
+    try {
+      setCreatingCollections(true)
+      const response = await qdrantApi.createAllCollections()
+      const data = response.data
+
+      if (data.success) {
+        showSuccess(
+          'Collections Created',
+          `Successfully created ${data.collections_created} collections. ${data.collections_already_exist} already existed. ${data.collections_failed} failed.`
+        )
+        // Refresh dashboard data
+        await fetchQdrantData()
+      } else {
+        showError('Creation Failed', 'Failed to create collections')
+      }
+    } catch (err: any) {
+      console.error('Error creating collections:', err)
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to create collections'
+      showError('Creation Failed', errorMessage)
+    } finally {
+      setCreatingCollections(false)
+    }
+  }
 
   // Use real data from API or defaults
   const totals = dashboardData ? {
@@ -71,13 +100,35 @@ const QdrantPage: React.FC = () => {
         <main className="flex-1 ml-16 py-8">
           <div className="ml-12 mr-12">
             {/* Page Header */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-primary">
-                Qdrant Database
-              </h1>
-              <p className="text-lg text-secondary">
-                Vector database collections and vectorization status
-              </p>
+            <div className="mb-8 flex justify-between items-start">
+              <div>
+                <h1 className="text-3xl font-bold text-primary">
+                  Qdrant Database
+                </h1>
+                <p className="text-lg text-secondary">
+                  Vector database collections and vectorization status
+                </p>
+              </div>
+
+              {/* Create Collections Button */}
+              {!loading && !error && (
+                <button
+                  onClick={handleCreateCollections}
+                  disabled={creatingCollections}
+                  className="px-4 py-2 rounded-lg text-white flex items-center space-x-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: 'var(--gradient-1-2)' }}
+                  onMouseEnter={(e) => {
+                    if (!creatingCollections) e.currentTarget.style.opacity = '0.9'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = '1'
+                  }}
+                  title="Create all necessary Qdrant collections for active tenants (checks if exists first)"
+                >
+                  <RefreshCw className={`h-4 w-4 ${creatingCollections ? 'animate-spin' : ''}`} />
+                  <span>{creatingCollections ? 'Creating Collections...' : 'Create Collections'}</span>
+                </button>
+              )}
             </div>
 
             {/* Content */}
@@ -117,12 +168,14 @@ const QdrantPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Total Records Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -137,12 +190,14 @@ const QdrantPage: React.FC = () => {
 
                   {/* Vectorized Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -157,12 +212,14 @@ const QdrantPage: React.FC = () => {
 
                   {/* Completion Card */}
                   <div
-                    className="bg-secondary rounded-lg shadow-md border border-border p-6 transition-all duration-200 hover:shadow-lg"
+                    className="bg-secondary rounded-lg shadow-md border border-gray-400 p-6 transition-all duration-200"
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = ''
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -181,7 +238,7 @@ const QdrantPage: React.FC = () => {
                   {entityGroups.map((group, groupIndex) => (
                     <div
                       key={groupIndex}
-                      className="bg-secondary rounded-lg shadow-md border border-border overflow-hidden"
+                      className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400"
                     >
                       {/* Group Header */}
                       <div className="px-6 py-5 bg-table-header border-b border-border flex items-center justify-between">
@@ -278,6 +335,9 @@ const QdrantPage: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
   )
 }

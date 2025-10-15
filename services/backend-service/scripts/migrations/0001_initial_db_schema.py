@@ -105,7 +105,7 @@ def apply(connection):
 
         print("📋 Creating core tables...")
 
-        # 1. Tenants table (foundation) - NO vector column
+        # 1. Tenants table (foundation) - NO vector column, includes tier for shared worker pool
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenants (
                 id SERIAL PRIMARY KEY,
@@ -114,11 +114,18 @@ def apply(connection):
                 assets_folder VARCHAR(100),
                 logo_filename VARCHAR(255) DEFAULT 'default-logo.png',
                 color_schema_mode VARCHAR(10) DEFAULT 'default' CHECK (color_schema_mode IN ('default', 'custom')),
+                tier VARCHAR(20) NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'basic', 'premium', 'enterprise')),
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(active);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_tier ON tenants(tier);")
+        cursor.execute("COMMENT ON TABLE tenants IS 'Multi-tenant isolation table with tier-based worker pools';")
+        cursor.execute("COMMENT ON COLUMN tenants.tier IS 'Tenant tier for shared worker pool allocation (free=1, basic=3, premium=5, enterprise=10 workers per pool)';")
+
+        # Note: worker_configs table removed - using shared worker pools based on tenant tier instead
         
         # 2. Users table - NO vector column
         cursor.execute("""
@@ -361,13 +368,14 @@ def apply(connection):
                 wit_id INTEGER,
                 status_id INTEGER,
                 resolution VARCHAR,
-                story_points INTEGER,
                 assignee VARCHAR,
                 labels VARCHAR,
                 priority VARCHAR,
                 parent_external_id VARCHAR,
                 created TIMESTAMP,
                 updated TIMESTAMP,
+                code_changed BOOLEAN DEFAULT FALSE,
+                story_points FLOAT,
                 work_first_committed_at TIMESTAMP,
                 work_first_started_at TIMESTAMP,
                 work_last_started_at TIMESTAMP,
@@ -383,7 +391,7 @@ def apply(connection):
                 workflow_complexity_score INTEGER DEFAULT 0,
                 rework_indicator BOOLEAN DEFAULT FALSE,
                 direct_completion BOOLEAN DEFAULT FALSE,
-                code_changed BOOLEAN,
+                development BOOLEAN,
                 custom_field_01 VARCHAR,
                 custom_field_02 VARCHAR,
                 custom_field_03 VARCHAR,
@@ -587,6 +595,7 @@ def apply(connection):
                 status VARCHAR(20) NOT NULL DEFAULT 'READY',
                 schedule_interval_minutes INTEGER NOT NULL DEFAULT 360,
                 retry_interval_minutes INTEGER NOT NULL DEFAULT 15,
+                last_sync_date TIMESTAMP,
                 last_run_started_at TIMESTAMP,
                 last_run_finished_at TIMESTAMP,
                 error_message TEXT,
@@ -601,6 +610,9 @@ def apply(connection):
                 UNIQUE(job_name, tenant_id),
                 CHECK (status IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
             );
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs.last_sync_date IS 'Last successful data sync timestamp - used for incremental extraction. NULL = first run (full sync)';
         """)
         print("   ✅ etl_jobs table created")
 
@@ -1146,10 +1158,15 @@ def apply(connection):
         print("✅ Custom fields table created")
         print("📋 Creating custom fields mapping tables...")
 
-        # Custom fields mapping table - stores direct mapping to 20 work_item columns
+        # Custom fields mapping table - stores direct mapping to special + 20 custom work_item columns
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS custom_fields_mapping (
                 id SERIAL PRIMARY KEY,
+
+                -- === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
+                team_field_id INTEGER REFERENCES custom_fields(id),
+                development_field_id INTEGER REFERENCES custom_fields(id),
+                story_points_field_id INTEGER REFERENCES custom_fields(id),
 
                 -- === 20 CUSTOM FIELD MAPPINGS ===
                 custom_field_01_id INTEGER REFERENCES custom_fields(id),
@@ -1417,6 +1434,7 @@ def rollback(connection):
             'qdrant_vectors',  # Added missing vector table
 
             # Configuration and color tables
+            # Note: worker_configs table removed - using shared worker pools based on tenant tier
             'tenants_colors',
             'tenant_colors',  # Old color table (wrong name)
             'dora_metric_insights',
@@ -1478,6 +1496,41 @@ def rollback(connection):
             cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
 
         print("✅ All tables dropped successfully")
+
+        # Delete RabbitMQ queues (tier-based queues)
+        print("📋 Deleting RabbitMQ tier-based queues...")
+        try:
+            import pika
+            from app.config import settings
+
+            # Connect to RabbitMQ
+            credentials = pika.PlainCredentials(settings.RABBITMQ_USER, settings.RABBITMQ_PASSWORD)
+            parameters = pika.ConnectionParameters(
+                host=settings.RABBITMQ_HOST,
+                port=settings.RABBITMQ_PORT,
+                credentials=credentials
+            )
+            rabbitmq_conn = pika.BlockingConnection(parameters)
+            channel = rabbitmq_conn.channel()
+
+            # Delete all tier-based queues (12 queues total: 4 tiers × 3 types)
+            tiers = ['free', 'basic', 'premium', 'enterprise']
+            queue_types = ['extraction', 'transform', 'vectorization']
+
+            for tier in tiers:
+                for queue_type in queue_types:
+                    queue_name = f'{queue_type}_queue_{tier}'
+                    try:
+                        channel.queue_delete(queue=queue_name)
+                        print(f"   🗑️ Deleted queue: {queue_name}")
+                    except Exception as e:
+                        print(f"   ⚠️ Could not delete queue {queue_name}: {e}")
+
+            rabbitmq_conn.close()
+            print("✅ RabbitMQ tier-based queues deleted successfully")
+
+        except Exception as e:
+            print(f"⚠️ Could not delete RabbitMQ queues (they may not exist): {e}")
 
         # Optionally drop extensions (commented out as they might be used by other databases)
         print("📋 Extensions (vector, pgml) left intact - they may be used by other applications")

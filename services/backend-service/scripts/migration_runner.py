@@ -285,9 +285,12 @@ def rollback_to_migration(connection, target_migration):
 
     print(f"✅ Rolled back {len(migrations_to_rollback)} migration(s) successfully!")
 
-    # Special case: if rolling back to zeros (complete reset), also clean up Qdrant
+    # Special case: if rolling back to zeros (complete reset), also clean up Qdrant and RabbitMQ
     if target_migration.strip('0') == '' and migrations_to_rollback:
-        print(f"\n🧹 Complete reset (rollback to {target_migration}) detected - cleaning up Qdrant collections...")
+        print(f"\n🧹 Complete reset (rollback to {target_migration}) detected - cleaning up external services...")
+
+        # Clean up Qdrant collections
+        print(f"\n🧹 Cleaning up Qdrant collections...")
         try:
             success = cleanup_qdrant_collections(confirm_flag=True)  # Auto-confirm for rollback
             if success:
@@ -297,6 +300,18 @@ def rollback_to_migration(connection, target_migration):
         except Exception as e:
             print(f"⚠️  Failed to cleanup Qdrant (database rollback was successful): {e}")
             print("💡 You can manually run: python migration_runner.py --qdrant-cleanup --confirm")
+
+        # Clean up RabbitMQ queues
+        print(f"\n🧹 Cleaning up RabbitMQ queues...")
+        try:
+            success = cleanup_rabbitmq_queues(confirm_flag=True)  # Auto-confirm for rollback
+            if success:
+                print("✅ RabbitMQ cleanup completed successfully!")
+            else:
+                print("⚠️  RabbitMQ cleanup had some issues, but database rollback was successful")
+        except Exception as e:
+            print(f"⚠️  Failed to cleanup RabbitMQ (database rollback was successful): {e}")
+            print("💡 You can manually run: python migration_runner.py --rabbitmq-cleanup --confirm")
 
 def get_next_migration_number():
     """Get the next migration number by finding the highest existing number."""
@@ -486,6 +501,162 @@ if __name__ == "__main__":
     print(f"Location: {filepath}")
     print(f"Edit the file to add your migration logic")
 
+def cleanup_rabbitmq_queues(confirm_flag=False):
+    """Delete all RabbitMQ queues (they will be recreated on service start)."""
+    try:
+        import pika
+
+        # Get RabbitMQ connection details from environment
+        rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
+        rabbitmq_port = int(os.getenv('RABBITMQ_PORT', '5672'))
+        rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
+        rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'guest')
+        rabbitmq_vhost = os.getenv('RABBITMQ_VHOST', '/')
+
+        print(f"🔍 Connecting to RabbitMQ at {rabbitmq_host}:{rabbitmq_port} (vhost: {rabbitmq_vhost})...")
+
+        # Connect to RabbitMQ
+        credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
+        parameters = pika.ConnectionParameters(
+            host=rabbitmq_host,
+            port=rabbitmq_port,
+            virtual_host=rabbitmq_vhost,
+            credentials=credentials,
+            heartbeat=600,
+            blocked_connection_timeout=300
+        )
+
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        print("✅ Connected to RabbitMQ")
+
+        # List all existing queues from RabbitMQ (don't query database - it might be dropped!)
+        print("🔍 Discovering existing queues from RabbitMQ...")
+
+        # Use RabbitMQ Management API to list queues
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        # RabbitMQ Management API endpoint
+        management_port = int(os.getenv('RABBITMQ_MANAGEMENT_PORT', '15672'))
+        management_url = f"http://{rabbitmq_host}:{management_port}/api/queues/{rabbitmq_vhost}"
+
+        queues_to_delete = []
+
+        try:
+            # Query RabbitMQ Management API for all queues
+            response = requests.get(
+                management_url,
+                auth=HTTPBasicAuth(rabbitmq_user, rabbitmq_password),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                all_queues = response.json()
+                # Filter for our ETL queues (tier-based queues)
+                for queue_info in all_queues:
+                    queue_name = queue_info.get('name', '')
+                    # Match tier-based queues: extraction_queue_*, transform_queue_*, vectorization_queue_*
+                    if (queue_name.startswith('extraction_queue_') or
+                        queue_name.startswith('transform_queue_') or
+                        queue_name.startswith('vectorization_queue_')):
+                        queues_to_delete.append(queue_name)
+
+                print(f"✅ Found {len(queues_to_delete)} ETL queues in RabbitMQ")
+                if queues_to_delete:
+                    print(f"📋 Queues: {', '.join(queues_to_delete)}")
+            else:
+                print(f"⚠️  Could not query RabbitMQ Management API (status {response.status_code})")
+                print(f"⚠️  Falling back to tier-based queue deletion")
+                # Fallback: delete all tier-based queues (12 queues total)
+                tiers = ['free', 'basic', 'premium', 'enterprise']
+                queue_types = ['extraction', 'transform', 'vectorization']
+                for tier in tiers:
+                    for queue_type in queue_types:
+                        queues_to_delete.append(f'{queue_type}_queue_{tier}')
+
+        except Exception as e:
+            print(f"⚠️  Could not query RabbitMQ Management API: {e}")
+            print(f"⚠️  Falling back to tier-based queue deletion")
+            # Fallback: delete all tier-based queues (12 queues total)
+            tiers = ['free', 'basic', 'premium', 'enterprise']
+            queue_types = ['extraction', 'transform', 'vectorization']
+            for tier in tiers:
+                for queue_type in queue_types:
+                    queues_to_delete.append(f'{queue_type}_queue_{tier}')
+
+        if not queues_to_delete:
+            print("ℹ️  No ETL queues found to delete")
+            connection.close()
+            return True
+
+        # Confirmation
+        if not confirm_flag:
+            print(f"\n⚠️  This will DELETE all RabbitMQ queues (they will be recreated on service start)!")
+            print(f"📋 Queues to delete: {', '.join(queues_to_delete)}")
+            response = input("Type 'DELETE ALL' to confirm: ")
+            if response != "DELETE ALL":
+                print("❌ Cancelled")
+                connection.close()
+                return False
+
+        # Delete each queue
+        deleted_count = 0
+        failed_count = 0
+
+        for queue_name in queues_to_delete:
+            try:
+                # Delete the queue entirely (not just purge messages)
+                # This ensures clean slate - queues will be recreated on service start
+                channel.queue_delete(queue=queue_name)
+                print(f"✅ Deleted queue: {queue_name}")
+                deleted_count += 1
+            except pika.exceptions.ChannelClosedByBroker as e:
+                error_str = str(e)
+                if '404' in error_str or 'NOT_FOUND' in error_str:
+                    # Queue doesn't exist, that's fine
+                    print(f"ℹ️  Queue doesn't exist (skipped): {queue_name}")
+                    # Reopen channel after 404 error
+                    channel = connection.channel()
+                else:
+                    print(f"❌ Failed to delete {queue_name}: {e}")
+                    failed_count += 1
+                    # Reopen channel after error
+                    channel = connection.channel()
+            except Exception as e:
+                error_str = str(e)
+                if '404' in error_str or 'NOT_FOUND' in error_str:
+                    print(f"ℹ️  Queue doesn't exist (skipped): {queue_name}")
+                else:
+                    print(f"❌ Error deleting {queue_name}: {e}")
+                    failed_count += 1
+                # Reopen channel after error
+                try:
+                    channel = connection.channel()
+                except:
+                    pass
+
+        connection.close()
+
+        print(f"\n🎉 RabbitMQ cleanup completed!")
+        print(f"✅ Deleted: {deleted_count} queues")
+        if failed_count > 0:
+            print(f"❌ Failed: {failed_count} queues")
+
+        return failed_count == 0
+
+    except ImportError as e:
+        if 'pika' in str(e):
+            print("❌ pika is required for RabbitMQ cleanup. Install with: pip install pika")
+        else:
+            print(f"❌ Missing dependency for RabbitMQ cleanup: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error in RabbitMQ cleanup: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return False
+
 def cleanup_qdrant_collections(confirm_flag=False):
     """Clean up all Qdrant collections."""
     try:
@@ -585,14 +756,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pulse Platform Migration Runner")
     parser.add_argument("--status", action="store_true", help="Show migration status")
     parser.add_argument("--apply-all", action="store_true", help="Apply all pending migrations")
-    parser.add_argument("--rollback-to", metavar="MIGRATION", help="Rollback to specific migration (e.g., 001). Use any zeros (0, 00, 000, 0000) for complete reset (includes Qdrant cleanup)")
+    parser.add_argument("--rollback-to", metavar="MIGRATION", help="Rollback to specific migration (e.g., 001). Use any zeros (0, 00, 000, 0000) for complete reset (includes Qdrant and RabbitMQ cleanup)")
     parser.add_argument("--new", type=str, metavar="NAME", help="Create new migration with given name")
     parser.add_argument("--qdrant-cleanup", action="store_true", help="Clean up all Qdrant collections (DANGEROUS)")
+    parser.add_argument("--rabbitmq-cleanup", action="store_true", help="Delete all RabbitMQ queues - they will be recreated on service start (DANGEROUS)")
     parser.add_argument("--confirm", action="store_true", help="Skip confirmation prompts for dangerous operations")
 
     args = parser.parse_args()
 
-    if not any([args.status, args.apply_all, args.rollback_to, args.new, args.qdrant_cleanup]):
+    if not any([args.status, args.apply_all, args.rollback_to, args.new, args.qdrant_cleanup, args.rabbitmq_cleanup]):
         parser.print_help()
         sys.exit(1)
 
@@ -612,6 +784,15 @@ if __name__ == "__main__":
             sys.exit(0 if success else 1)
         except Exception as e:
             print(f"❌ Failed to cleanup Qdrant: {e}")
+            sys.exit(1)
+
+    # Handle --rabbitmq-cleanup command (doesn't need database connection)
+    if args.rabbitmq_cleanup:
+        try:
+            success = cleanup_rabbitmq_queues(args.confirm)
+            sys.exit(0 if success else 1)
+        except Exception as e:
+            print(f"❌ Failed to cleanup RabbitMQ: {e}")
             sys.exit(1)
 
     # Other commands need database connection
