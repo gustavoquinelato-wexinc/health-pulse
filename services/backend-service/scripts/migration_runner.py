@@ -553,10 +553,13 @@ def cleanup_rabbitmq_queues(confirm_flag=False):
 
             if response.status_code == 200:
                 all_queues = response.json()
-                # Filter for our ETL queues (transform_queue_tenant_* and vectorization_queue_tenant_*)
+                # Filter for our ETL queues (tier-based queues)
                 for queue_info in all_queues:
                     queue_name = queue_info.get('name', '')
-                    if queue_name.startswith('transform_queue_tenant_') or queue_name.startswith('vectorization_queue_tenant_'):
+                    # Match tier-based queues: extraction_queue_*, transform_queue_*, vectorization_queue_*
+                    if (queue_name.startswith('extraction_queue_') or
+                        queue_name.startswith('transform_queue_') or
+                        queue_name.startswith('vectorization_queue_')):
                         queues_to_delete.append(queue_name)
 
                 print(f"✅ Found {len(queues_to_delete)} ETL queues in RabbitMQ")
@@ -564,19 +567,23 @@ def cleanup_rabbitmq_queues(confirm_flag=False):
                     print(f"📋 Queues: {', '.join(queues_to_delete)}")
             else:
                 print(f"⚠️  Could not query RabbitMQ Management API (status {response.status_code})")
-                print(f"⚠️  Falling back to pattern-based deletion")
-                # Fallback: try common tenant IDs
-                for tenant_id in range(1, 11):  # Try tenants 1-10
-                    queues_to_delete.append(f'transform_queue_tenant_{tenant_id}')
-                    queues_to_delete.append(f'vectorization_queue_tenant_{tenant_id}')
+                print(f"⚠️  Falling back to tier-based queue deletion")
+                # Fallback: delete all tier-based queues (12 queues total)
+                tiers = ['free', 'basic', 'premium', 'enterprise']
+                queue_types = ['extraction', 'transform', 'vectorization']
+                for tier in tiers:
+                    for queue_type in queue_types:
+                        queues_to_delete.append(f'{queue_type}_queue_{tier}')
 
         except Exception as e:
             print(f"⚠️  Could not query RabbitMQ Management API: {e}")
-            print(f"⚠️  Falling back to pattern-based deletion")
-            # Fallback: try common tenant IDs
-            for tenant_id in range(1, 11):  # Try tenants 1-10
-                queues_to_delete.append(f'transform_queue_tenant_{tenant_id}')
-                queues_to_delete.append(f'vectorization_queue_tenant_{tenant_id}')
+            print(f"⚠️  Falling back to tier-based queue deletion")
+            # Fallback: delete all tier-based queues (12 queues total)
+            tiers = ['free', 'basic', 'premium', 'enterprise']
+            queue_types = ['extraction', 'transform', 'vectorization']
+            for tier in tiers:
+                for queue_type in queue_types:
+                    queues_to_delete.append(f'{queue_type}_queue_{tier}')
 
         if not queues_to_delete:
             print("ℹ️  No ETL queues found to delete")

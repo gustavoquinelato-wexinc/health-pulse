@@ -72,7 +72,7 @@ class IndividualJobTimer:
         """Calculate minutes until this job should run next"""
         try:
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
 
                 # Get this specific job's details including next_run
                 query = text("""
@@ -176,7 +176,7 @@ class IndividualJobTimer:
 
             database = get_database()
             while elapsed < max_wait_seconds:
-                with database.get_session_context() as session:
+                with database.get_read_session_context() as session:
                     query = text("""
                         SELECT status
                         FROM etl_jobs
@@ -210,7 +210,7 @@ class IndividualJobTimer:
         """Get the interval (in minutes) until this job should run next based on next_run column"""
         try:
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
 
                 # Get updated job details including next_run
                 query = text("""
@@ -282,7 +282,7 @@ class IndividualJobTimer:
         """Trigger this job's execution"""
         try:
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
                 # First check if job is already running
                 check_query = text("""
                     SELECT status
@@ -300,9 +300,17 @@ class IndividualJobTimer:
 
                 current_status = result[0]
 
-                # Don't trigger if already running
+                # Only trigger if job is in READY status
                 if current_status == 'RUNNING':
                     logger.warning(f"⚠️ Job '{self.job_name}' is already RUNNING - skipping automatic trigger")
+                    return
+
+                if current_status == 'FINISHED':
+                    logger.warning(f"⚠️ Job '{self.job_name}' is still FINISHED (transitioning to READY) - skipping automatic trigger")
+                    return
+
+                if current_status != 'READY':
+                    logger.warning(f"⚠️ Job '{self.job_name}' has status '{current_status}' (expected READY) - skipping automatic trigger")
                     return
 
                 # Set job to RUNNING status with proper timezone handling
@@ -350,7 +358,7 @@ class IndividualJobTimer:
             now = DateTimeHelper.now_default()
 
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_write_session_context() as session:
                 # Get job's schedule interval to calculate next_run
                 schedule_query = text("""
                     SELECT schedule_interval_minutes
@@ -402,7 +410,7 @@ class IndividualJobTimer:
 
             # Get integration information for this job
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
                 # Get job details and integration info
                 job_query = text("""
                     SELECT ej.job_name, ej.integration_id, i.provider, i.type
@@ -458,7 +466,7 @@ class IndividualJobTimer:
             now = DateTimeHelper.now_default()
 
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_write_session_context() as session:
                 # Get job's schedule interval to calculate next_run
                 schedule_query = text("""
                     SELECT schedule_interval_minutes
@@ -505,7 +513,7 @@ class IndividualJobTimer:
         """Mark job as failed"""
         try:
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_write_session_context() as session:
                 from app.core.utils import DateTimeHelper
                 now = DateTimeHelper.now_default()
 
@@ -547,7 +555,7 @@ class JobTimerManager:
             database = get_database()
 
             logger.info("🔍 Opening database session...")
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
 
                 logger.info("🔍 Querying for active jobs...")
                 # Get all active jobs

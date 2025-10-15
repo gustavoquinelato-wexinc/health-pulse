@@ -81,12 +81,12 @@ def apply(connection):
 
         print("✅ DORA data inserted")
 
-        # 2. Insert default tenant (Apple)
-        print("📋 Creating Apple tenant...")
+        # 2. Insert default tenant (Apple) - Free tier
+        print("📋 Creating Apple tenant (Free tier)...")
         cursor.execute("""
-            INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
-            VALUES ('Apple', 'https://www.apple.com', 'apple', 'logo.png', 'default', TRUE, NOW(), NOW())
-            ON CONFLICT DO NOTHING;
+            INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, tier, active, created_at, last_updated_at)
+            VALUES ('Apple', 'https://www.apple.com', 'apple', 'logo.png', 'default', 'free', TRUE, NOW(), NOW())
+            ON CONFLICT (name) DO UPDATE SET tier = 'free';
         """)
 
         # Get the tenant ID for seed data
@@ -97,14 +97,8 @@ def apply(connection):
         tenant_id = tenant_result['id']
         print(f"   ✅ Apple tenant created/found with ID: {tenant_id}")
 
-        # 2b. Create default worker configuration for Apple tenant
-        print("📋 Creating default worker configuration...")
-        cursor.execute("""
-            INSERT INTO worker_configs (transform_workers, vectorization_workers, tenant_id, active)
-            VALUES (1, 1, %s, TRUE)
-            ON CONFLICT (tenant_id) DO NOTHING;
-        """, (tenant_id,))
-        print("   ✅ Worker configuration created (1 transform + 1 vectorization worker)")
+        # Note: worker_configs table removed - using shared worker pools based on tenant tier
+        # Apple is free tier = 1 worker per pool (extraction, transform, vectorization)
 
         # 3. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
@@ -901,7 +895,6 @@ def apply(connection):
 
         # Get user passwords from environment variables
         admin_password = os.getenv('ADMIN_USER_PASSWORD', 'pulse')
-        system_password = os.getenv('SYSTEM_USER_PASSWORD', 'etl_system_secure_2024')
         default_password = os.getenv('DEFAULT_USER_PASSWORD', 'pulse')
 
         default_users_data = [
@@ -922,15 +915,6 @@ def apply(connection):
                 "role": "admin",
                 "is_admin": True,
                 "auth_provider": "local"
-            },
-            {
-                "email": "system@etl.pulse.local",
-                "password_hash": hash_password(system_password),
-                "first_name": "ETL",
-                "last_name": "System Service",
-                "role": "system",
-                "is_admin": True,
-                "auth_provider": "system"
             },
             {
                 "email": "user@pulse.com",

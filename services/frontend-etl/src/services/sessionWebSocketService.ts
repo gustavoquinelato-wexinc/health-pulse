@@ -75,9 +75,15 @@ class SessionWebSocketService {
         this.isConnecting = false
       }
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.isConnecting = false
         this.stopPingInterval()
+
+        // Suppress warnings for React StrictMode double-mount (code 1006 in development)
+        const isStrictModeClose = event.code === 1006 && this.ws?.readyState === WebSocket.CLOSED
+        if (!isStrictModeClose && event.code !== 1000 && event.code !== 1001) {
+          console.warn(`⚠️ Session WebSocket closed (code: ${event.code})`)
+        }
 
         // Attempt to reconnect if not manually disconnected
         if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -185,6 +191,18 @@ class SessionWebSocketService {
    */
   updateHandlers(handlers: SessionEventHandlers) {
     this.handlers = { ...this.handlers, ...handlers }
+  }
+
+  /**
+   * Update authentication token
+   * This is called when the token is refreshed to keep the stored token in sync
+   * Note: We don't reconnect the WebSocket because:
+   * 1. WebSocket authentication happens only at connection time (handshake)
+   * 2. Once connected, the WebSocket remains valid regardless of token expiry
+   * 3. The stored token is only used for reconnection attempts
+   */
+  updateToken(newToken: string) {
+    this.token = newToken
   }
 }
 

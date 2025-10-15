@@ -285,6 +285,118 @@ async def validate_token(request: Request):
         logger.error(f"Token validation error: {e}")
         return TokenValidationResponse(valid=False, user=None)
 
+@app.post("/api/v1/token/refresh", response_model=TokenResponse)
+async def refresh_token(request: Request):
+    """
+    Refresh JWT token - validates current token and returns a new one.
+    Token expires in 5 minutes, but session extends to 60 minutes from now.
+    """
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No token provided for refresh"
+            )
+
+        token = auth_header.split(" ")[1]
+
+        # Validate current token
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+            # Check if token is expired using configured timezone
+            try:
+                import pytz
+                tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+                utc_now = datetime.now(timezone.utc)
+                local_now = utc_now.astimezone(tz)
+                now_default = local_now.replace(tzinfo=None)
+
+                # Convert JWT timestamp back to local timezone for comparison
+                exp_utc = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+                exp_local = exp_utc.astimezone(tz)
+                exp_default = exp_local.replace(tzinfo=None)
+            except Exception:
+                # Fallback to UTC if timezone configuration fails
+                now_default = datetime.now(timezone.utc).replace(tzinfo=None)
+                exp_default = datetime.fromtimestamp(payload["exp"], tz=timezone.utc).replace(tzinfo=None)
+
+            if now_default > exp_default:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token expired"
+                )
+
+            # Extract user data from current token
+            user_data = {
+                "id": payload["user_id"],
+                "email": payload["email"],
+                "role": payload["role"],
+                "is_admin": payload["is_admin"],
+                "tenant_id": payload["tenant_id"]
+            }
+
+            # Fetch additional user data from backend (theme_mode, first_name, last_name)
+            async with httpx.AsyncClient() as client:
+                user_response = await client.get(
+                    f"{settings.BACKEND_SERVICE_URL}/api/v1/users/{user_data['id']}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10.0
+                )
+
+                if user_response.status_code == 200:
+                    full_user_data = user_response.json()
+                    user_data.update({
+                        "first_name": full_user_data.get("first_name"),
+                        "last_name": full_user_data.get("last_name"),
+                        "theme_mode": full_user_data.get("theme_mode")
+                    })
+
+            # Generate new token with same user data
+            new_token = generate_jwt_token(user_data)
+
+            # Notify backend to extend session (not reset to 5 min)
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        f"{settings.BACKEND_SERVICE_URL}/api/v1/auth/extend-session",
+                        json={
+                            "token": new_token,
+                            "user_data": user_data,
+                            "is_refresh": True
+                        },
+                        timeout=5.0
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to notify backend of session extension: {e}")
+
+            logger.info(f"Token refreshed successfully for user_id: {user_data['id']}")
+
+            return TokenResponse(
+                access_token=new_token,
+                expires_in=settings.JWT_EXPIRY_MINUTES * 60,  # 5 minutes in seconds
+                user=user_data
+            )
+
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid token for refresh: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
+
+
 @app.post("/api/v1/logout")
 async def logout_api(request):
     """API logout endpoint - invalidate tokens"""

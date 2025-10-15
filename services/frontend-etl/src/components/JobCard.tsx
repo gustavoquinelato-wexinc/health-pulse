@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   Play,
@@ -46,6 +46,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [progressPercentage, setProgressPercentage] = useState<number | null>(null)
   const [currentStep, setCurrentStep] = useState<string | null>(null)
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
+  const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
+
+  // Throttle state updates to prevent UI freezing from rapid WebSocket messages
+  const lastUpdateRef = useRef<number>(0)
+  const THROTTLE_MS = 500 // Only update UI every 500ms max
 
   // Get status icon and color
   const getStatusInfo = () => {
@@ -201,6 +206,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active, realTimeStatus])
 
+  // Check for WebSocket service reinitialization (e.g., after logout/login)
+  useEffect(() => {
+    const currentVersion = etlWebSocketService.getInitializationVersion()
+    if (currentVersion !== wsVersion) {
+      // Service was reinitialized, update version to trigger reconnection
+      setWsVersion(currentVersion)
+    }
+  }, [wsVersion])
+
   // WebSocket connection for real-time progress tracking - only for active jobs
   useEffect(() => {
     // Only establish WebSocket connection for active jobs
@@ -213,6 +227,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
     const cleanup = etlWebSocketService.connectToJob(job.job_name, {
       onProgress: (data: ProgressUpdate) => {
+        // Throttle progress updates to prevent UI freezing
+        const now = Date.now()
+        if (now - lastUpdateRef.current < THROTTLE_MS) {
+          return // Skip this update
+        }
+        lastUpdateRef.current = now
 
         setProgressPercentage(data.percentage)
         setCurrentStep(data.step)
@@ -253,7 +273,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }
 
     return cleanup
-  }, [job.job_name, job.active]) // Include job.active dependency to reconnect when toggled
+  }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes
   useEffect(() => {

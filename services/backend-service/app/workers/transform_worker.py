@@ -1,14 +1,20 @@
 """
-Transform Worker for processing raw ETL data.
+Transform Worker for processing raw ETL data (TIER-BASED QUEUE ARCHITECTURE).
 
-Consumes messages from transform_queue and processes raw data based on type:
+Consumes messages from tier-based transform queues and processes raw data based on type:
 - jira_custom_fields: Process custom fields discovery data from createmeta API
 - jira_special_fields: Process special fields from field search API (e.g., development field)
-- jira_issues: Process Jira issues data (future)
-- github_prs: Process GitHub PRs data (future)
+- jira_issues: Process Jira issues data
+- github_prs: Process GitHub PRs data
+
+Tier-Based Queue Architecture:
+- Workers consume from tier-based queues (transform_queue_free, transform_queue_premium, etc.)
+- Each message contains tenant_id for proper routing
+- Multiple workers per tier share the same queue
 """
 
 import json
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy import text
@@ -28,24 +34,30 @@ logger = get_logger(__name__)
 
 class TransformWorker(BaseWorker):
     """
-    Transform worker that processes raw extraction data into final database tables.
+    Transform worker that processes raw extraction data into final database tables (tier-based queue architecture).
 
     Handles different data types:
     - jira_custom_fields: Creates/updates projects, WITs, custom fields, and relationships
     - jira_special_fields: Creates/updates special fields not in createmeta (e.g., development field)
 
-    Supports tenant-specific queues for multi-tenant processing.
+    Tier-Based Queue Mode:
+    - Consumes from tier-based queue (e.g., transform_queue_premium)
+    - Uses tenant_id from message for proper data routing
     """
 
-    def __init__(self, queue_name: str = 'transform_queue'):
+    def __init__(self, queue_name: str, worker_number: int = 0, tenant_ids: Optional[List[int]] = None):
         """
-        Initialize transform worker for specified queue.
+        Initialize transform worker for tier-based queue.
 
         Args:
-            queue_name: Name of the queue to consume from (default: 'transform_queue')
+            queue_name: Name of the tier-based transform queue (e.g., 'transform_queue_premium')
+            worker_number: Worker instance number (for logging)
+            tenant_ids: Deprecated (kept for backward compatibility)
         """
         super().__init__(queue_name)
-    
+        self.worker_number = worker_number
+        logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
+
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a transform message based on its type.
@@ -90,7 +102,13 @@ class TransformWorker(BaseWorker):
                     raw_data_id, tenant_id, integration_id
                 )
             elif message_type == 'jira_issues_changelogs':
+                # Legacy batch processing (kept for backward compatibility)
                 return self._process_jira_issues_changelogs(
+                    raw_data_id, tenant_id, integration_id
+                )
+            elif message_type == 'jira_issue':
+                # New individual issue processing
+                return self._process_jira_single_issue(
                     raw_data_id, tenant_id, integration_id
                 )
             elif message_type == 'jira_dev_status':
@@ -463,7 +481,7 @@ class TransformWorker(BaseWorker):
             logger.info(f"Processing Jira project search data for raw_data_id={raw_data_id}")
 
             database = get_database()
-            with database.get_session_context() as session:
+            with database.get_write_session_context() as session:
                 # 1. Load raw data
                 result = session.execute(text(
                     'SELECT raw_data FROM raw_extraction_data WHERE id = :raw_data_id'
@@ -2064,13 +2082,122 @@ class TransformWorker(BaseWorker):
                     error_query = text("""
                         UPDATE raw_extraction_data
                         SET status = 'failed',
-                            error_details = :error_details::jsonb,
+                            error_details = CAST(:error_details AS jsonb),
                             last_updated_at = NOW()
                         WHERE id = :raw_data_id
                     """)
                     db.execute(error_query, {
                         'raw_data_id': raw_data_id,
                         'error_details': json.dumps({'error': str(e)[:500]})  # Proper JSON format
+                    })
+                    db.commit()
+            except Exception as update_error:
+                logger.error(f"Failed to update raw_data status to failed: {update_error}")
+
+            return False
+
+    def _process_jira_single_issue(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+        """
+        Process a single Jira issue from raw_extraction_data.
+
+        This is the optimized version that processes individual issues instead of batches.
+
+        Flow:
+        1. Load single issue raw data from raw_extraction_data table
+        2. Transform issue data and insert/update work_items table
+        3. Transform changelog data and insert changelogs table
+        4. Queue work_item and changelogs for vectorization
+        """
+        try:
+            logger.debug(f"Processing single jira_issue for raw_data_id={raw_data_id}")
+
+            with self.get_db_session() as db:
+                # Load raw data (single issue)
+                raw_data = self._get_raw_data(db, raw_data_id)
+                if not raw_data:
+                    logger.error(f"Raw data {raw_data_id} not found")
+                    return False
+
+                # Raw data is a single issue object (not wrapped in 'issues' array)
+                issue = raw_data
+
+                # Validate issue has required fields
+                if not issue.get('key'):
+                    logger.error(f"Issue missing 'key' field in raw_data_id={raw_data_id}")
+                    return False
+
+                # Get reference data for mapping
+                projects_map, wits_map, statuses_map = self._get_reference_data_maps(db, integration_id, tenant_id)
+
+                # Get custom field mappings from integration
+                custom_field_mappings = self._get_custom_field_mappings(db, integration_id, tenant_id)
+
+                # Process single issue (wrap in array for compatibility with existing method)
+                issues_processed = self._process_issues_data(
+                    db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings
+                )
+
+                # Process changelogs for this issue
+                changelogs_processed = self._process_changelogs_data(
+                    db, [issue], integration_id, tenant_id, statuses_map
+                )
+
+                # Check if issue has development field - queue for dev_status extraction
+                development_field = issue.get('fields', {}).get('customfield_10000')
+                if development_field:
+                    logger.debug(f"Issue {issue.get('key')} has development field, queueing for dev_status extraction")
+
+                    # Queue extraction request (non-blocking)
+                    from app.etl.queue.queue_manager import QueueManager
+                    queue_manager = QueueManager()
+
+                    success = queue_manager.publish_extraction_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        extraction_type='jira_dev_status_fetch',
+                        extraction_data={
+                            'issue_id': issue.get('id'),
+                            'issue_key': issue.get('key')
+                        }
+                    )
+
+                    if success:
+                        logger.debug(f"✅ Queued dev_status extraction for issue {issue.get('key')}")
+                    else:
+                        logger.warning(f"⚠️ Failed to queue dev_status extraction for issue {issue.get('key')}")
+
+                # Update raw data status to completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = NOW(),
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.commit()
+
+                logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error processing single jira_issue (raw_data_id={raw_data_id}): {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+
+            # Mark raw data as failed
+            try:
+                with self.get_db_session() as db:
+                    error_query = text("""
+                        UPDATE raw_extraction_data
+                        SET status = 'failed',
+                            error_details = CAST(:error_details AS jsonb),
+                            last_updated_at = NOW()
+                        WHERE id = :raw_data_id
+                    """)
+                    db.execute(error_query, {
+                        'raw_data_id': raw_data_id,
+                        'error_details': json.dumps({'error': str(e)[:500]})
                     })
                     db.commit()
             except Exception as update_error:
@@ -2220,14 +2347,14 @@ class TransformWorker(BaseWorker):
     def _extract_all_fields(self, fields: Dict, custom_field_mappings: Dict[str, str]) -> Dict:
         """
         Extract all mapped fields from Jira issue fields based on mappings.
-        Includes special fields (team, code_changed, story_points) and custom fields.
+        Includes special fields (team, development, story_points) and custom fields.
 
         Args:
             fields: Jira issue fields dict
             custom_field_mappings: Dict mapping Jira field IDs to work_items column names
                                   e.g., {
                                       'customfield_10001': 'team',
-                                      'customfield_10000': 'code_changed',
+                                      'customfield_10000': 'development',
                                       'customfield_10024': 'story_points',
                                       'customfield_10128': 'custom_field_01'
                                   }
@@ -2236,7 +2363,7 @@ class TransformWorker(BaseWorker):
             Dict with all field column names and values, plus overflow
             e.g., {
                 'team': 'R&I',
-                'code_changed': True,
+                'development': True,
                 'story_points': 5.0,
                 'custom_field_01': 'Epic Name',
                 'custom_field_02': 'Some value',
@@ -2268,27 +2395,30 @@ class TransformWorker(BaseWorker):
                     else:
                         result[column_name] = str(value)
 
-                elif column_name == 'code_changed':
-                    # Code changed field - detect PR/commit data
-                    code_changed = False
-                    if isinstance(value, bool):
-                        code_changed = value
-                    elif isinstance(value, str):
-                        # Check if string contains PR/commit data indicators
-                        value_lower = value.lower()
-                        if 'pullrequest=' in value_lower or 'commit=' in value_lower:
-                            code_changed = True
-                        elif value_lower in ('true', 'yes', '1'):
-                            code_changed = True
-                    elif isinstance(value, dict):
-                        # Check for PR/commit data in dict
-                        if 'pullrequest' in value or 'commit' in value:
-                            code_changed = True
+                elif column_name == 'development':
+                    # Development field - boolean indicating if there's any development data
+                    # True if field has any content, False otherwise
+                    development = False
+                    if value is not None:
+                        if isinstance(value, bool):
+                            development = value
+                        elif isinstance(value, str):
+                            # Non-empty string (excluding empty JSON objects)
+                            value_stripped = value.strip()
+                            if value_stripped and value_stripped not in ('{}', '[]', '""', "''"):
+                                development = True
+                        elif isinstance(value, dict):
+                            # Non-empty dict
+                            if value:
+                                development = True
+                        elif isinstance(value, list):
+                            # Non-empty list
+                            if value:
+                                development = True
                         else:
-                            # Check 'value' key
-                            val = value.get('value', '')
-                            code_changed = str(val).lower() in ('true', 'yes', '1')
-                    result[column_name] = code_changed
+                            # Any other non-None value
+                            development = True
+                    result[column_name] = development
 
                 elif column_name == 'story_points':
                     # Story points field - convert to float
@@ -2400,12 +2530,12 @@ class TransformWorker(BaseWorker):
                 parent_external_id = fields.get('parent', {}).get('id') if fields.get('parent') else None
 
                 # Extract special fields and custom fields based on mappings
-                # This will extract team, code_changed, story_points, and custom_field_01-20
+                # This will extract team, development, story_points, and custom_field_01-20
                 all_fields_data = self._extract_all_fields(fields, custom_field_mappings)
 
                 # Extract special fields from the result
                 team = all_fields_data.pop('team', None)
-                code_changed = all_fields_data.pop('code_changed', False)
+                development = all_fields_data.pop('development', False)
                 story_points = all_fields_data.pop('story_points', None)
 
                 # Remaining fields are custom_field_01-20 and overflow
@@ -2428,7 +2558,7 @@ class TransformWorker(BaseWorker):
                         'labels': labels,
                         'updated': updated,
                         'parent_external_id': parent_external_id,
-                        'code_changed': code_changed,
+                        'development': development,
                         'story_points': story_points,
                         'last_updated_at': current_time
                     }
@@ -2455,7 +2585,7 @@ class TransformWorker(BaseWorker):
                         'created': created,
                         'updated': updated,
                         'parent_external_id': parent_external_id,
-                        'code_changed': code_changed,
+                        'development': development,
                         'story_points': story_points,
                         'active': True,
                         'created_at': current_time,
@@ -2872,25 +3002,69 @@ class TransformWorker(BaseWorker):
                     logger.error(f"Raw data {raw_data_id} not found")
                     return False
 
-                dev_status_data = raw_data.get('dev_status', [])
-                if not dev_status_data:
-                    logger.warning(f"No dev_status data found in raw_data_id={raw_data_id}")
+                # Extract dev_status data - handle single issue format from extraction worker
+                issue_key = raw_data.get('issue_key')
+                issue_id = raw_data.get('issue_id')
+                dev_status = raw_data.get('dev_status')
+
+                if not dev_status or not issue_key:
+                    logger.warning(f"No dev_status or issue_key found in raw_data_id={raw_data_id}")
                     return True
 
-                logger.info(f"Processing dev_status for {len(dev_status_data)} issues")
+                # Convert to list format expected by _process_dev_status_data
+                dev_status_data = [{
+                    'issue_key': issue_key,
+                    'issue_id': issue_id,
+                    'dev_details': dev_status
+                }]
+
+                logger.info(f"Processing dev_status for issue {issue_key}")
 
                 # Process dev_status
                 pr_links_processed = self._process_dev_status_data(
                     db, dev_status_data, integration_id, tenant_id
                 )
 
-                logger.info(f"Processed {pr_links_processed} PR links from dev_status")
+                # Update raw data status to completed
+                from sqlalchemy import text
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = NOW(),
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.commit()
+
+                logger.info(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
                 return True
 
         except Exception as e:
             logger.error(f"Error processing jira_dev_status: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+
+            # Mark as failed
+            try:
+                with self.get_db_session() as db:
+                    from sqlalchemy import text
+                    update_query = text("""
+                        UPDATE raw_extraction_data
+                        SET status = 'failed',
+                            last_updated_at = NOW(),
+                            error_details = :error_details::jsonb
+                        WHERE id = :raw_data_id
+                    """)
+                    import json
+                    db.execute(update_query, {
+                        'raw_data_id': raw_data_id,
+                        'error_details': json.dumps({'error': str(e), 'traceback': traceback.format_exc()})
+                    })
+                    db.commit()
+            except Exception as update_error:
+                logger.error(f"Failed to mark raw_data as failed: {update_error}")
+
             return False
 
     def _process_dev_status_data(

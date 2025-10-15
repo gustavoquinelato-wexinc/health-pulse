@@ -23,7 +23,7 @@ Base = declarative_base()
 
 
 class Tenant(Base):
-    """Tenants table to manage different tenant organizations."""
+    """Tenants table to manage different tenant organizations with tier-based worker pools."""
     __tablename__ = 'tenants'
     __table_args__ = {'quote': False}
 
@@ -33,6 +33,7 @@ class Tenant(Base):
     assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
     color_schema_mode = Column(String(10), nullable=True, default='default', quote=False, name="color_schema_mode")
+    tier = Column(String(20), nullable=False, default='free', quote=False, name="tier")  # free, basic, premium, enterprise
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
@@ -96,20 +97,12 @@ class IntegrationBaseEntity:
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
 
 
-# Worker Configuration Table
-class WorkerConfig(Base, BaseEntity):
-    """Worker configuration for dynamic worker scaling per tenant."""
-    __tablename__ = 'worker_configs'
-    __table_args__ = (
-        UniqueConstraint('tenant_id', name='unique_tenant_worker_configs'),
-        {'quote': False}
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
-    transform_workers = Column(Integer, nullable=False, default=1, quote=False, name="transform_workers")
-    vectorization_workers = Column(Integer, nullable=False, default=1, quote=False, name="vectorization_workers")
-    # tenant_id, active, created_at, last_updated_at inherited from BaseEntity
-
+# Note: WorkerConfig table removed - using shared worker pools based on tenant tier instead
+# Tier-based worker allocation:
+# - free: 1 worker per pool (extraction, transform, vectorization)
+# - basic: 3 workers per pool
+# - premium: 5 workers per pool
+# - enterprise: 10 workers per pool
 
 # Authentication and User Management Tables
 # These tables inherit from BaseEntity and are tied to specific clients

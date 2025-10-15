@@ -29,6 +29,9 @@ class AuthServiceSettings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRY_MINUTES: int = 5  # Short expiry for security - frontend should refresh tokens
 
+    # Session Configuration
+    SESSION_EXPIRE_MINUTES: int = 60  # Session lasts 60 minutes with auto token refresh
+
     # Service URLs
     BACKEND_SERVICE_URL: str = "http://localhost:3001"
     FRONTEND_SERVICE_URL: str = "http://localhost:3000"

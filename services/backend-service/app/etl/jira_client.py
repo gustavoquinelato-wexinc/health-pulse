@@ -89,7 +89,7 @@ class JiraAPIClient:
             field_id: The field ID to search for (e.g., 'customfield_10000')
 
         Returns:
-            Dictionary containing field information or None if not found
+            Dictionary containing full API response with 'values' array, or None if not found
         """
         try:
             url = f"{self.base_url}/rest/api/3/field/search"
@@ -117,9 +117,9 @@ class JiraAPIClient:
 
             values = result.get('values', [])
             if values:
-                field_info = values[0]
-                logger.info(f"Successfully retrieved field info for {field_id}: {field_info.get('name')}")
-                return field_info
+                logger.info(f"Successfully retrieved field info for {field_id}: {values[0].get('name')}")
+                # Return full response with values array for transform worker
+                return result
             else:
                 logger.warning(f"Field {field_id} not found")
                 return None
@@ -345,33 +345,58 @@ class JiraAPIClient:
         Returns:
             Development details as dictionary
         """
-        try:
-            url = f"{self.base_url}/rest/dev-status/latest/issue/detail"
-            params = {
-                "issueId": issue_external_id,
-                "applicationType": application_type,
-                "dataType": data_type
-            }
+        import time
+        max_retries = 3
+        retry_delay = 2  # seconds
 
-            logger.debug(f"Fetching development details for issue {issue_external_id}")
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.base_url}/rest/dev-status/latest/issue/detail"
+                params = {
+                    "issueId": issue_external_id,
+                    "applicationType": application_type,
+                    "dataType": data_type
+                }
 
-            response = requests.get(
-                url,
-                auth=(self.username, self.token),
-                params=params,
-                headers={'Accept': 'application/json'},
-                timeout=30
-            )
+                logger.debug(f"Fetching development details for issue {issue_external_id} (attempt {attempt + 1}/{max_retries})")
 
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.warning(f"Failed to get dev details for issue {issue_external_id}: {response.status_code}")
+                response = requests.get(
+                    url,
+                    auth=(self.username, self.token),
+                    params=params,
+                    headers={'Accept': 'application/json'},
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.warning(f"Failed to get dev details for issue {issue_external_id}: {response.status_code}")
+                    return {}
+
+            except (requests.exceptions.ConnectionError, ConnectionResetError) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Connection error fetching dev details for issue {issue_external_id} (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Error fetching dev details for issue {issue_external_id} after {max_retries} attempts: {e}")
+                    return {}
+            except Exception as e:
+                logger.error(f"Error fetching dev details for issue {issue_external_id}: {e}")
                 return {}
 
-        except Exception as e:
-            logger.error(f"Error getting dev details for issue {issue_external_id}: {e}")
-            return {}
+    def get_dev_status(self, issue_id: str) -> Dict[str, Any]:
+        """
+        Alias for get_issue_dev_details for consistency with extraction worker.
+
+        Args:
+            issue_id: The external ID of the issue
+
+        Returns:
+            Development status details as dictionary
+        """
+        return self.get_issue_dev_details(issue_id, application_type="GitHub", data_type="pullrequest")
 
 
 def extract_custom_fields_from_createmeta(createmeta_response: Dict[str, Any]) -> List[Dict[str, Any]]:

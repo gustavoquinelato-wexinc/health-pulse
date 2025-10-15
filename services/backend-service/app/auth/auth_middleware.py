@@ -45,12 +45,33 @@ async def get_current_user(
     """
     Dependency to get the current authenticated user.
     Returns None if not authenticated (for optional authentication).
-    Supports both local and centralized authentication.
+
+    Optimized flow:
+    1. Check session in local database/Redis (fast)
+    2. If session exists → validate JWT via auth-service
+    3. If either fails → return None (no exception)
     """
     if not credentials:
         return None
 
-    # Delegate to centralized authentication service only
+    token = credentials.credentials
+
+    # Step 1: Check session locally first (FAST)
+    try:
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        user = await auth_service.verify_token(token, suppress_errors=True)
+
+        if not user:
+            logger.debug("Session not found in local database")
+            return None
+
+    except Exception as e:
+        logger.debug(f"Session check error: {e}")
+        return None
+
+    # Step 2: Validate JWT signature via auth-service
     try:
         import httpx
         from app.core.config import get_settings
@@ -60,7 +81,7 @@ async def get_current_user(
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{auth_service_url}/api/v1/token/validate",
-                headers={"Authorization": f"Bearer {credentials.credentials}"},
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=5.0
             )
 
@@ -68,16 +89,13 @@ async def get_current_user(
                 token_data = response.json()
                 if token_data.get("valid"):
                     user_data_dict = token_data.get("user")
-                    logger.debug("User authenticated successfully (centralized)")
+                    logger.debug("User authenticated successfully")
+                    return UserData(user_data_dict)
 
-                    # Create a UserData object from the centralized data
-                    user_data = UserData(user_data_dict)
-                    return user_data
-
-        logger.debug("Centralized authentication failed")
+        logger.debug("JWT validation failed")
 
     except Exception as e:
-        logger.warning(f"Error during centralized authentication: {e}")
+        logger.debug(f"Auth service error: {e}")
 
     return None
 
@@ -88,7 +106,12 @@ async def require_authentication(
 ) -> UserData:
     """
     Dependency that requires authentication.
-    Supports both local system tokens and centralized auth tokens.
+
+    Optimized flow:
+    1. Check session in local database/Redis (fast, no network call)
+    2. If session doesn't exist or expired → reject immediately
+    3. If session exists → validate JWT signature via auth-service
+    4. If JWT valid → allow request
     """
     if not credentials:
         raise HTTPException(
@@ -97,30 +120,39 @@ async def require_authentication(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # First try local authentication (for system users)
+    token = credentials.credentials
+
+    # Step 1: Check session locally first (FAST - no network call)
     try:
         from app.auth.auth_service import get_auth_service
         auth_service = get_auth_service()
-        user = await auth_service.verify_token(credentials.credentials)
 
-        if user:
-            logger.debug(f"User authenticated successfully (local): {user.email}")
-            # Create UserData object from local user
-            user_data = UserData({
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "role": user.role,
-                "is_admin": user.is_admin,
-                "tenant_id": user.tenant_id,
-                "auth_provider": user.auth_provider
-            })
-            return user_data
+        # Check if session exists in database/Redis
+        user = await auth_service.verify_token(token, suppress_errors=True)
+
+        if not user:
+            # Session doesn't exist or expired - reject immediately
+            logger.debug("Session not found or expired in local database")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired or invalid",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Session exists - now validate JWT signature via auth-service
+        logger.debug(f"Session found for user: {user.email}, validating JWT signature...")
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.debug(f"Local authentication failed: {e}")
+        logger.warning(f"Session check error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    # Fallback to centralized authentication service
+    # Step 2: Validate JWT signature via centralized auth-service
     try:
         import httpx
         from app.core.config import get_settings
@@ -131,26 +163,36 @@ async def require_authentication(
         client = get_async_client()
         response = await client.post(
             f"{auth_service_url}/api/v1/token/validate",
-            headers={"Authorization": f"Bearer {credentials.credentials}"}
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0
         )
 
         if response.status_code == 200:
-                token_data = response.json()
-                if token_data.get("valid"):
-                    user_data_dict = token_data.get("user")
+            token_data = response.json()
+            if token_data.get("valid"):
+                user_data_dict = token_data.get("user")
 
-                    # Create UserData object
-                    user_data = UserData(user_data_dict)
-                    logger.debug("User authenticated successfully (centralized)")
-                    return user_data
+                # Create UserData object
+                user_data = UserData(user_data_dict)
+                logger.debug(f"User authenticated successfully: {user_data.email}")
+                return user_data
+
+        # JWT signature invalid
+        logger.warning("JWT signature validation failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token signature",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.warning(f"Centralized authentication error: {e}")
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+        logger.error(f"Auth service validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
 
 
 async def require_web_authentication(

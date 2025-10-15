@@ -48,7 +48,7 @@ settings = get_settings()
 color_resolution_service = ColorResolutionService()
 
 
-# Worker Management Models
+# Worker Management Models (Tier-based Architecture)
 class WorkerStatusResponse(BaseModel):
     """Response model for worker status."""
     running: bool
@@ -62,17 +62,23 @@ class WorkerActionRequest(BaseModel):
     action: str  # 'start', 'stop', 'restart'
 
 
-class WorkerScaleRequest(BaseModel):
-    """Request model for worker scale configuration."""
-    transform_workers: int  # 1-10
-    vectorization_workers: int  # 1-10
+class TenantTierRequest(BaseModel):
+    """Request model for changing tenant tier."""
+    tier: str  # 'free', 'basic', 'premium', 'enterprise'
 
 
-class WorkerConfigResponse(BaseModel):
-    """Response model for worker configuration."""
+class TenantTierResponse(BaseModel):
+    """Response model for tenant tier configuration."""
     tenant_id: int
-    transform_workers: int
-    vectorization_workers: int
+    tier: str
+    worker_allocation: Dict[str, int]  # extraction, transform, vectorization counts
+
+
+class WorkerPoolConfigResponse(BaseModel):
+    """Response model for worker pool configuration."""
+    tier_configs: Dict[str, Dict[str, int]]  # tier -> {extraction, transform, vectorization}
+    current_tenant_tier: str
+    current_tenant_allocation: Dict[str, int]
 
 
 class WorkerLogsResponse(BaseModel):
@@ -711,13 +717,15 @@ async def get_system_stats(
                     else:
                         # Standard client-specific tables
                         if hasattr(model, 'tenant_id'):
-                            if table_name in ['projects_issuetypes', 'projects_statuses']:
-                                count = session.query(model).filter(model.tenant_id == tenant_id).count() or 0
-                            else:
-                                count = session.query(func.count(model.id)).filter(model.tenant_id == tenant_id).scalar() or 0
+                            # Regular tables with tenant_id and id column
+                            count = session.query(func.count(model.id)).filter(model.tenant_id == tenant_id).scalar() or 0
                         else:
-                            # Fallback for tables without tenant_id
-                            count = session.query(func.count(model.id)).scalar() or 0
+                            # Junction tables without tenant_id (composite primary keys, no 'id' column)
+                            if table_name in ['projects_wits', 'projects_statuses']:
+                                count = session.query(model).count() or 0
+                            else:
+                                # Fallback for other tables without tenant_id
+                                count = session.query(func.count(model.id)).scalar() or 0
 
                     table_counts[table_name] = count
                     total_records += count
@@ -1905,52 +1913,74 @@ async def debug_config():
 async def get_worker_status(
     current_user: User = Depends(require_authentication)
 ):
-    """Get current status of ETL workers for the current user's tenant."""
+    """Get current status of ETL workers for current tenant's tier only."""
     try:
         from app.workers.worker_manager import get_worker_manager
         from app.core.database import get_database
+        from app.etl.queue.queue_manager import QueueManager
         from sqlalchemy import text
 
-        # Get worker status
-        manager = get_worker_manager()
-
-        # Get tenant-specific worker status only
-        tenant_worker_status = manager.get_tenant_worker_status(current_user.tenant_id)
-
-        # Create a filtered worker status that only shows current tenant
-        worker_status = {
-            'running': manager.running,
-            'worker_count': tenant_worker_status.get('worker_count', 0),
-            'tenant_count': 1 if tenant_worker_status.get('has_workers', False) else 0,
-            'workers': {},
-            'tenants': {}
-        }
-
-        # Include current tenant's workers in the main workers field for frontend compatibility
-        if tenant_worker_status.get('has_workers', False):
-            # Put workers in the main workers field (frontend expects this)
-            worker_status['workers'] = tenant_worker_status['workers']
-
-            # Also include in tenants structure for backward compatibility
-            worker_status['tenants'][str(current_user.tenant_id)] = {
-                'worker_count': tenant_worker_status['worker_count'],
-                'workers': tenant_worker_status['workers']
-            }
-
-        # Get queue statistics (basic info)
-        queue_stats = {
-            'transform_queue': {
-                'status': 'active',
-                'note': 'Queue statistics require RabbitMQ management API'
-            }
-        }
-
-        # Get raw data statistics
+        # Get current tenant's tier
         database = get_database()
+        current_tenant_tier = 'free'  # default
+
+        try:
+            with database.get_read_session_context() as session:
+                tenant = session.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+                if tenant:
+                    current_tenant_tier = tenant.tier
+        except Exception as e:
+            logger.warning(f"Could not get tenant tier: {e}")
+
+        # Get worker status from shared pool manager (filter to current tenant's tier only)
+        manager = get_worker_manager()
+        all_worker_status = manager.get_worker_status()
+
+        # Filter workers to show only current tenant's tier
+        filtered_workers = {}
+        for worker_key, worker_info in all_worker_status.get('workers', {}).items():
+            if worker_info.get('tier') == current_tenant_tier:
+                filtered_workers[worker_key] = worker_info
+
+        # Get tier-based queue statistics from RabbitMQ (only for current tenant's tier)
+        queue_stats = {
+            'architecture': 'tier-based',
+            'current_tenant_tier': current_tenant_tier,
+            'tier_queues': {}
+        }
+
+        try:
+            queue_manager = QueueManager()
+            queue_types = ['extraction', 'transform', 'vectorization']
+
+            # Only get queue stats for current tenant's tier
+            queue_stats['tier_queues'][current_tenant_tier] = {}
+            for queue_type in queue_types:
+                queue_name = queue_manager.get_tier_queue_name(current_tenant_tier, queue_type)
+                try:
+                    # Get message count from RabbitMQ
+                    with queue_manager.get_channel() as channel:
+                        method = channel.queue_declare(queue=queue_name, passive=True)
+                        message_count = method.method.message_count
+                        queue_stats['tier_queues'][current_tenant_tier][queue_type] = {
+                            'queue_name': queue_name,
+                            'message_count': message_count
+                        }
+                except Exception as e:
+                    queue_stats['tier_queues'][current_tenant_tier][queue_type] = {
+                        'queue_name': queue_name,
+                        'message_count': 0,
+                        'error': str(e)
+                    }
+        except Exception as e:
+            logger.error(f"Error getting queue statistics: {e}")
+            queue_stats['error'] = str(e)
+
+        # Get raw data statistics (for current tenant only)
         raw_data_stats = {}
 
         try:
-            with database.get_session_context() as session:
+            with database.get_read_session_context() as session:
                 query = text("""
                     SELECT
                         status,
@@ -1977,8 +2007,8 @@ async def get_worker_status(
             raw_data_stats = {'error': str(e)}
 
         return WorkerStatusResponse(
-            running=worker_status.get('running', False),
-            workers=worker_status.get('workers', {}),
+            running=all_worker_status.get('running', False),
+            workers=filtered_workers,  # Only current tenant's tier workers
             queue_stats=queue_stats,
             raw_data_stats=raw_data_stats
         )
@@ -1996,38 +2026,34 @@ async def worker_action(
     request: WorkerActionRequest,
     current_user: User = Depends(require_authentication)
 ):
-    """Perform action on ETL workers for current user's tenant (start/stop/restart)."""
+    """Perform action on ALL worker pools (shared architecture - affects all tenants)."""
     try:
         from app.workers.worker_manager import get_worker_manager
 
         manager = get_worker_manager()
 
-        # Only control workers for the current user's tenant
-        tenant_id = current_user.tenant_id
-
         if request.action == "start":
-            success = manager.start_tenant_workers(tenant_id)
-            message = f"Workers started for tenant {tenant_id}" if success else f"Failed to start workers for tenant {tenant_id}"
+            success = manager.start_all_workers()
+            message = "All worker pools started" if success else "Failed to start worker pools"
         elif request.action == "stop":
-            success = manager.stop_tenant_workers(tenant_id)
-            message = f"Workers stopped for tenant {tenant_id}" if success else f"Failed to stop workers for tenant {tenant_id}"
+            success = manager.stop_all_workers()
+            message = "All worker pools stopped" if success else "Failed to stop worker pools"
         elif request.action == "restart":
-            manager.stop_tenant_workers(tenant_id)
-            success = manager.start_tenant_workers(tenant_id)
-            message = f"Workers restarted for tenant {tenant_id}" if success else f"Failed to restart workers for tenant {tenant_id}"
+            success = manager.restart_all_workers()
+            message = "All worker pools restarted" if success else "Failed to restart worker pools"
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
             )
 
-        logger.info(f"Tenant {tenant_id} worker action '{request.action}' performed by user {current_user.email}")
+        logger.info(f"Worker pool action '{request.action}' performed by user {current_user.email}")
 
         return {
             "success": success,
             "message": message,
             "action": request.action,
-            "tenant_id": tenant_id
+            "note": "Shared worker pools affect all tenants"
         }
 
     except Exception as e:
@@ -2035,198 +2061,99 @@ async def worker_action(
         raise HTTPException(status_code=500, detail=f"Failed to control workers: {str(e)}")
 
 
-@router.get("/workers/config", response_model=WorkerConfigResponse)
-async def get_worker_config(
+@router.get("/workers/config", response_model=WorkerPoolConfigResponse)
+async def get_worker_pool_config(
     current_user: User = Depends(require_authentication)
 ):
-    """Get worker configuration for current user's tenant."""
+    """Get worker pool configuration (tier-based shared pools)."""
     try:
         from app.core.database import get_database
-        from app.models.unified_models import WorkerConfig
+        from app.workers.worker_manager import get_worker_manager
         from sqlalchemy import text
 
         tenant_id = current_user.tenant_id
         database = get_database()
+        manager = get_worker_manager()
 
-        with database.get_session() as session:
-            config = session.query(WorkerConfig).filter(
-                WorkerConfig.tenant_id == tenant_id,
-                WorkerConfig.active == True
-            ).first()
+        # Get current tenant's tier
+        with database.get_read_session_context() as session:
+            query = text("SELECT tier FROM tenants WHERE id = :tenant_id")
+            result = session.execute(query, {'tenant_id': tenant_id})
+            row = result.fetchone()
+            current_tier = row[0] if row else 'free'
 
-            if not config:
-                # Create default config
-                insert_query = text("""
-                    INSERT INTO worker_configs (tenant_id, transform_workers, vectorization_workers)
-                    VALUES (:tenant_id, 1, 1)
-                    ON CONFLICT (tenant_id) DO NOTHING
-                    RETURNING id
-                """)
-                session.execute(insert_query, {'tenant_id': tenant_id})
-                session.commit()
+        # Get tier configurations
+        tier_configs = manager.get_tier_config()
+        current_allocation = tier_configs.get(current_tier, tier_configs['free'])
 
-                # Fetch the newly created config
-                config = session.query(WorkerConfig).filter(
-                    WorkerConfig.tenant_id == tenant_id
-                ).first()
-
-            return WorkerConfigResponse(
-                tenant_id=config.tenant_id,
-                transform_workers=config.transform_workers,
-                vectorization_workers=config.vectorization_workers
-            )
+        return WorkerPoolConfigResponse(
+            tier_configs=tier_configs,
+            current_tenant_tier=current_tier,
+            current_tenant_allocation=current_allocation
+        )
 
     except Exception as e:
-        logger.error(f"Error getting worker config: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get worker config: {str(e)}")
+        logger.error(f"Error getting worker pool config: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get worker pool config: {str(e)}")
 
 
-@router.post("/workers/config/scale")
-async def set_worker_scale(
-    request: WorkerScaleRequest,
+@router.post("/workers/config/tier", response_model=TenantTierResponse)
+async def set_tenant_tier(
+    request: TenantTierRequest,
     current_user: User = Depends(require_authentication)
 ):
-    """Set worker counts for current user's tenant (1-10 workers per type)."""
+    """Set tenant tier (free, basic, premium, enterprise) - requires worker pool restart."""
     try:
         from app.core.database import get_database
+        from app.workers.worker_manager import get_worker_manager
         from sqlalchemy import text
 
         tenant_id = current_user.tenant_id
-        transform_workers = request.transform_workers
-        vectorization_workers = request.vectorization_workers
+        new_tier = request.tier.lower()
 
-        # Validate worker counts (1-10)
-        if not (1 <= transform_workers <= 10):
+        # Validate tier
+        valid_tiers = ['free', 'basic', 'premium', 'enterprise']
+        if new_tier not in valid_tiers:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid transform_workers: {transform_workers}. Must be between 1 and 10"
-            )
-
-        if not (1 <= vectorization_workers <= 10):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid vectorization_workers: {vectorization_workers}. Must be between 1 and 10"
+                detail=f"Invalid tier: {new_tier}. Must be one of: {', '.join(valid_tiers)}"
             )
 
         database = get_database()
+        manager = get_worker_manager()
 
-        with database.get_session() as session:
-            # Update or insert worker config
+        # Update tenant tier
+        with database.get_write_session_context() as session:
             update_query = text("""
-                INSERT INTO worker_configs (tenant_id, transform_workers, vectorization_workers, last_updated_at)
-                VALUES (:tenant_id, :transform_workers, :vectorization_workers, NOW())
-                ON CONFLICT (tenant_id)
-                DO UPDATE SET
-                    transform_workers = :transform_workers,
-                    vectorization_workers = :vectorization_workers,
-                    last_updated_at = NOW()
+                UPDATE tenants
+                SET tier = :tier, last_updated_at = NOW()
+                WHERE id = :tenant_id
             """)
-
-            session.execute(update_query, {
-                'tenant_id': tenant_id,
-                'transform_workers': transform_workers,
-                'vectorization_workers': vectorization_workers
-            })
+            session.execute(update_query, {'tenant_id': tenant_id, 'tier': new_tier})
             session.commit()
 
-        logger.info(f"Worker config set to {transform_workers} transform + {vectorization_workers} vectorization for tenant {tenant_id} by user {current_user.email}")
+        # Get worker allocation for new tier
+        tier_configs = manager.get_tier_config()
+        worker_allocation = tier_configs.get(new_tier, tier_configs['free'])
 
-        return {
-            "success": True,
-            "message": f"Worker configuration updated. Restart workers to apply changes.",
-            "tenant_id": tenant_id,
-            "transform_workers": transform_workers,
-            "vectorization_workers": vectorization_workers,
-            "requires_restart": True
-        }
+        logger.info(f"Tenant {tenant_id} tier changed to '{new_tier}' by user {current_user.email}")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error setting worker scale: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to set worker scale: {str(e)}")
-
-
-# Tenant-specific worker management endpoints
-class TenantWorkerControlRequest(BaseModel):
-    action: str  # 'start', 'stop', 'restart'
-    tenant_id: int
-
-
-@router.post("/workers/tenant/control")
-async def control_tenant_workers(
-    request: TenantWorkerControlRequest,
-    current_user: User = Depends(require_permission("admin_panel", "write"))
-):
-    """Control worker operations for a specific tenant"""
-    try:
-        from app.workers.worker_manager import get_worker_manager
-        manager = get_worker_manager()
-
-        # Verify user has access to this tenant (users can only access their own tenant)
-        if current_user.tenant_id != request.tenant_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied to this tenant's workers"
-            )
-
-        if request.action == "start":
-            success = manager.start_tenant_workers(request.tenant_id)
-            message = f"Workers started for tenant {request.tenant_id}" if success else f"Failed to start workers for tenant {request.tenant_id}"
-        elif request.action == "stop":
-            success = manager.stop_tenant_workers(request.tenant_id)
-            message = f"Workers stopped for tenant {request.tenant_id}" if success else f"Failed to stop workers for tenant {request.tenant_id}"
-        elif request.action == "restart":
-            manager.stop_tenant_workers(request.tenant_id)
-            success = manager.start_tenant_workers(request.tenant_id)
-            message = f"Workers restarted for tenant {request.tenant_id}" if success else f"Failed to restart workers for tenant {request.tenant_id}"
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
-            )
-
-        logger.info(f"Tenant {request.tenant_id} worker action '{request.action}' performed by user {current_user.email}")
-
-        return {
-            "success": success,
-            "message": message,
-            "action": request.action,
-            "tenant_id": request.tenant_id
-        }
+        return TenantTierResponse(
+            tenant_id=tenant_id,
+            tier=new_tier,
+            worker_allocation=worker_allocation
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error controlling tenant workers: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to control tenant workers: {str(e)}")
+        logger.error(f"Error setting tenant tier: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set tenant tier: {str(e)}")
 
 
-@router.get("/workers/tenant/{tenant_id}/status")
-async def get_tenant_worker_status(
-    tenant_id: int,
-    current_user: User = Depends(require_permission("admin_panel", "read"))
-):
-    """Get worker status for a specific tenant"""
-    try:
-        from app.workers.worker_manager import get_worker_manager
-        manager = get_worker_manager()
-
-        # Verify user has access to this tenant (users can only access their own tenant)
-        if current_user.tenant_id != tenant_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied to this tenant's worker status"
-            )
-
-        status = manager.get_tenant_worker_status(tenant_id)
-        return status
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting tenant worker status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get tenant worker status: {str(e)}")
+# Note: Tenant-specific worker control removed - using shared worker pools
+# All tenants in the same tier share worker pools
+# To change tenant's worker allocation, change their tier using /workers/config/tier
 
 
 @router.get("/debug/user-info")
@@ -2238,6 +2165,7 @@ async def get_debug_user_info(
         from app.workers.worker_manager import get_worker_manager
         from app.core.database import get_database
         from app.models.unified_models import Tenant
+        from sqlalchemy import text
 
         # Get user info
         user_info = {
@@ -2248,32 +2176,33 @@ async def get_debug_user_info(
             "is_admin": current_user.is_admin
         }
 
-        # Get tenant info
+        # Get tenant info including tier
         database = get_database()
-        with database.get_session() as session:
+        with database.get_read_session_context() as session:
             tenant = session.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
             tenant_info = {
                 "id": tenant.id if tenant else None,
                 "name": tenant.name if tenant else None,
+                "tier": tenant.tier if tenant else None,
                 "active": tenant.active if tenant else None
             } if tenant else {"error": "Tenant not found"}
 
-        # Get worker status for this tenant
+        # Get worker pool status
         manager = get_worker_manager()
-        worker_status = manager.get_tenant_worker_status(current_user.tenant_id)
+        worker_status = manager.get_worker_status()
 
-        # Get all active tenants
-        all_tenant_ids = manager._get_active_tenant_ids()
+        # Get tenants by tier
+        tenants_by_tier = manager._get_tenants_by_tier()
 
         return {
             "user": user_info,
             "tenant": tenant_info,
             "worker_status": worker_status,
-            "all_active_tenants": all_tenant_ids,
+            "tenants_by_tier": {tier: len(ids) for tier, ids in tenants_by_tier.items()},
             "debug_info": {
                 "workers_running": manager.running,
                 "total_workers": len(manager.worker_threads),
-                "tenant_workers": list(manager.tenant_workers.keys())
+                "tier_pools": list(manager.tier_workers.keys())
             }
         }
 

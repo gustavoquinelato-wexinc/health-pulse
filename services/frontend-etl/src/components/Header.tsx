@@ -148,7 +148,7 @@ export default function Header() {
 
   return (
     <header
-      className="px-6 flex items-center justify-between sticky top-0 z-50"
+      className="pl-6 pr-4 flex items-center justify-between sticky top-0 z-50"
       style={{
         backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
         borderBottom: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',

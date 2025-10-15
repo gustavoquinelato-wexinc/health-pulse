@@ -1,13 +1,19 @@
 """
-Vectorization Worker for ETL Pipeline
+Vectorization Worker for ETL Pipeline (TIER-BASED QUEUE ARCHITECTURE)
 
-Consumes messages from tenant-specific vectorization queues, fetches entities from database,
+Consumes messages from tier-based vectorization queues, fetches entities from database,
 generates embeddings using HybridProviderManager, and stores vectors in Qdrant.
 
 Replicates the vectorization logic from the old ETL service but uses RabbitMQ messages
 instead of a database queue table.
+
+Tier-Based Queue Architecture:
+- Workers consume from tier-based queues (vectorization_queue_free, vectorization_queue_premium, etc.)
+- Each message contains tenant_id for proper routing
+- Multiple workers per tier share the same queue
 """
 
+import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -20,6 +26,8 @@ from app.models.unified_models import (
     WorkItemPrLink, Integration, QdrantVector,
     WitHierarchy, WitMapping, StatusMapping, Workflow
 )
+from app.etl.queue.queue_manager import QueueManager
+from app.core.database import get_database
 
 logger = get_logger(__name__)
 
@@ -35,7 +43,7 @@ SOURCE_TYPE_MAPPING = {
     'wits': 'JIRA',
     'wits_hierarchies': 'JIRA',
     'wits_mappings': 'JIRA',
-    'wits_prs_links': 'JIRA',  # Jira agent owns the links
+    'work_items_prs_links': 'JIRA',  # Jira agent owns the links (fixed: was wits_prs_links)
 
     # GitHub Agent's scope (all GitHub-related data + DORA metrics)
     'prs': 'GITHUB',
@@ -84,23 +92,25 @@ class VectorizationWorker(BaseWorker):
         'workflows': Workflow
     }
     
-    def __init__(self, tenant_id: int):
+    def __init__(self, tenant_id: Optional[int] = None, worker_number: int = 0, tenant_ids: Optional[List[int]] = None, queue_name: Optional[str] = None):
         """
-        Initialize vectorization worker for a specific tenant.
-        
+        Initialize vectorization worker for tier-based queue.
+
         Args:
-            tenant_id: Tenant ID to process vectorization for
+            tenant_id: Deprecated (kept for backward compatibility)
+            worker_number: Worker instance number (for logging)
+            tenant_ids: Deprecated (kept for backward compatibility)
+            queue_name: Name of the tier-based vectorization queue (e.g., 'vectorization_queue_premium')
         """
-        queue_name = f"vectorization_queue_tenant_{tenant_id}"
         super().__init__(queue_name)
-        self.tenant_id = tenant_id
+        self.worker_number = worker_number
+        self.tenant_id = None  # Not used in tier-based architecture
+        logger.info(f"Initialized VectorizationWorker #{worker_number} for tier queue: {queue_name}")
 
         # Note: We don't cache HybridProviderManager or QdrantClient
         # Each message processing creates fresh instances with their own sessions
         # This ensures proper session management and avoids stale session issues
 
-        logger.info(f"VectorizationWorker initialized for tenant {tenant_id}")
-    
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a single vectorization message.

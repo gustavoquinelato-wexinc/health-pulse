@@ -35,10 +35,6 @@ class Settings(BaseSettings):
     # Service URLs (no hardcoded URLs)
     BACKEND_SERVICE_URL: str = "http://localhost:3001"
 
-    # System Authentication (for automated jobs)
-    SYSTEM_USER_EMAIL: str = "system@etl.pulse.local"
-    SYSTEM_USER_PASSWORD: str = "etl_system_secure_2024"
-
     # PostgreSQL Configuration
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -51,10 +47,11 @@ class Settings(BaseSettings):
     POSTGRES_REPLICA_PORT: int = 5432
 
     # Primary Database Pool Settings (Write-heavy operations)
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
-    DB_POOL_TIMEOUT: int = 30
-    DB_POOL_RECYCLE: int = 3600
+    # Increased to prevent UI blocking during ETL jobs
+    DB_POOL_SIZE: int = 20  # Up from 5 - reserve connections for UI while ETL runs
+    DB_MAX_OVERFLOW: int = 30  # Up from 10 - allow burst capacity
+    DB_POOL_TIMEOUT: int = 10  # Down from 30 - fail fast if no connections available
+    DB_POOL_RECYCLE: int = 1800  # Down from 3600 - recycle connections more frequently
 
     # Replica Database Pool Settings (Read-heavy operations)
     DB_REPLICA_POOL_SIZE: int = 5

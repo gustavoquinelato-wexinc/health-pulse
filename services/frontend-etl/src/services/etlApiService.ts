@@ -182,6 +182,9 @@ export const qdrantApi = {
   getHealth: async () => {
     return await etlApi.get('/qdrant/health')
   },
+  createAllCollections: async () => {
+    return await etlApi.post('/qdrant/collections/create-all')
+  },
 }
 
 // Projects API
@@ -229,6 +232,11 @@ export const customFieldsApi = {
   // Sync custom fields from Jira using createmeta API
   syncCustomFields: async (integrationId: number) => {
     return await etlApi.post(`/custom-fields/sync/${integrationId}`)
+  },
+
+  // Check sync status (whether transform worker has completed processing)
+  getSyncStatus: async (integrationId: number) => {
+    return await etlApi.get(`/custom-fields/sync-status/${integrationId}`)
   },
 }
 

@@ -64,6 +64,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Configure axios defaults - Use backend service URL
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+axios.defaults.withCredentials = true  // Enable cookies for cross-service authentication
 
 interface AuthProviderProps {
   children: ReactNode
@@ -72,6 +73,7 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoggingOut, setIsLoggingOut] = useState(false) // Prevent context access during logout
 
   // Load complete color data from API and cache it
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -404,31 +406,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     if (!user) return
 
-    const interval = setInterval(async () => {
-      try {
-        const token = localStorage.getItem('pulse_token')
-        if (!token) {
-          // Token was removed, logout
-          console.warn('⚠️ Token removed from localStorage, logging out')
-          setUser(null)
-          window.location.replace('/login')
-          return
-        }
-
-        // Check if token is close to expiry and refresh proactively
+    const interval = setInterval(() => {
+      // Run validation asynchronously without blocking the UI
+      (async () => {
         try {
-          const payload = JSON.parse(atob(token.split('.')[1]))
-          const expiryTime = payload.exp * 1000 // Convert to milliseconds
-          const currentTime = Date.now()
-          const timeUntilExpiry = expiryTime - currentTime
+          const token = localStorage.getItem('pulse_token')
+          if (!token) {
+            // Token was removed, logout
+            console.warn('⚠️ Token removed from localStorage, logging out')
+            setIsLoggingOut(true)
+            setUser(null)
+            window.location.replace('/login')
+            return
+          }
 
-          // Refresh token if it expires in less than 5 minutes (300 seconds)
-          // This gives us plenty of buffer time before actual expiry
-          if (timeUntilExpiry < 300000) {
-            // Silently refresh - only log errors
-            const refreshed = await refreshToken()
-            if (!refreshed) {
-              console.warn('❌ Token refresh failed, logging out')
+          // Check if token is close to expiry and refresh proactively
+          // Token expires in 5 minutes, so refresh when 2 minutes remaining
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]))
+            const expiryTime = payload.exp * 1000 // Convert to milliseconds
+            const currentTime = Date.now()
+            const timeUntilExpiry = expiryTime - currentTime
+            const minutesRemaining = Math.floor(timeUntilExpiry / 60000)
+            const secondsRemaining = Math.floor(timeUntilExpiry / 1000)
+
+            // If token is already expired, logout immediately
+            if (timeUntilExpiry <= 0) {
+              console.warn(`❌ Token already expired (${secondsRemaining}s ago), logging out`)
+              setIsLoggingOut(true)
               setUser(null)
               localStorage.clear()
               sessionStorage.clear()
@@ -437,49 +442,79 @@ export function AuthProvider({ children }: AuthProviderProps) {
               window.location.replace('/login')
               return
             }
-            // Token refreshed successfully - no need to log
-          }
-        } catch (tokenParseError) {
-          console.warn('Failed to parse token for expiry check:', tokenParseError)
-          // Don't logout on parse error - token might still be valid
-        }
 
-        // Periodic validation check (less aggressive - only logout on 401)
-        try {
-          const response = await axios.post('/api/v1/auth/validate', {}, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` }
-          })
+            // Refresh token if it expires in less than 3 minutes (180 seconds)
+            // This gives us 3 minutes buffer before actual expiry (token expires in 5 min)
+            if (timeUntilExpiry < 180000) {
+              console.log(`🔄 Token expiring in ${minutesRemaining}m ${secondsRemaining % 60}s, refreshing...`)
+              const refreshed = await refreshToken()
+              if (!refreshed) {
+                console.warn('❌ Token refresh failed, logging out')
+                setIsLoggingOut(true)
+                setUser(null)
+                localStorage.clear()
+                sessionStorage.clear()
+                delete axios.defaults.headers.common['Authorization']
+                etlWebSocketService.disconnectAll()
+                window.location.replace('/login')
+                return
+              }
+              console.log('✅ Token refreshed successfully')
+            }
+          } catch (tokenParseError) {
+            console.warn('Failed to parse token for expiry check:', tokenParseError)
+            // Don't logout on parse error - token might still be valid
+          }
 
-          if (!response.data.valid) {
-            // Session invalid, logout
-            console.warn('⚠️ Session validation failed, logging out')
-            setUser(null)
-            localStorage.clear()
-            sessionStorage.clear()
-            delete axios.defaults.headers.common['Authorization']
-            etlWebSocketService.disconnectAll()
-            window.location.replace('/login')
+          // Periodic validation check (less aggressive - only logout on 401)
+          // Use a timeout to prevent blocking the UI thread
+          try {
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+
+            const response = await axios.post('/api/v1/auth/validate', {}, {
+              headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` },
+              signal: controller.signal
+            })
+
+            clearTimeout(timeoutId)
+
+            if (!response.data.valid) {
+              // Session invalid, logout
+              console.warn('⚠️ Session validation failed, logging out')
+              setIsLoggingOut(true)
+              setUser(null)
+              localStorage.clear()
+              sessionStorage.clear()
+              delete axios.defaults.headers.common['Authorization']
+              etlWebSocketService.disconnectAll()
+              window.location.replace('/login')
+            }
+          } catch (validationError: any) {
+            // Only logout on 401 Unauthorized - ignore network errors and timeouts
+            if (validationError?.response?.status === 401) {
+              console.warn('⚠️ Session unauthorized (401), logging out')
+              setIsLoggingOut(true)
+              setUser(null)
+              localStorage.clear()
+              sessionStorage.clear()
+              delete axios.defaults.headers.common['Authorization']
+              etlWebSocketService.disconnectAll()
+              window.location.replace('/login')
+            } else if (validationError?.name === 'AbortError' || validationError?.name === 'CanceledError') {
+              // Request was aborted due to timeout - don't logout, just log
+              console.warn('⚠️ Session validation timed out, keeping session')
+            } else {
+              // Network error or other issue - don't logout, just log warning
+              console.warn('⚠️ Session validation error (non-401), keeping session:', validationError?.message)
+            }
           }
-        } catch (validationError: any) {
-          // Only logout on 401 Unauthorized - ignore network errors
-          if (validationError?.response?.status === 401) {
-            console.warn('⚠️ Session unauthorized (401), logging out')
-            setUser(null)
-            localStorage.clear()
-            sessionStorage.clear()
-            delete axios.defaults.headers.common['Authorization']
-            etlWebSocketService.disconnectAll()
-            window.location.replace('/login')
-          } else {
-            // Network error or other issue - don't logout, just log warning
-            console.warn('⚠️ Session validation error (non-401), keeping session:', validationError?.message)
-          }
+        } catch (error) {
+          // Unexpected error in interval - log but don't logout
+          console.error('❌ Error in session validation interval:', error)
         }
-      } catch (error) {
-        // Unexpected error in interval - log but don't logout
-        console.error('❌ Error in session validation interval:', error)
-      }
-    }, 60000) // Check every 60 seconds (1 minute)
+      })()
+    }, 30000) // Check every 30 seconds (token expires in 5 min, refresh at 2 min remaining)
 
     return () => clearInterval(interval)
   }, [user])
@@ -488,8 +523,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setIsLoading(true)
 
-      // Check if there's an existing session in Backend Service (via cookies)
-      // Don't send Authorization header since we don't have a token
+      // OPTIMIZATION: Check cookie FIRST before making API call
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('pulse_token='))
+        ?.split('=')[1]
+
+      if (cookieToken) {
+        // Found token in cookie! Store it and validate
+        localStorage.setItem('pulse_token', cookieToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+
+        // Validate the token (this will be fast since we already have it)
+        await validateToken()
+        return
+      }
+
+      // No cookie found, check if there's an existing session in Backend Service
       const response = await axios.post('/api/v1/auth/validate', {}, {
         headers: {
           // Remove Authorization header for this request
@@ -500,19 +550,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       })
 
       if (response.data.valid && response.data.user) {
-        // Found existing session! The token should already be in cookies
+        // Found existing session via backend validation
         const { user } = response.data
-
-        // Try to get token from cookies (set by ETL service or other frontends)
-        const cookieToken = document.cookie
-          .split('; ')
-          .find(row => row.startsWith('pulse_token='))
-          ?.split('=')[1]
-
-        if (cookieToken) {
-          localStorage.setItem('pulse_token', cookieToken)
-          axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
-        }
 
         // Load theme from database during cross-service session detection
         let userThemeMode = localStorage.getItem('pulse_theme') || 'light'
@@ -735,13 +774,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Set up cross-service cookie for other frontends
         setupCrossServiceCookie(token)
 
-        // Initialize WebSocket service with authenticated token
+        // Initialize WebSocket services with authenticated token
         // This connects to all active ETL jobs for real-time progress updates
         try {
           await etlWebSocketService.initializeService(token)
           // WebSocket service initialized - only log errors
         } catch (error) {
-          console.error('❌ Failed to initialize WebSocket service:', error)
+          console.error('❌ Failed to initialize ETL WebSocket service:', error)
+        }
+
+        // Connect to session WebSocket for real-time sync
+        try {
+          sessionWebSocketService.connect(token, {
+            onLogout: () => {
+              console.log('[SessionWS] Logout event received - logging out')
+              logout()
+            },
+            onThemeModeChange: (mode: string) => {
+              console.log('[SessionWS] Theme mode changed to:', mode)
+              // Update theme immediately
+              localStorage.setItem('pulse_theme', mode)
+              document.documentElement.setAttribute('data-theme', mode)
+              ;(window as any).__INITIAL_THEME__ = mode
+            },
+            onColorSchemaChange: (colors: any) => {
+              console.log('[SessionWS] Color schema changed')
+              // Refresh color schema
+              refreshUserColors()
+            }
+          })
+        } catch (error) {
+          console.error('❌ Failed to connect session WebSocket:', error)
         }
 
         return true
@@ -843,6 +906,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   const logout = async () => {
+    setIsLoggingOut(true)
     setUser(null)
 
     // Disconnect all WebSocket connections
@@ -899,10 +963,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         localStorage.setItem('pulse_token', newToken)
         axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
 
-        // Update WebSocket service with new token (keeps existing connections alive)
+        // Update WebSocket services with new token (keeps existing connections alive)
         // Note: Existing WebSocket connections remain active - only new connections use the new token
         try {
           await etlWebSocketService.updateToken(newToken)
+          sessionWebSocketService.updateToken(newToken)
           // Silently updated - no need to log on every refresh
         } catch (wsError) {
           console.error('❌ Failed to update WebSocket token:', wsError)
@@ -929,9 +994,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user,
     login,
     logout,
-    isLoading,
-    isAuthenticated: !!user,
-    isAdmin: !!user && user.is_admin,
+    isLoading: isLoading || isLoggingOut, // Show loading during logout to prevent context access errors
+    isAuthenticated: !!user && !isLoggingOut,
+    isAdmin: !!user && user.is_admin && !isLoggingOut,
     updateAccessibilityPreference,
     refreshUserColors,
     refreshToken

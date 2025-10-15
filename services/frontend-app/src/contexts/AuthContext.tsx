@@ -70,7 +70,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Configure axios defaults - Use direct backend URL since CORS is properly configured
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-// Note: withCredentials is set per-request basis to avoid CORS issues
+axios.defaults.withCredentials = true  // Enable cookies for cross-service authentication
 
 // Global axios response interceptor for handling authentication errors
 let isInterceptorSetup = false
@@ -242,16 +242,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const token = localStorage.getItem('pulse_token')
         if (token) {
           try {
-            // Check if token is close to expiry (within 1 minute)
+            // Check if token is close to expiry (within 3 minutes)
             try {
               const payload = JSON.parse(atob(token.split('.')[1]))
               const expiryTime = payload.exp * 1000 // Convert to milliseconds
               const currentTime = Date.now()
               const timeUntilExpiry = expiryTime - currentTime
+              const minutesRemaining = Math.floor(timeUntilExpiry / 60000)
+              const secondsRemaining = Math.floor(timeUntilExpiry / 1000)
 
-              // If token expires in less than 1 minute, try to refresh it
-              if (timeUntilExpiry < 60000) {
-                console.log('Token expiring soon, attempting refresh...')
+              // If token is already expired, logout immediately
+              if (timeUntilExpiry <= 0) {
+                console.warn(`❌ Token already expired (${secondsRemaining}s ago), logging out`)
+                logout()
+                return
+              }
+
+              // If token expires in less than 3 minutes, try to refresh it
+              if (timeUntilExpiry < 180000) {
+                console.log(`🔄 Token expiring in ${minutesRemaining}m ${secondsRemaining % 60}s, refreshing...`)
                 const refreshed = await refreshToken()
                 if (!refreshed) {
                   console.warn('Token refresh failed, logging out')
@@ -431,8 +440,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setIsLoading(true)
 
-      // Check if there's an existing session in Backend Service (via cookies)
-      // Don't send Authorization header since we don't have a token
+      // OPTIMIZATION: Check cookie FIRST before making API call
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('pulse_token='))
+        ?.split('=')[1]
+
+      if (cookieToken) {
+        // Found token in cookie! Store it and validate
+        localStorage.setItem('pulse_token', cookieToken)
+        axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
+
+        // Validate the token (this will be fast since we already have it)
+        await validateToken()
+        return
+      }
+
+      // No cookie found, check if there's an existing session in Backend Service
       const response = await axios.post('/api/v1/auth/validate', {}, {
         headers: {
           // Remove Authorization header for this request
@@ -443,19 +467,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       })
 
       if (response.data.valid && response.data.user) {
-        // Found existing session! The token should already be in cookies
+        // Found existing session via backend validation
         const { user } = response.data
-
-        // Try to get token from cookies (set by ETL service)
-        const cookieToken = document.cookie
-          .split('; ')
-          .find(row => row.startsWith('pulse_token='))
-          ?.split('=')[1]
-
-        if (cookieToken) {
-          localStorage.setItem('pulse_token', cookieToken)
-          axios.defaults.headers.common['Authorization'] = `Bearer ${cookieToken}`
-        }
 
         const formattedUser = {
           id: user.id.toString(),

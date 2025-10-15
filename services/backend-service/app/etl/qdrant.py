@@ -222,7 +222,7 @@ async def get_qdrant_dashboard(
                 get_entity_stats(Wit, "Work Item Types", "wits"),
                 get_entity_stats(WitHierarchy, "WIT Hierarchies", "wits_hierarchies"),
                 get_entity_stats(WitMapping, "WIT Mappings", "wits_mappings"),
-                get_entity_stats(WorkItemPrLink, "Work Item PR Links", "wits_prs_links"),
+                get_entity_stats(WorkItemPrLink, "Work Item PR Links", "work_items_prs_links"),
                 get_entity_stats(StatusMapping, "Status Mappings", "statuses_mappings"),
                 get_entity_stats(Workflow, "Workflows", "workflows"),
             ]
@@ -306,4 +306,46 @@ async def get_qdrant_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch Qdrant health: {str(e)}"
+        )
+
+
+@router.post("/qdrant/collections/create-all")
+async def create_all_collections(
+    user: User = Depends(require_authentication)
+):
+    """
+    Manually create all Qdrant collections for all active tenants.
+    This checks if collections exist and creates them if they don't.
+    """
+    try:
+        from app.ai.qdrant_setup import create_all_tenant_collections
+
+        logger.info(f"User {user.email} triggered manual collection creation for all tenants")
+
+        # Call the async function to create collections
+        result = await create_all_tenant_collections()
+
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": "Collections created successfully",
+                "collections_created": result.get("collections_created", 0),
+                "collections_already_exist": result.get("collections_already_exist", 0),
+                "collections_failed": result.get("collections_failed", 0),
+                "total_expected": result.get("total_expected", 0),
+                "tenants_processed": result.get("tenants_processed", 0)
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("error", "Failed to create collections")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating collections: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create collections: {str(e)}"
         )

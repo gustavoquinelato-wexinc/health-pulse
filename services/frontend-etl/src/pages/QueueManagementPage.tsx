@@ -42,10 +42,20 @@ interface WorkerStatus {
 
 
 
-interface WorkerConfig {
-  tenant_id: number
-  transform_workers: number
-  vectorization_workers: number
+interface WorkerPoolConfig {
+  tier_configs: {
+    [tier: string]: {
+      extraction: number
+      transform: number
+      vectorization: number
+    }
+  }
+  current_tenant_tier: string
+  current_tenant_allocation: {
+    extraction: number
+    transform: number
+    vectorization: number
+  }
 }
 
 type Tab = 'overview' | 'configuration'
@@ -56,16 +66,19 @@ export default function QueueManagementPage() {
   const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
-  const [workerConfig, setWorkerConfig] = useState<WorkerConfig | null>(null)
+  const [workerConfig, setWorkerConfig] = useState<WorkerPoolConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [scaleLoading, setScaleLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
 
-  // Local state for worker count selectors
-  const [transformWorkers, setTransformWorkers] = useState(1)
-  const [vectorizationWorkers, setVectorizationWorkers] = useState(1)
+  // Local state for tier selector
+  const [selectedTier, setSelectedTier] = useState<string>('free')
+  const [originalTier, setOriginalTier] = useState<string>('free')
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = selectedTier !== originalTier
 
   // Initialize active tab from URL or default to 'overview'
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -133,34 +146,33 @@ export default function QueueManagementPage() {
 
       // Only update local state on initial load or after successful save
       if (updateLocalState) {
-        setTransformWorkers(data.transform_workers)
-        setVectorizationWorkers(data.vectorization_workers)
+        setSelectedTier(data.current_tenant_tier)
+        setOriginalTier(data.current_tenant_tier)
       }
     } catch (err) {
       console.error('Failed to fetch worker config:', err)
     }
   }
 
-  const setWorkerScale = async (transformWorkers: number, vectorizationWorkers: number) => {
+  const setTenantTier = async (tier: string) => {
     setScaleLoading(true)
     setError(null)
 
     try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/scale`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/tier`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          transform_workers: transformWorkers,
-          vectorization_workers: vectorizationWorkers
+          tier: tier
         })
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to set worker scale: ${response.statusText}`)
+        throw new Error(`Failed to set tenant tier: ${response.statusText}`)
       }
 
       const data = await response.json()
@@ -170,22 +182,22 @@ export default function QueueManagementPage() {
 
       // Show success message
       setError(null)
-      showSuccess('Configuration Saved', 'Worker configuration saved successfully. Restart workers to apply changes.')
+      showSuccess('Tier Changed', `Tenant tier changed to ${tier}. Restart worker pools to apply changes.`)
 
       // Ask if user wants to restart workers using confirmation modal
       confirmAction(
-        'Restart Workers?',
-        'Worker configuration saved successfully! Changes will NOT take effect until workers are restarted. Would you like to restart workers now?',
+        'Restart Worker Pools?',
+        `Tenant tier changed to ${tier} successfully! Changes will NOT take effect until worker pools are restarted. Would you like to restart all worker pools now? (This affects all tenants)`,
         async () => {
           // Automatically restart workers
           await performWorkerAction('restart')
         },
-        'Restart Workers'
+        'Restart Pools'
       )
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save worker configuration'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to change tenant tier'
       setError(errorMessage)
-      showError('Save Failed', errorMessage)
+      showError('Tier Change Failed', errorMessage)
     } finally {
       setScaleLoading(false)
     }
@@ -440,62 +452,95 @@ export default function QueueManagementPage() {
                 <Separator />
 
                 <div className="space-y-3">
-                  <h4 className="font-medium text-sm">Worker Status:</h4>
+                  <h4 className="font-medium text-sm">Worker Status (Your Tier):</h4>
 
-                  {/* Transform Workers */}
-                  {workerStatus?.workers?.transform && (
-                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
-                        <Badge variant={workerStatus.workers.transform.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                          {workerStatus.workers.transform.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerStatus.workers.transform.count} Running
-                        </Badge>
-                      </div>
-                      <div className="space-y-1">
-                        {workerStatus.workers.transform.instances.map((instance) => (
-                          <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                              <span>Worker {instance.worker_number + 1}</span>
+                  {/* Dynamically render workers by type (tier-based keys like premium_extraction) */}
+                  {workerStatus?.workers && Object.keys(workerStatus.workers).length > 0 ? (
+                    <>
+                      {/* Extraction Workers */}
+                      {Object.entries(workerStatus.workers)
+                        .filter(([key]) => key.includes('extraction'))
+                        .map(([key, workerData]) => (
+                          <div key={key} className="p-3 bg-green-50 rounded-lg border border-green-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-green-900">Extraction Workers</span>
+                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
+                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
+                              </Badge>
                             </div>
-                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                            </span>
+                            <div className="space-y-1">
+                              {workerData.instances.map((instance) => (
+                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                                    <span>Worker {instance.worker_number + 1}</span>
+                                  </div>
+                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
+                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Vectorization Workers */}
-                  {workerStatus?.workers?.vectorization && (
-                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold text-purple-900">Vectorization Workers</span>
-                        <Badge variant={workerStatus.workers.vectorization.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                          {workerStatus.workers.vectorization.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerStatus.workers.vectorization.count} Running
-                        </Badge>
-                      </div>
-                      <div className="space-y-1">
-                        {workerStatus.workers.vectorization.instances.map((instance) => (
-                          <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                              <span>Worker {instance.worker_number + 1}</span>
+                      {/* Transform Workers */}
+                      {Object.entries(workerStatus.workers)
+                        .filter(([key]) => key.includes('transform'))
+                        .map(([key, workerData]) => (
+                          <div key={key} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
+                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
+                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
+                              </Badge>
                             </div>
-                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                            </span>
+                            <div className="space-y-1">
+                              {workerData.instances.map((instance) => (
+                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                                    <span>Worker {instance.worker_number + 1}</span>
+                                  </div>
+                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
+                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {/* No workers message */}
-                  {(!workerStatus?.workers?.transform && !workerStatus?.workers?.vectorization) && (
+                      {/* Vectorization Workers */}
+                      {Object.entries(workerStatus.workers)
+                        .filter(([key]) => key.includes('vectorization'))
+                        .map(([key, workerData]) => (
+                          <div key={key} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-purple-900">Vectorization Workers</span>
+                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
+                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
+                              </Badge>
+                            </div>
+                            <div className="space-y-1">
+                              {workerData.instances.map((instance) => (
+                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                                    <span>Worker {instance.worker_number + 1}</span>
+                                  </div>
+                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
+                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </>
+                  ) : (
                     <div className="text-center text-sm text-secondary p-4 bg-gray-50 rounded-lg">
-                      No workers running
+                      No workers running for your tier
                     </div>
                   )}
                 </div>
@@ -569,14 +614,14 @@ export default function QueueManagementPage() {
         {/* Configuration Header with Apply Button */}
         <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
           <div className="px-6 py-5 flex justify-between items-center bg-table-header">
-            <h2 className="text-lg font-semibold text-table-header">Worker Scale Configuration</h2>
+            <h2 className="text-lg font-semibold text-table-header">Tenant Tier Configuration</h2>
             <button
-              onClick={() => setWorkerScale(transformWorkers, vectorizationWorkers)}
-              disabled={scaleLoading}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50"
+              onClick={() => setTenantTier(selectedTier)}
+              disabled={scaleLoading || !hasUnsavedChanges}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
-              <span>{scaleLoading ? 'Saving...' : 'Save Configuration'}</span>
+              <span>{scaleLoading ? 'Saving...' : 'Save Tier'}</span>
             </button>
           </div>
         </div>
@@ -594,98 +639,91 @@ export default function QueueManagementPage() {
         >
           <CardContent className="pt-6">
             <div className="space-y-6">
-              {/* Current Configuration */}
+              {/* Current Tier Display */}
               {workerConfig && (
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="text-secondary">Transform Workers:</span>
-                      <div className="font-semibold text-lg mt-1">{workerConfig.transform_workers}</div>
+                      <span className="text-secondary">Current Tier:</span>
+                      <div className="font-semibold text-lg mt-1 capitalize">{workerConfig.current_tenant_tier}</div>
                     </div>
                     <div>
-                      <span className="text-secondary">Vectorization Workers:</span>
-                      <div className="font-semibold text-lg mt-1">{workerConfig.vectorization_workers}</div>
+                      <span className="text-secondary">Worker Allocation (Shared Pool):</span>
+                      <div className="font-semibold text-sm mt-1">
+                        {workerConfig.current_tenant_allocation.extraction} Extraction + {' '}
+                        {workerConfig.current_tenant_allocation.transform} Transform + {' '}
+                        {workerConfig.current_tenant_allocation.vectorization} Vectorization
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Worker Count Selectors */}
+              {/* Tier Selector */}
               <div className="space-y-4">
-                <h4 className="font-medium">Configure Worker Counts (1-10):</h4>
+                <h4 className="font-medium">Select Tenant Tier:</h4>
 
-                <div className="grid grid-cols-2 gap-6">
-                  {/* Transform Workers */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Transform Workers</label>
-                    <select
-                      value={transformWorkers}
-                      onChange={(e) => setTransformWorkers(Number(e.target.value))}
-                      disabled={scaleLoading}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                        <option key={num} value={num}>{num} worker{num > 1 ? 's' : ''}</option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-secondary">Process custom fields, projects, issues, PRs</p>
-                  </div>
-
-                  {/* Vectorization Workers */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Vectorization Workers</label>
-                    <select
-                      value={vectorizationWorkers}
-                      onChange={(e) => setVectorizationWorkers(Number(e.target.value))}
-                      disabled={scaleLoading}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                        <option key={num} value={num}>{num} worker{num > 1 ? 's' : ''}</option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-secondary">Generate embeddings and store in Qdrant</p>
-                  </div>
+                <div className="space-y-4">
+                  <select
+                    value={selectedTier}
+                    onChange={(e) => setSelectedTier(e.target.value)}
+                    disabled={scaleLoading}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+                  >
+                    <option value="free">Free (1 worker per pool)</option>
+                    <option value="basic">Basic (3 workers per pool)</option>
+                    <option value="premium">Premium (5 workers per pool)</option>
+                    <option value="enterprise">Enterprise (10 workers per pool)</option>
+                  </select>
+                  <p className="text-xs text-secondary">
+                    Workers are shared across all tenants in the same tier. Changing tier affects worker pool allocation.
+                  </p>
                 </div>
 
-              </div>
+                {/* Tier Comparison Table */}
+                {workerConfig && (
+                  <div className="mt-6 overflow-hidden rounded-lg border border-gray-300">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-4 py-2 text-left font-semibold">Tier</th>
+                          <th className="px-4 py-2 text-center font-semibold">Extraction</th>
+                          <th className="px-4 py-2 text-center font-semibold">Transform</th>
+                          <th className="px-4 py-2 text-center font-semibold">Vectorization</th>
+                          <th className="px-4 py-2 text-center font-semibold">Total Workers</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(workerConfig.tier_configs).map(([tier, config]) => (
+                          <tr key={tier} className={tier === selectedTier ? 'bg-blue-50' : ''}>
+                            <td className="px-4 py-2 font-medium capitalize">{tier}</td>
+                            <td className="px-4 py-2 text-center">{config.extraction}</td>
+                            <td className="px-4 py-2 text-center">{config.transform}</td>
+                            <td className="px-4 py-2 text-center">{config.vectorization}</td>
+                            <td className="px-4 py-2 text-center font-semibold">
+                              {config.extraction + config.transform + config.vectorization}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
-              {/* Performance Impact Information */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-sm">Performance Impact:</h4>
-                <div className="grid grid-cols-4 gap-3 text-xs">
-                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
-                    <div className="font-semibold mb-1">Throughput</div>
-                    <div className="text-secondary">~{(transformWorkers + vectorizationWorkers) * 50} msg/hour</div>
-                  </div>
-                  <div className="p-3 bg-purple-50 rounded border border-purple-200">
-                    <div className="font-semibold mb-1">Memory</div>
-                    <div className="text-secondary">~{(transformWorkers + vectorizationWorkers) * 50}MB</div>
-                  </div>
-                  <div className="p-3 bg-green-50 rounded border border-green-200">
-                    <div className="font-semibold mb-1">CPU Cores</div>
-                    <div className="text-secondary">{Math.ceil((transformWorkers + vectorizationWorkers) / 3)}-{Math.ceil((transformWorkers + vectorizationWorkers) / 2)}</div>
-                  </div>
-                  <div className="p-3 bg-orange-50 rounded border border-orange-200">
-                    <div className="font-semibold mb-1">DB Connections</div>
-                    <div className="text-secondary">{(transformWorkers + vectorizationWorkers) * 2}</div>
-                  </div>
-                </div>
               </div>
 
               {/* Important Notes */}
-              <Alert className="border-yellow-200 bg-yellow-50">
-                <AlertCircle className="h-4 w-4 text-yellow-600" />
-                <AlertDescription className="text-yellow-800 space-y-2">
-                  <div><strong>Important Notes:</strong></div>
+              <Alert className="border-blue-200 bg-blue-50">
+                <AlertCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800 space-y-2">
+                  <div><strong>Shared Pool Architecture:</strong></div>
                   <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li><strong>Configuration Only:</strong> Clicking "Apply" only saves the configuration to the database</li>
-                    <li><strong>Restart Required:</strong> Workers will NOT start automatically - you must click "Restart Workers" in the Overview tab</li>
-                    <li><strong>Two-Step Process:</strong> 1) Apply configuration, 2) Restart workers to activate new worker counts</li>
-                    <li><strong>Resource Usage:</strong> More workers = more memory/CPU usage</li>
-                    <li><strong>Database Connections:</strong> Each worker needs DB connection pool</li>
-                    <li><strong>Queue Depth:</strong> Monitor queue depth to determine optimal scale</li>
-                    <li><strong>Recommended for Full Load:</strong> Set to 8-10 workers before Jira/GitHub sync, then reduce to 1-2 after</li>
+                    <li><strong>Shared Workers:</strong> Workers are shared across ALL tenants in the same tier (not per-tenant)</li>
+                    <li><strong>Tier-Based Allocation:</strong> Free=1, Basic=3, Premium=5, Enterprise=10 workers per pool</li>
+                    <li><strong>Restart Required:</strong> Changing tier requires restarting ALL worker pools (affects all tenants)</li>
+                    <li><strong>Round-Robin Processing:</strong> Workers consume from all tenant queues in their tier</li>
+                    <li><strong>Scalability:</strong> Shared pools scale to 10,000+ tenants vs per-tenant limit of ~50 tenants</li>
+                    <li><strong>Resource Efficiency:</strong> 92% reduction in resource usage compared to per-tenant workers</li>
                   </ul>
                 </AlertDescription>
               </Alert>

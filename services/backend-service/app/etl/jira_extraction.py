@@ -77,10 +77,10 @@ async def execute_complete_jira_extraction(
     from app.core.utils import DateTimeHelper
     job_start_time = DateTimeHelper.now_default()
 
-    progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id, total_steps=4)
+    progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id, total_steps=3)
 
     try:
-        # Step 1: Projects & Issue Types (0% -> 25%)
+        # Step 1: Projects & Issue Types (0% -> 33%)
         logger.info("=" * 80)
         logger.info("STARTING STEP 1: Projects & Issue Types Extraction")
         logger.info("=" * 80)
@@ -94,7 +94,7 @@ async def execute_complete_jira_extraction(
 
         logger.info(f"✅ Step 1 completed: {projects_result['projects_count']} projects, {projects_result['issue_types_count']} issue types")
 
-        # Step 2: Statuses & Relationships (25% -> 50%)
+        # Step 2: Statuses & Relationships (33% -> 66%)
         logger.info("=" * 80)
         logger.info("STARTING STEP 2: Statuses & Project Relationships Extraction")
         logger.info("=" * 80)
@@ -105,7 +105,8 @@ async def execute_complete_jira_extraction(
 
         logger.info(f"✅ Step 2 completed: {statuses_result['statuses_count']} statuses, {statuses_result['project_relationships_count']} relationships")
 
-        # Step 3: Issues & Changelogs (50% -> 75%)
+        # Step 3: Issues & Changelogs (66% -> 100%)
+        # Note: Dev status extraction happens in background via extraction_queue
         logger.info("=" * 80)
         logger.info("STARTING STEP 3: Issues & Changelogs Extraction")
         logger.info("=" * 80)
@@ -129,36 +130,15 @@ async def execute_complete_jira_extraction(
             raise
 
         await progress_tracker.update_step_progress(
-            2, 1.0, f"Completed issues: {issues_result.get('issues_count', 0)} issues, {issues_result.get('changelogs_count', 0)} changelogs"
+            2, 1.0, f"Completed: {issues_result.get('issues_count', 0)} issues, {issues_result.get('changelogs_count', 0)} changelogs (dev status queued in background)"
         )
-        logger.info(f"🔍 DEBUG: Step 3 progress updated to 100% - moving to Step 4")
+        logger.info(f"🔍 DEBUG: Step 3 progress updated to 100% - job complete (dev status runs in background)")
 
-        # Step 4: Dev Status (75% -> 100%)
-        logger.info("=" * 80)
-        logger.info("STARTING STEP 4: Dev Status Extraction")
-        logger.info("=" * 80)
-
-        await progress_tracker.update_step_progress(
-            3, 0.0, "Starting dev status extraction"
-        )
-
-        try:
-            dev_status_result = await _extract_dev_status_for_complete_job(
-                jira_client, integration_id, tenant_id, progress_tracker, job_id, job_start_time
-            )
-            logger.info(f"✅ Step 4 completed: {dev_status_result}")
-        except Exception as dev_error:
-            logger.error(f"❌ Step 4 (Dev status extraction) failed: {dev_error}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            raise
-
-        await progress_tracker.update_step_progress(
-            3, 1.0, f"Completed dev status: {dev_status_result.get('pr_links_count', 0)} PR links"
-        )
+        # Dev status extraction now happens in background via extraction_queue
+        # No Step 4 needed - job completes after Step 3
 
         # Update job status to FINISHED and set last_sync_date to job_start_time
-        logger.info(f"🔍 DEBUG: All 4 steps complete - about to call reset_job_countdown to set job to FINISHED")
+        logger.info(f"🔍 DEBUG: All 3 steps complete - about to call reset_job_countdown to set job to FINISHED")
         await reset_job_countdown(tenant_id, job_id, "Complete Jira extraction finished successfully", job_start_time)
         logger.info(f"🔍 DEBUG: reset_job_countdown completed - job should now be FINISHED then READY")
 
@@ -170,7 +150,7 @@ async def execute_complete_jira_extraction(
         logger.info(f"   Project Relationships: {statuses_result['project_relationships_count']}")
         logger.info(f"   Issues: {issues_result.get('issues_count', 0)}")
         logger.info(f"   Changelogs: {issues_result.get('changelogs_count', 0)}")
-        logger.info(f"   PR Links: {dev_status_result.get('pr_links_count', 0)}")
+        logger.info(f"   Dev Status: Queued in background via extraction_queue")
         logger.info("=" * 100)
 
         return {
@@ -180,8 +160,7 @@ async def execute_complete_jira_extraction(
             "statuses_count": statuses_result['statuses_count'],
             "project_relationships_count": statuses_result['project_relationships_count'],
             "issues_count": issues_result.get('issues_count', 0),
-            "changelogs_count": issues_result.get('changelogs_count', 0),
-            "pr_links_count": dev_status_result.get('pr_links_count', 0)
+            "changelogs_count": issues_result.get('changelogs_count', 0)
         }
 
     except Exception as e:
@@ -193,13 +172,15 @@ async def execute_complete_jira_extraction(
                 tenant_id, "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
             )
 
-            db = next(get_db_session())
-            try:
-                from app.core.utils import DateTimeHelper
-                from datetime import timedelta
-                now = DateTimeHelper.now_default()
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+            from app.core.database import get_database
 
-                # Get retry interval to calculate next retry time
+            database = get_database()
+            now = DateTimeHelper.now_default()
+
+            # Quick READ to get retry interval
+            with database.get_read_session_context() as db:
                 retry_query = text("""
                     SELECT retry_interval_minutes
                     FROM etl_jobs
@@ -211,9 +192,11 @@ async def execute_complete_jira_extraction(
                 }).fetchone()
 
                 retry_interval = retry_result[0] if retry_result else 60
-                next_run = now + timedelta(minutes=retry_interval)
 
-                # Update job status to FAILED with error message and next_run
+            next_run = now + timedelta(minutes=retry_interval)
+
+            # Quick WRITE to update job status
+            with database.get_write_session_context() as db:
                 error_message = str(e)[:500]  # Limit error message to 500 chars
                 update_query = text("""
                     UPDATE etl_jobs
@@ -230,9 +213,7 @@ async def execute_complete_jira_extraction(
                     'error_message': error_message,
                     'next_run': next_run
                 })
-                db.commit()
-            finally:
-                db.close()
+                # Commit happens automatically
 
         except Exception as update_error:
             logger.error(f"Failed to update job status after error: {update_error}")
@@ -295,13 +276,15 @@ async def execute_projects_and_issue_types_extraction(
                 "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
             )
             
-            db = next(get_db_session())
-            try:
-                from app.core.utils import DateTimeHelper
-                from datetime import timedelta
-                now = DateTimeHelper.now_default()
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+            from app.core.database import get_database
 
-                # Get retry interval to calculate next retry time
+            database = get_database()
+            now = DateTimeHelper.now_default()
+
+            # Quick READ to get retry interval
+            with database.get_read_session_context() as db:
                 retry_query = text("""
                     SELECT retry_interval_minutes
                     FROM etl_jobs
@@ -313,8 +296,11 @@ async def execute_projects_and_issue_types_extraction(
                 }).fetchone()
 
                 retry_interval_minutes = retry_result[0] if retry_result else 15  # Default 15 minutes
-                next_run = now + timedelta(minutes=retry_interval_minutes)
 
+            next_run = now + timedelta(minutes=retry_interval_minutes)
+
+            # Quick WRITE to update job status
+            with database.get_write_session_context() as db:
                 update_query = text("""
                     UPDATE etl_jobs
                     SET status = 'FAILED',
@@ -333,10 +319,7 @@ async def execute_projects_and_issue_types_extraction(
                     'now': now,
                     'next_run': next_run
                 })
-                db.commit()
-                
-            finally:
-                db.close()
+                # Commit happens automatically
                 
         except Exception as update_error:
             logger.error(f"Failed to update job status to FAILED: {update_error}")
@@ -348,26 +331,25 @@ async def execute_projects_and_issue_types_extraction(
 
 async def _initialize_jira_client(integration_id: int, tenant_id: int) -> tuple:
     """Initialize and validate Jira integration and client."""
-    db = next(get_db_session())
-    try:
+    from app.core.database import get_database
+    database = get_database()
+
+    with database.get_read_session_context() as db:
         integration = db.query(Integration).filter(
             Integration.id == integration_id,
             Integration.tenant_id == tenant_id
         ).first()
-        
+
         if not integration:
             raise ValueError(f"Integration {integration_id} not found")
-        
+
         if not integration.active:
             raise ValueError(f"Integration {integration.provider} is inactive - cannot execute extraction")
 
         # Create Jira client
         jira_client = JiraAPIClient.create_from_integration(integration)
-        
+
         return integration, jira_client
-        
-    finally:
-        db.close()
 
 
 async def store_raw_extraction_data(
@@ -377,8 +359,10 @@ async def store_raw_extraction_data(
     raw_data: Dict[str, Any]
 ) -> int:
     """Store raw extraction data and return the ID."""
-    db = next(get_db_session())
-    try:
+    from app.core.database import get_database
+    database = get_database()
+
+    with database.get_write_session_context() as db:
         insert_query = text("""
             INSERT INTO raw_extraction_data (
                 tenant_id, integration_id, type,
@@ -388,20 +372,18 @@ async def store_raw_extraction_data(
                 CAST(:raw_data AS jsonb), 'pending', TRUE, NOW()
             ) RETURNING id
         """)
-        
+
         result = db.execute(insert_query, {
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'type': entity_type,
             'raw_data': json.dumps(raw_data)
         })
-        
+
         raw_data_id = result.fetchone()[0]
-        db.commit()
+        # Commit happens automatically in context manager
 
         return raw_data_id
-    finally:
-        db.close()
 
 
 async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_start_time=None):
@@ -413,11 +395,18 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
                        If None, uses current time.
     """
     try:
-        db = next(get_db_session())
-        try:
+        from app.core.database import get_database
+        from app.core.utils import DateTimeHelper
+        from datetime import timedelta
+        import asyncio
+
+        database = get_database()
+
+        # First, READ job details from replica (fast)
+        with database.get_read_session_context() as db:
             # Get the job details for logging
             job_query = text("""
-                SELECT schedule_interval_minutes
+                SELECT schedule_interval_minutes, last_run_started_at
                 FROM etl_jobs
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -431,46 +420,30 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
                 return
 
             schedule_interval_minutes = job_result[0]
+            last_run_started_at = job_result[1] if len(job_result) > 1 else None
 
-            # Update job completion and calculate next run time
-            from app.core.utils import DateTimeHelper
-            from datetime import timedelta
-            import asyncio
-            now = DateTimeHelper.now_default()
+        # Calculate next run time (no DB needed)
+        now = DateTimeHelper.now_default()
+        sync_time = job_start_time if job_start_time else now
 
-            # Use job_start_time for last_sync_date (bounded extraction), or fallback to now
-            sync_time = job_start_time if job_start_time else now
+        # ✅ FIX: Calculate next_run from when job STARTED, not when it FINISHED
+        # This ensures countdown behavior is consistent regardless of job duration
+        if last_run_started_at:
+            next_run = last_run_started_at + timedelta(minutes=schedule_interval_minutes)
+            logger.info(f"⏰ Calculating next_run from job START time (last_run_started_at)")
+        else:
+            # Fallback: if no start time, use current time
+            next_run = now + timedelta(minutes=schedule_interval_minutes)
+            logger.info(f"⏰ Calculating next_run from current time (no last_run_started_at)")
 
-            # Get schedule interval AND last_run_started_at to calculate next run time
-            schedule_query = text("""
-                SELECT schedule_interval_minutes, last_run_started_at
-                FROM etl_jobs
-                WHERE id = :job_id AND tenant_id = :tenant_id
-            """)
-            schedule_result = db.execute(schedule_query, {
-                'job_id': job_id,
-                'tenant_id': tenant_id
-            }).fetchone()
+        logger.info(f"⏰ TIMEZONE CHECK: Current time (now) = {now}")
+        logger.info(f"⏰ TIMEZONE CHECK: Job start time (last_run_started_at) = {last_run_started_at}")
+        logger.info(f"⏰ TIMEZONE CHECK: Job sync time (sync_time) = {sync_time}")
+        logger.info(f"⏰ TIMEZONE CHECK: Next run calculated = {next_run}")
+        logger.info(f"⏰ TIMEZONE CHECK: Schedule interval = {schedule_interval_minutes} minutes")
 
-            schedule_interval_minutes = schedule_result[0] if schedule_result else 360  # Default 6 hours
-            last_run_started_at = schedule_result[1] if schedule_result and len(schedule_result) > 1 else None
-
-            # ✅ FIX: Calculate next_run from when job STARTED, not when it FINISHED
-            # This ensures countdown behavior is consistent regardless of job duration
-            if last_run_started_at:
-                next_run = last_run_started_at + timedelta(minutes=schedule_interval_minutes)
-                logger.info(f"⏰ Calculating next_run from job START time (last_run_started_at)")
-            else:
-                # Fallback: if no start time, use current time
-                next_run = now + timedelta(minutes=schedule_interval_minutes)
-                logger.info(f"⏰ Calculating next_run from current time (no last_run_started_at)")
-
-            logger.info(f"⏰ TIMEZONE CHECK: Current time (now) = {now}")
-            logger.info(f"⏰ TIMEZONE CHECK: Job start time (last_run_started_at) = {last_run_started_at}")
-            logger.info(f"⏰ TIMEZONE CHECK: Job sync time (sync_time) = {sync_time}")
-            logger.info(f"⏰ TIMEZONE CHECK: Next run calculated = {next_run}")
-            logger.info(f"⏰ TIMEZONE CHECK: Schedule interval = {schedule_interval_minutes} minutes")
-
+        # Now WRITE to primary database (quick update, close immediately)
+        with database.get_write_session_context() as db:
             # Step 1: Set status to FINISHED and update last_sync_date
             update_finished_query = text("""
                 UPDATE etl_jobs
@@ -488,26 +461,28 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
                 'now': now,
                 'sync_time': sync_time
             })
-            db.commit()
+            # Commit happens automatically
 
-            logger.info(f"✅ Jira job marked as FINISHED")
+        logger.info(f"✅ Jira job marked as FINISHED")
 
-            # Step 2: Send WebSocket status update to FINISHED
-            from app.api.websocket_routes import get_websocket_manager
-            websocket_manager = get_websocket_manager()
-            await websocket_manager.send_status_update(tenant_id, "Jira", "FINISHED", message)
+        # Step 2: Send WebSocket status update to FINISHED
+        from app.api.websocket_routes import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.send_status_update(tenant_id, "Jira", "FINISHED", message)
 
-            # Step 3: Send WebSocket completion update with success summary
-            await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
-                "message": message,
-                "schedule_interval_minutes": schedule_interval_minutes
-            })
+        # Step 3: Send WebSocket completion update with success summary
+        await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
+            "message": message,
+            "schedule_interval_minutes": schedule_interval_minutes
+        })
 
-            logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
+        logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
 
-            # Step 4: Wait a moment for frontend to process completion, then set to READY
-            await asyncio.sleep(2)  # 2 second delay for frontend to show success
+        # Step 4: Wait a moment for frontend to process completion, then set to READY
+        await asyncio.sleep(2)  # 2 second delay for frontend to show success
 
+        # Quick WRITE to set READY status
+        with database.get_write_session_context() as db:
             update_ready_query = text("""
                 UPDATE etl_jobs
                 SET status = 'READY',
@@ -521,16 +496,13 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
                 'now': now,
                 'next_run': next_run
             })
-            db.commit()
+            # Commit happens automatically
 
-            logger.info(f"✅ Jira job set to READY - next run scheduled for {next_run}")
-            logger.info(f"Next run will be calculated as: last_updated_at + {schedule_interval_minutes} minutes")
+        logger.info(f"✅ Jira job set to READY - next run scheduled for {next_run}")
+        logger.info(f"Next run will be calculated as: last_updated_at + {schedule_interval_minutes} minutes")
 
-            # Step 5: Send final status update to READY
-            await websocket_manager.send_status_update(tenant_id, "Jira", "READY", f"Next run at {next_run}")
-
-        finally:
-            db.close()
+        # Step 5: Send final status update to READY
+        await websocket_manager.send_status_update(tenant_id, "Jira", "READY", f"Next run at {next_run}")
 
     except Exception as e:
         logger.error(f"Error updating job completion: {e}")
@@ -578,7 +550,14 @@ async def _extract_projects_and_issue_types(
 
     # Process transformation directly using project/search data structure
     from app.workers.transform_worker import TransformWorker
-    transform_worker = TransformWorker()
+    from app.etl.queue.queue_manager import QueueManager
+
+    # Get the appropriate tier-based queue name for this tenant
+    queue_manager = QueueManager()
+    tier = queue_manager._get_tenant_tier(tenant_id)
+    transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+
+    transform_worker = TransformWorker(queue_name=transform_queue)
     processed = transform_worker._process_jira_project_search(
         raw_data_id=raw_data_id,
         tenant_id=tenant_id,
@@ -601,7 +580,7 @@ async def _extract_projects_and_issue_types(
         ).count()
 
     await progress_tracker.complete_step(
-        1, f"Phase 2.1 complete: {len(projects_list)} projects, {unique_issue_types_count} issue types"
+        step_index, f"Step 1 complete: {len(projects_list)} projects, {unique_issue_types_count} issue types"
     )
 
     return {
@@ -626,8 +605,11 @@ async def _extract_statuses_and_relationships(
     )
 
     # Get projects from database (like old ETL)
-    db = next(get_db_session())
-    try:
+    # Use READ replica for fast query
+    from app.core.database import get_database
+    database = get_database()
+
+    with database.get_read_session_context() as db:
         projects_query = text("""
             SELECT external_id, key, name
             FROM projects
@@ -644,12 +626,9 @@ async def _extract_statuses_and_relationships(
         project_keys = [row[1] for row in projects_result]  # Extract project keys
         logger.info(f"Found {len(project_keys)} projects for status extraction: {project_keys}")
 
-    finally:
-        db.close()
-
-    # Step progress: Extract project-specific statuses (0.2 -> 0.8)
+    # Step progress: Extract project-specific statuses (0.0 -> 1.0)
     await progress_tracker.update_step_progress(
-        step_index, 0.2, f"Step 2: Fetching project-specific statuses for {len(project_keys)} projects"
+        step_index, 0.0, f"Step 2: Fetching project-specific statuses for {len(project_keys)} projects"
     )
 
     # Process each project's statuses individually (better granularity)
@@ -658,8 +637,8 @@ async def _extract_statuses_and_relationships(
 
     for i, project_key in enumerate(project_keys):
         try:
-            # Update progress for each project within step (0.2 -> 0.8)
-            project_progress = 0.2 + (i / len(project_keys)) * 0.6
+            # Update progress for each project within step (0.0 -> 0.9)
+            project_progress = (i / len(project_keys)) * 0.9
             await progress_tracker.update_step_progress(
                 step_index, project_progress, f"Step 2: Processing project {i+1}/{len(project_keys)}: {project_key}"
             )
@@ -689,7 +668,14 @@ async def _extract_statuses_and_relationships(
 
                 # Process transformation for this project immediately
                 from app.workers.transform_worker import TransformWorker
-                transform_worker = TransformWorker()
+                from app.etl.queue.queue_manager import QueueManager
+
+                # Get the appropriate tier-based queue name for this tenant
+                queue_manager = QueueManager()
+                tier = queue_manager._get_tenant_tier(tenant_id)
+                transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+
+                transform_worker = TransformWorker(queue_name=transform_queue)
                 processed = transform_worker._process_jira_statuses_and_project_relationships(
                     raw_data_id=raw_data_id,
                     tenant_id=tenant_id,
@@ -761,11 +747,13 @@ async def _extract_issues_with_changelogs_for_complete_job(
     logger.info(f"Step 3: Extracting issues with changelogs for integration {integration_id}")
 
     # Get last_sync_date and integration settings from database
+    # Use READ replica for fast query, close immediately
     from datetime import datetime, timezone
     from sqlalchemy import text
+    from app.core.database import get_database
 
-    db = next(get_db_session())
-    try:
+    database = get_database()
+    with database.get_read_session_context() as db:
         # Get last_sync_date and integration settings in one query
         query = text("""
             SELECT ej.last_sync_date, i.settings
@@ -784,9 +772,6 @@ async def _extract_issues_with_changelogs_for_complete_job(
         # Get project keys from integration settings
         project_keys = integration_settings.get('projects', PROJECT_KEYS)
         logger.info(f"Step 3: Using {len(project_keys)} projects from integration settings: {project_keys}")
-
-    finally:
-        db.close()
 
     # Build JQL query with bounded date range and project filter
     project_filter = f"project in ({','.join(project_keys)})"
@@ -853,59 +838,76 @@ async def _extract_issues_with_changelogs_for_complete_job(
         batch_size = len(issues)
         logger.info(f"Step 3: Fetched batch #{batches_stored + 1} with {batch_size} issues (isLast={is_last})")
 
-        # Store this batch immediately
-        db = next(get_db_session())
-        try:
-            from sqlalchemy import text
-            from datetime import datetime, timezone
+        # Break batch into individual issue records for bulk insert
+        # Use WRITE session, open only for insert, close immediately
+        from sqlalchemy import text
+        from datetime import datetime, timezone
+        import time
+        from app.core.database import get_database
 
-            insert_query = text("""
+        database = get_database()
+        insert_start = time.time()
+
+        with database.get_write_session_context() as db:
+            now = datetime.now(timezone.utc)
+
+            # Build VALUES clause and parameters for all issues
+            values_clauses = []
+            params = {
+                'tenant_id': tenant_id,
+                'integration_id': integration_id,
+                'type': 'jira_issue',
+                'status': 'pending',
+                'created_at': now,
+                'last_updated_at': now
+            }
+
+            for i, issue in enumerate(issues):
+                # Create unique parameter name for each issue's raw_data
+                param_name = f'raw_data_{i}'
+                values_clauses.append(f"(:tenant_id, :integration_id, :type, :{param_name}, :status, :created_at, :last_updated_at)")
+                params[param_name] = json.dumps(issue)
+
+            # Build single INSERT query with all VALUES
+            insert_query = text(f"""
                 INSERT INTO raw_extraction_data (tenant_id, integration_id, type, raw_data, status, created_at, last_updated_at)
-                VALUES (:tenant_id, :integration_id, :type, :raw_data, :status, :created_at, :last_updated_at)
+                VALUES {', '.join(values_clauses)}
                 RETURNING id
             """)
 
-            result = db.execute(insert_query, {
-                'tenant_id': tenant_id,
-                'integration_id': integration_id,
-                'type': 'jira_issues_changelogs',
-                'raw_data': json.dumps({
-                    'issues': issues,
-                    'batch_info': {
-                        'batch_size': batch_size,
-                        'batch_number': batches_stored + 1,
-                        'is_last': is_last
-                    }
-                }),
-                'status': 'pending',
-                'created_at': datetime.now(timezone.utc),
-                'last_updated_at': datetime.now(timezone.utc)
-            })
+            # Execute single bulk insert and collect all IDs
+            result = db.execute(insert_query, params)
+            raw_data_ids = [row[0] for row in result.fetchall()]
+            # Commit happens automatically in context manager
 
-            # Fetch the ID before commit to avoid cursor closed error
-            raw_data_id = result.fetchone()[0]
+        insert_time = (time.time() - insert_start) * 1000  # Convert to milliseconds
+        batches_stored += 1
+        logger.info(f"Step 3: ✅ Stored {len(raw_data_ids)} individual issues from batch #{batches_stored} in {insert_time:.0f}ms")
 
-            # Now commit
-            db.commit()
+        # Bulk publish all issues to transform queue
+        publish_start = time.time()
+        published_count = 0
+        failed_count = 0
 
-            batches_stored += 1
-            logger.info(f"Step 3: ✅ Stored batch #{batches_stored} with raw_data_id={raw_data_id} ({batch_size} issues)")
+        for raw_data_id in raw_data_ids:
+            success = queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration_id,
+                data_type='jira_issue',  # Changed from 'jira_issues_changelogs'
+                raw_data_id=raw_data_id
+            )
 
-        finally:
-            db.close()
+            if success:
+                published_count += 1
+            else:
+                failed_count += 1
 
-        # Publish this batch to transform queue immediately
-        success = queue_manager.publish_transform_job(
-            tenant_id=tenant_id,
-            integration_id=integration_id,
-            data_type='jira_issues_changelogs',
-            raw_data_id=raw_data_id
-        )
+        publish_time = (time.time() - publish_start) * 1000  # Convert to milliseconds
 
-        if not success:
-            logger.error(f"Step 3: ❌ Failed to publish batch #{batches_stored} to transform queue")
+        if failed_count > 0:
+            logger.warning(f"Step 3: ⚠️ Published {published_count}/{len(raw_data_ids)} issues to queue in {publish_time:.0f}ms ({failed_count} failed)")
         else:
-            logger.info(f"Step 3: ✅ Published batch #{batches_stored} to transform queue")
+            logger.info(f"Step 3: ✅ Published {published_count} issues to transform queue in {publish_time:.0f}ms")
 
         # Update progress
         total_issues_processed += batch_size
@@ -970,14 +972,16 @@ async def _extract_dev_status_for_complete_job(
     logger.info(f"Step 4: Extracting dev status for integration {integration_id}")
 
     # Get issues with code changes from database
+    # Use READ replica for query, close immediately
     await progress_tracker.update_step_progress(
         3, 0.1, "Step 4: Finding issues with code changes"
     )
 
-    db = next(get_db_session())
-    try:
-        from sqlalchemy import text
+    from sqlalchemy import text
+    from app.core.database import get_database
 
+    database = get_database()
+    with database.get_read_session_context() as db:
         # Get last_sync_date to determine query scope
         sync_query = text("""
             SELECT last_sync_date
@@ -1026,9 +1030,7 @@ async def _extract_dev_status_for_complete_job(
 
         issue_keys = [row[0] for row in issues]
         logger.info(f"Step 4: Found {len(issue_keys)} issues with code changes to check for dev status")
-
-    finally:
-        db.close()
+        # Context manager closes connection automatically
 
     if not issue_keys:
         logger.info("Step 4: ℹ️ No issues with code changes found - skipping dev status extraction")
@@ -1079,12 +1081,13 @@ async def _extract_dev_status_for_complete_job(
         # Store and queue batch when it reaches batch_size or at the end
         if len(current_batch) >= batch_size or (i + 1) == len(issue_keys):
             if current_batch:
-                # Store this batch
-                db = next(get_db_session())
-                try:
-                    from sqlalchemy import text
-                    from datetime import datetime, timezone
+                # Store this batch - use WRITE session, close immediately
+                from sqlalchemy import text
+                from datetime import datetime, timezone
+                from app.core.database import get_database
 
+                database = get_database()
+                with database.get_write_session_context() as db:
                     insert_query = text("""
                         INSERT INTO raw_extraction_data (tenant_id, integration_id, type, raw_data, status, created_at, last_updated_at)
                         VALUES (:tenant_id, :integration_id, :type, :raw_data, :status, :created_at, :last_updated_at)
@@ -1107,14 +1110,12 @@ async def _extract_dev_status_for_complete_job(
                         'created_at': datetime.now(timezone.utc),
                         'last_updated_at': datetime.now(timezone.utc)
                     })
-                    db.commit()
 
                     raw_data_id = result.fetchone()[0]
-                    batches_stored += 1
-                    logger.info(f"Step 4: ✅ Stored dev status batch #{batches_stored}/{total_batches_expected} with raw_data_id={raw_data_id} ({len(current_batch)} issues)")
+                    # Commit happens automatically in context manager
 
-                finally:
-                    db.close()
+                batches_stored += 1
+                logger.info(f"Step 4: ✅ Stored dev status batch #{batches_stored}/{total_batches_expected} with raw_data_id={raw_data_id} ({len(current_batch)} issues)")
 
                 # Publish this batch to transform queue
                 success = queue_manager.publish_transform_job(
@@ -1220,8 +1221,10 @@ async def execute_issues_changelogs_dev_status_extraction(
         )
 
         # Update job status to FINISHED
-        db = next(get_db_session())
-        try:
+        from app.core.database import get_database
+        database = get_database()
+
+        with database.get_write_session_context() as db:
             update_query = text("""
                 UPDATE etl_jobs
                 SET status = 'FINISHED',
@@ -1230,9 +1233,7 @@ async def execute_issues_changelogs_dev_status_extraction(
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
             db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-            db.commit()
-        finally:
-            db.close()
+            # Commit happens automatically
 
         await progress_tracker.update_step_progress(
             3, 1.0, "Issues extraction completed successfully"
@@ -1256,8 +1257,10 @@ async def execute_issues_changelogs_dev_status_extraction(
         logger.error(f"Issues extraction failed for integration {integration_id}: {e}")
 
         # Update job status to FINISHED with error
-        db = next(get_db_session())
-        try:
+        from app.core.database import get_database
+        database = get_database()
+
+        with database.get_write_session_context() as db:
             update_query = text("""
                 UPDATE etl_jobs
                 SET status = 'FINISHED',
@@ -1266,9 +1269,7 @@ async def execute_issues_changelogs_dev_status_extraction(
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
             db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-            db.commit()
-        finally:
-            db.close()
+            # Commit happens automatically
 
         # Send WebSocket error update
         websocket_manager = get_websocket_manager()
@@ -1422,8 +1423,11 @@ async def _extract_dev_status(
     logger.info(f"Extracting dev_status for {len(issue_keys)} issues")
 
     # Get issue external IDs from database
-    db = next(get_db_session())
-    try:
+    # Use READ replica for fast query
+    from app.core.database import get_database
+    database = get_database()
+
+    with database.get_read_session_context() as db:
         query = text("""
             SELECT key, external_id
             FROM work_items
@@ -1437,8 +1441,6 @@ async def _extract_dev_status(
         }).fetchall()
 
         issue_map = {row[0]: row[1] for row in results}
-    finally:
-        db.close()
 
     # Fetch dev_status for each issue
     dev_status_data = []

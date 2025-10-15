@@ -105,7 +105,7 @@ def apply(connection):
 
         print("📋 Creating core tables...")
 
-        # 1. Tenants table (foundation) - NO vector column
+        # 1. Tenants table (foundation) - NO vector column, includes tier for shared worker pool
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenants (
                 id SERIAL PRIMARY KEY,
@@ -114,30 +114,18 @@ def apply(connection):
                 assets_folder VARCHAR(100),
                 logo_filename VARCHAR(255) DEFAULT 'default-logo.png',
                 color_schema_mode VARCHAR(10) DEFAULT 'default' CHECK (color_schema_mode IN ('default', 'custom')),
+                tier VARCHAR(20) NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'basic', 'premium', 'enterprise')),
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
             );
         """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(active);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_tier ON tenants(tier);")
+        cursor.execute("COMMENT ON TABLE tenants IS 'Multi-tenant isolation table with tier-based worker pools';")
+        cursor.execute("COMMENT ON COLUMN tenants.tier IS 'Tenant tier for shared worker pool allocation (free=1, basic=3, premium=5, enterprise=10 workers per pool)';")
 
-        # 1b. Worker configurations table (per-tenant worker scaling) - Inherits from BaseEntity pattern
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS worker_configs (
-                id SERIAL PRIMARY KEY,
-                transform_workers INTEGER NOT NULL DEFAULT 1 CHECK (transform_workers >= 1 AND transform_workers <= 10),
-                vectorization_workers INTEGER NOT NULL DEFAULT 1 CHECK (vectorization_workers >= 1 AND vectorization_workers <= 10),
-                tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-                active BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW(),
-                CONSTRAINT unique_tenant_worker_configs UNIQUE (tenant_id)
-            );
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_worker_configs_tenant ON worker_configs(tenant_id);")
-        cursor.execute("COMMENT ON TABLE worker_configs IS 'Worker scaling configuration per tenant (1-10 workers per type)';")
-        cursor.execute("COMMENT ON COLUMN worker_configs.transform_workers IS 'Number of transform workers (1-10)';")
-        cursor.execute("COMMENT ON COLUMN worker_configs.vectorization_workers IS 'Number of vectorization workers (1-10)';")
-        # Note: Default worker configs data inserted in migration 0002 (after tenant creation)
+        # Note: worker_configs table removed - using shared worker pools based on tenant tier instead
         
         # 2. Users table - NO vector column
         cursor.execute("""
@@ -1446,7 +1434,7 @@ def rollback(connection):
             'qdrant_vectors',  # Added missing vector table
 
             # Configuration and color tables
-            'worker_configs',  # Worker scaling configuration (depends on tenants)
+            # Note: worker_configs table removed - using shared worker pools based on tenant tier
             'tenants_colors',
             'tenant_colors',  # Old color table (wrong name)
             'dora_metric_insights',
@@ -1508,6 +1496,41 @@ def rollback(connection):
             cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
 
         print("✅ All tables dropped successfully")
+
+        # Delete RabbitMQ queues (tier-based queues)
+        print("📋 Deleting RabbitMQ tier-based queues...")
+        try:
+            import pika
+            from app.config import settings
+
+            # Connect to RabbitMQ
+            credentials = pika.PlainCredentials(settings.RABBITMQ_USER, settings.RABBITMQ_PASSWORD)
+            parameters = pika.ConnectionParameters(
+                host=settings.RABBITMQ_HOST,
+                port=settings.RABBITMQ_PORT,
+                credentials=credentials
+            )
+            rabbitmq_conn = pika.BlockingConnection(parameters)
+            channel = rabbitmq_conn.channel()
+
+            # Delete all tier-based queues (12 queues total: 4 tiers × 3 types)
+            tiers = ['free', 'basic', 'premium', 'enterprise']
+            queue_types = ['extraction', 'transform', 'vectorization']
+
+            for tier in tiers:
+                for queue_type in queue_types:
+                    queue_name = f'{queue_type}_queue_{tier}'
+                    try:
+                        channel.queue_delete(queue=queue_name)
+                        print(f"   🗑️ Deleted queue: {queue_name}")
+                    except Exception as e:
+                        print(f"   ⚠️ Could not delete queue {queue_name}: {e}")
+
+            rabbitmq_conn.close()
+            print("✅ RabbitMQ tier-based queues deleted successfully")
+
+        except Exception as e:
+            print(f"⚠️ Could not delete RabbitMQ queues (they may not exist): {e}")
 
         # Optionally drop extensions (commented out as they might be used by other databases)
         print("📋 Extensions (vector, pgml) left intact - they may be used by other applications")

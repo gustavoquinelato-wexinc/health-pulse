@@ -18,144 +18,100 @@ from app.models.unified_models import User
 
 router = APIRouter()
 logger = get_logger(__name__)
-
-
-@router.post("/system/login", response_model=LoginResponse)
-async def system_login(login_request: LoginRequest, request: Request):
-    """
-    System user login endpoint for automated services (ETL, etc.).
-    Only allows authentication for users with auth_provider='system'.
-    """
-    logger.info(f"🔐 System login attempt for email: {login_request.email}")
-
-    try:
-        # Get client info from request
-        ip_address = request.client.host if request.client else None
-        user_agent = request.headers.get("user-agent", "ETL-Service")
-
-        # Authenticate system user directly (bypass centralized auth)
-        auth_service = get_auth_service()
-        auth_result = await auth_service.authenticate_system(
-            login_request.email,
-            login_request.password,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
-
-        if auth_result:
-            logger.info(f"✅ System authentication successful for: {login_request.email}")
-            return LoginResponse(
-                token=auth_result["token"],
-                user=auth_result["user"]
-            )
-        else:
-            logger.warning(f"❌ System authentication failed for: {login_request.email}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid system credentials"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"System login error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="System authentication failed"
-        )
+settings = get_settings()
 
 
 @router.post("/login", response_model=LoginResponse)
 async def login(login_request: LoginRequest, request: Request):
     """
-    User login endpoint.
+    User login endpoint - delegates to centralized auth service.
     Validates credentials and returns JWT token with user information.
+
+    Flow:
+    1. Backend → Auth-Service: Validate credentials
+    2. Auth-Service → Backend: Validate password against database
+    3. Auth-Service: Generate JWT token
+    4. Backend: Store session (database + Redis)
+    5. Backend → User: Return token
     """
-    logger.info(f"🔧 DEBUG: ETL frontend login endpoint called for email: {login_request.email}")
-    logger.info(f"🔧 DEBUG: Request headers: {dict(request.headers)}")
-    logger.info(f"🔧 DEBUG: Client IP: {request.client.host if request.client else 'Unknown'}")
+    logger.info(f"Login attempt for email: {login_request.email}")
 
     try:
         # Get client info from request
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "Unknown")
 
-        # Always authenticate via centralized auth service
-        auth_service = get_auth_service()
-        try:
-            from app.core.config import get_settings
-            import httpx
-            settings = get_settings()
-            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+        # Authenticate via centralized auth service
+        from app.core.config import get_settings
+        import httpx
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-            logger.info(f"🔧 DEBUG: About to call auth service at: {auth_service_url}")
-            logger.info(f"🔧 DEBUG: Auth request payload: email={login_request.email}, include_ml_fields={getattr(login_request, 'include_ml_fields', False)}")
+        async with httpx.AsyncClient() as client:
+            # Step 1: Validate credentials
+            response = await client.post(
+                f"{auth_service_url}/api/v1/validate-credentials",
+                json={
+                    "email": login_request.email,
+                    "password": login_request.password,
+                    "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
+                },
+                timeout=10.0
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{auth_service_url}/api/v1/validate-credentials",
-                    json={
-                        "email": login_request.email,
-                        "password": login_request.password,
-                        "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
-                    },
-                    timeout=10.0
+            if response.status_code != 200:
+                logger.warning(f"Login failed for email: {login_request.email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password"
                 )
 
-                logger.info(f"🔧 DEBUG: Auth service response status: {response.status_code}")
+            validation_data = response.json()
 
-                if response.status_code == 200:
-                    validation_data = response.json()
-                    logger.info(f"🔧 DEBUG: Auth service validation response: {validation_data}")
+            if not validation_data.get("valid"):
+                logger.warning(f"Invalid credentials for email: {login_request.email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password"
+                )
 
-                    if validation_data.get("valid"):
-                        logger.info("🔧 DEBUG: Credentials validated, generating token...")
-                        # Generate centralized token and return it
-                        gen_resp = await client.post(
-                            f"{auth_service_url}/api/v1/generate-token",
-                            json={
-                                "email": login_request.email,
-                                "password": login_request.password,
-                                "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
-                            },
-                            timeout=10.0
-                        )
-                        logger.info(f"🔧 DEBUG: Token generation response status: {gen_resp.status_code}")
-
-                        if gen_resp.status_code == 200:
-                            gen_data = gen_resp.json()
-                            logger.info(f"🔧 DEBUG: Token generated successfully, user: {gen_data.get('user', {}).get('email', 'unknown')}")
-                            auth_result = {
-                                "token": gen_data["access_token"],
-                                "user": gen_data["user"],
-                            }
-                            # Store session locally for admin panel (active sessions, logout, etc.)
-                            try:
-                                await auth_service.store_session_from_token(auth_result["token"], auth_result["user"], ip_address=ip_address, user_agent=user_agent)
-                                logger.info("🔧 DEBUG: Session stored locally")
-                            except Exception as e:
-                                logger.warning(f"Could not store session from centralized token: {e}")
-                        else:
-                            logger.warning(f"🔧 DEBUG: Token generation failed with status: {gen_resp.status_code}")
-                            auth_result = None
-                    else:
-                        logger.warning("🔧 DEBUG: Credentials validation failed")
-                        auth_result = None
-                else:
-                    logger.warning(f"🔧 DEBUG: Auth service returned error status: {response.status_code}")
-                    auth_result = None
-        except Exception as e:
-            logger.warning(f"Centralized auth service unavailable: {e}")
-            auth_result = None
-        
-        if not auth_result:
-            logger.warning(f"❌ Login failed for email: {login_request.email}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
+            # Step 2: Generate token
+            gen_resp = await client.post(
+                f"{auth_service_url}/api/v1/generate-token",
+                json={
+                    "email": login_request.email,
+                    "password": login_request.password,
+                    "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
+                },
+                timeout=10.0
             )
-        
-        logger.info(f"✅ Login successful for email: {login_request.email}")
+
+            if gen_resp.status_code != 200:
+                logger.error(f"Token generation failed for email: {login_request.email}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Token generation failed"
+                )
+
+            gen_data = gen_resp.json()
+            auth_result = {
+                "token": gen_data["access_token"],
+                "user": gen_data["user"],
+            }
+
+            # Step 3: Store session locally (for admin panel, logout, etc.)
+            auth_service = get_auth_service()
+            try:
+                await auth_service.store_session_from_token(
+                    auth_result["token"],
+                    auth_result["user"],
+                    ip_address=ip_address,
+                    user_agent=user_agent
+                )
+            except Exception as e:
+                logger.warning(f"Could not store session: {e}")
+
+        logger.info(f"Login successful for email: {login_request.email}")
 
         # Create response with token
         response_data = LoginResponse(
@@ -164,32 +120,24 @@ async def login(login_request: LoginRequest, request: Request):
             user=auth_result["user"]
         )
 
-        logger.info(f"🔧 DEBUG: About to send response to ETL frontend")
-        logger.info(f"🔧 DEBUG: Response data - success: {response_data.success}, user_email: {auth_result['user'].get('email', 'unknown')}")
-        logger.info(f"🔧 DEBUG: Token length: {len(auth_result['token'])} characters")
-
         # Create JSON response to set cookies
         response = JSONResponse(content=response_data.dict())
 
         # Set subdomain-shared cookie for all services
-        from app.core.config import get_settings
-        settings = get_settings()
-
         response.set_cookie(
             key="pulse_token",
             value=auth_result["token"],
-            max_age=24 * 60 * 60,  # 24 hours (match JWT expiry)
-            httponly=False,  # Must be False to allow JavaScript access for cross-service sharing
-            secure=settings.COOKIE_SECURE,  # From environment variable
-            samesite=settings.COOKIE_SAMESITE,  # From environment variable
-            path="/",  # Ensure cookie is sent to all paths
-            domain=settings.COOKIE_DOMAIN  # From environment variable
+            max_age=24 * 60 * 60,  # 24 hours
+            httponly=False,  # Allow JavaScript access for cross-service sharing
+            secure=settings.COOKIE_SECURE,
+            samesite=settings.COOKIE_SAMESITE,
+            path="/",
+            domain=settings.COOKIE_DOMAIN
         )
 
-        logger.info(f"✅ Subdomain-shared session cookie set for all services")
-        logger.info(f"🔧 DEBUG: Final response ready to send to ETL frontend")
+        logger.info(f"Session cookie set for domain: {settings.COOKIE_DOMAIN}")
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -206,14 +154,14 @@ async def logout(request: Request):
     User logout endpoint.
     Invalidates the current session and broadcasts logout to all user's devices.
     """
-    logger.info("🔐 Logout request received")
+    logger.info("Logout request received")
 
     try:
         # Get token from Authorization header
         auth_header = request.headers.get("Authorization")
 
         if not auth_header or not auth_header.startswith("Bearer "):
-            logger.warning("❌ Logout: Missing or invalid authorization header")
+            logger.warning("Logout: Missing or invalid authorization header")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing or invalid authorization header"
@@ -234,38 +182,30 @@ async def logout(request: Request):
                 from app.api.websocket_routes import get_session_websocket_manager
                 session_ws_manager = get_session_websocket_manager()
                 await session_ws_manager.broadcast_logout(user_data.id, reason="user_logout")
-                logger.info(f"✅ Logout broadcast sent to user_id={user_data.id}")
+                logger.info(f"Logout broadcast sent to user_id={user_data.id}")
             except Exception as e:
                 logger.warning(f"Failed to broadcast logout via WebSocket: {e}")
 
         if success:
-            logger.info("✅ Logout successful - session invalidated")
-            response = JSONResponse(content={"message": "Logout successful", "success": True})
-            # Clear the session cookie
-            response.delete_cookie(
-                key="pulse_token",
-                path="/"
-            )
-            # Add cache control headers to prevent caching
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
-            return response
+            logger.info("Logout successful - session invalidated")
         else:
-            logger.warning("❌ Logout failed - session not found")
-            response = JSONResponse(content={"message": "Session not found", "success": False})
-            # Clear the cookie anyway in case it exists
-            response.delete_cookie(
-                key="pulse_token",
-                path="/"
-            )
-            # Add cache control headers to prevent caching
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
-            return response
+            logger.warning("Logout - session not found")
+
+        # Always return success and clear cookie
+        response = JSONResponse(content={"message": "Logout successful", "success": True})
+        response.delete_cookie(
+            key="pulse_token",
+            path="/",
+            domain=settings.COOKIE_DOMAIN  # Must specify domain to delete shared cookie
+        )
+
+        # Add cache control headers to prevent caching
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+
+        return response
 
     except HTTPException:
         raise
@@ -283,7 +223,7 @@ async def logout_all(current_user: User = Depends(require_authentication)):
     Logout user from all devices/sessions.
     Invalidates all active sessions for the current user.
     """
-    logger.info(f"🔐 Logout-all request for user: {current_user.email}")
+    logger.info(f"Logout-all request for user: {current_user.email}")
 
     try:
         # Invalidate all sessions for the user
@@ -291,33 +231,25 @@ async def logout_all(current_user: User = Depends(require_authentication)):
         success = await auth_service.logout_all_sessions(current_user.id)
 
         if success:
-            logger.info(f"✅ Logout-all successful for user: {current_user.email}")
-            response = JSONResponse(content={"message": "Logged out from all devices", "success": True})
-            # Clear the session cookie
-            response.delete_cookie(
-                key="pulse_token",
-                path="/"
-            )
-            # Add cache control headers to prevent caching
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
-            return response
+            logger.info(f"Logout-all successful for user: {current_user.email}")
         else:
-            logger.warning(f"❌ Logout-all failed for user: {current_user.email}")
-            response = JSONResponse(content={"message": "Failed to logout from all devices", "success": False})
-            # Clear the cookie anyway
-            response.delete_cookie(
-                key="pulse_token",
-                path="/"
-            )
-            # Add cache control headers to prevent caching
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-            response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
-            return response
+            logger.warning(f"Logout-all failed for user: {current_user.email}")
+
+        # Always return success and clear cookie
+        response = JSONResponse(content={"message": "Logged out from all devices", "success": True})
+        response.delete_cookie(
+            key="pulse_token",
+            path="/",
+            domain=settings.COOKIE_DOMAIN  # Must specify domain to delete shared cookie
+        )
+
+        # Add cache control headers to prevent caching
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+
+        return response
 
     except Exception as e:
         logger.error(f"Logout-all error: {e}")
@@ -414,7 +346,7 @@ async def validate_token(request: Request):
 @router.post("/refresh")
 async def refresh_token(request: Request):
     """
-    Token refresh endpoint.
+    Token refresh endpoint - delegates to centralized auth service.
     Validates current token and returns a new one if valid.
     """
     try:
@@ -431,74 +363,113 @@ async def refresh_token(request: Request):
                 detail="No token provided for refresh"
             )
 
-        # Validate current token via centralized auth service
-        try:
-            import httpx
-            from app.core.config import get_settings
-            settings = get_settings()
-            auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
+        # Delegate to centralized auth service for token refresh
+        settings = get_settings()
+        auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
-            async with httpx.AsyncClient() as client:
-                # First validate the current token
-                validate_response = await client.post(
-                    f"{auth_service_url}/api/v1/token/validate",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=5.0
-                )
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{auth_service_url}/api/v1/token/refresh",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0
+            )
 
-                if validate_response.status_code != 200:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Current token is invalid"
-                    )
+            if response.status_code == 200:
+                token_data = response.json()
+                new_token = token_data["access_token"]
+                user_data = token_data["user"]
 
-                token_data = validate_response.json()
-                if not token_data.get("valid"):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Current token is invalid"
-                    )
+                logger.info(f"Token refreshed successfully via auth service for user_id: {user_data.get('id')}")
 
-                user_data = token_data.get("user")
-                if not user_data:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="User data not found in token"
-                    )
-
-                # Generate new token using the user data from the validated token
-                # Since we already validated the token, we can generate a new one directly
-                from app.auth.auth_service import get_auth_service
-                auth_service = get_auth_service()
-
-                # Create a new token for the same user
-                new_token = auth_service.create_access_token(user_data)
-
-                # Store the new session
-                await auth_service.store_session_from_token(new_token, user_data)
-
-                logger.info(f"Token refreshed successfully for user_id: {user_data['id']}")
-
-                return {
+                # Create response with updated cookie
+                response_data = {
                     "success": True,
                     "token": new_token,
                     "user": user_data
                 }
 
-        except httpx.RequestError as e:
-            logger.error(f"Auth service communication error during refresh: {e}")
+                json_response = JSONResponse(content=response_data)
+
+                # Update the subdomain-shared cookie with new token
+                json_response.set_cookie(
+                    key="pulse_token",
+                    value=new_token,
+                    max_age=24 * 60 * 60,  # 24 hours
+                    httponly=False,  # Allow JavaScript access for cross-service sharing
+                    secure=settings.COOKIE_SECURE,
+                    samesite=settings.COOKIE_SAMESITE,
+                    path="/",
+                    domain=settings.COOKIE_DOMAIN
+                )
+
+                logger.info(f"Cookie updated with new token for domain: {settings.COOKIE_DOMAIN}")
+                return json_response
+            else:
+                logger.warning(f"Auth service refresh failed with status: {response.status_code}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token refresh failed"
+                )
+
+    except httpx.RequestError as e:
+        logger.error(f"Auth service communication error during refresh: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
+        )
+
+
+@router.post("/extend-session")
+async def extend_session(request: Request):
+    """
+    Extend session endpoint - called by auth service after token refresh.
+    Stores new token and extends session expiry to 60 minutes from now.
+    """
+    try:
+        # Parse request body
+        body = await request.json()
+        token = body.get("token")
+        user_data = body.get("user_data")
+        is_refresh = body.get("is_refresh", True)
+
+        if not token or not user_data:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication service unavailable"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing token or user_data"
             )
+
+        # Store session with extended expiry
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        await auth_service.store_session_from_token(token, user_data, is_refresh=is_refresh)
+
+        logger.info(f"Session extended for user_id: {user_data['id']} (expires in 60 min)")
+
+        return {
+            "success": True,
+            "message": "Session extended successfully"
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Token refresh error: {e}")
+        logger.error(f"Session extension error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Token refresh failed"
+            detail="Session extension failed"
         )
 
 

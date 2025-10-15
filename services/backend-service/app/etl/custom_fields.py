@@ -235,7 +235,8 @@ async def get_custom_field_mappings_table(
             raise HTTPException(status_code=404, detail="Integration not found")
 
         # Query custom_fields_mapping table
-        from app.models.unified_models import CustomFieldMapping
+        from app.models.unified_models import CustomFieldMapping, CustomField
+        import os
 
         mapping_record = db.query(CustomFieldMapping).filter(
             CustomFieldMapping.integration_id == integration_id,
@@ -243,9 +244,15 @@ async def get_custom_field_mappings_table(
             CustomFieldMapping.active == True
         ).first()
 
-        # Build response with all 20 mappings
+        # Build response with special fields + 20 custom field mappings
         mappings = {}
         if mapping_record:
+            # Special fields
+            mappings['team_field'] = mapping_record.team_field_id
+            mappings['development_field'] = mapping_record.development_field_id
+            mappings['story_points_field'] = mapping_record.story_points_field_id
+
+            # 20 custom fields
             for i in range(1, 21):
                 field_key = f"custom_field_{i:02d}"
                 field_id_attr = f"custom_field_{i:02d}_id"
@@ -253,9 +260,27 @@ async def get_custom_field_mappings_table(
                 mappings[field_key] = field_id
         else:
             # No mapping record exists yet, return empty mappings
+            mappings['team_field'] = None
+            mappings['development_field'] = None
+            mappings['story_points_field'] = None
+
             for i in range(1, 21):
                 field_key = f"custom_field_{i:02d}"
                 mappings[field_key] = None
+
+        # Auto-map development field if not already mapped and field exists
+        if not mappings.get('development_field'):
+            development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+            dev_field = db.query(CustomField).filter(
+                CustomField.external_id == development_field_id,
+                CustomField.tenant_id == user.tenant_id,
+                CustomField.integration_id == integration_id,
+                CustomField.active == True
+            ).first()
+
+            if dev_field:
+                mappings['development_field'] = dev_field.id
+                logger.info(f"Auto-mapped development field {development_field_id} to ID {dev_field.id}")
 
         return {
             "success": True,
@@ -312,7 +337,12 @@ async def update_custom_field_mappings_table(
             )
             db.add(mapping_record)
 
-        # Update all 20 mapping fields
+        # Update special fields
+        mapping_record.team_field_id = mappings.get('team_field')
+        mapping_record.development_field_id = mappings.get('development_field')
+        mapping_record.story_points_field_id = mappings.get('story_points_field')
+
+        # Update all 20 custom field mappings
         for i in range(1, 21):
             field_key = f"custom_field_{i:02d}"
             field_id_attr = f"custom_field_{i:02d}_id"
@@ -462,12 +492,12 @@ async def sync_custom_fields(
 
         return {
             "success": True,
-            "message": f"Custom fields sync completed successfully for {etl_result.get('projects_processed', 0)} projects.",
+            "message": f"Custom fields sync queued successfully for {etl_result.get('projects_processed', 0)} projects. Processing in background...",
             "integration_id": integration_id,
             "project_keys": project_keys,
-            "sync_status": etl_result.get("status", "completed"),
+            "sync_status": "queued",  # Changed from "completed" to "queued" since transform worker processes async
             "projects_processed": etl_result.get("projects_processed", 0),
-            "total_custom_fields": etl_result.get("total_custom_fields", 0),
+            "discovered_fields_count": etl_result.get("total_custom_fields", 0),  # Add this for frontend
             "timestamp": etl_result.get("timestamp")
         }
 
@@ -476,6 +506,49 @@ async def sync_custom_fields(
     except Exception as e:
         logger.error(f"Error syncing custom fields for integration {integration_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to sync custom fields")
+
+
+@router.get("/custom-fields/sync-status/{integration_id}")
+async def get_sync_status(
+    integration_id: int,
+    db: Session = Depends(get_db_session),
+    user: UserData = Depends(require_authentication)
+):
+    """
+    Check the status of custom field sync processing.
+    Returns whether transform worker has completed processing.
+    """
+    try:
+        from app.models.unified_models import RawExtractionData
+        from sqlalchemy import desc
+
+        # Get the most recent custom fields sync for this integration
+        latest_sync = db.query(RawExtractionData).filter(
+            RawExtractionData.integration_id == integration_id,
+            RawExtractionData.tenant_id == user.tenant_id,
+            RawExtractionData.type.in_(['jira_custom_fields', 'jira_special_fields'])
+        ).order_by(desc(RawExtractionData.created_at)).first()
+
+        if not latest_sync:
+            return {
+                "success": True,
+                "status": "no_sync_found",
+                "processing_complete": True
+            }
+
+        # Check if processing is complete
+        processing_complete = latest_sync.status == 'completed'
+
+        return {
+            "success": True,
+            "status": latest_sync.status,
+            "processing_complete": processing_complete,
+            "created_at": latest_sync.created_at.isoformat() if latest_sync.created_at else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking sync status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to check sync status")
 
 
 @router.post("/custom-fields/discover")
@@ -613,7 +686,7 @@ async def queue_custom_fields_for_processing(
         # Use database session context manager
         database = get_database()
 
-        with database.get_session_context() as db:
+        with database.get_write_session_context() as db:
             try:
                 # Store the raw API response (either createmeta or field search)
                 # Each API call gets its own raw_extraction_data entry
@@ -704,7 +777,7 @@ async def queue_special_fields_for_processing(
 
         database = get_database()
 
-        with database.get_session_context() as db:
+        with database.get_write_session_context() as db:
             try:
                 # Insert into raw_extraction_data with type 'jira_special_fields'
                 insert_query = text("""

@@ -121,10 +121,25 @@ class BaseWorker(ABC):
     def get_db_session(self):
         """
         Get a database session with automatic cleanup.
-        
+
         Usage:
             with self.get_db_session() as session:
-                # Use session
+                # Use session for writes
+
+        Note: This uses write session context. For read-only operations,
+        consider using get_db_read_session() instead.
         """
-        with self.database.get_session_context() as session:
+        with self.database.get_write_session_context() as session:
+            yield session
+
+    @contextmanager
+    def get_db_read_session(self):
+        """
+        Get a read-only database session with automatic cleanup.
+
+        Usage:
+            with self.get_db_read_session() as session:
+                # Use session for reads only
+        """
+        with self.database.get_read_session_context() as session:
             yield session

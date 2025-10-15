@@ -44,15 +44,17 @@ class Settings(BaseSettings):
     POSTGRES_REPLICA_PORT: int = 5432
 
     # Primary Database Pool Settings (Write-heavy operations)
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
-    DB_POOL_TIMEOUT: int = 30
-    DB_POOL_RECYCLE: int = 3600
+    # Enterprise-grade settings to prevent UI blocking during ETL jobs
+    DB_POOL_SIZE: int = 50  # Up from 5 - large pool for concurrent ETL + UI operations
+    DB_MAX_OVERFLOW: int = 50  # Up from 10 - allow 100 total connections during peak
+    DB_POOL_TIMEOUT: int = 5  # Down from 30 - fail fast if pool exhausted
+    DB_POOL_RECYCLE: int = 900  # 15 minutes - prevent stale connections
 
     # Replica Database Pool Settings (Read-heavy operations)
-    DB_REPLICA_POOL_SIZE: int = 5
-    DB_REPLICA_MAX_OVERFLOW: int = 10
-    DB_REPLICA_POOL_TIMEOUT: int = 30
+    # Separate pool for UI read operations to prevent ETL blocking
+    DB_REPLICA_POOL_SIZE: int = 30  # Large pool for UI queries
+    DB_REPLICA_MAX_OVERFLOW: int = 20  # Allow 50 total read connections
+    DB_REPLICA_POOL_TIMEOUT: int = 3  # Fail fast for UI responsiveness
 
     # Feature Flags
     USE_READ_REPLICA: bool = False
@@ -76,7 +78,10 @@ class Settings(BaseSettings):
     # JWT Configuration
     JWT_SECRET_KEY: str = "CG4JhJsv-y6cwTXlSHU6N-ZwIh2ibjUvoFuxC9PaPOU"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 5  # Short expiry - auto-refresh while session active
+
+    # Session Configuration
+    SESSION_EXPIRE_MINUTES: int = 60  # Session lasts 60 minutes with auto token refresh
 
     # Cache Configuration
     REDIS_URL: Optional[str] = "redis://localhost:6379/0"

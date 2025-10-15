@@ -619,7 +619,7 @@ async def clear_all_user_sessions():
 
     # Try to clear sessions from database, but don't fail if database is offline
     try:
-        with database.get_session() as session:
+        with database.get_write_session_context() as session:
             from app.models.unified_models import UserSession
             # ✅ SECURITY: Mark all existing sessions as inactive (affects all clients on startup)
             # Note: This is intentional on startup for security - all clients get fresh sessions
