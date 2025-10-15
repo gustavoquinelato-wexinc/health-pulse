@@ -162,18 +162,18 @@ tbody tr:hover {
   --radius: 0.5rem;
 }
 
-/* Dark Theme Variables - VS Code Theme */
+/* Dark Theme Variables */
 [data-theme="dark"] {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d30;
-  --text-primary: #cccccc;
-  --text-secondary: #cccccc;
-  --text-muted: #858585;
-  --border-color: #3e3e42;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-color: #475569;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 
   /* Table-specific Variables - Dark Theme (VS Code) */
   --table-container: #252526;
@@ -239,25 +239,27 @@ tbody tr:hover {
   /* Card Components - Enhanced Enterprise Style */
   .card {
     background-color: #ffffff;
-    border: 1px solid #9ca3af;
+    border: 1px solid #9ca3af;  /* Darker default border (gray-400) */
     border-radius: 0.75rem;
     box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.1);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .card:hover {
+    border: 1px solid var(--color-1);  /* Colorful border on hover */
     box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.12);
   }
 
   /* Dark theme - use dark background for cards */
   [data-theme="dark"] .card {
     background-color: #252526;
-    border: 1px solid #4a5568;
+    border: 1px solid #4a5568;  /* Darker border in dark mode (gray-600) */
     color: #cccccc;
     box-shadow: 0 2px 2px 0 rgba(255, 255, 255, 0.05);
   }
 
   [data-theme="dark"] .card:hover {
+    border: 1px solid var(--color-1);  /* Colorful border on hover */
     box-shadow: 0 2px 2px 0 rgba(255, 255, 255, 0.08);
   }
 
@@ -267,7 +269,8 @@ tbody tr:hover {
   }
 
   .card-elevated:hover {
-    box-shadow: 0 3px 3px 0 rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--color-1);  /* Same width, just colored on hover */
+    box-shadow: 0 6px 8px 0 rgba(0, 0, 0, 0.18);
   }
 
   [data-theme="dark"] .card-elevated {
@@ -275,7 +278,8 @@ tbody tr:hover {
   }
 
   [data-theme="dark"] .card-elevated:hover {
-    box-shadow: 0 3px 3px 0 rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--color-1);  /* Same width, just colored on hover */
+    box-shadow: 0 6px 8px 0 rgba(0, 0, 0, 0.4);
   }
 
   /* Enhanced Button Styles - Enterprise Grade */
@@ -413,6 +417,23 @@ tbody tr:hover {
   /* Table-specific utility classes */
   .bg-table-container {
     background-color: var(--table-container);
+  }
+
+  /* Remove border from table containers - only show on hover */
+  .bg-table-container.card {
+    border: 1px solid transparent !important;
+  }
+
+  .bg-table-container.card:hover {
+    border: 1px solid transparent !important;
+  }
+
+  [data-theme="dark"] .bg-table-container.card {
+    border: 1px solid transparent !important;
+  }
+
+  [data-theme="dark"] .bg-table-container.card:hover {
+    border: 1px solid transparent !important;
   }
 
   .bg-table-header {
@@ -649,8 +670,7 @@ tbody tr:hover {
 
   .nav-item-active {
     @apply shadow-lg;
-    background: var(--gradient-1-2);
-    color: var(--on-gradient-1-2);
+    /* Background and color are set via inline styles in component */
   }
 
   /* Professional Sidebar Container */

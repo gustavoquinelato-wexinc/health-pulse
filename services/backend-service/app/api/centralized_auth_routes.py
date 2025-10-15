@@ -55,7 +55,7 @@ async def validate_user_credentials(request: CredentialValidationRequest):
         logger.info(f"[AUTH] Validating credentials for user (email length: {len(request.email)})")
 
         database = get_database()
-        with database.get_session_context() as session:
+        with database.get_read_session_context() as session:
             # Find user by email
             user = session.query(User).filter(
                 User.email == request.email.lower(),

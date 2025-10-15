@@ -304,34 +304,6 @@ const IntegrationsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Vectorization Status Card */}
-            <div className="mb-6 p-4 rounded-lg bg-secondary border border-tertiary/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                      <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-primary">Vectorization Status</h3>
-                    <p className="text-sm text-secondary">Real-time processing status</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <button className="px-3 py-1.5 text-xs rounded-md border border-tertiary/20 text-secondary bg-primary">
-                    Details
-                  </button>
-                  <button className="px-3 py-1.5 text-xs rounded-md text-white bg-blue-500">
-                    Execute
-                  </button>
-                </div>
-              </div>
-            </div>
-
             {/* Content */}
             {loading ? (
               <div className="bg-secondary rounded-lg shadow-sm p-6">
@@ -432,16 +404,7 @@ const IntegrationsPage: React.FC = () => {
                   </div>
 
                   {/* Integrations Table */}
-                  <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--color-1)'
-                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#9ca3af'
-                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                    }}
-                  >
+                  <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
                       <div className="px-6 py-5 flex justify-between items-center bg-table-header">
                         <h2 className="text-lg font-semibold text-table-header">Integrations</h2>
                       <button
@@ -472,7 +435,7 @@ const IntegrationsPage: React.FC = () => {
                             {filteredIntegrations.map((integration, index) => (
                               <tr
                                 key={integration.id}
-                                className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}`}
+                                className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'} hover:bg-table-row-hover transition-colors cursor-pointer`}
                               >
                                 <td className="px-6 py-5 whitespace-nowrap text-sm text-table-row">
                                   <span className="font-semibold">{integration.name}</span>
@@ -495,7 +458,7 @@ const IntegrationsPage: React.FC = () => {
                                 <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">{integration.name}</td>
                               <td className="px-6 py-5 whitespace-nowrap text-sm text-center text-table-row">
                                 {integration.base_url ? (
-                                  <a href={integration.base_url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                                  <a href={integration.base_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 hover:underline transition-colors">
                                     {integration.base_url.length > 30 ? `${integration.base_url.substring(0, 30)}...` : integration.base_url}
                                   </a>
                                 ) : '-'}

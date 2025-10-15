@@ -225,6 +225,9 @@ export default function Header() {
       style={{
         backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
         borderBottom: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+        boxShadow: theme === 'dark'
+          ? '0 2px 4px 0 rgba(0, 0, 0, 0.2), 2px 0 4px 0 rgba(0, 0, 0, 0.1), -2px 0 4px 0 rgba(0, 0, 0, 0.1)'
+          : '0 2px 4px 0 rgba(0, 0, 0, 0.1), 2px 0 4px 0 rgba(0, 0, 0, 0.05), -2px 0 4px 0 rgba(0, 0, 0, 0.05)',
         height: '64px'
       }}
     >
@@ -277,7 +280,7 @@ export default function Header() {
           className="text-sm font-semibold whitespace-nowrap"
           style={{ color: theme === 'dark' ? '#ffffff' : '#24292f' }}
         >
-          Pulse
+          PULSE
         </div>
       </div>
 

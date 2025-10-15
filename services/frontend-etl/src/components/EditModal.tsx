@@ -37,6 +37,7 @@ export default function EditModal({
   loading = false
 }: EditModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>({})
+  const [originalData, setOriginalData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -48,9 +49,13 @@ export default function EditModal({
         initialData[field.name] = field.value
       })
       setFormData(initialData)
+      setOriginalData(initialData)
       setErrors({})
     }
   }, [isOpen, fields])
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(originalData)
 
   const handleInputChange = (name: string, value: any) => {
     setFormData(prev => ({ ...prev, [name]: value }))
@@ -216,7 +221,7 @@ export default function EditModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || loading}
+              disabled={saving || loading || !hasUnsavedChanges}
               className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 font-medium shadow-sm"
             >
               {saving && (

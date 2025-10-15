@@ -32,9 +32,14 @@ class AuthService:
         self.jwt_secret = settings.JWT_SECRET_KEY
         self.jwt_algorithm = settings.JWT_ALGORITHM
 
-        # Use JWT expiry from settings
+        # Use JWT expiry from settings (short-lived tokens)
         expire_minutes = settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         self.token_expiry = timedelta(minutes=expire_minutes)
+
+        # Use session expiry from settings (longer-lived sessions)
+        session_expire_minutes = settings.SESSION_EXPIRE_MINUTES
+        self.session_expiry = timedelta(minutes=session_expire_minutes)
+
         self.database = get_database()
 
         # Initialize Redis session manager for cross-service sessions
@@ -43,11 +48,16 @@ class AuthService:
         # Log JWT configuration (without exposing secret key)
         secret_preview = f"{self.jwt_secret[:8]}...{self.jwt_secret[-8:]}" if len(self.jwt_secret) > 16 else "***"
         logger.info(f"🔑 Backend Service JWT configured: {secret_preview}")
-        logger.info(f"JWT token expiry configured: {expire_minutes} minutes ({self.token_expiry})")
+        logger.info(f"JWT token expiry: {expire_minutes} minutes, Session expiry: {session_expire_minutes} minutes")
         logger.info(f"Redis session manager available: {self.redis_session_manager.is_available()}")
     
     async def authenticate_local(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
-        """Local authentication (for development/admin)"""
+        """
+        Local authentication (for development/admin).
+        NOTE: This method is deprecated and should not be used directly.
+        All authentication should go through centralized auth-service.
+        Kept only for backward compatibility and session management.
+        """
         try:
             with self.database.get_write_session_context() as session:
                 user = session.query(User).filter(
@@ -66,34 +76,11 @@ class AuthService:
                 if user.auth_provider == 'system':
                     logger.warning(f"Interactive login blocked for system user: {email}")
                     return None
-                
+
                 return await self._create_session(user, session, ip_address, user_agent)
-                
+
         except Exception as e:
             logger.error(f"Local authentication error: {e}")
-            return None
-
-    async def authenticate_system(self, email: str, password: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
-        """System authentication (for automated services like ETL)"""
-        try:
-            with self.database.get_write_session_context() as session:
-                user = session.query(User).filter(
-                    and_(
-                        User.email == email.lower().strip(),
-                        User.auth_provider == 'system',
-                        User.active == True
-                    )
-                ).first()
-
-                if not user or not self._verify_password(password, user.password_hash):
-                    logger.warning(f"System authentication failed for email: {email}")
-                    return None
-
-                logger.info(f"System user authenticated: {email}")
-                return await self._create_session(user, session, ip_address, user_agent)
-
-        except Exception as e:
-            logger.error(f"System authentication error: {e}")
             return None
     
     async def authenticate_okta(self, okta_token: str, ip_address: str = None, user_agent: str = None) -> Optional[Dict[str, Any]]:
@@ -308,11 +295,12 @@ class AuthService:
             logger.debug(f"🔑 Generated JWT token: {token[:50]}...")
 
             # Store session in database with UTC timestamps
+            # Use session_expiry (60 min) not token_expiry (5 min)
             token_hash = self._hash_token(token)
             user_session = UserSession(
                 user_id=user.id,
                 token_hash=token_hash,
-                expires_at=DateTimeHelper.now_utc() + self.token_expiry,
+                expires_at=DateTimeHelper.now_utc() + self.session_expiry,  # Session lasts 60 min
                 ip_address=ip_address,
                 user_agent=user_agent,
                 tenant_id=user.tenant_id,
@@ -330,6 +318,7 @@ class AuthService:
             session.commit()
 
             # Store session in Redis for cross-service access
+            # Use session_expiry (60 min) not token_expiry (5 min)
             if self.redis_session_manager.is_available():
                 user_data = {
                     "id": user.id,
@@ -341,9 +330,9 @@ class AuthService:
                     "tenant_id": user.tenant_id,
                     "theme_mode": user.theme_mode
                 }
-                ttl_seconds = int(self.token_expiry.total_seconds())
+                ttl_seconds = int(self.session_expiry.total_seconds())  # Session lasts 60 min
                 await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
-                logger.info(f"✅ Session stored in Redis for cross-service access")
+                logger.info(f"✅ Session stored in Redis for cross-service access (TTL: {ttl_seconds}s)")
 
             logger.info(f"Session created for user: {user.email}")
 
@@ -475,48 +464,32 @@ class AuthService:
             logger.error(f"Failed to create session from user data: {e}")
             return None
 
-    async def store_session_from_token(self, token: str, user_data: Dict[str, Any], ip_address: str = None, user_agent: str = None) -> bool:
+    async def store_session_from_token(self, token: str, user_data: Dict[str, Any], ip_address: str = None, user_agent: str = None, is_refresh: bool = False) -> bool:
         """
         Store session data from centralized auth service token.
+
+        For token refresh: Extends existing session instead of resetting to token expiry.
+        For new login: Creates session with full session_expiry duration.
 
         Args:
             token: JWT token from centralized auth service
             user_data: User data from token exchange
+            is_refresh: True if this is a token refresh (extends session), False for new login
 
         Returns:
             bool: True if session stored successfully
         """
         try:
-            # Decode token to get expiration
-            import jwt
-            payload = jwt.decode(token, self.jwt_secret, algorithms=[self.jwt_algorithm])
-            exp_timestamp = payload.get("exp")
-
-            if not exp_timestamp:
-                logger.error("Token missing expiration timestamp")
-                return False
-
-            # Convert JWT timestamps to local timezone for consistency
-            try:
-                import pytz
-                from app.core.config import get_settings
-                settings = get_settings()
-                tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
-
-                # Convert UTC timestamp to local timezone
-                expires_at_utc = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
-                expires_at = expires_at_utc.astimezone(tz).replace(tzinfo=None)
-            except Exception:
-                # Fallback to UTC conversion
-                expires_at = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc).replace(tzinfo=None)
-
             token_hash = self._hash_token(token)
 
-            # Store in Redis if available
+            # For token refresh, extend the session by session_expiry from now
+            # For new login, use session_expiry from now
+            session_expires_at = DateTimeHelper.now_default() + self.session_expiry
+
+            # Store in Redis if available (use session_expiry, not token expiry)
             if self.redis_session_manager.is_available():
-                ttl_seconds = int((expires_at - DateTimeHelper.now_default()).total_seconds())
-                if ttl_seconds > 0:
-                    await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
+                ttl_seconds = int(self.session_expiry.total_seconds())
+                await self.redis_session_manager.store_session(token_hash, user_data, ttl_seconds)
 
             # Store in database (write operation)
             with self.database.get_write_session_context() as session:
@@ -540,10 +513,11 @@ class AuthService:
                 ).first()
 
                 if not user_session:
+                    # New session - use full session_expiry
                     user_session = UserSession(
                         user_id=user.id,
                         token_hash=token_hash,
-                        expires_at=expires_at,
+                        expires_at=session_expires_at,  # Session lasts 60 min
                         ip_address=ip_address,
                         user_agent=user_agent,
                         tenant_id=user.tenant_id,
@@ -552,17 +526,19 @@ class AuthService:
                         last_updated_at=DateTimeHelper.now_default()
                     )
                     session.add(user_session)
+                    logger.info(f"✅ New session created for user {user_data['email']} (expires in {int(self.session_expiry.total_seconds()/60)} min)")
                 else:
-                    user_session.expires_at = expires_at
+                    # Existing session - extend it by session_expiry from now
+                    user_session.expires_at = session_expires_at  # Extend session to 60 min from now
                     user_session.active = True
                     user_session.last_updated_at = DateTimeHelper.now_default()
                     if ip_address:
                         user_session.ip_address = ip_address
                     if user_agent:
                         user_session.user_agent = user_agent
+                    logger.info(f"✅ Session extended for user {user_data['email']} (expires in {int(self.session_expiry.total_seconds()/60)} min)")
 
                 session.commit()
-                logger.info(f"✅ Session stored for user {user_data['email']}")
                 return True
 
         except Exception as e:

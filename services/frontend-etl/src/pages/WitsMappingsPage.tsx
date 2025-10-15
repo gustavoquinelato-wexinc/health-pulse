@@ -418,7 +418,16 @@ const WitsMappingsPage: React.FC<WitsMappingsPageProps> = ({ embedded = false })
             ) : (
               <>
                   {/* Filters Section */}
-                  <div className="mb-6 p-6 rounded-lg shadow-md border border-gray-400">
+                  <div className="mb-6 p-6 rounded-lg shadow-md border border-gray-400"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--color-1)'
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#9ca3af'
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}
+                  >
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       {/* From Filter */}
                       <div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   Play,
@@ -46,6 +46,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [progressPercentage, setProgressPercentage] = useState<number | null>(null)
   const [currentStep, setCurrentStep] = useState<string | null>(null)
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
+  const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
+
+  // Throttle state updates to prevent UI freezing from rapid WebSocket messages
+  const lastUpdateRef = useRef<number>(0)
+  const THROTTLE_MS = 500 // Only update UI every 500ms max
 
   // Get status icon and color
   const getStatusInfo = () => {
@@ -201,6 +206,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active, realTimeStatus])
 
+  // Check for WebSocket service reinitialization (e.g., after logout/login)
+  useEffect(() => {
+    const currentVersion = etlWebSocketService.getInitializationVersion()
+    if (currentVersion !== wsVersion) {
+      // Service was reinitialized, update version to trigger reconnection
+      setWsVersion(currentVersion)
+    }
+  }, [wsVersion])
+
   // WebSocket connection for real-time progress tracking - only for active jobs
   useEffect(() => {
     // Only establish WebSocket connection for active jobs
@@ -213,6 +227,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
     const cleanup = etlWebSocketService.connectToJob(job.job_name, {
       onProgress: (data: ProgressUpdate) => {
+        // Throttle progress updates to prevent UI freezing
+        const now = Date.now()
+        if (now - lastUpdateRef.current < THROTTLE_MS) {
+          return // Skip this update
+        }
+        lastUpdateRef.current = now
 
         setProgressPercentage(data.percentage)
         setCurrentStep(data.step)
@@ -253,7 +273,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }
 
     return cleanup
-  }, [job.job_name, job.active]) // Include job.active dependency to reconnect when toggled
+  }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes
   useEffect(() => {
@@ -272,15 +292,17 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: job.active ? 1 : 0.97  // Slightly smaller when inactive
+      }}
       onMouseEnter={(e) => {
-        if (job.active) {
-          setIsHovered(true)
-          e.currentTarget.style.borderColor = 'var(--color-1)'
-          e.currentTarget.style.boxShadow = theme === 'dark'
-            ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
-            : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
-        }
+        setIsHovered(true)
+        e.currentTarget.style.borderColor = 'var(--color-1)'
+        e.currentTarget.style.boxShadow = theme === 'dark'
+          ? '0 2px 2px 0 rgba(255, 255, 255, 0.08)'
+          : '0 2px 2px 0 rgba(0, 0, 0, 0.12)'
       }}
       onMouseLeave={(e) => {
         setIsHovered(false)
@@ -289,17 +311,20 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           ? '0 2px 2px 0 rgba(255, 255, 255, 0.05)'
           : '0 2px 2px 0 rgba(0, 0, 0, 0.1)'
       }}
-      className="card p-6 transition-all duration-200 shadow-md"
+      className="card transition-all duration-200 shadow-md"
       style={{
-        backgroundColor: !job.active ? 'rgba(0, 0, 0, 0.08)' : undefined,
-        opacity: !job.active ? 0.7 : 1
+        backgroundColor: !job.active
+          ? (theme === 'dark' ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.04)')
+          : undefined,
+        opacity: !job.active ? 0.6 : 1,  // Darker when inactive
+        padding: !job.active ? '1rem' : '1.5rem'  // Smaller padding when inactive (p-4 vs p-6)
       }}
     >
       <div className="flex items-center justify-between">
         {/* Left: Logo + Job Info */}
         <div className="flex items-center space-x-4 flex-1">
           {/* Integration Logo */}
-          <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center bg-tertiary">
+          <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center">
             <IntegrationLogo
               logoFilename={job.integration_logo_filename || 'default-integration.svg'}
               integrationName={job.integration_type || job.job_name}

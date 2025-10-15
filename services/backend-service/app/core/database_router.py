@@ -93,7 +93,7 @@ class DatabaseRouter:
         """Always routes to primary database for write operations."""
         SessionLocal = sessionmaker(bind=self.primary_engine)
         return SessionLocal()
-    
+
     def get_read_session(self) -> Session:
         """Routes to replica if available, fallback to primary."""
         if self._should_use_replica():
@@ -103,10 +103,18 @@ class DatabaseRouter:
             except Exception as e:
                 logger.warning(f"Replica connection failed, falling back to primary: {e}")
                 self.replica_available = False
-        
+
         # Fallback to primary
         SessionLocal = sessionmaker(bind=self.primary_engine)
         return SessionLocal()
+
+    def get_session(self) -> Session:
+        """
+        DEPRECATED: Use get_read_session() or get_write_session() instead.
+        Defaults to write session for backward compatibility.
+        """
+        logger.warning("get_session() is deprecated - use get_read_session() or get_write_session()")
+        return self.get_write_session()
     
     @contextmanager
     def get_write_session_context(self):
@@ -132,6 +140,16 @@ class DatabaseRouter:
             raise
         finally:
             session.close()
+
+    @contextmanager
+    def get_session_context(self):
+        """
+        DEPRECATED: Use get_read_session_context() or get_write_session_context() instead.
+        Defaults to write session context for backward compatibility.
+        """
+        logger.warning("get_session_context() is deprecated - use get_read_session_context() or get_write_session_context()")
+        with self.get_write_session_context() as session:
+            yield session
     
     @contextmanager
     def get_analytics_session_context(self):
@@ -206,11 +224,64 @@ class DatabaseRouter:
         
         return True
     
+    def is_connection_alive(self) -> bool:
+        """
+        Checks if the primary database connection is alive.
+        Used for health checks and startup validation.
+        """
+        try:
+            if self.primary_engine is None:
+                return False
+            with self.primary_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+                return True
+        except Exception:
+            return False
+
+    def check_table_exists(self, table_name: str) -> bool:
+        """Checks if a table exists in the current schema."""
+        try:
+            if self.primary_engine is None:
+                return False
+            with self.primary_engine.connect() as conn:
+                result = conn.execute(text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table_name)"
+                ), {"table_name": table_name})
+                scalar_result = result.scalar()
+                return bool(scalar_result) if scalar_result is not None else False
+        except Exception as e:
+            logger.error(f"Error checking table existence: {e}")
+            return False
+
+    def create_tables(self):
+        """Creates all tables in the database."""
+        try:
+            from app.models.unified_models import Base
+            # PostgreSQL automatically handles sequences for SERIAL/IDENTITY columns
+            # Create tables using SQLAlchemy
+            Base.metadata.create_all(bind=self.primary_engine)
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create tables: {e}")
+            raise
+
+    def close_connections(self):
+        """Closes all database connections (primary and replica)."""
+        try:
+            if self.primary_engine:
+                self.primary_engine.dispose()
+                logger.info("Primary database connections closed")
+            if self.replica_engine:
+                self.replica_engine.dispose()
+                logger.info("Replica database connections closed")
+        except Exception as e:
+            logger.error(f"Error closing connections: {e}")
+
     async def check_replica_health(self) -> bool:
         """Check replica health and availability."""
         if not self.replica_engine:
             return False
-        
+
         try:
             # Check primary LSN
             with self.get_write_session() as primary:

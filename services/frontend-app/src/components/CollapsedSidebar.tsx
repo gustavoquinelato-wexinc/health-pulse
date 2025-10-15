@@ -215,14 +215,18 @@ export default function CollapsedSidebar() {
           background: 'transparent'
         }}
       >
-        {/* Main Navigation - Centered with background */}
+        {/* Main Navigation - Vertically centered with dynamic height + 2 extra item spaces */}
         <div className="flex-1 flex flex-col justify-center">
-          <div className="flex flex-col space-y-3 py-4 w-full" style={{
+          <div className="flex flex-col space-y-3 w-full overflow-visible" style={{
             backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
             borderRight: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
             boxShadow: theme === 'dark'
-              ? '2px 0 3px 0 rgba(255, 255, 255, 0.05), 0 -3px 3px 0 rgba(255, 255, 255, 0.05), 0 3px 3px 0 rgba(255, 255, 255, 0.05)'
-              : '2px 0 3px 0 rgba(0, 0, 0, 0.1), 0 -3px 3px 0 rgba(0, 0, 0, 0.1), 0 3px 3px 0 rgba(0, 0, 0, 0.1)'
+              ? '2px 0 4px 0 rgba(0, 0, 0, 0.2), 0 -2px 4px 0 rgba(0, 0, 0, 0.1), 0 2px 4px 0 rgba(0, 0, 0, 0.1)'
+              : '2px 0 4px 0 rgba(0, 0, 0, 0.1), 0 -2px 4px 0 rgba(0, 0, 0, 0.05), 0 2px 4px 0 rgba(0, 0, 0, 0.05)',
+            borderTopRightRadius: '32px',
+            borderBottomRightRadius: '32px',
+            paddingTop: '64px',
+            paddingBottom: '64px'
           }}>
             {navigationItems
               .filter(item => !item.adminOnly || isAdmin)

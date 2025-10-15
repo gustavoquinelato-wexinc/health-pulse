@@ -1659,7 +1659,10 @@ async def logout_page(request: Request):
                 document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + window.location.hostname;
             });
 
-            // Try to notify frontend service about logout (cross-service coordination)
+            // DEPRECATED: Old cross-service logout coordination via postMessage
+            // This is kept for backward compatibility with old etl-service
+            // New architecture uses Session WebSocket for real-time sync
+            // See: docs/SESSION_WEBSOCKET_IMPLEMENTATION.md
             try {
                 const frontendUrl = 'http://localhost:3000'; // Frontend service URL
                 // Use postMessage to communicate with frontend if it's open in another tab

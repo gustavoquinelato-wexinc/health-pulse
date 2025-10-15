@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
 import {
+  Heart,
   LogOut,
   Moon,
   Sun,
@@ -147,10 +148,13 @@ export default function Header() {
 
   return (
     <header
-      className="px-6 flex items-center justify-between sticky top-0 z-50"
+      className="pl-6 pr-4 flex items-center justify-between sticky top-0 z-50"
       style={{
         backgroundColor: theme === 'dark' ? '#24292f' : '#f6f8fa',
         borderBottom: theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+        boxShadow: theme === 'dark'
+          ? '0 2px 4px 0 rgba(0, 0, 0, 0.2), 2px 0 4px 0 rgba(0, 0, 0, 0.1), -2px 0 4px 0 rgba(0, 0, 0, 0.1)'
+          : '0 2px 4px 0 rgba(0, 0, 0, 0.1), 2px 0 4px 0 rgba(0, 0, 0, 0.05), -2px 0 4px 0 rgba(0, 0, 0, 0.05)',
         height: '64px'
       }}
     >
@@ -203,7 +207,7 @@ export default function Header() {
           className="text-sm font-semibold whitespace-nowrap"
           style={{ color: theme === 'dark' ? '#ffffff' : '#24292f' }}
         >
-          PULSE - ETL MANAGEMENT
+          ETL MANAGEMENT - PULSE
         </div>
       </div>
 
@@ -246,9 +250,7 @@ export default function Header() {
           aria-label="Analytics Dashboard"
           title="Analytics Dashboard (Ctrl+Click for new tab)"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
+          <Heart className="w-5 h-5" />
         </motion.a>
 
         {/* Theme Toggle */}

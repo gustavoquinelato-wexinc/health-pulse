@@ -237,10 +237,26 @@ class PostgreSQLDatabase:
 
 # Global database instance (lazy initialization)
 _database = None
+_database_router = None
 
 
-def get_database() -> PostgreSQLDatabase:
-    """Returns the database instance (lazy initialization)."""
+def get_database():
+    """
+    Returns the database router instance with read/write separation.
+    This is the CORRECT way to get database access for ETL operations.
+    """
+    global _database_router
+    if _database_router is None:
+        from app.core.database_router import DatabaseRouter
+        _database_router = DatabaseRouter()
+    return _database_router
+
+
+def get_legacy_database() -> PostgreSQLDatabase:
+    """
+    Returns the legacy single-engine database instance.
+    DEPRECATED: Use get_database() instead for proper read/write separation.
+    """
     global _database
     if _database is None:
         _database = PostgreSQLDatabase()
@@ -248,7 +264,42 @@ def get_database() -> PostgreSQLDatabase:
 
 
 def get_db_session() -> Generator[Session, None, None]:
-    """Dependency to get database session in FastAPI."""
-    database = get_database()
-    with database.get_session_context() as session:
+    """
+    Dependency to get database session in FastAPI.
+
+    IMPORTANT: This now uses the database router with read/write separation.
+    Routes to READ REPLICA by default for better performance.
+
+    - For read-only operations (GET endpoints): This is correct
+    - For write operations (POST/PUT/DELETE): Use get_db_write_session() instead
+
+    This ensures UI read operations don't compete with ETL write operations.
+    """
+    router = get_database()
+    # Default to READ session - most API calls are reads (GET endpoints)
+    with router.get_read_session_context() as session:
+        yield session
+
+
+def get_db_read_session() -> Generator[Session, None, None]:
+    """
+    Dependency to get READ-ONLY database session in FastAPI.
+
+    Use this for all GET endpoints that only read data.
+    Routes to replica database if available, reducing load on primary.
+    """
+    router = get_database()
+    with router.get_read_session_context() as session:
+        yield session
+
+
+def get_db_write_session() -> Generator[Session, None, None]:
+    """
+    Dependency to get WRITE database session in FastAPI.
+
+    Use this for all POST/PUT/DELETE endpoints that modify data.
+    Always routes to primary database.
+    """
+    router = get_database()
+    with router.get_write_session_context() as session:
         yield session

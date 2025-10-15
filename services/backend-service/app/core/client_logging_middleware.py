@@ -115,7 +115,7 @@ class TenantLoggingMiddleware(BaseHTTPMiddleware):
             from app.models.unified_models import Tenant
 
             database = get_database()
-            with database.get_session() as session:
+            with database.get_read_session_context() as session:
                 tenant = session.query(Tenant).filter(
                     Tenant.id == user.tenant_id,
                     Tenant.active == True

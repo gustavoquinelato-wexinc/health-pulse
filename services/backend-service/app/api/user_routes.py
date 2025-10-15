@@ -9,7 +9,7 @@ from sqlalchemy import func
 from typing import Optional
 import httpx
 
-from app.auth.auth_middleware import get_current_user
+from app.auth.auth_middleware import get_current_user, require_authentication
 from app.models.unified_models import User
 from app.core.database import get_database
 from app.core.logging_config import get_logger
@@ -83,7 +83,7 @@ class StandardResponse(BaseModel):
 
 @router.get("/theme-mode", response_model=ThemeModeResponse)
 async def get_user_theme_mode(
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
     """Get the current user's theme mode preference"""
     try:
@@ -120,9 +120,9 @@ async def get_user_theme_mode(
 @router.post("/theme-mode", response_model=ThemeModeResponse)
 async def update_user_theme_mode(
     request: ThemeModeRequest,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
-    """Update the current user's theme mode preference"""
+    """Update the current user's theme mode preference and broadcast to all devices"""
     try:
         # Validate theme mode
         if request.mode not in ["light", "dark"]:
@@ -137,23 +137,29 @@ async def update_user_theme_mode(
         with database.get_write_session_context() as session:
             # Get the user record and update theme_mode
             db_user = session.query(User).filter(User.id == user.id).first()
-            
+
             if not db_user:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="User not found"
                 )
-            
+
             # Update theme mode
             db_user.theme_mode = request.mode
             db_user.last_updated_at = func.now()
-            
+
             session.commit()
 
             logger.info(f"✅ User {user.email} theme mode updated to: {request.mode}")
 
-            # Note: ETL service notification removed - etl-service is deprecated
-            # Theme changes are now handled by frontend-app and etl-frontend independently
+            # Broadcast theme mode change to all user's WebSocket connections
+            try:
+                from app.api.websocket_routes import get_session_websocket_manager
+                session_ws_manager = get_session_websocket_manager()
+                await session_ws_manager.broadcast_theme_mode_change(user.id, request.mode)
+                logger.info(f"✅ Theme mode change broadcast sent to user_id={user.id}")
+            except Exception as e:
+                logger.warning(f"Failed to broadcast theme mode change via WebSocket: {e}")
 
             return ThemeModeResponse(
                 success=True,
@@ -177,7 +183,7 @@ async def update_user_theme_mode(
 
 @router.get("/profile", response_model=ProfileResponse)
 async def get_user_profile(
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
     """Get the current user's profile information"""
     try:
@@ -223,7 +229,7 @@ async def get_user_profile(
 @router.put("/profile", response_model=StandardResponse)
 async def update_user_profile(
     request: ProfileUpdateRequest,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
     """Update the current user's profile information"""
     try:
@@ -279,7 +285,7 @@ async def update_user_profile(
 @router.post("/accessibility-preference", response_model=AccessibilityPreferenceResponse)
 async def update_accessibility_preference(
     request: AccessibilityPreferenceRequest,
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
     """Update user's accessibility color preference"""
     try:
@@ -325,7 +331,7 @@ async def update_accessibility_preference(
 
 @router.get("/colors")
 async def get_user_colors(
-    user: User = Depends(get_current_user)
+    user: User = Depends(require_authentication)
 ):
     """Get user-specific colors based on their accessibility preference"""
     try:

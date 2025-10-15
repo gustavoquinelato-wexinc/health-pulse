@@ -79,7 +79,58 @@ class JiraAPIClient:
         except Exception as e:
             logger.error(f"Unexpected error getting createmeta: {e}")
             raise
-    
+
+    def get_field_by_id(self, field_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific field by ID using Jira's field search API.
+        This is used for special fields like development that don't appear in createmeta.
+
+        Args:
+            field_id: The field ID to search for (e.g., 'customfield_10000')
+
+        Returns:
+            Dictionary containing full API response with 'values' array, or None if not found
+        """
+        try:
+            url = f"{self.base_url}/rest/api/3/field/search"
+
+            params = {
+                'id': field_id
+            }
+
+            logger.info(f"Requesting field info for: {field_id}")
+
+            response = requests.get(
+                url,
+                auth=(self.username, self.token),
+                params=params,
+                headers={
+                    'Accept': 'application/json',
+                    'Accept-Charset': 'utf-8',
+                    'User-Agent': 'Health-Pulse-ETL-Backend/1.0'
+                },
+                timeout=30
+            )
+
+            response.raise_for_status()
+            result = response.json()
+
+            values = result.get('values', [])
+            if values:
+                logger.info(f"Successfully retrieved field info for {field_id}: {values[0].get('name')}")
+                # Return full response with values array for transform worker
+                return result
+            else:
+                logger.warning(f"Field {field_id} not found")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get field info for {field_id}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting field info for {field_id}: {e}")
+            return None
+
     def get_projects(self, project_keys: Optional[List[str]] = None, max_results: int = 100, expand: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Fetch Jira projects with issue types, optionally filtered by project keys.
@@ -195,6 +246,157 @@ class JiraAPIClient:
         except Exception as e:
             logger.error(f"Error getting statuses for project {project_key}: {e}")
             return []
+
+    def search_issues(
+        self,
+        jql: str,
+        next_page_token: Optional[str] = None,
+        max_results: int = 50,
+        fields: Optional[List[str]] = None,
+        expand: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Search for issues using JQL with pagination support using nextPageToken.
+
+        Args:
+            jql: JQL query string
+            next_page_token: Token for next page (from previous response)
+            max_results: Maximum results per page (default: 50, max: 100)
+            fields: List of fields to include in response (default: all)
+            expand: List of entities to expand (e.g., ['changelog'])
+
+        Returns:
+            Dictionary containing:
+            - issues: List of issue objects
+            - nextPageToken: Token for next page (if available)
+            - isLast: Boolean indicating if this is the last page
+        """
+        try:
+            # Use the latest JQL search API (same as old etl-service)
+            url = f"{self.base_url}/rest/api/latest/search/jql"
+
+            # Build request body for POST request
+            request_body = {
+                'jql': jql,
+                'maxResults': max_results
+            }
+
+            # Handle fields parameter
+            if fields:
+                # If fields is ['*all'], use "*all" string in array
+                if fields == ['*all']:
+                    request_body['fields'] = ['*all']
+                else:
+                    request_body['fields'] = fields
+
+            # Handle expand parameter - must be a string, not array
+            if expand:
+                # If expand is a list, join with comma
+                if isinstance(expand, list):
+                    request_body['expand'] = ','.join(expand)
+                else:
+                    request_body['expand'] = expand
+
+            # Handle pagination using nextPageToken (new API style)
+            if next_page_token:
+                request_body['nextPageToken'] = next_page_token
+
+            logger.debug(f"Searching issues with JQL: {jql} (nextPageToken={'present' if next_page_token else 'none'}, maxResults={max_results})")
+
+            response = requests.post(
+                url,
+                auth=(self.username, self.token),
+                json=request_body,
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Health-Pulse-ETL-Backend/1.0'
+                },
+                timeout=60
+            )
+
+            response.raise_for_status()
+            result = response.json()
+
+            issues_count = len(result.get('issues', []))
+            is_last = result.get('isLast', True)
+            has_next = result.get('nextPageToken') is not None
+
+            logger.info(f"Retrieved {issues_count} issues (isLast={is_last}, hasNext={has_next})")
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to search issues with JQL '{jql}': {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error searching issues: {e}")
+            raise
+
+    def get_issue_dev_details(self, issue_external_id: str, application_type: str = "GitHub", data_type: str = "branch") -> Dict[str, Any]:
+        """
+        Fetch development details for a specific issue.
+
+        Args:
+            issue_external_id: The external ID of the issue
+            application_type: Type of application (GitHub, Bitbucket, etc.)
+            data_type: Type of data to fetch (branch, pullrequest, etc.)
+
+        Returns:
+            Development details as dictionary
+        """
+        import time
+        max_retries = 3
+        retry_delay = 2  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.base_url}/rest/dev-status/latest/issue/detail"
+                params = {
+                    "issueId": issue_external_id,
+                    "applicationType": application_type,
+                    "dataType": data_type
+                }
+
+                logger.debug(f"Fetching development details for issue {issue_external_id} (attempt {attempt + 1}/{max_retries})")
+
+                response = requests.get(
+                    url,
+                    auth=(self.username, self.token),
+                    params=params,
+                    headers={'Accept': 'application/json'},
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.warning(f"Failed to get dev details for issue {issue_external_id}: {response.status_code}")
+                    return {}
+
+            except (requests.exceptions.ConnectionError, ConnectionResetError) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Connection error fetching dev details for issue {issue_external_id} (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Error fetching dev details for issue {issue_external_id} after {max_retries} attempts: {e}")
+                    return {}
+            except Exception as e:
+                logger.error(f"Error fetching dev details for issue {issue_external_id}: {e}")
+                return {}
+
+    def get_dev_status(self, issue_id: str) -> Dict[str, Any]:
+        """
+        Alias for get_issue_dev_details for consistency with extraction worker.
+
+        Args:
+            issue_id: The external ID of the issue
+
+        Returns:
+            Development status details as dictionary
+        """
+        return self.get_issue_dev_details(issue_id, application_type="GitHub", data_type="pullrequest")
 
 
 def extract_custom_fields_from_createmeta(createmeta_response: Dict[str, Any]) -> List[Dict[str, Any]]:

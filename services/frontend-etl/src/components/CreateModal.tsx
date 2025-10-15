@@ -34,6 +34,7 @@ const CreateModal: React.FC<CreateModalProps> = ({
   fields
 }) => {
   const [formData, setFormData] = useState<Record<string, any>>({})
+  const [originalData, setOriginalData] = useState<Record<string, any>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
 
@@ -45,9 +46,13 @@ const CreateModal: React.FC<CreateModalProps> = ({
         initialData[field.name] = field.defaultValue || (field.type === 'checkbox' ? false : '')
       })
       setFormData(initialData)
+      setOriginalData(initialData)
       setErrors({})
     }
   }, [isOpen, fields])
+
+  // Check if there are unsaved changes (any field has been modified from default)
+  const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(originalData)
 
   const handleInputChange = (name: string, value: any) => {
     setFormData(prev => ({ ...prev, [name]: value }))
@@ -222,7 +227,7 @@ const CreateModal: React.FC<CreateModalProps> = ({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={isLoading}
+              disabled={isLoading || !hasUnsavedChanges}
               className="px-8 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 font-medium shadow-sm"
             >
               {isLoading && (

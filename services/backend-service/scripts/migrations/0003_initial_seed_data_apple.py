@@ -81,12 +81,12 @@ def apply(connection):
 
         print("✅ DORA data inserted")
 
-        # 2. Insert default tenant (Apple)
-        print("📋 Creating Apple tenant...")
+        # 2. Insert default tenant (Apple) - Free tier
+        print("📋 Creating Apple tenant (Free tier)...")
         cursor.execute("""
-            INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, active, created_at, last_updated_at)
-            VALUES ('Apple', 'https://www.apple.com', 'apple', 'logo.png', 'default', TRUE, NOW(), NOW())
-            ON CONFLICT DO NOTHING;
+            INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, tier, active, created_at, last_updated_at)
+            VALUES ('Apple', 'https://www.apple.com', 'apple', 'logo.png', 'default', 'free', TRUE, NOW(), NOW())
+            ON CONFLICT (name) DO UPDATE SET tier = 'free';
         """)
 
         # Get the tenant ID for seed data
@@ -96,6 +96,9 @@ def apply(connection):
             raise Exception("Failed to create or find Apple tenant")
         tenant_id = tenant_result['id']
         print(f"   ✅ Apple tenant created/found with ID: {tenant_id}")
+
+        # Note: worker_configs table removed - using shared worker pools based on tenant tier
+        # Apple is free tier = 1 worker per pool (extraction, transform, vectorization)
 
         # 3. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
@@ -892,7 +895,6 @@ def apply(connection):
 
         # Get user passwords from environment variables
         admin_password = os.getenv('ADMIN_USER_PASSWORD', 'pulse')
-        system_password = os.getenv('SYSTEM_USER_PASSWORD', 'etl_system_secure_2024')
         default_password = os.getenv('DEFAULT_USER_PASSWORD', 'pulse')
 
         default_users_data = [
@@ -913,15 +915,6 @@ def apply(connection):
                 "role": "admin",
                 "is_admin": True,
                 "auth_provider": "local"
-            },
-            {
-                "email": "system@etl.pulse.local",
-                "password_hash": hash_password(system_password),
-                "first_name": "ETL",
-                "last_name": "System Service",
-                "role": "system",
-                "is_admin": True,
-                "auth_provider": "system"
             },
             {
                 "email": "user@pulse.com",
@@ -1215,6 +1208,9 @@ def rollback(connection):
 
         print("📋 Removing colors...")
         cursor.execute("DELETE FROM tenants_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+
+        print("📋 Removing worker configuration...")
+        cursor.execute("DELETE FROM worker_configs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing Apple tenant...")
         cursor.execute("DELETE FROM tenants WHERE name = 'Apple';")
