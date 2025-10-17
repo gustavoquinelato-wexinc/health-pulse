@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 4 - Minimalist Zen</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #ffffff;
+            overflow: hidden;
+        }
+        
+        .wave-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            overflow: hidden;
+        }
+        
+        .wave {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            top: -50%;
+            left: -50%;
+            background: radial-gradient(circle at center, transparent 0%, transparent 40%, rgba(40, 98, 235, 0.03) 40%, rgba(40, 98, 235, 0.03) 41%, transparent 41%);
+            background-size: 100px 100px;
+            animation: wave 30s linear infinite;
+        }
+        
+        @keyframes wave {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .login-wrapper {
+            width: 100%;
+            max-width: 420px;
+        }
+        
+        .logo-minimal {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .logo-circle {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 2rem;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+            position: relative;
+        }
+        
+        .logo-circle::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9);
+            z-index: -1;
+            animation: rotate-border 4s linear infinite;
+        }
+        
+        @keyframes rotate-border {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .logo-circle svg {
+            width: 48px;
+            height: 48px;
+            stroke: #2862EB;
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        .brand-name {
+            color: #0f172a;
+            font-size: 2rem;
+            font-weight: 300;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        
+        .login-card {
+            background: white;
+            border-radius: 24px;
+            padding: 3rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+        }
+        
+        .welcome-text {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .welcome-text h2 {
+            color: #0f172a;
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .welcome-text p {
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.75rem;
+        }
+        
+        label {
+            display: block;
+            color: #334155;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        .input-container {
+            position: relative;
+        }
+        
+        input {
+            width: 100%;
+            padding: 1rem;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            color: #0f172a;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus {
+            outline: none;
+            background: white;
+            border-color: #2862EB;
+        }
+        
+        input::placeholder {
+            color: #94a3b8;
+        }
+        
+        .input-underline {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            width: 0;
+            background: linear-gradient(90deg, #2862EB, #763DED);
+            transition: width 0.3s ease;
+        }
+        
+        input:focus + .input-underline {
+            width: 100%;
+        }
+        
+        .form-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            font-size: 0.875rem;
+        }
+        
+        .remember-check {
+            display: flex;
+            align-items: center;
+            color: #64748b;
+        }
+        
+        .remember-check input {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+        
+        .forgot-password {
+            color: #2862EB;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+        
+        .forgot-password:hover {
+            color: #1e40af;
+        }
+        
+        .btn-submit {
+            width: 100%;
+            padding: 1.125rem;
+            background: #0f172a;
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-submit::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .btn-submit:hover::before {
+            opacity: 1;
+        }
+        
+        .btn-submit span {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(40, 98, 235, 0.3);
+        }
+        
+        .separator {
+            text-align: center;
+            margin: 2rem 0;
+            position: relative;
+        }
+        
+        .separator::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e2e8f0;
+        }
+        
+        .separator span {
+            position: relative;
+            background: white;
+            padding: 0 1rem;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        
+        .social-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        .social-icon {
+            aspect-ratio: 1;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .social-icon:hover {
+            background: white;
+            border-color: #2862EB;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+        }
+        
+        .social-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: #64748b;
+        }
+        
+        .social-icon:hover svg {
+            fill: #2862EB;
+        }
+        
+        .footer-text {
+            text-align: center;
+            margin-top: 2rem;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        
+        .footer-text a {
+            color: #2862EB;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .footer-text a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="wave-container">
+        <div class="wave"></div>
+    </div>
+    
+    <div class="container">
+        <div class="login-wrapper">
+            <div class="logo-minimal">
+                <div class="logo-circle">
+                    <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
+                        <circle cx="12" cy="11" r="1"></circle>
+                        <circle cx="8" cy="11" r="1"></circle>
+                        <circle cx="16" cy="11" r="1"></circle>
+                    </svg>
+                </div>
+                <h1 class="brand-name">ETL</h1>
+            </div>
+            
+            <div class="login-card">
+                <div class="welcome-text">
+                    <h2>Welcome</h2>
+                    <p>Please sign in to your account</p>
+                </div>
+                
+                <form>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <div class="input-container">
+                            <input type="email" id="email" placeholder="name@company.com" required>
+                            <div class="input-underline"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="input-container">
+                            <input type="password" id="password" placeholder="Enter your password" required>
+                            <div class="input-underline"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-footer">
+                        <label class="remember-check">
+                            <input type="checkbox">
+                            Remember me
+                        </label>
+                        <a href="#" class="forgot-password">Forgot password?</a>
+                    </div>
+                    
+                    <button type="submit" class="btn-submit">
+                        <span>Sign In</span>
+                    </button>
+                    
+                    <div class="separator">
+                        <span>or sign in with</span>
+                    </div>
+                    
+                    <div class="social-grid">
+                        <button type="button" class="social-icon" title="Google">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="social-icon" title="GitHub">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="social-icon" title="Microsoft">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zm12.6 0H12.6V0H24v11.4z" fill="#00A4EF"/>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+                
+                <div class="footer-text">
+                    Don't have an account? <a href="#">Sign up</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

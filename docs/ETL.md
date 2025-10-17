@@ -69,43 +69,54 @@ The ETL system uses a modern, queue-based architecture with complete Extract →
 
 ## 🔄 Job Orchestration System
 
-### Enhanced ETL Job Lifecycle with Queue Integration
+### Simplified ETL Job Lifecycle (Current System)
 
 ```
-NOT_STARTED ──► READY ──► EXTRACT ──► TRANSFORM ──► LOAD ──► VECTORIZE ──► COMPLETED
-     │            │         │           │           │          │            │
-     │            │         │           │           │          │            │
-     ▼            ▼         ▼           ▼           ▼          ▼            ▼
-  Waiting     Queued    Raw Data    Clean Data   Final DB   Embeddings   Next Job
-  Manual      Auto      Storage     Transform    Tables     Generated    Cycle
-  Trigger     Execute   Queue       Queue        Queue      Queue        Continue
+NOT_STARTED ──► READY ──► RUNNING ──► FINISHED
+     │            │         │          │
+     │            │         │          │
+     ▼            ▼         ▼          ▼
+  Waiting     Queued    Processing   Next Job
+  Manual      Auto      All Stages   Cycle
+  Trigger     Execute   (E→T→L→V)    Continue
+                           │
+                           ▼
+                        FAILED
+                      (On Error)
 ```
 
-### Queue-Based Processing Stages
+**Job Status Simplified (2025 Update):**
+- **NOT_STARTED**: Initial state, waiting for trigger
+- **READY**: Queued for execution, will auto-execute
+- **RUNNING**: Currently executing all ETL stages with progress tracking
+- **FINISHED**: Successfully completed all stages
+- **FAILED**: Error occurred, requires attention
+
+### Tier-Based Queue Processing (Current Architecture)
 
 #### 1. **Extract Stage**
 - **Purpose**: Pure data extraction from external APIs
-- **Queue**: `etl.extract`
+- **Queues**: `extraction_queue_{tier}` (e.g., `extraction_queue_premium`)
 - **Output**: Raw data stored in `raw_extraction_data` table
 - **Features**: API rate limiting, cursor management, checkpoint recovery
 
 #### 2. **Transform Stage**
 - **Purpose**: Data cleaning, normalization, and custom field mapping
-- **Queue**: `etl.transform`
+- **Queues**: `transform_queue_{tier}` (e.g., `transform_queue_premium`)
 - **Input**: Raw data from extract stage
 - **Output**: Cleaned, mapped data ready for loading
 - **Features**: Dynamic custom field processing, data validation
 
 #### 3. **Load Stage**
 - **Purpose**: Bulk loading to final database tables
-- **Queue**: `etl.load`
+- **Queues**: Handled within transform workers (no separate queue)
 - **Input**: Transformed data from transform stage
 - **Output**: Data in final business tables (issues, work_items, etc.)
 - **Features**: Optimized bulk operations, relationship mapping
 
 #### 4. **Vectorization Stage**
 - **Purpose**: Generate embeddings for semantic search and multi-agent AI
-- **Queue**: `vectorization_queue_tenant_{id}` (tenant-specific)
+- **Queues**: `embedding_queue_{tier}` (e.g., `embedding_queue_premium`)
 - **Input**: Final loaded data from transform stage
 - **Output**: Vector embeddings in Qdrant database + bridge table tracking
 - **Features**:
@@ -114,15 +125,18 @@ NOT_STARTED ──► READY ──► EXTRACT ──► TRANSFORM ──► LOAD
   - Tenant isolation with dedicated collections
   - Bridge table (qdrant_vectors) for PostgreSQL ↔ Qdrant mapping
 
-### Job States & Transitions
+### Job States & Transitions (Simplified System)
 
 #### Job States
 - **NOT_STARTED**: Initial state, waiting for trigger
 - **READY**: Queued for execution, will auto-execute
-- **RUNNING**: Currently executing with progress tracking
-- **COMPLETED**: Successfully finished
+- **RUNNING**: Currently executing with progress tracking (all stages: E→T→L→V)
+- **FINISHED**: Successfully completed all stages
 - **FAILED**: Error occurred, requires attention
-- **PAUSED**: Temporarily disabled (skipped in orchestration)
+
+#### Job Properties
+- **active**: Boolean flag to enable/disable job (inactive jobs are skipped)
+- **next_run**: Timestamp for next scheduled execution
 
 #### Orchestration Logic
 ```python
@@ -136,16 +150,17 @@ class JobOrchestrator:
         # Get active jobs only (skip paused)
         active_jobs = await self.get_active_jobs(tenant_id)
         
-        # Find next job with NOT_STARTED status
+        # Find next job with READY status
         next_job = None
         for job in active_jobs:
-            if job.status == "NOT_STARTED":
+            if job.status == "READY":
                 next_job = job
                 break
-        
-        # If no NOT_STARTED jobs, cycle back to first
+
+        # If no READY jobs, cycle back to first and mark as READY
         if not next_job and active_jobs:
             next_job = active_jobs[0]
+            next_job.status = "READY"
             # Use full interval when cycling back
             await self.schedule_job(next_job, delay=self.full_cycle_interval)
         elif next_job:
@@ -327,12 +342,12 @@ class ETLJobWorker:
         try:
             # Set job status to RUNNING
             await self.update_job_status(job_id, "RUNNING")
-            
-            # Execute ETL job with progress tracking
+
+            # Execute ETL job with progress tracking (all stages)
             await self.execute_etl_job(message)
-            
-            # Set job status to COMPLETED
-            await self.update_job_status(job_id, "COMPLETED")
+
+            # Set job status to FINISHED
+            await self.update_job_status(job_id, "FINISHED")
             
             # Schedule next job
             await self.schedule_next_job(tenant_id)
@@ -391,8 +406,8 @@ class VectorizationWorker:
   - Processed by `_process_jira_project_search()` transform function
 - **Manual Custom Fields Sync**: Use `/rest/api/3/issue/createmeta` endpoint
   - Returns `{projects: [...]}` with `issuetypes` (lowercase)
-  - Triggered when user clicks "Jira sync" button in UI
-  - Processed by `_process_jira_projects_and_issue_types()` transform function
+  - Triggered when user clicks "Queue for Extraction & Transform" button in UI
+  - Processed by `_process_jira_custom_fields()` transform function
 
 ```python
 class JiraIntegration:
@@ -861,6 +876,119 @@ class QueueMonitor:
 - **Real-Time Updates**: WebSocket-based progress tracking
 - **Comprehensive Monitoring**: Queue health, job status, error tracking
 - **Self-Healing**: Automatic retry and recovery mechanisms
+
+## 🔧 Troubleshooting Guide
+
+### Common Issues & Solutions
+
+#### **Issue: ETL Job Stuck in RUNNING Status**
+
+**Symptoms:**
+- Job shows RUNNING status but no progress
+- No new raw_extraction_data records being created
+- Queue shows 0 consumers
+
+**Diagnosis:**
+```bash
+# Check worker status
+python -c "
+import sys, os
+sys.path.append('services/backend-service')
+from app.workers.worker_manager import get_worker_manager
+manager = get_worker_manager()
+print(f'Workers running: {manager.running}')
+print(f'Total workers: {len(manager.workers)}')
+"
+
+# Check queue status
+python -c "
+import sys, os
+sys.path.append('services/backend-service')
+from app.etl.queue.queue_manager import QueueManager
+qm = QueueManager()
+stats = qm.get_queue_stats('extraction_queue_premium')
+print(f'Messages: {stats[\"message_count\"]}, Consumers: {stats[\"consumer_count\"]}')
+"
+```
+
+**Solutions:**
+1. **Restart Workers**: `manager.restart_all_workers()`
+2. **Reset Job Status**: Update job status from RUNNING to READY
+3. **Check Logs**: Look for worker crash errors in backend service logs
+
+#### **Issue: Extraction Steps Not Happening**
+
+**Symptoms:**
+- Projects/statuses extraction completes
+- Issues/changelogs extraction never starts
+- Missing jira_issues_changelogs in raw_extraction_data
+
+**Diagnosis:**
+```bash
+# Check raw data progression
+python -c "
+import sys, os
+sys.path.append('services/backend-service')
+from app.core.database import get_database
+from sqlalchemy import text
+
+database = get_database()
+with database.get_read_session_context() as session:
+    result = session.execute(text('SELECT type, COUNT(*) FROM raw_extraction_data WHERE tenant_id = 1 GROUP BY type'))
+    for row in result:
+        print(f'{row[0]}: {row[1]} records')
+"
+```
+
+**Solutions:**
+1. **Check Worker Logs**: Look for extraction worker errors
+2. **Verify Integration**: Ensure integration is active and credentials valid
+3. **Manual Queue Test**: Manually queue issues extraction message
+4. **Restart ETL Job**: Reset job status and trigger new run
+
+#### **Issue: Queue Messages Not Being Consumed**
+
+**Symptoms:**
+- Messages published to queue successfully
+- Queue shows messages but 0 consumers
+- Workers appear to be running but not processing
+
+**Solutions:**
+1. **Check RabbitMQ Connection**: Verify RabbitMQ is running on port 5672
+2. **Restart Backend Service**: Workers start with backend service
+3. **Check Database Connections**: Verify PostgreSQL connectivity
+4. **Review Worker Threads**: Check if worker threads are alive
+
+### Debugging Commands
+
+#### **Check ETL Job Status**
+```bash
+curl -X GET "http://localhost:3001/app/etl/jobs?tenant_id=1" \
+  -H "X-Internal-Auth: YOUR_INTERNAL_AUTH_KEY"
+```
+
+#### **Check Queue Health**
+```bash
+# RabbitMQ Management UI
+http://localhost:15672
+# Default: guest/guest
+```
+
+#### **Reset Stuck Job**
+```bash
+curl -X PUT "http://localhost:3001/app/etl/jobs/1/status" \
+  -H "X-Internal-Auth: YOUR_INTERNAL_AUTH_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "READY"}'
+```
+
+#### **Manual Worker Restart**
+```python
+from app.workers.worker_manager import get_worker_manager
+manager = get_worker_manager()
+success = manager.restart_all_workers()
+print(f"Restart success: {success}")
+```
 
 ---
 

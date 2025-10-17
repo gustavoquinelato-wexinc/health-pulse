@@ -149,6 +149,17 @@ class WEXGatewayProvider:
 
         return ""
 
+    async def cleanup(self):
+        """Cleanup async resources to prevent event loop errors"""
+        try:
+            if hasattr(self.client, 'close'):
+                await self.client.close()
+            elif hasattr(self.client, '_client') and hasattr(self.client._client, 'aclose'):
+                await self.client._client.aclose()
+        except Exception as e:
+            # Suppress cleanup errors to avoid noise in logs
+            pass
+
     async def health_check(self) -> Dict[str, Any]:
         """Check health of WEX Gateway connection"""
         try:

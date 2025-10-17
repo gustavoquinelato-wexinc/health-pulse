@@ -307,12 +307,12 @@ const StatusesMappingsPage: React.FC<StatusesMappingsPageProps> = ({ embedded = 
     fetchData()
   }, [])
 
-  // Queue all status mappings for vectorization
-  const handleQueueForVectorization = async () => {
+  // Queue all status mappings for embedding
+  const handleQueueForEmbedding = async () => {
     try {
       setQueueing(true)
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-      const response = await fetch(`${API_BASE_URL}/app/etl/vectorization/queue-table`, {
+      const response = await fetch(`${API_BASE_URL}/app/etl/embedding/queue-table`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -324,14 +324,14 @@ const StatusesMappingsPage: React.FC<StatusesMappingsPageProps> = ({ embedded = 
       })
 
       if (!response.ok) {
-        throw new Error('Failed to queue vectorization')
+        throw new Error('Failed to queue embedding')
       }
 
       const result = await response.json()
-      showSuccess('Queued for Vectorization', `${result.queued_count} status mappings queued for vectorization`)
+      showSuccess('Queued for Embedding', `${result.queued_count} status mappings queued for embedding`)
     } catch (err) {
-      console.error('Error queueing vectorization:', err)
-      showError('Queue Failed', 'Failed to queue status mappings for vectorization')
+      console.error('Error queueing embedding:', err)
+      showError('Queue Failed', 'Failed to queue status mappings for embedding')
     } finally {
       setQueueing(false)
     }
@@ -339,10 +339,10 @@ const StatusesMappingsPage: React.FC<StatusesMappingsPageProps> = ({ embedded = 
 
   const content = (
     <>
-            {/* Queue for Vectorization Button */}
+            {/* Queue for Embedding Button */}
             <div className="mb-6 flex justify-end">
               <button
-                onClick={handleQueueForVectorization}
+                onClick={handleQueueForEmbedding}
                 disabled={queueing}
                 className="px-4 py-2 rounded-lg text-white flex items-center space-x-2 transition-colors disabled:opacity-50"
                 style={{ background: 'var(--gradient-1-2)' }}
@@ -362,7 +362,7 @@ const StatusesMappingsPage: React.FC<StatusesMappingsPageProps> = ({ embedded = 
                     <line x1="12" y1="22.08" x2="12" y2="12"></line>
                   </svg>
                 )}
-                <span>{queueing ? 'Queueing...' : 'Queue for Vectorization'}</span>
+                <span>{queueing ? 'Queueing...' : 'Queue for Embedding'}</span>
               </button>
             </div>
 

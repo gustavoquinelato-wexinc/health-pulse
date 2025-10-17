@@ -1,0 +1,27 @@
+h3. Scenario 1: Non-Blocking Job Start
+*Given* I am on the ETL dashboard
+*When* I click Start Job for a Jira extraction
+*Then* I should receive an immediate response (< 1 second)
+*And* the job should appear as Queued status
+*And* the UI should remain fully responsive
+
+h3. Scenario 2: Concurrent Job Execution
+*Given* I have started one ETL job
+*When* I start a second ETL job while the first is running
+*Then* both jobs should execute concurrently
+*And* I should see progress updates for both jobs
+*And* neither job should block the other
+
+h3. Scenario 3: Background Extraction Processing
+*Given* an ETL job has been queued
+*When* the extraction worker processes the job
+*Then* the job status should update to Extracting
+*And* I should receive real-time progress updates via WebSocket
+*And* the extracted data should be queued for transformation
+
+h3. Scenario 4: Error Handling and Recovery
+*Given* an extraction job encounters an error
+*When* the error occurs during API calls
+*Then* the job should retry automatically with exponential backoff
+*And* if retries fail, the job should be moved to a dead letter queue
+*And* I should receive clear error notifications

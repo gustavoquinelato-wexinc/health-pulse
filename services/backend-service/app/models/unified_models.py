@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 Base = declarative_base()
 
 
+
 class Tenant(Base):
     """Tenants table to manage different tenant organizations with tier-based worker pools."""
     __tablename__ = 'tenants'
@@ -33,7 +34,7 @@ class Tenant(Base):
     assets_folder = Column(String(100), nullable=True, quote=False, name="assets_folder")
     logo_filename = Column(String(255), nullable=True, default='default-logo.png', quote=False, name="logo_filename")
     color_schema_mode = Column(String(10), nullable=True, default='default', quote=False, name="color_schema_mode")
-    tier = Column(String(20), nullable=False, default='free', quote=False, name="tier")  # free, basic, premium, enterprise
+    tier = Column(String(20), nullable=False, default='premium', quote=False, name="tier")  # premium only for MVP
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
     created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
     last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())

@@ -3,12 +3,18 @@ Main FastAPI application for Backend Service.
 Provides analytics APIs, authentication, and serves as API gateway for frontend.
 """
 
+import warnings
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
+
+# Suppress asyncio event loop closure warnings
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
 # Backend Service - No scheduler needed
 
@@ -213,7 +219,7 @@ async def lifespan(_: FastAPI):
                 logger.warning(f"⚠️ Qdrant collection initialization had issues: {qdrant_result.get('error', 'Unknown error')}")
         except Exception as e:
             logger.error(f"❌ Error initializing Qdrant collections: {e}")
-            logger.warning("Qdrant collections not initialized - vectorization may have race conditions")
+            logger.warning("Qdrant collections not initialized - embedding may have race conditions")
 
         # Start ETL workers
         try:
@@ -443,9 +449,9 @@ app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", t
 from app.api.ai_config_routes import router as ai_config_router
 app.include_router(ai_config_router, prefix="/api/v1", tags=["AI Configuration"])
 
-# Include Table Vectorization routes
-from app.api.v1.table_vectorization import router as table_vectorization_router
-app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", tags=["Table Vectorization"])
+# Include Table Embedding routes
+from app.api.v1.table_embedding import router as table_embedding_router
+app.include_router(table_embedding_router, prefix="/api/v1/embedding", tags=["Table Embedding"])
 
 # Include AI Query routes
 from app.api.ai_query_routes import router as ai_query_router

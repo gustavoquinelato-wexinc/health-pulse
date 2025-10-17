@@ -556,10 +556,10 @@ def cleanup_rabbitmq_queues(confirm_flag=False):
                 # Filter for our ETL queues (tier-based queues)
                 for queue_info in all_queues:
                     queue_name = queue_info.get('name', '')
-                    # Match tier-based queues: extraction_queue_*, transform_queue_*, vectorization_queue_*
+                    # Match tier-based queues: extraction_queue_*, transform_queue_*, embedding_queue_*
                     if (queue_name.startswith('extraction_queue_') or
                         queue_name.startswith('transform_queue_') or
-                        queue_name.startswith('vectorization_queue_')):
+                        queue_name.startswith('embedding_queue_')):
                         queues_to_delete.append(queue_name)
 
                 print(f"✅ Found {len(queues_to_delete)} ETL queues in RabbitMQ")
@@ -570,7 +570,7 @@ def cleanup_rabbitmq_queues(confirm_flag=False):
                 print(f"⚠️  Falling back to tier-based queue deletion")
                 # Fallback: delete all tier-based queues (12 queues total)
                 tiers = ['free', 'basic', 'premium', 'enterprise']
-                queue_types = ['extraction', 'transform', 'vectorization']
+                queue_types = ['extraction', 'transform', 'embedding']
                 for tier in tiers:
                     for queue_type in queue_types:
                         queues_to_delete.append(f'{queue_type}_queue_{tier}')
@@ -580,7 +580,7 @@ def cleanup_rabbitmq_queues(confirm_flag=False):
             print(f"⚠️  Falling back to tier-based queue deletion")
             # Fallback: delete all tier-based queues (12 queues total)
             tiers = ['free', 'basic', 'premium', 'enterprise']
-            queue_types = ['extraction', 'transform', 'vectorization']
+            queue_types = ['extraction', 'transform', 'embedding']
             for tier in tiers:
                 for queue_type in queue_types:
                     queues_to_delete.append(f'{queue_type}_queue_{tier}')

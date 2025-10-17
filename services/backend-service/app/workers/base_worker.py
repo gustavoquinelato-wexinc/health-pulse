@@ -5,10 +5,15 @@ Provides common functionality for all queue workers including connection managem
 error handling, and message acknowledgment.
 """
 
+import warnings
 import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Callable
 from contextlib import contextmanager
+
+# Suppress asyncio event loop closure warnings for workers
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
 from app.etl.queue.queue_manager import QueueManager
 from app.core.database import get_database

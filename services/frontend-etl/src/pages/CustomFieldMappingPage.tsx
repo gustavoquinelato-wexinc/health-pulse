@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Loader2, Download, FileText, Save, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CollapsedSidebar from '../components/CollapsedSidebar';
@@ -33,7 +33,9 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ value, onChange, op
   const [isOpen, setIsOpen] = useState(false);
 
   const filteredOptions = useMemo(() => {
-    if (!searchQuery.trim()) return options;
+    if (!searchQuery.trim()) {
+      return options;
+    }
 
     const query = searchQuery.toLowerCase();
     return options.filter(field =>
@@ -141,6 +143,8 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [forceRender, setForceRender] = useState(0);
+  const syncCompletedRef = useRef(false);
   const { toasts, removeToast, showSuccess, showError } = useToast();
 
   // Check if there are unsaved changes
@@ -199,9 +203,11 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
     }
   };
 
-  const loadMappingConfig = async (integrationId: number) => {
+  const loadMappingConfig = async (integrationId: number, skipLoadingState: boolean = false) => {
     try {
-      setLoading(true);
+      if (!skipLoadingState) {
+        setLoading(true);
+      }
       const response = await customFieldsApi.getMappingsTable(integrationId);
       const data = response.data;
 
@@ -213,7 +219,9 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
       console.error('Failed to load mapping config:', error);
       showError('Load Failed', 'Failed to load custom field mappings');
     } finally {
-      setLoading(false);
+      if (!skipLoadingState) {
+        setLoading(false);
+      }
     }
   };
 
@@ -253,31 +261,26 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
 
     try {
       setSyncing(true);
-
-      // Show initial feedback
-      showSuccess('Sync Started', 'Requesting custom fields data from Jira...');
+      syncCompletedRef.current = false; // Reset completion flag
 
       const response = await customFieldsApi.syncCustomFields(selectedIntegration);
       const data = response.data;
 
       if (data.success) {
-        showSuccess(
-          'Sync Completed',
-          data.message || `Custom fields sync completed successfully. Discovered ${data.discovered_fields_count || 0} fields.`
-        );
-
+        // Don't show success message here - wait for polling to complete
         // Poll for transform worker completion and reload
+        // DON'T stop syncing here - keep button spinning until polling completes
         pollForTransformCompletion();
       } else {
-        showError('Sync Failed', data.message || 'Custom fields sync failed');
+        showError('Queue Failed', data.message || 'Custom fields extraction & transform failed');
+        setSyncing(false); // Only stop spinning on error
       }
 
     } catch (error: any) {
       console.error('Failed to sync custom fields:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to sync custom fields from Jira';
-      showError('Sync Failed', errorMessage);
-    } finally {
-      setSyncing(false);
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to queue custom fields for extraction & transform';
+      showError('Queue Failed', errorMessage);
+      setSyncing(false); // Only stop spinning on error
     }
   };
 
@@ -297,32 +300,39 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
         const statusData = statusResponse.data;
 
         if (statusData.success && statusData.processing_complete) {
-          // Transform worker has completed - reload custom fields
-          const fieldsResponse = await customFieldsApi.listCustomFields(selectedIntegration);
-          const fieldsData = fieldsResponse.data;
+          // Only process if we haven't already completed
+          if (syncCompletedRef.current) {
+            return; // Already processed, skip
+          }
 
-          if (fieldsData.success && fieldsData.custom_fields) {
-            const newFieldsCount = fieldsData.custom_fields.length;
-            const currentFieldsCount = customFields.length;
+          // Mark as completed immediately to prevent duplicate processing
+          syncCompletedRef.current = true;
+          clearInterval(pollInterval);
 
-            setCustomFields(fieldsData.custom_fields);
+          // Transform worker has completed - completely reload the page data
+          try {
 
-            // Reload mappings to get auto-mapped development field
+            // Reload custom fields from scratch
+            await loadCustomFields(selectedIntegration);
+
+            // Reload mappings from scratch
             await loadMappingConfig(selectedIntegration);
 
-            // Force a small delay to ensure state update completes
-            setTimeout(() => {
-              clearInterval(pollInterval);
+            // Force a complete re-render
+            setForceRender(prev => prev + 1);
 
-              if (newFieldsCount > currentFieldsCount) {
-                showSuccess('Fields Updated', `${newFieldsCount - currentFieldsCount} new custom fields discovered`);
-              } else {
-                showSuccess('Sync Complete', 'Custom fields are up to date');
-              }
-            }, 100);
-          } else {
-            clearInterval(pollInterval);
-            showError('Error', 'Failed to load custom fields after sync');
+            // Show success message and stop spinning
+            // Use a small delay to ensure state has updated, then get the current count
+            setTimeout(() => {
+              setSyncing(false); // Stop button spinning when everything is complete
+              const currentCount = customFields.length;
+              showSuccess('Queue Complete', `Custom fields extraction & transform completed successfully (${currentCount} fields total)`);
+            }, 500);
+
+          } catch (error) {
+            console.error('Error reloading data after sync:', error);
+            setSyncing(false); // Stop spinning on error
+            showError('Error', 'Failed to reload data after sync');
           }
         }
 
@@ -330,18 +340,20 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
         if (pollCount >= maxPolls) {
           console.warn('⚠️ Polling timeout - transform worker may still be processing');
           clearInterval(pollInterval);
+          setSyncing(false); // Stop spinning on timeout
           showError('Timeout', 'Transform worker is taking longer than expected. Please refresh the page in a moment.');
         }
       } catch (error) {
         console.error('Error polling for sync status:', error);
         clearInterval(pollInterval);
+        setSyncing(false); // Stop spinning on error
       }
     }, 1000);
   };
 
   const content = (
-    <>
-            {/* Sync from Jira Button */}
+    <div key={`custom-fields-${forceRender}`}>
+            {/* Queue for Extraction & Transform Button */}
             {!loading && selectedIntegration && (
               <div className="mb-6 flex justify-end">
                 <button
@@ -355,10 +367,18 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                   onMouseLeave={(e) => {
                     e.currentTarget.style.opacity = '1'
                   }}
-                  title="Sync custom fields from Jira using createmeta API"
+                  title="Queue custom fields for extraction and transform from Jira using createmeta API"
                 >
-                  <Download className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                  <span>{syncing ? 'Syncing from Jira...' : 'Sync from Jira'}</span>
+                  {syncing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                      <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                  )}
+                  <span>{syncing ? 'Queueing...' : 'Queue for Extraction & Transform'}</span>
                 </button>
               </div>
             )}
@@ -425,7 +445,7 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                       No Custom Fields Found
                     </h3>
                     <p className="text-secondary mb-4">
-                      Click "Sync from Jira" above to discover custom fields from your Jira projects.
+                      Click "Queue for Extraction & Transform" above to discover custom fields from your Jira projects.
                     </p>
                   </div>
                 ) : (
@@ -448,70 +468,28 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                         </tr>
                       </thead>
                       <tbody>
-                        {/* Special Fields Section - First 2 rows */}
-                        {[
-                          { key: 'team_field', label: 'TEAM' },
-                          { key: 'story_points_field', label: 'STORY POINTS' }
-                        ].map((specialField, index) => {
-                          const selectedFieldId = fieldMappings[specialField.key];
-                          const selectedField = customFields.find(f => f.id === selectedFieldId);
-
-                          return (
-                            <tr key={specialField.key} className={index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'}>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm font-bold" style={{ color: 'var(--table-column-header)' }}>{specialField.label}</div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <SearchableSelect
-                                  value={selectedFieldId || ''}
-                                  onChange={(value) => {
-                                    setFieldMappings(prev => ({
-                                      ...prev,
-                                      [specialField.key]: value ? parseInt(value) : null
-                                    }));
-                                  }}
-                                  options={customFields}
-                                  placeholder="-- Not Mapped --"
-                                />
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
-                                {selectedField?.field_type || '-'}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                {selectedField ? (
-                                  <code className="text-xs text-secondary bg-tertiary/20 px-2 py-1 rounded">
-                                    {selectedField.external_id}
-                                  </code>
-                                ) : (
-                                  <span className="text-sm text-secondary">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-
-                        {/* Divider Row - Between special fields */}
+                        {/* Development Field Section - First (right below header) */}
                         <tr>
-                          <td colSpan={4} className="px-6 py-3 bg-gray-100">
+                          <td colSpan={4} className="px-6 py-3 bg-development-divider">
                             <div className="flex items-center">
-                              <div className="flex-grow border-t border-gray-400"></div>
-                              <span className="px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              <div className="flex-grow border-t border-development-border"></div>
+                              <span className="px-4 text-xs font-semibold text-development-text uppercase tracking-wider">
                                 Development Field (Auto-selected)
                               </span>
-                              <div className="flex-grow border-t border-gray-400"></div>
+                              <div className="flex-grow border-t border-development-border"></div>
                             </div>
                           </td>
                         </tr>
 
-                        {/* Development Field - Third row (enabled, auto-selected) */}
+                        {/* Development Field Row */}
                         {(() => {
                           const selectedFieldId = fieldMappings['development_field'];
                           const selectedField = customFields.find(f => f.id === selectedFieldId);
 
                           return (
-                            <tr className="bg-table-row-even">
+                            <tr className="bg-development-row">
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm font-bold" style={{ color: 'var(--table-column-header)' }}>DEVELOPMENT</div>
+                                <div className="text-sm font-bold text-development-label">DEVELOPMENT</div>
                               </td>
                               <td className="px-6 py-4">
                                 <SearchableSelect
@@ -542,15 +520,70 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                           );
                         })()}
 
-                        {/* Divider Row - Before custom fields */}
+                        {/* Team Fields Section - Second */}
                         <tr>
-                          <td colSpan={4} className="px-6 py-3 bg-gray-100">
+                          <td colSpan={4} className="px-6 py-3 bg-team-divider">
                             <div className="flex items-center">
-                              <div className="flex-grow border-t border-gray-400"></div>
-                              <span className="px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              <div className="flex-grow border-t border-team-border"></div>
+                              <span className="px-4 text-xs font-semibold text-team-text uppercase tracking-wider">
+                                Team Fields
+                              </span>
+                              <div className="flex-grow border-t border-team-border"></div>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Team Fields - Team and Story Points */}
+                        {[
+                          { key: 'team_field', label: 'TEAM' },
+                          { key: 'story_points_field', label: 'STORY POINTS' }
+                        ].map((specialField, index) => {
+                          const selectedFieldId = fieldMappings[specialField.key];
+                          const selectedField = customFields.find(f => f.id === selectedFieldId);
+
+                          return (
+                            <tr key={specialField.key} className={index % 2 === 0 ? 'bg-team-row-even' : 'bg-team-row-odd'}>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-bold text-team-label">{specialField.label}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <SearchableSelect
+                                  value={selectedFieldId || ''}
+                                  onChange={(value) => {
+                                    setFieldMappings(prev => ({
+                                      ...prev,
+                                      [specialField.key]: value ? parseInt(value) : null
+                                    }));
+                                  }}
+                                  options={customFields}
+                                  placeholder="-- Not Mapped --"
+                                />
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                                {selectedField?.field_type || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {selectedField ? (
+                                  <code className="text-xs text-secondary bg-tertiary/20 px-2 py-1 rounded">
+                                    {selectedField.external_id}
+                                  </code>
+                                ) : (
+                                  <span className="text-sm text-secondary">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {/* Custom Fields Section - Third */}
+                        <tr>
+                          <td colSpan={4} className="px-6 py-3 bg-custom-divider">
+                            <div className="flex items-center">
+                              <div className="flex-grow border-t border-custom-border"></div>
+                              <span className="px-4 text-xs font-semibold text-custom-text uppercase tracking-wider">
                                 Custom Fields (20 Available)
                               </span>
-                              <div className="flex-grow border-t border-gray-400"></div>
+                              <div className="flex-grow border-t border-custom-border"></div>
                             </div>
                           </td>
                         </tr>
@@ -565,7 +598,7 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                           return (
                             <tr
                               key={fieldKey}
-                              className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'} hover:bg-table-row-hover transition-colors`}
+                              className={`${index % 2 === 0 ? 'bg-custom-row-even' : 'bg-custom-row-odd'} hover:bg-table-row-hover transition-colors`}
                             >
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center">
@@ -613,7 +646,7 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
 
       {/* Toast Container - Always show, even in embedded mode */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
-    </>
+    </div>
   )
 
   if (embedded) {

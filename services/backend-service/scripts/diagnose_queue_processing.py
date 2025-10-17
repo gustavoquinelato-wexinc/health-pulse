@@ -70,11 +70,11 @@ def diagnose_queue_processing(tenant_id: int = 1):
                 print("❌ No transform workers found")
                 print()
             
-            # Vectorization workers
-            if 'vectorization' in workers:
-                vectorization = workers['vectorization']
-                print(f"Vectorization Workers: {vectorization.get('count', 0)}")
-                for instance in vectorization.get('instances', []):
+            # Embedding workers (renamed from vectorization)
+            if 'embedding' in workers:
+                embedding = workers['embedding']
+                print(f"Embedding Workers: {embedding.get('count', 0)}")
+                for instance in embedding.get('instances', []):
                     worker_num = instance.get('worker_number', 0)
                     running = instance.get('worker_running', False)
                     alive = instance.get('thread_alive', False)
@@ -82,7 +82,7 @@ def diagnose_queue_processing(tenant_id: int = 1):
                     print(f"  Worker {worker_num + 1}: {status_str}")
                 print()
             else:
-                print("❌ No vectorization workers found")
+                print("❌ No embedding workers found")
                 print()
         else:
             print("❌ NO WORKERS RUNNING FOR THIS TENANT")
@@ -119,17 +119,17 @@ def diagnose_queue_processing(tenant_id: int = 1):
             print(f"❌ Could not get stats for {transform_queue}")
             print()
         
-        # Vectorization queue
-        vectorization_queue = queue_manager.get_tenant_queue_name(tenant_id, 'vectorization')
-        vectorization_stats = queue_manager.get_queue_stats(vectorization_queue)
-        
-        if vectorization_stats:
-            print(f"Vectorization Queue: {vectorization_queue}")
-            print(f"  Messages: {vectorization_stats.get('message_count', 0)}")
-            print(f"  Consumers: {vectorization_stats.get('consumer_count', 0)}")
+        # Embedding queue (renamed from vectorization)
+        embedding_queue = queue_manager.get_tier_queue_name(queue_manager._get_tenant_tier(tenant_id), 'embedding')
+        embedding_stats = queue_manager.get_queue_stats(embedding_queue)
+
+        if embedding_stats:
+            print(f"Embedding Queue: {embedding_queue}")
+            print(f"  Messages: {embedding_stats.get('message_count', 0)}")
+            print(f"  Consumers: {embedding_stats.get('consumer_count', 0)}")
             print()
         else:
-            print(f"❌ Could not get stats for {vectorization_queue}")
+            print(f"❌ Could not get stats for {embedding_queue}")
             print()
             
     except Exception as e:

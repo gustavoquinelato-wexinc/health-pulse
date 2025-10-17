@@ -2080,14 +2080,14 @@ async def get_worker_pool_config(
             query = text("SELECT tier FROM tenants WHERE id = :tenant_id")
             result = session.execute(query, {'tenant_id': tenant_id})
             row = result.fetchone()
-            current_tier = row[0] if row else 'free'
+            current_tier = row[0] if row else 'premium'
 
-        # Get tier configurations
-        tier_configs = manager.get_tier_config()
-        current_allocation = tier_configs.get(current_tier, tier_configs['free'])
+        # Get premium worker configurations
+        premium_config = manager.get_premium_worker_config(tenant_id)
+        current_allocation = premium_config
 
         return WorkerPoolConfigResponse(
-            tier_configs=tier_configs,
+            tier_configs={'premium': premium_config},
             current_tenant_tier=current_tier,
             current_tenant_allocation=current_allocation
         )

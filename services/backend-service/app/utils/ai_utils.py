@@ -71,7 +71,7 @@ class QdrantVectorManager:
                 tenant_id=tenant_id,
                 table_name=table_name,
                 record_id=entity_id,
-                qdrant_collection=f"client_{tenant_id}_{table_name}",
+                qdrant_collection=f"tenant_{tenant_id}_{table_name}",
                 qdrant_point_id=str(uuid.uuid4()),
                 vector_type=vector_type,
                 embedding_model="text-embedding-3-small",  # Phase 3-2 will make this configurable

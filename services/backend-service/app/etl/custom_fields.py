@@ -520,30 +520,43 @@ async def get_sync_status(
     """
     try:
         from app.models.unified_models import RawExtractionData
-        from sqlalchemy import desc
+        from sqlalchemy import desc, func
+        from datetime import datetime, timedelta
 
-        # Get the most recent custom fields sync for this integration
-        latest_sync = db.query(RawExtractionData).filter(
+        # Get all custom fields sync records from the last 5 minutes for this integration
+        # This ensures we check both jira_custom_fields and jira_special_fields records
+        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+
+        sync_records = db.query(RawExtractionData).filter(
             RawExtractionData.integration_id == integration_id,
             RawExtractionData.tenant_id == user.tenant_id,
-            RawExtractionData.type.in_(['jira_custom_fields', 'jira_special_fields'])
-        ).order_by(desc(RawExtractionData.created_at)).first()
+            RawExtractionData.type.in_(['jira_custom_fields', 'jira_special_fields']),
+            RawExtractionData.created_at >= cutoff_time
+        ).order_by(desc(RawExtractionData.created_at)).all()
 
-        if not latest_sync:
+        if not sync_records:
             return {
                 "success": True,
                 "status": "no_sync_found",
                 "processing_complete": True
             }
 
-        # Check if processing is complete
-        processing_complete = latest_sync.status == 'completed'
+        # Check if ALL recent sync records are completed
+        all_completed = all(record.status == 'completed' for record in sync_records)
+
+        # Get status summary
+        statuses = [record.status for record in sync_records]
+        latest_record = sync_records[0]  # Most recent
+
+        logger.info(f"Sync status check: {len(sync_records)} records, statuses: {statuses}, all_completed: {all_completed}")
 
         return {
             "success": True,
-            "status": latest_sync.status,
-            "processing_complete": processing_complete,
-            "created_at": latest_sync.created_at.isoformat() if latest_sync.created_at else None
+            "status": latest_record.status,
+            "processing_complete": all_completed,
+            "records_count": len(sync_records),
+            "all_statuses": statuses,
+            "created_at": latest_record.created_at.isoformat() if latest_record.created_at else None
         }
 
     except Exception as e:

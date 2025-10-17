@@ -568,7 +568,7 @@ async def store_entity_vector(
             qdrant_client = PulseQdrantClient()
 
             # Create collection name with tenant isolation
-            collection_name = f"client_{tenant_id}_{table_name}"
+            collection_name = f"tenant_{tenant_id}_{table_name}"
 
             # Ensure collection exists
             await qdrant_client.ensure_collection_exists(collection_name)
@@ -679,7 +679,7 @@ async def search_similar_entities(
             collections_to_search = []
             if table_name:
                 # Search specific table
-                collections_to_search.append(f"client_{tenant_id}_{table_name}")
+                collections_to_search.append(f"tenant_{tenant_id}_{table_name}")
             else:
                 # Search all collections for this tenant
                 # Get all QdrantVector records for this tenant
@@ -839,7 +839,7 @@ async def bulk_vector_operations(
                             embedding = embedding_result.data[0]
 
                             # Store in Qdrant
-                            collection_name = f"client_{tenant_id}_{table_name}"
+                            collection_name = f"tenant_{tenant_id}_{table_name}"
                             logger.info(f"[ETL_REQUEST] Storing vector in Qdrant collection: {collection_name}")
                             # Create deterministic UUID for point ID
                             import uuid

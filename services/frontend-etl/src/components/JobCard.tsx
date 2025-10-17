@@ -154,13 +154,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Calculate countdown timer
   useEffect(() => {
     // Don't show countdown if job is not active or is currently running
-    if (!job.active || realTimeStatus === 'RUNNING') {
+    if (!job.active || ['RUNNING', 'EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
       setCountdown('—')
       return
     }
 
-    if (!job.next_run) {
-      setCountdown('Calculating...')
+    if (!job.next_run || job.next_run === null || job.next_run === undefined) {
+      setCountdown('—')
       return
     }
 
@@ -236,7 +236,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
         setProgressPercentage(data.percentage)
         setCurrentStep(data.step)
-        // Update status to RUNNING when we receive progress updates
+        // Update status to RUNNING when we receive progress updates (if not already running)
         if (realTimeStatus !== 'RUNNING') {
           setRealTimeStatus('RUNNING')
         }
@@ -246,7 +246,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         setRealTimeStatus(data.status)
 
         // Clear progress when job finishes
-        if (data.status !== 'RUNNING') {
+        if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(data.status)) {
           setProgressPercentage(null)
           setCurrentStep(null)
         }
@@ -267,7 +267,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     })
 
     // Clear progress if job is not running
-    if (realTimeStatus !== 'RUNNING') {
+    if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
       setProgressPercentage(null)
       setCurrentStep(null)
     }
@@ -391,7 +391,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               onClick={() => onRunNow(job.id)}
               className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
               title="Manually trigger job"
-              disabled={realTimeStatus === 'RUNNING'}
+              disabled={['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>
@@ -454,7 +454,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       </div>
 
       {/* Progress Bar (if running) */}
-      {realTimeStatus === 'RUNNING' && (
+      {['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus) && (
         <div className="mt-4">
           {/* Progress Bar */}
           <div className="w-full bg-tertiary rounded-full h-2 overflow-hidden">

@@ -323,7 +323,7 @@ class IndividualJobTimer:
                     SET status = 'RUNNING',
                         last_run_started_at = :now,
                         last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
+                    WHERE id = :job_id AND tenant_id = :tenant_id AND status = 'READY'
                 """)
 
                 rows_updated = session.execute(update_query, {
@@ -333,9 +333,9 @@ class IndividualJobTimer:
                 }).rowcount
                 session.commit()
 
-                # If no rows were updated, job was already set to RUNNING by another process
+                # If no rows were updated, job was already set to a processing status by another process
                 if rows_updated == 0:
-                    logger.warning(f"⚠️ Job '{self.job_name}' was set to RUNNING by another process - skipping")
+                    logger.warning(f"⚠️ Job '{self.job_name}' was already started by another process - skipping")
                     return
 
             logger.info(f"🚀 AUTO-TRIGGERED job '{self.job_name}' (ID: {self.job_id}) for tenant {self.tenant_id}")
@@ -430,16 +430,21 @@ class IndividualJobTimer:
                 job_name, integration_id, provider, integration_type = job_result
                 logger.info(f"🔍 Job details: {job_name}, Integration: {integration_id} ({provider}/{integration_type})")
 
-            # Execute job based on type
+            # Queue job for extraction instead of executing directly
             if job_name.lower() == 'jira':
-                logger.info("🚀 Executing Jira extraction job...")
-                from app.etl.jira_extraction import execute_complete_jira_extraction
-                await execute_complete_jira_extraction(integration_id, self.tenant_id, self.job_id)
+                logger.info("🚀 Queuing Jira extraction job for background processing...")
+                success = await self._queue_jira_extraction(integration_id)
+
+                if success:
+                    logger.info(f"✅ Jira extraction job queued successfully for integration {integration_id}")
+                else:
+                    logger.error(f"❌ Failed to queue Jira extraction job for integration {integration_id}")
+                    await self._mark_job_failed("Failed to queue extraction job")
 
             elif job_name.lower() == 'github':
-                logger.info("🚀 Executing GitHub extraction job...")
-                # TODO: Implement GitHub job execution
-                logger.warning("GitHub job execution not yet implemented - marking as completed")
+                logger.info("🚀 Queuing GitHub extraction job...")
+                # TODO: Implement GitHub job queuing
+                logger.warning("GitHub job queuing not yet implemented - marking as completed")
                 await self._mark_job_completed()
 
             else:
@@ -536,6 +541,71 @@ class IndividualJobTimer:
             logger.error(f"❌ Job '{self.job_name}' marked as FAILED: {error_message}")
         except Exception as db_error:
             logger.error(f"Error updating job status to FAILED: {db_error}")
+
+    async def _queue_jira_extraction(self, integration_id: int) -> bool:
+        """
+        Queue Jira extraction job for background processing.
+
+        Args:
+            integration_id: Integration ID for the Jira extraction
+
+        Returns:
+            bool: True if queued successfully
+        """
+        try:
+            from app.etl.queue.queue_manager import QueueManager
+
+            # Update job status to QUEUED
+            database = get_database()
+            with database.get_write_session_context() as session:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'QUEUED',
+                        last_updated_at = :now,
+                        error_message = NULL
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': self.job_id,
+                    'tenant_id': self.tenant_id,
+                    'now': now
+                })
+                session.commit()
+
+            logger.info(f"✅ Job '{self.job_name}' status updated to QUEUED")
+
+            # Queue the first extraction step: projects and issue types
+            queue_manager = QueueManager()
+
+            message = {
+                'tenant_id': self.tenant_id,
+                'integration_id': integration_id,
+                'job_id': self.job_id,
+                'type': 'jira_projects_and_issue_types'
+            }
+
+            # Get tenant tier and route to tier-based extraction queue
+            tier = queue_manager._get_tenant_tier(self.tenant_id)
+            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+            success = queue_manager._publish_message(tier_queue, message)
+
+            if success:
+                logger.info(f"✅ Jira extraction job queued successfully to {tier_queue}")
+                return True
+            else:
+                logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error queuing Jira extraction: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
 
 
 class JobTimerManager:

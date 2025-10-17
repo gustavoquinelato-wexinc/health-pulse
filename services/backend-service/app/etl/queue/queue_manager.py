@@ -17,18 +17,18 @@ class QueueManager:
     """
     Manages RabbitMQ connections and queue operations for ETL pipeline.
 
-    Tier-Based Queue Topology:
-    - extraction_queue_{tier}: Extract additional data (free, basic, premium, enterprise)
-    - transform_queue_{tier}: Process raw data → final tables (free, basic, premium, enterprise)
-    - vectorization_queue_{tier}: Generate embeddings (free, basic, premium, enterprise)
+    Premium Queue Topology (MVP):
+    - extraction_queue_premium: Extract additional data
+    - transform_queue_premium: Process raw data → final tables
+    - embedding_queue_premium: Generate embeddings
 
-    Total: 12 queues (4 tiers × 3 types)
+    Total: 3 queues (premium tier only)
     Messages include tenant_id for routing after consumption.
     """
 
-    # Tier definitions
-    TIERS = ['free', 'basic', 'premium', 'enterprise']
-    QUEUE_TYPES = ['extraction', 'transform', 'vectorization']
+    # Premium tier only for MVP
+    TIERS = ['premium']
+    QUEUE_TYPES = ['extraction', 'transform', 'embedding']
 
     def __init__(
         self,
@@ -62,7 +62,7 @@ class QueueManager:
 
         Args:
             tier: Tenant tier ('free', 'basic', 'premium', 'enterprise')
-            queue_type: Type of queue ('extraction', 'transform', 'vectorization')
+            queue_type: Type of queue ('extraction', 'transform', 'embedding')
 
         Returns:
             str: Tier-based queue name (e.g., 'transform_queue_premium')
@@ -119,12 +119,12 @@ class QueueManager:
     def setup_queues(self):
         """
         Set up tier-based queue topology.
-        Creates 12 queues total: 4 tiers × 3 queue types (extraction, transform, vectorization).
+        Creates 12 queues total: 4 tiers × 3 queue types (extraction, transform, embedding).
 
         Queues created:
         - extraction_queue_free, extraction_queue_basic, extraction_queue_premium, extraction_queue_enterprise
         - transform_queue_free, transform_queue_basic, transform_queue_premium, transform_queue_enterprise
-        - vectorization_queue_free, vectorization_queue_basic, vectorization_queue_premium, vectorization_queue_enterprise
+        - embedding_queue_free, embedding_queue_basic, embedding_queue_premium, embedding_queue_enterprise
         """
         with self.get_channel() as channel:
             queue_count = 0
@@ -179,18 +179,24 @@ class QueueManager:
                 if tenant:
                     return tenant.tier
                 else:
-                    logger.warning(f"Tenant {tenant_id} not found, defaulting to 'free' tier")
-                    return 'free'
+                    logger.warning(f"Tenant {tenant_id} not found, defaulting to 'premium' tier")
+                    return 'premium'
         except Exception as e:
             logger.error(f"Failed to get tenant tier for tenant {tenant_id}: {e}")
-            return 'free'  # Fallback to free tier
+            return 'premium'  # Fallback to premium tier
     
     def publish_transform_job(
         self,
         tenant_id: int,
         integration_id: int,
         raw_data_id: int,
-        data_type: str
+        data_type: str,
+        etl_job_id: int = None,
+        provider_name: str = None,
+        last_sync_date: str = None,
+        first_item: bool = False,
+        last_issue_changelog_item: bool = False,
+        last_item: bool = False
     ) -> bool:
         """
         Publish a transform job to the tier-based transform queue.
@@ -200,6 +206,11 @@ class QueueManager:
             integration_id: Integration ID
             raw_data_id: ID of raw_extraction_data record
             data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
+            etl_job_id: ETL job ID (for completion tracking)
+            provider_name: Provider name (Jira, GitHub, etc.)
+            last_sync_date: Last sync date to update on completion
+            first_item: True if this is the first item in the queue
+            last_issue_changelog_item: True if this is the last Jira extraction item
 
         Returns:
             bool: True if published successfully
@@ -210,6 +221,20 @@ class QueueManager:
             'raw_data_id': raw_data_id,
             'type': data_type
         }
+
+        # Add optional ETL job tracking fields
+        if etl_job_id is not None:
+            message['etl_job_id'] = etl_job_id
+        if provider_name is not None:
+            message['provider_name'] = provider_name
+        if last_sync_date is not None:
+            message['last_sync_date'] = last_sync_date
+        if first_item:
+            message['first_item'] = True
+        if last_issue_changelog_item:
+            message['last_issue_changelog_item'] = True
+        if last_item:
+            message['last_item'] = True
 
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
@@ -222,7 +247,13 @@ class QueueManager:
         tenant_id: int,
         integration_id: int,
         extraction_type: str,
-        extraction_data: Dict[str, Any]
+        extraction_data: Dict[str, Any],
+        etl_job_id: int = None,
+        provider_name: str = None,
+        last_sync_date: str = None,
+        first_item: bool = False,
+        last_issue_changelog_item: bool = False,
+        last_item: bool = False
     ) -> bool:
         """
         Publish an extraction job to the tier-based extraction queue.
@@ -232,6 +263,12 @@ class QueueManager:
             integration_id: Integration ID
             extraction_type: Type of extraction ('jira_dev_status_fetch', etc.)
             extraction_data: Additional data for extraction (issue_id, issue_key, etc.)
+            etl_job_id: ETL job ID (for completion tracking)
+            provider_name: Provider name (Jira, GitHub, etc.)
+            last_sync_date: Last sync date to update on completion
+            first_item: True if this is the first item in the queue
+            last_issue_changelog_item: True if this is the last Jira extraction item
+            last_item: True if this is the last item that completes the job
 
         Returns:
             bool: True if published successfully
@@ -243,27 +280,53 @@ class QueueManager:
             **extraction_data  # Merge additional data (issue_id, issue_key, etc.)
         }
 
+        # Add optional ETL job tracking fields
+        if etl_job_id is not None:
+            message['etl_job_id'] = etl_job_id
+        if provider_name is not None:
+            message['provider_name'] = provider_name
+        if last_sync_date is not None:
+            message['last_sync_date'] = last_sync_date
+        if first_item:
+            message['first_item'] = True
+        if last_issue_changelog_item:
+            message['last_issue_changelog_item'] = True
+        if last_item:
+            message['last_item'] = True
+
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
         tier_queue = self.get_tier_queue_name(tier, 'extraction')
 
         return self._publish_message(tier_queue, message)
 
-    def publish_vectorization_job(
+    def publish_embedding_job(
         self,
         tenant_id: int,
         table_name: str,
         external_id: str,
-        operation: str = "insert"
+        operation: str = "insert",
+        etl_job_id: int = None,
+        integration_id: int = None,
+        provider_name: str = None,
+        last_sync_date: str = None,
+        first_item: bool = False,
+        last_item: bool = False
     ) -> bool:
         """
-        Publish a vectorization job to the tier-based vectorization queue.
+        Publish an embedding job to the tier-based embedding queue.
 
         Args:
             tenant_id: Tenant ID
             table_name: Name of the table (work_items, prs, etc.)
             external_id: External ID of the entity (or internal ID for work_items_prs_links)
             operation: Operation type ('insert', 'update', 'delete')
+            etl_job_id: ETL job ID (for completion tracking)
+            integration_id: Integration ID
+            provider_name: Provider name (Jira, GitHub, etc.)
+            last_sync_date: Last sync date to update on completion
+            first_item: True if this is the first item in the queue
+            last_item: True if this is the last item that completes the job
 
         Returns:
             bool: True if published successfully
@@ -275,9 +338,50 @@ class QueueManager:
             'operation': operation
         }
 
+        # Add optional ETL job tracking fields
+        if etl_job_id is not None:
+            message['etl_job_id'] = etl_job_id
+        if integration_id is not None:
+            message['integration_id'] = integration_id
+        if provider_name is not None:
+            message['provider_name'] = provider_name
+        if last_sync_date is not None:
+            message['last_sync_date'] = last_sync_date
+        if first_item:
+            message['first_item'] = True
+        if last_item:
+            message['last_item'] = True
+
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
-        tier_queue = self.get_tier_queue_name(tier, 'vectorization')
+        tier_queue = self.get_tier_queue_name(tier, 'embedding')
+
+        return self._publish_message(tier_queue, message)
+
+    def publish_mapping_table_embedding(
+        self,
+        tenant_id: int,
+        table_name: str
+    ) -> bool:
+        """
+        Publish a mapping table embedding job to process the entire table.
+
+        Args:
+            tenant_id: Tenant ID
+            table_name: Name of the mapping table (status_mappings, wits_mappings, etc.)
+
+        Returns:
+            bool: True if published successfully
+        """
+        message = {
+            'type': 'mappings',
+            'tenant_id': tenant_id,
+            'table_name': table_name
+        }
+
+        # Get the appropriate tier queue for this tenant
+        tier = self._get_tenant_tier(tenant_id)
+        tier_queue = self.get_tier_queue_name(tier, 'embedding')
 
         return self._publish_message(tier_queue, message)
 

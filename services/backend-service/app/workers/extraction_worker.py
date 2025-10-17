@@ -57,38 +57,114 @@ class ExtractionWorker(BaseWorker):
 
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
-        Process an extraction message based on its type.
-        
+        Enhanced process_message with retry logic and dead letter queue support.
+
         Args:
             message: Message containing extraction request details
-            
+
         Returns:
             bool: True if processing succeeded
         """
+        max_retries = 3
+        retry_count = message.get('retry_count', 0)
+
         try:
-            extraction_type = message.get('type')
+            # Call the original process_message logic
+            return self._process_message_with_retries(message)
+
+        except Exception as e:
+            logger.error(f"Error processing extraction message (attempt {retry_count + 1}/{max_retries}): {e}")
+
+            if retry_count < max_retries - 1:
+                # Retry with exponential backoff
+                self._retry_message(message, retry_count + 1)
+                return True  # Message will be retried
+            else:
+                # Send to dead letter queue
+                self._send_to_dead_letter_queue(message, str(e))
+                return False
+
+    def _process_message_with_retries(self, message: Dict[str, Any]) -> bool:
+        """
+        Original process_message logic renamed for retry handling.
+        """
+        try:
+            # Support both 'extraction_type' and 'type' field names for compatibility
+            extraction_type = message.get('extraction_type') or message.get('type')
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
-            
+            job_id = message.get('job_id')
+
+            logger.info(f"🔍 [DEBUG] Received extraction message: {message}")
+
             if not all([extraction_type, tenant_id, integration_id]):
-                logger.error(f"Missing required fields in extraction message: {message}")
+                logger.error(f"❌ [DEBUG] Missing required fields in extraction message: {message}")
                 return False
-            
-            logger.info(f"Processing {extraction_type} extraction request")
-            
+
+            logger.info(f"🚀 [DEBUG] Processing {extraction_type} extraction request for tenant {tenant_id}, integration {integration_id}, job {job_id}")
+
             # Route to appropriate extraction handler
             if extraction_type == 'jira_dev_status_fetch':
+                logger.info(f"📋 [DEBUG] Routing to _fetch_jira_dev_status")
                 return self._fetch_jira_dev_status(message)
+            elif extraction_type == 'jira_projects_and_issue_types':
+                logger.info(f"📋 [DEBUG] Routing to _extract_jira_projects_and_issue_types")
+                return self._extract_jira_projects_and_issue_types(message)
+            elif extraction_type == 'jira_statuses_and_relationships':
+                logger.info(f"📋 [DEBUG] Routing to _extract_jira_statuses_and_relationships")
+                return self._extract_jira_statuses_and_relationships(message)
+            elif extraction_type == 'jira_issues_with_changelogs':
+                logger.info(f"📋 [DEBUG] Routing to _extract_jira_issues_with_changelogs")
+                return self._extract_jira_issues_with_changelogs(message)
+            elif extraction_type == 'jira_custom_fields':
+                logger.info(f"📋 [DEBUG] Routing to _extract_jira_custom_fields")
+                return self._extract_jira_custom_fields(message)
             else:
-                logger.warning(f"Unknown extraction type: {extraction_type}")
+                logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
                 return False
-                
+
         except Exception as e:
-            logger.error(f"Error processing extraction message: {e}")
+            logger.error(f"💥 [DEBUG] Error processing extraction message: {e}")
             import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-            return False
-    
+            logger.error(f"💥 [DEBUG] Full traceback: {traceback.format_exc()}")
+
+            # Update job status to FAILED if we have job_id
+            if job_id:
+                try:
+                    self._update_job_status_failed(job_id, str(e), tenant_id)
+                except Exception as update_error:
+                    logger.error(f"Failed to update job status to FAILED: {update_error}")
+
+            raise  # Re-raise for retry handling
+
+    def _update_job_status_failed(self, job_id: int, error_message: str, tenant_id: int):
+        """Update ETL job status to FAILED with error message"""
+        try:
+            from app.core.database import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_write_session_context() as session:
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'FAILED',
+                        error_message = :error_message,
+                        last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id,
+                    'error_message': error_message[:500]  # Truncate to avoid DB issues
+                })
+                session.commit()
+
+                logger.info(f"✅ Updated job {job_id} status to FAILED")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to update job status to FAILED: {e}")
+
     def _fetch_jira_dev_status(self, message: Dict[str, Any]) -> bool:
         """
         Fetch dev_status for a Jira issue.
@@ -190,13 +266,29 @@ class ExtractionWorker(BaseWorker):
                 
                 logger.debug(f"Stored dev_status as raw_data_id={raw_data_id}")
             
-            # Queue for transformation
+            # Queue for transformation with ETL job tracking
             queue_manager = QueueManager()
+
+            # Forward ETL job tracking information from the original message
+            etl_job_id = message.get('etl_job_id')
+            provider_name = message.get('provider_name')
+            last_sync_date = message.get('last_sync_date')
+            last_issue_changelog_item = message.get('last_issue_changelog_item', False)
+
+            # ✅ Set last_item=true if this dev_status is for the last issue changelog item
+            last_item = last_issue_changelog_item
+
             success = queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
                 integration_id=integration_id,
                 data_type='jira_dev_status',
-                raw_data_id=raw_data_id
+                raw_data_id=raw_data_id,
+                etl_job_id=etl_job_id,
+                provider_name=provider_name,
+                last_sync_date=last_sync_date,
+                first_item=False,
+                last_issue_changelog_item=False,  # This flag is consumed, don't forward
+                last_item=last_item  # ✅ Set last_item=true to trigger job completion
             )
             
             if success:
@@ -211,4 +303,539 @@ class ExtractionWorker(BaseWorker):
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
+
+    def _extract_jira_projects_and_issue_types(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract Jira projects and issue types.
+
+        Args:
+            message: {
+                'type': 'jira_projects_and_issue_types',
+                'tenant_id': 1,
+                'integration_id': 1,
+                'job_id': 123
+            }
+
+        Returns:
+            bool: True if extraction succeeded
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+
+            logger.info(f"🏁 [DEBUG] Starting Jira projects and issue types extraction for tenant {tenant_id}, integration {integration_id}, job {job_id}")
+
+            # Get integration and create Jira client
+            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
+            if not integration or not jira_client:
+                return False
+
+            # Update job status to RUNNING
+            self._update_job_status(job_id, "RUNNING", "Extracting projects and issue types")
+
+            # Send WebSocket progress update
+            self._send_progress_update(tenant_id, job_id, 0, 0.0, "Starting projects and issue types extraction")
+
+            # Extract projects and issue types using existing logic
+            from app.etl.jira_extraction import _extract_projects_and_issue_types
+
+            # Create a simple progress tracker for this step
+            class SimpleProgressTracker:
+                def __init__(self, tenant_id, job_id, worker):
+                    self.tenant_id = tenant_id
+                    self.job_id = job_id
+                    self.worker = worker
+                    # Add websocket manager for compatibility
+                    from app.api.websocket_routes import get_websocket_manager
+                    self.websocket_manager = get_websocket_manager()
+                    self.websocket_client = self.websocket_manager  # Alias for compatibility
+
+                async def update_step_progress(self, step, progress, message):
+                    self.worker._send_progress_update(self.tenant_id, self.job_id, step, progress, message)
+
+                async def complete_step(self, step_index, message):
+                    """Mark a step as completed."""
+                    await self.update_step_progress(step_index, 1.0, message)
+
+            progress_tracker = SimpleProgressTracker(tenant_id, job_id, self)
+
+            # Execute extraction (this is async, so we need to handle it)
+            import asyncio
+            result = asyncio.run(_extract_projects_and_issue_types(
+                jira_client, integration_id, tenant_id, progress_tracker, step_index=0, job_id=job_id
+            ))
+
+            if result.get('success'):
+                logger.info(f"✅ [DEBUG] Projects and issue types extraction completed for tenant {tenant_id}")
+                self._send_progress_update(tenant_id, job_id, 0, 1.0, "Projects and issue types extraction completed")
+
+                # Queue next step: statuses and relationships
+                logger.info(f"🔄 [DEBUG] Step 1 completed, queuing next step: jira_statuses_and_relationships")
+                self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_statuses_and_relationships')
+                return True
+            else:
+                logger.error(f"❌ [DEBUG] Projects and issue types extraction failed: {result.get('error')}")
+                self._update_job_status(job_id, "FAILED", f"Extraction failed: {result.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in projects and issue types extraction: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            if 'job_id' in locals():
+                self._update_job_status(job_id, "FAILED", f"Extraction error: {str(e)}")
+            return False
+
+    def _extract_jira_statuses_and_relationships(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract Jira statuses and relationships.
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+
+            logger.info(f"🏁 [DEBUG] Starting Jira statuses and relationships extraction for tenant {tenant_id}, integration {integration_id}, job {job_id}")
+
+            # Get integration and create Jira client
+            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
+            if not integration or not jira_client:
+                return False
+
+            # Send WebSocket progress update
+            self._send_progress_update(tenant_id, job_id, 1, 0.0, "Starting statuses and relationships extraction")
+
+            # Extract statuses and relationships using existing logic
+            from app.etl.jira_extraction import _extract_statuses_and_relationships
+
+            # Create progress tracker
+            class SimpleProgressTracker:
+                def __init__(self, tenant_id, job_id, worker):
+                    self.tenant_id = tenant_id
+                    self.job_id = job_id
+                    self.worker = worker
+                    # Add websocket manager for compatibility
+                    from app.api.websocket_routes import get_websocket_manager
+                    self.websocket_manager = get_websocket_manager()
+                    self.websocket_client = self.websocket_manager  # Alias for compatibility
+
+                async def update_step_progress(self, step, progress, message):
+                    self.worker._send_progress_update(self.tenant_id, self.job_id, step, progress, message)
+
+                async def complete_step(self, step_index, message):
+                    """Mark a step as completed."""
+                    await self.update_step_progress(step_index, 1.0, message)
+
+            progress_tracker = SimpleProgressTracker(tenant_id, job_id, self)
+
+            # Execute extraction
+            import asyncio
+            result = asyncio.run(_extract_statuses_and_relationships(
+                jira_client, integration_id, tenant_id, progress_tracker, step_index=1
+            ))
+
+            if result.get('success'):
+                logger.info(f"✅ [DEBUG] Statuses and relationships extraction completed for tenant {tenant_id}")
+                self._send_progress_update(tenant_id, job_id, 1, 1.0, "Statuses and relationships extraction completed")
+
+                # Queue next step: issues with changelogs
+                logger.info(f"🔄 [DEBUG] Step 2 completed, queuing next step: jira_issues_with_changelogs")
+                self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_issues_with_changelogs')
+                return True
+            else:
+                logger.error(f"❌ [DEBUG] Statuses and relationships extraction failed: {result.get('error')}")
+                self._update_job_status(job_id, "FAILED", f"Extraction failed: {result.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in statuses and relationships extraction: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            if 'job_id' in locals():
+                self._update_job_status(job_id, "FAILED", f"Extraction error: {str(e)}")
+            return False
+
+    def _extract_jira_issues_with_changelogs(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract Jira issues with changelogs.
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+            incremental = message.get('incremental', True)
+
+            logger.info(f"🏁 [DEBUG] Starting Jira issues with changelogs extraction for tenant {tenant_id}, integration {integration_id}, job {job_id}")
+
+            # Get integration and create Jira client
+            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
+            if not integration or not jira_client:
+                return False
+
+            # Send WebSocket progress update
+            self._send_progress_update(tenant_id, job_id, 2, 0.0, "Starting issues with changelogs extraction")
+
+            # Extract issues with changelogs using existing logic
+            from app.etl.jira_extraction import _extract_issues_with_changelogs
+
+            # Create progress tracker
+            class SimpleProgressTracker:
+                def __init__(self, tenant_id, job_id, worker):
+                    self.tenant_id = tenant_id
+                    self.job_id = job_id
+                    self.worker = worker
+                    # Add websocket manager for compatibility
+                    from app.api.websocket_routes import get_websocket_manager
+                    self.websocket_manager = get_websocket_manager()
+                    self.websocket_client = self.websocket_manager  # Alias for compatibility
+
+                async def update_step_progress(self, step, progress, message):
+                    self.worker._send_progress_update(self.tenant_id, self.job_id, step, progress, message)
+
+                async def complete_step(self, step_index, message):
+                    """Mark a step as completed."""
+                    await self.update_step_progress(step_index, 1.0, message)
+
+            progress_tracker = SimpleProgressTracker(tenant_id, job_id, self)
+
+            # Execute extraction
+            import asyncio
+            result = asyncio.run(_extract_issues_with_changelogs(
+                jira_client, integration_id, tenant_id, incremental, progress_tracker
+            ))
+
+            if result.get('success'):
+                logger.info(f"✅ [DEBUG] Issues with changelogs extraction completed for tenant {tenant_id}")
+                self._send_progress_update(tenant_id, job_id, 2, 1.0, "Issues with changelogs extraction completed")
+
+                # ✅ FIXED: Issues extraction already publishes to transform queue internally
+                # The transform worker will handle dev_status extraction queueing for items with "development" field
+                # No need to queue anything else here - the cycle continues via transform worker
+                logger.info(f"🏁 [DEBUG] Issues extraction completed - transform worker will handle dev_status cycle")
+                return True
+            else:
+                logger.error(f"❌ [DEBUG] Issues with changelogs extraction failed: {result.get('error')}")
+                self._update_job_status(job_id, "FAILED", f"Extraction failed: {result.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in issues with changelogs extraction: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            if 'job_id' in locals():
+                self._update_job_status(job_id, "FAILED", f"Extraction error: {str(e)}")
+            return False
+
+    def _extract_jira_custom_fields(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract Jira custom fields.
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+
+            logger.info(f"Starting Jira custom fields extraction for tenant {tenant_id}")
+
+            # Get integration and create Jira client
+            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
+            if not integration or not jira_client:
+                return False
+
+            # Send WebSocket progress update
+            self._send_progress_update(tenant_id, job_id, 3, 0.0, "Starting custom fields extraction")
+
+            # Extract custom fields using existing logic
+            from app.etl.jira_extraction import _extract_custom_fields
+
+            # Create progress tracker
+            class SimpleProgressTracker:
+                def __init__(self, tenant_id, job_id, worker):
+                    self.tenant_id = tenant_id
+                    self.job_id = job_id
+                    self.worker = worker
+                    # Add websocket manager for compatibility
+                    from app.api.websocket_routes import get_websocket_manager
+                    self.websocket_manager = get_websocket_manager()
+                    self.websocket_client = self.websocket_manager  # Alias for compatibility
+
+                async def update_step_progress(self, step, progress, message):
+                    self.worker._send_progress_update(self.tenant_id, self.job_id, step, progress, message)
+
+                async def complete_step(self, step_index, message):
+                    """Mark a step as completed."""
+                    await self.update_step_progress(step_index, 1.0, message)
+
+            progress_tracker = SimpleProgressTracker(tenant_id, job_id, self)
+
+            # Execute extraction
+            import asyncio
+            result = asyncio.run(_extract_custom_fields(
+                jira_client, integration_id, tenant_id, progress_tracker, step_index=3
+            ))
+
+            if result.get('success'):
+                logger.info(f"✅ Custom fields extraction completed for tenant {tenant_id}")
+                self._send_progress_update(tenant_id, job_id, 3, 1.0, "Custom fields extraction completed")
+
+                # Queue for transformation
+                self._update_job_status(job_id, "QUEUED_TRANSFORM", "Extraction completed, queuing for transformation")
+
+                # TODO: Queue transform job here
+                # queue_manager = QueueManager()
+                # queue_manager.publish_transform_job(tenant_id, integration_id, job_id)
+                return True
+            else:
+                logger.error(f"Custom fields extraction failed: {result.get('error')}")
+                self._update_job_status(job_id, "FAILED", f"Extraction failed: {result.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in custom fields extraction: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            if 'job_id' in locals():
+                self._update_job_status(job_id, "FAILED", f"Extraction error: {str(e)}")
+            return False
+
+    def _get_jira_client(self, tenant_id: int, integration_id: int):
+        """
+        Get integration and create Jira client.
+        Uses read replica for configuration queries to optimize performance.
+
+        Returns:
+            tuple: (integration, jira_client) or (None, None) if failed
+        """
+        try:
+            from app.core.database import get_database
+            from app.models.unified_models import Integration
+            from app.etl.jira_client import JiraAPIClient
+
+            database = get_database()
+            with database.get_read_session_context() as session:
+                integration = session.query(Integration).filter(
+                    Integration.id == integration_id,
+                    Integration.tenant_id == tenant_id
+                ).first()
+
+                if not integration:
+                    logger.error(f"Integration {integration_id} not found for tenant {tenant_id}")
+                    return None, None
+
+                if not integration.active:
+                    logger.warning(f"Integration {integration_id} is inactive, skipping extraction")
+                    return None, None
+
+            # Create Jira client
+            jira_client = JiraAPIClient.create_from_integration(integration)
+            return integration, jira_client
+
+        except Exception as e:
+            logger.error(f"Error creating Jira client: {e}")
+            return None, None
+
+    def _update_job_status(self, job_id: int, status: str, message: str = None):
+        """
+        Update job status in database.
+        Uses write session (primary database) for status updates.
+        """
+        try:
+            from app.core.database import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_write_session_context() as session:
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = :status, last_updated_at = NOW()
+                    WHERE id = :job_id
+                """)
+
+                session.execute(update_query, {
+                    'status': status,
+                    'job_id': job_id
+                })
+                session.commit()
+
+                logger.info(f"Updated job {job_id} status to {status}")
+                if message:
+                    logger.info(f"Job {job_id} message: {message}")
+
+        except Exception as e:
+            logger.error(f"Error updating job status: {e}")
+
+    def _update_job_activity(self, job_id: int, message: str = None):
+        """
+        Update job last_updated_at to show activity without changing status.
+        Extraction worker uses this to show progress while keeping status as QUEUED.
+        """
+        try:
+            from app.core.database import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_write_session_context() as session:
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET last_updated_at = NOW()
+                    WHERE id = :job_id
+                """)
+
+                session.execute(update_query, {'job_id': job_id})
+                session.commit()
+
+                logger.info(f"Updated job {job_id} activity timestamp")
+                if message:
+                    logger.info(f"Job {job_id} message: {message}")
+
+        except Exception as e:
+            logger.error(f"Error updating job activity: {e}")
+
+    def _send_progress_update(self, tenant_id: int, job_id: int, step: int, progress: float, message: str):
+        """
+        Send WebSocket progress update.
+        """
+        try:
+            from app.api.websocket_routes import get_websocket_manager
+
+            websocket_manager = get_websocket_manager()
+            if websocket_manager:
+                # Calculate overall progress based on step and progress within step
+                # 4 total steps: projects(0), statuses(1), issues(2), custom_fields(3)
+                step_percentage = 100.0 / 4
+                overall_progress = (step * step_percentage) + (progress * step_percentage)
+
+                # Use asyncio to call the async method
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(websocket_manager.send_progress_update(
+                            tenant_id=tenant_id,
+                            job_name="Jira",  # Use job name instead of job_id
+                            percentage=overall_progress,
+                            message=message
+                        ))
+                except RuntimeError:
+                    # No event loop running, skip WebSocket update
+                    logger.debug("No event loop running, skipping WebSocket update")
+
+        except Exception as e:
+            logger.error(f"Error sending progress update: {e}")
+
+    def _queue_next_extraction_step(self, tenant_id: int, integration_id: int, job_id: int, next_step: str):
+        """
+        Queue the next extraction step.
+        """
+        try:
+            logger.info(f"🔄 [DEBUG] Queuing next extraction step: {next_step} for tenant {tenant_id}, integration {integration_id}, job {job_id}")
+
+            queue_manager = QueueManager()
+
+            message = {
+                'tenant_id': tenant_id,
+                'integration_id': integration_id,
+                'job_id': job_id,
+                'type': next_step
+            }
+
+            logger.info(f"📤 [DEBUG] Message to queue: {message}")
+
+            # Get tenant tier and route to tier-based queue
+            tier = queue_manager._get_tenant_tier(tenant_id)
+            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+            logger.info(f"🎯 [DEBUG] Publishing to queue: {tier_queue} (tier: {tier})")
+
+            success = queue_manager._publish_message(tier_queue, message)
+
+            if success:
+                logger.info(f"✅ [DEBUG] Successfully queued next extraction step: {next_step} to {tier_queue}")
+            else:
+                logger.error(f"❌ [DEBUG] Failed to queue next extraction step: {next_step} to {tier_queue}")
+
+        except Exception as e:
+            logger.error(f"💥 [DEBUG] Error queuing next extraction step: {e}")
+            import traceback
+            logger.error(f"💥 [DEBUG] Full traceback: {traceback.format_exc()}")
+
+    def _retry_message(self, message: Dict[str, Any], retry_count: int):
+        """
+        Retry a failed message with exponential backoff.
+        """
+        try:
+            import time
+            import threading
+
+            # Calculate delay: 2^retry_count seconds (1s, 2s, 4s)
+            delay = 2 ** (retry_count - 1)
+
+            logger.info(f"Retrying message in {delay} seconds (attempt {retry_count})")
+
+            # Add retry count to message
+            retry_message = message.copy()
+            retry_message['retry_count'] = retry_count
+
+            # Schedule retry after delay
+            def delayed_retry():
+                time.sleep(delay)
+                queue_manager = QueueManager()
+
+                # Get tenant tier and route to tier-based extraction queue
+                tenant_id = message.get('tenant_id')
+                tier = queue_manager._get_tenant_tier(tenant_id)
+                tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+                success = queue_manager._publish_message(tier_queue, retry_message)
+                if success:
+                    logger.info(f"Message requeued for retry (attempt {retry_count})")
+                else:
+                    logger.error(f"Failed to requeue message for retry")
+
+            # Run retry in background thread
+            retry_thread = threading.Thread(target=delayed_retry)
+            retry_thread.daemon = True
+            retry_thread.start()
+
+        except Exception as e:
+            logger.error(f"Error scheduling retry: {e}")
+
+    def _send_to_dead_letter_queue(self, message: Dict[str, Any], error_message: str):
+        """
+        Send failed message to dead letter queue for manual investigation.
+        """
+        try:
+            from sqlalchemy import text
+
+            # Store failed message in database for investigation
+            with self.get_db_session() as db:
+                insert_query = text("""
+                    INSERT INTO extraction_failures (
+                        tenant_id, integration_id, extraction_type,
+                        original_message, error_message, failed_at, created_at
+                    ) VALUES (
+                        :tenant_id, :integration_id, :extraction_type,
+                        :original_message, :error_message, NOW(), NOW()
+                    )
+                """)
+
+                db.execute(insert_query, {
+                    'tenant_id': message.get('tenant_id'),
+                    'integration_id': message.get('integration_id'),
+                    'extraction_type': message.get('type'),
+                    'original_message': json.dumps(message),
+                    'error_message': error_message[:1000]  # Limit error message length
+                })
+                db.commit()
+
+            logger.error(f"Message sent to dead letter queue: {message.get('type')} - {error_message}")
+
+            # Update job status to failed if job_id is present
+            job_id = message.get('job_id')
+            if job_id:
+                self._update_job_status(job_id, "FAILED", f"Extraction failed after retries: {error_message}")
+
+        except Exception as e:
+            logger.error(f"Error sending message to dead letter queue: {e}")
 

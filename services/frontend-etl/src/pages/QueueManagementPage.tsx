@@ -47,14 +47,14 @@ interface WorkerPoolConfig {
     [tier: string]: {
       extraction: number
       transform: number
-      vectorization: number
+      embedding: number
     }
   }
   current_tenant_tier: string
   current_tenant_allocation: {
     extraction: number
     transform: number
-    vectorization: number
+    embedding: number
   }
 }
 
@@ -511,13 +511,13 @@ export default function QueueManagementPage() {
                           </div>
                         ))}
 
-                      {/* Vectorization Workers */}
+                      {/* Embedding Workers */}
                       {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('vectorization'))
+                        .filter(([key]) => key.includes('embedding'))
                         .map(([key, workerData]) => (
                           <div key={key} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-purple-900">Vectorization Workers</span>
+                              <span className="text-sm font-semibold text-purple-900">Embedding Workers</span>
                               <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
                                 {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
                               </Badge>
@@ -652,7 +652,7 @@ export default function QueueManagementPage() {
                       <div className="font-semibold text-sm mt-1">
                         {workerConfig.current_tenant_allocation.extraction} Extraction + {' '}
                         {workerConfig.current_tenant_allocation.transform} Transform + {' '}
-                        {workerConfig.current_tenant_allocation.vectorization} Vectorization
+                        {workerConfig.current_tenant_allocation.embedding} Embedding
                       </div>
                     </div>
                   </div>
@@ -689,7 +689,7 @@ export default function QueueManagementPage() {
                           <th className="px-4 py-2 text-left font-semibold">Tier</th>
                           <th className="px-4 py-2 text-center font-semibold">Extraction</th>
                           <th className="px-4 py-2 text-center font-semibold">Transform</th>
-                          <th className="px-4 py-2 text-center font-semibold">Vectorization</th>
+                          <th className="px-4 py-2 text-center font-semibold">Embedding</th>
                           <th className="px-4 py-2 text-center font-semibold">Total Workers</th>
                         </tr>
                       </thead>
@@ -699,9 +699,9 @@ export default function QueueManagementPage() {
                             <td className="px-4 py-2 font-medium capitalize">{tier}</td>
                             <td className="px-4 py-2 text-center">{config.extraction}</td>
                             <td className="px-4 py-2 text-center">{config.transform}</td>
-                            <td className="px-4 py-2 text-center">{config.vectorization}</td>
+                            <td className="px-4 py-2 text-center">{config.embedding}</td>
                             <td className="px-4 py-2 text-center font-semibold">
-                              {config.extraction + config.transform + config.vectorization}
+                              {config.extraction + config.transform + config.embedding}
                             </td>
                           </tr>
                         ))}

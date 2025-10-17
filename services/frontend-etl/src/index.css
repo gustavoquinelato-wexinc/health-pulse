@@ -139,6 +139,28 @@ tbody tr:hover {
   --table-row-odd: #e5e7eb;
   --table-row-text: #111827;
 
+  /* Development Field Section - Light Theme (matching table header spectrum) */
+  --development-divider: #e2e8f0;
+  --development-border: #475569;
+  --development-text: #334155;
+  --development-row: #f1f5f9;
+  --development-label: #1e293b;
+
+  /* Team Fields Section - Light Theme (matching table header spectrum) */
+  --team-divider: #e6fffa;
+  --team-border: #0f766e;
+  --team-text: #134e4a;
+  --team-row-even: #f0fdfa;
+  --team-row-odd: #ccfbf1;
+  --team-label: #0f766e;
+
+  /* Custom Fields Section - Light Theme (neutral, matching existing rows) */
+  --custom-divider: #f3f4f6;
+  --custom-border: #6b7280;
+  --custom-text: #374151;
+  --custom-row-even: #f9fafb;
+  --custom-row-odd: #f3f4f6;
+
   /* Shadcn/UI Variables - Light Theme */
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -184,6 +206,28 @@ tbody tr:hover {
   --table-row-even: #1e1e1e;
   --table-row-odd: #252526;
   --table-row-text: #cccccc;
+
+  /* Development Field Section - Dark Theme (matching table header spectrum) */
+  --development-divider: #1e293b;
+  --development-border: #475569;
+  --development-text: #94a3b8;
+  --development-row: #0f172a;
+  --development-label: #cbd5e1;
+
+  /* Team Fields Section - Dark Theme (matching table header spectrum) */
+  --team-divider: #134e4a;
+  --team-border: #14b8a6;
+  --team-text: #5eead4;
+  --team-row-even: #042f2e;
+  --team-row-odd: #0f2027;
+  --team-label: #7dd3fc;
+
+  /* Custom Fields Section - Dark Theme (neutral, matching existing rows) */
+  --custom-divider: #374151;
+  --custom-border: #6b7280;
+  --custom-text: #9ca3af;
+  --custom-row-even: #1e1e1e;
+  --custom-row-odd: #2a2a2a;
 
   /* Shadcn/UI Variables - Dark Theme */
   --background: 222.2 84% 4.9%;
@@ -462,6 +506,73 @@ tbody tr:hover {
 
   .text-table-row {
     color: var(--table-row-text);
+  }
+
+  /* Development Field Section Styling */
+  .bg-development-divider {
+    background-color: var(--development-divider);
+  }
+
+  .border-development-border {
+    border-color: var(--development-border);
+  }
+
+  .text-development-text {
+    color: var(--development-text);
+  }
+
+  .bg-development-row {
+    background-color: var(--development-row);
+  }
+
+  .text-development-label {
+    color: var(--development-label);
+  }
+
+  /* Team Fields Section Styling */
+  .bg-team-divider {
+    background-color: var(--team-divider);
+  }
+
+  .border-team-border {
+    border-color: var(--team-border);
+  }
+
+  .text-team-text {
+    color: var(--team-text);
+  }
+
+  .bg-team-row-even {
+    background-color: var(--team-row-even);
+  }
+
+  .bg-team-row-odd {
+    background-color: var(--team-row-odd);
+  }
+
+  .text-team-label {
+    color: var(--team-label);
+  }
+
+  /* Custom Fields Section Styling */
+  .bg-custom-divider {
+    background-color: var(--custom-divider);
+  }
+
+  .border-custom-border {
+    border-color: var(--custom-border);
+  }
+
+  .text-custom-text {
+    color: var(--custom-text);
+  }
+
+  .bg-custom-row-even {
+    background-color: var(--custom-row-even);
+  }
+
+  .bg-custom-row-odd {
+    background-color: var(--custom-row-odd);
   }
 
   /* Custom Color Utilities */

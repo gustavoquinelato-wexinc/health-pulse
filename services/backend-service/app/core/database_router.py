@@ -108,13 +108,7 @@ class DatabaseRouter:
         SessionLocal = sessionmaker(bind=self.primary_engine)
         return SessionLocal()
 
-    def get_session(self) -> Session:
-        """
-        DEPRECATED: Use get_read_session() or get_write_session() instead.
-        Defaults to write session for backward compatibility.
-        """
-        logger.warning("get_session() is deprecated - use get_read_session() or get_write_session()")
-        return self.get_write_session()
+
     
     @contextmanager
     def get_write_session_context(self):
@@ -141,15 +135,7 @@ class DatabaseRouter:
         finally:
             session.close()
 
-    @contextmanager
-    def get_session_context(self):
-        """
-        DEPRECATED: Use get_read_session_context() or get_write_session_context() instead.
-        Defaults to write session context for backward compatibility.
-        """
-        logger.warning("get_session_context() is deprecated - use get_read_session_context() or get_write_session_context()")
-        with self.get_write_session_context() as session:
-            yield session
+
     
     @contextmanager
     def get_analytics_session_context(self):
