@@ -58,6 +58,8 @@ interface AuthContextType {
   updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
   refreshUserColors: () => Promise<void>
   refreshToken: () => Promise<boolean>
+  pauseSessionValidation: () => void
+  resumeSessionValidation: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -74,6 +76,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoggingOut, setIsLoggingOut] = useState(false) // Prevent context access during logout
+  const [skipSessionValidation, setSkipSessionValidation] = useState(false) // Skip validation during heavy operations
 
   // Load complete color data from API and cache it
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -196,43 +199,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return await loadColorSchema()
   }
 
-  // Preload color data immediately on app start (before authentication)
+  // Initialize authentication and load color data after authentication
   useEffect(() => {
-    const preloadColorData = async () => {
+    const initializeAuth = async () => {
       try {
-        // Try to load color data immediately if we have a token
         const token = localStorage.getItem('pulse_token')
         if (token) {
-          // Set up axios header temporarily for color data request
-          const tempHeaders = { 'Authorization': `Bearer ${token}` }
-
-          try {
-            const response = await axios.get('/api/v1/admin/color-schema/unified', { headers: tempHeaders })
-            if (response.data.success && response.data.color_data) {
-              // Cache complete color data immediately for instant access
-              colorDataService.saveToCache(response.data.color_data)
-            }
-          } catch (error) {
-            console.warn('🎨 Failed to preload color data:', error)
-          }
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+          await validateToken()
+        } else {
+          // No localStorage token, but check if there's an existing session in Backend Service
+          await checkExistingSession()
         }
       } catch (error) {
-        console.warn('🎨 Error during color data preload:', error)
+        console.warn('🔐 Error during authentication initialization:', error)
+        setIsLoading(false)
       }
     }
 
-    // Preload color data first (non-blocking)
-    preloadColorData()
-
-    // Then proceed with authentication
-    const token = localStorage.getItem('pulse_token')
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      validateToken()
-    } else {
-      // No localStorage token, but check if there's an existing session in Backend Service
-      checkExistingSession()
-    }
+    // Initialize authentication first
+    initializeAuth()
 
     // Cross-service authentication is handled via postMessage and cookies
   }, [])
@@ -446,7 +432,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // Refresh token if it expires in less than 3 minutes (180 seconds)
             // This gives us 3 minutes buffer before actual expiry (token expires in 5 min)
             if (timeUntilExpiry < 180000) {
-              console.log(`🔄 Token expiring in ${minutesRemaining}m ${secondsRemaining % 60}s, refreshing...`)
               const refreshed = await refreshToken()
               if (!refreshed) {
                 console.warn('❌ Token refresh failed, logging out')
@@ -459,7 +444,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 window.location.replace('/login')
                 return
               }
-              console.log('✅ Token refreshed successfully')
+              // Token refreshed successfully - no logging needed (normal operation)
             }
           } catch (tokenParseError) {
             console.warn('Failed to parse token for expiry check:', tokenParseError)
@@ -470,7 +455,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // Use a timeout to prevent blocking the UI thread
           try {
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+            // Use longer timeout (10 seconds) to handle backend load during ETL operations
+            const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
             const response = await axios.post('/api/v1/auth/validate', {}, {
               headers: { 'Authorization': `Bearer ${localStorage.getItem('pulse_token')}` },
@@ -502,8 +488,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               etlWebSocketService.disconnectAll()
               window.location.replace('/login')
             } else if (validationError?.name === 'AbortError' || validationError?.name === 'CanceledError') {
-              // Request was aborted due to timeout - don't logout, just log
-              console.warn('⚠️ Session validation timed out, keeping session')
+              // Request was aborted due to timeout - don't logout, no logging needed (normal during heavy operations)
             } else {
               // Network error or other issue - don't logout, just log warning
               console.warn('⚠️ Session validation error (non-401), keeping session:', validationError?.message)

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .extraction_worker import ExtractionWorker
 from .transform_worker import TransformWorker
-from .vectorization_worker import VectorizationWorker
+from .embedding_worker import EmbeddingWorker
 from app.etl.queue.queue_manager import QueueManager
 from app.core.logging_config import get_logger
 
@@ -35,12 +35,11 @@ class WorkerManager:
     - Scalability to thousands of tenants
     """
 
-    # Tier-based worker pool configuration
-    TIER_WORKER_COUNTS = {
-        'free': {'extraction': 1, 'transform': 1, 'vectorization': 1},
-        'basic': {'extraction': 3, 'transform': 3, 'vectorization': 3},
-        'premium': {'extraction': 5, 'transform': 5, 'vectorization': 5},
-        'enterprise': {'extraction': 10, 'transform': 10, 'vectorization': 10}
+    # Premium tier worker pool configuration (fallback values)
+    PREMIUM_WORKER_COUNTS_FALLBACK = {
+        'extraction': 5,
+        'transform': 5,
+        'embedding': 5
     }
 
     def __init__(self):
@@ -53,71 +52,122 @@ class WorkerManager:
 
         logger.info("WorkerManager initialized with SHARED WORKER POOL architecture")
 
+    def get_premium_worker_config(self, tenant_id: int = 1) -> Dict[str, int]:
+        """
+        Get premium worker configurations from system_settings.
+
+        Args:
+            tenant_id: Tenant ID to get settings for
+
+        Returns:
+            Dict mapping worker types to counts
+        """
+        try:
+            from app.core.database import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_read_session_context() as session:
+                # Get worker counts from system_settings
+                query = text("""
+                    SELECT setting_key, setting_value
+                    FROM system_settings
+                    WHERE tenant_id = :tenant_id
+                    AND setting_key IN ('premium_extraction_workers', 'premium_transform_workers', 'premium_embedding_workers')
+                """)
+                result = session.execute(query, {'tenant_id': tenant_id})
+                rows = result.fetchall()
+
+                worker_config = {}
+                for row in rows:
+                    setting_key = row[0]
+                    setting_value = int(row[1])
+
+                    if setting_key == 'premium_extraction_workers':
+                        worker_config['extraction'] = setting_value
+                    elif setting_key == 'premium_transform_workers':
+                        worker_config['transform'] = setting_value
+                    elif setting_key == 'premium_embedding_workers':
+                        worker_config['embedding'] = setting_value
+
+                # Use fallback values for missing settings
+                for worker_type in ['extraction', 'transform', 'embedding']:
+                    if worker_type not in worker_config:
+                        worker_config[worker_type] = self.PREMIUM_WORKER_COUNTS_FALLBACK[worker_type]
+
+                logger.info(f"📊 Loaded premium worker configuration from system_settings: {worker_config}")
+                return worker_config
+
+        except Exception as e:
+            logger.error(f"Failed to load premium worker configuration from system_settings: {e}")
+            logger.info("Using fallback premium worker configuration")
+            return self.PREMIUM_WORKER_COUNTS_FALLBACK
+
     def start_all_workers(self):
-        """Start shared worker pools for all tiers."""
+        """Start premium worker pools."""
         if self.running:
             logger.warning("Workers are already running")
             return False
 
-        logger.info("🚀 Starting SHARED WORKER POOLS...")
+        logger.info("🚀 Starting PREMIUM WORKER POOLS...")
         self.running = True
 
-        # Setup queues first (creates tenant-specific queues)
+        # Setup queues first (creates premium queues)
         try:
             queue_manager = QueueManager()
-            queue_manager.setup_queues()  # This will discover active tenants and create their queues
-            logger.info("✅ Multi-tenant queue topology setup complete")
+            queue_manager.setup_queues()  # This will create 3 premium queues
+            logger.info("✅ Premium queue topology setup complete")
         except Exception as e:
             logger.error(f"❌ Failed to setup queues: {e}")
             return False
 
-        # Start shared worker pools for each tier
+        # Start premium worker pools
         try:
             tenants_by_tier = self._get_tenants_by_tier()
-            
-            for tier, tenant_ids in tenants_by_tier.items():
-                if not tenant_ids:
-                    logger.info(f"⏭️ No tenants in {tier} tier, skipping pool creation")
-                    continue
-                    
-                logger.info(f"🔧 Starting {tier} tier worker pool for {len(tenant_ids)} tenants: {tenant_ids}")
-                self._start_tier_worker_pool(tier, tenant_ids)
+            premium_tenant_ids = tenants_by_tier.get('premium', [])
 
-            total_workers = sum(len(workers) for tier_workers in self.tier_workers.values() for workers in tier_workers.values())
-            logger.info(f"✅ Started {total_workers} shared workers across {len(tenants_by_tier)} tiers")
+            if not premium_tenant_ids:
+                logger.warning("⚠️ No premium tenants found, but starting workers anyway for MVP")
+                premium_tenant_ids = [1]  # Default to tenant 1 for MVP
+
+            logger.info(f"🔧 Starting premium worker pool for {len(premium_tenant_ids)} tenants: {premium_tenant_ids}")
+            self._start_premium_worker_pool(premium_tenant_ids)
+
+            total_workers = sum(len(workers) for workers in self.tier_workers.get('premium', {}).values())
+            logger.info(f"✅ Started {total_workers} premium workers")
             return True
         except Exception as e:
             logger.error(f"❌ Failed to start shared worker pools: {e}")
             return False
 
-    def _start_tier_worker_pool(self, tier: str, tenant_ids: List[int]) -> bool:
+    def _start_premium_worker_pool(self, tenant_ids: List[int]) -> bool:
         """
-        Start shared worker pool for a specific tier.
-        
-        Workers in this pool will consume from ALL tenant queues in this tier (round-robin).
+        Start premium worker pool.
+
+        Workers will consume from premium queues.
 
         Args:
-            tier: Tier name (free, basic, premium, enterprise)
-            tenant_ids: List of tenant IDs in this tier
+            tenant_ids: List of tenant IDs (for MVP, typically just [1])
 
         Returns:
-            bool: True if workers started successfully
+            bool: True if successful, False otherwise
         """
         try:
+            tier = 'premium'
             if tier not in self.tier_workers:
                 self.tier_workers[tier] = {}
 
-            # Get worker counts for this tier
-            worker_counts = self.TIER_WORKER_COUNTS.get(tier, self.TIER_WORKER_COUNTS['free'])
+            # Get worker counts from system_settings
+            worker_counts = self.get_premium_worker_config(tenant_ids[0] if tenant_ids else 1)
             extraction_count = worker_counts['extraction']
             transform_count = worker_counts['transform']
-            vectorization_count = worker_counts['vectorization']
+            embedding_count = worker_counts['embedding']
 
-            logger.info(f"   📊 {tier} tier: {extraction_count} extraction + {transform_count} transform + {vectorization_count} vectorization workers")
+            logger.info(f"   📊 Premium tier: {extraction_count} extraction + {transform_count} transform + {embedding_count} embedding workers")
 
             queue_manager = QueueManager()
 
-            # 1. Start Extraction Workers (consume from tier-based queue)
+            # 1. Start Extraction Workers (consume from premium queue)
             self.tier_workers[tier]['extraction'] = []
             tier_extraction_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
 
@@ -169,34 +219,31 @@ class WorkerManager:
 
             logger.info(f"   ✅ Started {transform_count} {tier} transform workers (queue: {tier_transform_queue})")
 
-            # 3. Start Vectorization Workers (consume from tier-based queue)
-            self.tier_workers[tier]['vectorization'] = []
-            tier_vectorization_queue = queue_manager.get_tier_queue_name(tier, 'vectorization')
+            # 3. Start Embedding Workers (consume from tier-based queue)
+            self.tier_workers[tier]['embedding'] = []
+            tier_embedding_queue = queue_manager.get_tier_queue_name(tier, 'embedding')
 
-            for worker_num in range(vectorization_count):
-                vectorization_worker = VectorizationWorker(
-                    tenant_id=None,  # Not needed for tier-based queues
-                    worker_number=worker_num,
-                    tenant_ids=None,  # Not needed for tier-based queues
-                    queue_name=tier_vectorization_queue  # Pass tier-based queue name
+            for worker_num in range(embedding_count):
+                embedding_worker = EmbeddingWorker(
+                    tier=tier  # Pass tier instead of individual parameters
                 )
-                vectorization_worker_key = f"vectorization_{tier}_worker_{worker_num}"
+                embedding_worker_key = f"embedding_{tier}_worker_{worker_num}"
 
-                vectorization_thread = threading.Thread(
+                embedding_thread = threading.Thread(
                     target=self._run_worker,
-                    args=(vectorization_worker_key, vectorization_worker),
+                    args=(embedding_worker_key, embedding_worker),
                     daemon=True,
-                    name=f"Worker-{vectorization_worker_key}"
+                    name=f"Worker-{embedding_worker_key}"
                 )
-                vectorization_thread.start()
+                embedding_thread.start()
 
-                self.workers[vectorization_worker_key] = vectorization_worker
-                self.worker_threads[vectorization_worker_key] = vectorization_thread
-                self.tier_workers[tier]['vectorization'].append(vectorization_worker)
+                self.workers[embedding_worker_key] = embedding_worker
+                self.worker_threads[embedding_worker_key] = embedding_thread
+                self.tier_workers[tier]['embedding'].append(embedding_worker)
 
-            logger.info(f"   ✅ Started {vectorization_count} {tier} vectorization workers (queue: {tier_vectorization_queue})")
+            logger.info(f"   ✅ Started {embedding_count} {tier} embedding workers (queue: {tier_embedding_queue})")
 
-            total = extraction_count + transform_count + vectorization_count
+            total = extraction_count + transform_count + embedding_count
             logger.info(f"✅ {tier.upper()} tier worker pool started ({total} workers total)")
             return True
 
@@ -281,22 +328,19 @@ class WorkerManager:
                 result = session.execute(query)
                 rows = result.fetchall()
 
-                # Group tenants by tier
+                # Group tenants by tier (premium only for MVP)
                 tenants_by_tier = {
-                    'free': [],
-                    'basic': [],
-                    'premium': [],
-                    'enterprise': []
+                    'premium': []
                 }
 
                 for row in rows:
                     tenant_id = row[0]
-                    tier = row[1]
-                    if tier in tenants_by_tier:
-                        tenants_by_tier[tier].append(tenant_id)
+                    tier_name = row[1]
+                    if tier_name == 'premium':
+                        tenants_by_tier['premium'].append(tenant_id)
                     else:
-                        logger.warning(f"Unknown tier '{tier}' for tenant {tenant_id}, defaulting to 'free'")
-                        tenants_by_tier['free'].append(tenant_id)
+                        logger.warning(f"Non-premium tier '{tier_name}' for tenant {tenant_id}, adding to premium for MVP")
+                        tenants_by_tier['premium'].append(tenant_id)
 
                 logger.info(f"📊 Tenants by tier: {dict((k, len(v)) for k, v in tenants_by_tier.items())}")
                 return tenants_by_tier
@@ -351,7 +395,7 @@ class WorkerManager:
         Returns:
             Dict mapping tier name to worker counts
         """
-        return self.TIER_WORKER_COUNTS.copy()
+        return {'premium': self.get_premium_worker_config()}
 
 
 # Singleton instance

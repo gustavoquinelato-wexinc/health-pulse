@@ -361,3 +361,63 @@ python scripts/migration_runner.py --rollback-to 0000
 - Deletes all 12 tier-based RabbitMQ queues
 - Cleans up Qdrant collections
 - Complete system reset
+
+---
+
+## 🔧 Worker Troubleshooting
+
+### Common Worker Issues
+
+#### **Workers Not Starting**
+```python
+# Check worker manager status
+from app.workers.worker_manager import get_worker_manager
+manager = get_worker_manager()
+print(f"Running: {manager.running}")
+print(f"Workers: {len(manager.workers)}")
+
+# Restart workers
+success = manager.restart_all_workers()
+print(f"Restart success: {success}")
+```
+
+#### **Queue Messages Not Being Consumed**
+```python
+# Check queue statistics
+from app.etl.queue.queue_manager import QueueManager
+qm = QueueManager()
+
+# Check all tier queues
+for tier in ['free', 'basic', 'premium', 'enterprise']:
+    for queue_type in ['extraction', 'transform', 'embedding']:
+        queue_name = f"{queue_type}_queue_{tier}"
+        stats = qm.get_queue_stats(queue_name)
+        if stats:
+            print(f"{queue_name}: {stats['message_count']} msgs, {stats['consumer_count']} consumers")
+```
+
+#### **Worker Thread Status**
+```python
+# Check if worker threads are alive
+manager = get_worker_manager()
+for worker_key, thread in manager.worker_threads.items():
+    status = "ALIVE" if thread.is_alive() else "DEAD"
+    print(f"{worker_key}: {status}")
+```
+
+### Debugging Commands
+
+#### **RabbitMQ Management UI**
+- URL: `http://localhost:15672`
+- Default credentials: `guest/guest`
+- Check queue message counts and consumer connections
+
+#### **Worker Restart via API**
+```bash
+curl -X POST "http://localhost:3001/app/admin/workers/restart" \
+  -H "X-Internal-Auth: YOUR_INTERNAL_AUTH_KEY"
+```
+
+---
+
+*Multi-tenant worker architecture provides unlimited scalability with fixed resource usage and enterprise-grade security.*

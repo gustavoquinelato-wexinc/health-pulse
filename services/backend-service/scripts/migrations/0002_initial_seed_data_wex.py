@@ -97,10 +97,22 @@ def apply(connection):
         tenant_id = tenant_result['id']
         print(f"   ✅ WEX tenant created/found with ID: {tenant_id}")
 
-        # Note: worker_configs table removed - using shared worker pools based on tenant tier
-        # WEX is premium tier = 5 workers per pool (extraction, transform, vectorization)
+        # 3. Insert premium queue worker configurations
+        print("📋 Creating premium queue worker configurations...")
+        cursor.execute("""
+            INSERT INTO system_settings (tenant_id, setting_key, setting_value, description, created_at, last_updated_at)
+            VALUES
+                (%(tenant_id)s, 'premium_extraction_workers', '5', 'Number of workers for premium extraction queue', NOW(), NOW()),
+                (%(tenant_id)s, 'premium_transform_workers', '5', 'Number of workers for premium transform queue', NOW(), NOW()),
+                (%(tenant_id)s, 'premium_embedding_workers', '5', 'Number of workers for premium embedding queue', NOW(), NOW())
+            ON CONFLICT (tenant_id, setting_key) DO UPDATE SET
+                setting_value = EXCLUDED.setting_value,
+                description = EXCLUDED.description,
+                last_updated_at = NOW();
+        """, {'tenant_id': tenant_id})
+        print("✅ Premium queue worker configurations inserted")
 
-        # 3. Create integrations (JIRA and GitHub only)
+        # 4. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
 
         # Get credentials from environment if available
@@ -1236,8 +1248,8 @@ def rollback(connection):
         print("📋 Removing colors...")
         cursor.execute("DELETE FROM tenants_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
-        print("📋 Removing worker configuration...")
-        cursor.execute("DELETE FROM worker_configs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+        print("📋 Removing premium queue worker configurations...")
+        cursor.execute("DELETE FROM system_settings WHERE setting_key IN ('premium_extraction_workers', 'premium_transform_workers', 'premium_embedding_workers');")
 
         print("📋 Removing WEX tenant...")
         cursor.execute("DELETE FROM tenants WHERE name = 'WEX';")

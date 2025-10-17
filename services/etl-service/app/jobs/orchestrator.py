@@ -688,8 +688,16 @@ async def run_orchestrator_for_client(tenant_id: int):
             logger.info("TRIGGERING: Active Directory sync job...")
             asyncio.create_task(run_ad_sync_async(pending_job_id))
         elif job_name_lower == 'vectorization':
-            logger.info("TRIGGERING: Vectorization job...")
-            asyncio.create_task(run_vectorization_sync_async(pending_job_id))
+            logger.info("SKIPPING: Vectorization job (moved to backend-service embedding workers)")
+            # Mark job as finished since vectorization is now handled by backend-service
+            with database.get_session() as session:
+                job_schedule = session.query(JobSchedule).filter(JobSchedule.id == pending_job_id).first()
+                if job_schedule:
+                    job_schedule.set_finished()
+                    session.commit()
+                    logger.info("Vectorization job marked as finished (handled by backend-service)")
+            # Continue to next job in sequence
+            await set_next_job_to_pending(pending_job_id)
         else:
             logger.error(f"ERROR: Unknown job name: {pending_job_name}")
             # Reset job to PENDING if unknown (separate session)
