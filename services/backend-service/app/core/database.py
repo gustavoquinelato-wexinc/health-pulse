@@ -85,25 +85,7 @@ class PostgreSQLDatabase:
             logger.error(f"Failed to initialize PostgreSQL connection: {e}")
             raise
     
-    def get_session(self) -> Session:
-        """Returns a new database session (legacy method - uses primary)."""
-        if not self.SessionLocal:
-            raise RuntimeError("Database not initialized")
-        return self.SessionLocal()
 
-    @contextmanager
-    def get_session_context(self) -> Generator[Session, None, None]:
-        """Context manager for database session (legacy method - uses primary)."""
-        session = self.get_session()
-        try:
-            yield session
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Database session error: {e}")
-            raise
-        finally:
-            session.close()
 
     def get_write_session(self) -> Session:
         """Get a write session (always routes to primary database)."""

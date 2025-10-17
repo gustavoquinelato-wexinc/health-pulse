@@ -105,7 +105,7 @@ def apply(connection):
 
         print("📋 Creating core tables...")
 
-        # 1. Tenants table (foundation) - NO vector column, includes tier for shared worker pool
+        # 1. Tenants table (foundation) - NO vector column, simple tier string
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tenants (
                 id SERIAL PRIMARY KEY,
@@ -114,7 +114,7 @@ def apply(connection):
                 assets_folder VARCHAR(100),
                 logo_filename VARCHAR(255) DEFAULT 'default-logo.png',
                 color_schema_mode VARCHAR(10) DEFAULT 'default' CHECK (color_schema_mode IN ('default', 'custom')),
-                tier VARCHAR(20) NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'basic', 'premium', 'enterprise')),
+                tier VARCHAR(20) NOT NULL DEFAULT 'premium',
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW()
@@ -122,12 +122,12 @@ def apply(connection):
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(active);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tenants_tier ON tenants(tier);")
-        cursor.execute("COMMENT ON TABLE tenants IS 'Multi-tenant isolation table with tier-based worker pools';")
-        cursor.execute("COMMENT ON COLUMN tenants.tier IS 'Tenant tier for shared worker pool allocation (free=1, basic=3, premium=5, enterprise=10 workers per pool)';")
+        cursor.execute("COMMENT ON TABLE tenants IS 'Multi-tenant isolation table with premium tier (MVP)';")
+        cursor.execute("COMMENT ON COLUMN tenants.tier IS 'Tenant tier - premium only for MVP';")
 
-        # Note: worker_configs table removed - using shared worker pools based on tenant tier instead
-        
-        # 2. Users table - NO vector column
+        # Note: Using 3 premium queues only for MVP - extraction, transform, embedding
+
+        # 3. Users table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL,
@@ -610,6 +610,9 @@ def apply(connection):
                 UNIQUE(job_name, tenant_id),
                 CHECK (status IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
             );
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs.status IS 'Job status: READY (waiting to run), RUNNING (processing through extraction/transform/embedding pipeline), FINISHED (completed successfully), FAILED (completed with errors)';
         """)
         cursor.execute("""
             COMMENT ON COLUMN etl_jobs.last_sync_date IS 'Last successful data sync timestamp - used for incremental extraction. NULL = first run (full sync)';
@@ -1203,7 +1206,56 @@ def apply(connection):
         """)
 
         print("✅ Custom fields mapping tables created")
-        print("✅ Custom fields mapping tables created")
+
+        # 25. Extraction failures table - Dead letter queue for failed extraction messages
+        print("   🏗️ Creating extraction_failures table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS extraction_failures (
+                id SERIAL PRIMARY KEY,
+                tenant_id INTEGER NOT NULL,
+                integration_id INTEGER,
+                extraction_type VARCHAR(100) NOT NULL,
+                original_message TEXT NOT NULL,
+                error_message TEXT,
+                failed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                resolved_at TIMESTAMP NULL,
+                resolved_by VARCHAR(255) NULL,
+                resolution_notes TEXT NULL
+            );
+        """)
+        cursor.execute("""
+            COMMENT ON TABLE extraction_failures IS 'Dead letter queue for failed extraction messages';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.tenant_id IS 'Tenant ID for the failed extraction';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.integration_id IS 'Integration ID if applicable';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.extraction_type IS 'Type of extraction that failed (e.g., jira_projects_and_issue_types)';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.original_message IS 'JSON of the original message that failed';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.error_message IS 'Error message from the failed extraction';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.failed_at IS 'When the extraction failed';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.resolved_at IS 'When the failure was resolved (NULL if unresolved)';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.resolved_by IS 'Who resolved the failure';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN extraction_failures.resolution_notes IS 'Notes about how the failure was resolved';
+        """)
+        print("   ✅ extraction_failures table created")
+
         print("📋 Creating performance indexes...")
 
         # Performance indexes for frequently queried columns
@@ -1332,6 +1384,15 @@ def apply(connection):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_etl_jobs_integration_id ON etl_jobs(integration_id);")
         except Exception as e:
             print(f"⚠️ Skipping etl_jobs integration_id index: {e}")
+
+        # Extraction failures table indexes for dead letter queue
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_tenant_id ON extraction_failures(tenant_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_failed_at ON extraction_failures(failed_at);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_extraction_type ON extraction_failures(extraction_type);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_resolved_at ON extraction_failures(resolved_at);")
+        except Exception as e:
+            print(f"⚠️ Skipping extraction_failures indexes: {e}")
 
         # Color table indexes for fast lookups (unified table)
         try:

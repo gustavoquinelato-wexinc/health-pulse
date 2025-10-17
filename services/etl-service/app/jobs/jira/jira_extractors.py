@@ -24,7 +24,7 @@ from .jira_processor import JiraDataProcessor
 from .jira_bulk_operations import perform_bulk_insert
 from sqlalchemy import text
 from app.clients.ai_client import store_entity_vector_for_etl, bulk_store_entity_vectors_for_etl, bulk_update_entity_vectors_for_etl
-from app.jobs.vectorization_helper import VectorizationQueueHelper
+from app.jobs.embedding_helper import EmbeddingQueueHelper
 
 logger = get_logger(__name__)
 
@@ -254,9 +254,9 @@ async def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPI
     logger.info("Starting combined projects and issue types extraction")
 
     try:
-        # Initialize vectorization queue helper
-        from app.jobs.vectorization_helper import VectorizationQueueHelper
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        # Initialize embedding queue helper
+        from app.jobs.embedding_helper import EmbeddingQueueHelper
+        embedding_helper = EmbeddingQueueHelper(integration.tenant_id)
         # Extract project keys from integration base_search column
         project_keys = None
 
@@ -377,8 +377,8 @@ async def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPI
         if projects_to_insert:
             perform_bulk_insert(session, Project, projects_to_insert, "projects", job_logger)
 
-            # Store for later vectorization queueing
-            vectorization_helper.queue_entities_for_vectorization(
+            # Store for later embedding queueing
+            embedding_helper.queue_entities_for_embedding(
                 projects_to_insert, "projects", "insert"
             )
 
@@ -524,8 +524,8 @@ async def extract_projects_and_issuetypes(session: Session, jira_client: JiraAPI
         if issuetypes_to_insert:
             perform_bulk_insert(session, Wit, issuetypes_to_insert, "wits", job_logger)
 
-            # Store for later vectorization queueing
-            vectorization_helper.queue_entities_for_vectorization(
+            # Store for later embedding queueing
+            embedding_helper.queue_entities_for_embedding(
                 issuetypes_to_insert, "wits", "insert"
             )
 
@@ -614,9 +614,9 @@ async def extract_projects_and_statuses(session: Session, jira_client: JiraAPICl
     logger.info("Starting combined projects and statuses extraction")
 
     try:
-        # Initialize vectorization queue helper
-        from app.jobs.vectorization_helper import VectorizationQueueHelper
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        # Initialize embedding queue helper
+        from app.jobs.embedding_helper import EmbeddingQueueHelper
+        embedding_helper = EmbeddingQueueHelper(integration.tenant_id)
         # Get all projects from database (should already exist from step 1)
         all_projects = session.query(Project).filter(
             Project.integration_id == integration.id
@@ -764,8 +764,8 @@ async def extract_projects_and_statuses(session: Session, jira_client: JiraAPICl
         if statuses_to_insert:
             perform_bulk_insert(session, Status, statuses_to_insert, "statuses", job_logger)
 
-            # Store for later vectorization queueing
-            vectorization_helper.queue_entities_for_vectorization(
+            # Store for later embedding queueing
+            embedding_helper.queue_entities_for_embedding(
                 statuses_to_insert, "statuses", "insert"
             )
 
@@ -847,8 +847,8 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
     try:
         processor = JiraDataProcessor(session, integration)
 
-        # Initialize vectorization queue helper
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        # Initialize embedding queue helper
+        embedding_helper = EmbeddingQueueHelper(integration.tenant_id)
 
         # Capture extraction start time (to be saved at the end) - using configured timezone
         from datetime import datetime
@@ -1307,9 +1307,9 @@ async def extract_work_items_and_changelogs(session: Session, jira_client: JiraA
 
             job_logger.progress(f"[COMPLETED] Completed chunked bulk inserting {len(issues_to_insert)} new issues")
 
-            # Store inserted issues for later vectorization queueing
+            # Store inserted issues for later embedding queueing
             if issues_to_insert:
-                vectorization_helper.queue_entities_for_vectorization(
+                embedding_helper.queue_entities_for_embedding(
                     issues_to_insert, "work_items", "insert"
                 )
         else:
@@ -1394,9 +1394,9 @@ async def process_changelogs_for_work_items(session: Session, jira_client: JiraA
         Number of changelogs processed
     """
     try:
-        # Initialize vectorization queue helper
-        from app.jobs.vectorization_helper import VectorizationQueueHelper
-        vectorization_helper = VectorizationQueueHelper(integration.tenant_id)
+        # Initialize embedding queue helper
+        from app.jobs.embedding_helper import EmbeddingQueueHelper
+        embedding_helper = EmbeddingQueueHelper(integration.tenant_id)
 
         processor = JiraDataProcessor(session, integration)
 
@@ -1632,8 +1632,8 @@ async def process_changelogs_for_work_items(session: Session, jira_client: JiraA
                     except Exception as e:
                         job_logger.warning(f"Error enhancing changelog {changelog_data.get('external_id', 'unknown')}: {e}")
 
-                # Store enhanced changelogs for later vectorization queueing
-                vectorization_helper.queue_entities_for_vectorization(
+                # Store enhanced changelogs for later embedding queueing
+                embedding_helper.queue_entities_for_embedding(
                     enhanced_changelogs, "changelogs", "insert"
                 )
 

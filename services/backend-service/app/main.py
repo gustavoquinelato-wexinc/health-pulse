@@ -3,12 +3,18 @@ Main FastAPI application for Backend Service.
 Provides analytics APIs, authentication, and serves as API gateway for frontend.
 """
 
+import warnings
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
+
+# Suppress asyncio event loop closure warnings
+warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
 # Backend Service - No scheduler needed
 
@@ -195,7 +201,9 @@ async def lifespan(_: FastAPI):
     worker_manager = None
 
     try:
+        logger.info("🔍 [DEBUG] Starting lifespan startup sequence...")
         # Initialize database connection
+        logger.info("🔍 [DEBUG] Initializing database...")
         database_initialized = await initialize_database()
         if database_initialized:
             logger.info("Database connection established successfully")
@@ -213,19 +221,26 @@ async def lifespan(_: FastAPI):
                 logger.warning(f"⚠️ Qdrant collection initialization had issues: {qdrant_result.get('error', 'Unknown error')}")
         except Exception as e:
             logger.error(f"❌ Error initializing Qdrant collections: {e}")
-            logger.warning("Qdrant collections not initialized - vectorization may have race conditions")
+            logger.warning("Qdrant collections not initialized - embedding may have race conditions")
 
         # Start ETL workers
+        logger.info("🔍 [DEBUG] About to start ETL workers...")
         try:
+            logger.info("🔍 [DEBUG] Importing worker_manager...")
             from app.workers.worker_manager import get_worker_manager
+            logger.info("🔍 [DEBUG] Getting worker manager instance...")
             worker_manager = get_worker_manager()
+            logger.info("🔍 [DEBUG] Calling start_all_workers()...")
             success = worker_manager.start_all_workers()
+            logger.info(f"🔍 [DEBUG] start_all_workers() returned: {success}")
             if success:
                 logger.info("✅ ETL workers started successfully")
             else:
                 logger.warning("⚠️ Failed to start ETL workers - ETL functionality will be limited")
         except Exception as e:
             logger.error(f"❌ Error starting ETL workers: {e}")
+            import traceback
+            logger.error(f"Worker startup traceback: {traceback.format_exc()}")
             logger.warning("ETL workers not started - ETL functionality will be limited")
 
         # Clear all user sessions on startup for security
@@ -302,6 +317,15 @@ async def lifespan(_: FastAPI):
                 print("[INFO] Waited for pending requests to complete")
             except Exception:
                 pass
+
+            # Close HTTP client connections
+            try:
+                print("[INFO] Closing HTTP client connections...")
+                from app.core.http_client import cleanup_async_client
+                await cleanup_async_client()
+                print("[INFO] HTTP client connections closed")
+            except Exception as e:
+                print(f"[WARNING] Error closing HTTP client connections: {e}")
 
             # Close database connections
             try:
@@ -443,9 +467,9 @@ app.include_router(centralized_auth_router, prefix="/api/v1/auth/centralized", t
 from app.api.ai_config_routes import router as ai_config_router
 app.include_router(ai_config_router, prefix="/api/v1", tags=["AI Configuration"])
 
-# Include Table Vectorization routes
-from app.api.v1.table_vectorization import router as table_vectorization_router
-app.include_router(table_vectorization_router, prefix="/api/v1/vectorization", tags=["Table Vectorization"])
+# Include Table Embedding routes
+from app.api.v1.table_embedding import router as table_embedding_router
+app.include_router(table_embedding_router, prefix="/api/v1/embedding", tags=["Table Embedding"])
 
 # Include AI Query routes
 from app.api.ai_query_routes import router as ai_query_router

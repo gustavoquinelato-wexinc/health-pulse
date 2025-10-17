@@ -120,11 +120,11 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      // First, set the job status to RUNNING in the frontend
+      // First, set the job status to RUNNING and clear next_run in the frontend
       setJobs(prevJobs =>
         prevJobs.map(job =>
           job.id === jobId
-            ? { ...job, status: 'RUNNING', progress_percentage: 0, current_step: 'Starting...' }
+            ? { ...job, status: 'RUNNING', next_run: undefined, progress_percentage: 0, current_step: 'Starting...' }
             : job
         )
       )

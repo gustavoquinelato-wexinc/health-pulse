@@ -81,12 +81,12 @@ def apply(connection):
 
         print("✅ DORA data inserted")
 
-        # 2. Insert default tenant (Google) - Free tier
-        print("📋 Creating Google tenant (Free tier)...")
+        # 2. Insert default tenant (Google) - Premium tier
+        print("📋 Creating Google tenant (Premium tier)...")
         cursor.execute("""
             INSERT INTO tenants (name, website, assets_folder, logo_filename, color_schema_mode, tier, active, created_at, last_updated_at)
-            VALUES ('Google', 'https://www.google.com', 'google', 'logo.png', 'default', 'free', TRUE, NOW(), NOW())
-            ON CONFLICT (name) DO UPDATE SET tier = 'free';
+            VALUES ('Google', 'https://www.google.com', 'google', 'logo.png', 'default', 'premium', TRUE, NOW(), NOW())
+            ON CONFLICT (name) DO UPDATE SET tier = 'premium';
         """)
 
         # Get the tenant ID for seed data
@@ -98,7 +98,7 @@ def apply(connection):
         print(f"   ✅ Google tenant created/found with ID: {tenant_id}")
 
         # Note: worker_configs table removed - using shared worker pools based on tenant tier
-        # Google is free tier = 1 worker per pool (extraction, transform, vectorization)
+        # Google is premium tier = 5 workers per pool (extraction, transform, embedding)
 
         # 3. Create integrations (JIRA and GitHub only)
         print("📋 Creating integrations...")
@@ -1208,9 +1208,6 @@ def rollback(connection):
 
         print("📋 Removing colors...")
         cursor.execute("DELETE FROM tenants_colors WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
-
-        print("📋 Removing worker configuration...")
-        cursor.execute("DELETE FROM worker_configs WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Google');")
 
         print("📋 Removing Google tenant...")
         cursor.execute("DELETE FROM tenants WHERE name = 'Google';")

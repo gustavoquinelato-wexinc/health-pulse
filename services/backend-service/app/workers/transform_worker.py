@@ -32,13 +32,74 @@ from app.etl.queue.queue_manager import QueueManager
 logger = get_logger(__name__)
 
 
+def complete_etl_job(job_id: int, last_sync_date: str, tenant_id: int):
+    """Complete ETL job by updating status, timestamps, last_sync_date, and next_run"""
+    try:
+        with get_write_session() as session:
+            # First get the job details to calculate next_run
+            job_query = text("""
+                SELECT last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count
+                FROM etl_jobs
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            job_result = session.execute(job_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id
+            }).fetchone()
+
+            if not job_result:
+                logger.error(f"❌ Job {job_id} not found for completion")
+                return
+
+            last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count = job_result
+
+            # Calculate next_run using the same logic as in jobs.py
+            from app.etl.jobs import calculate_next_run
+            next_run = calculate_next_run(
+                last_run_started_at=last_run_started_at,
+                schedule_interval_minutes=schedule_interval_minutes,
+                retry_interval_minutes=retry_interval_minutes,
+                status='FINISHED',
+                retry_count=retry_count
+            )
+
+            update_query = text("""
+                UPDATE etl_jobs
+                SET status = 'FINISHED',
+                    last_run_finished_at = NOW(),
+                    last_sync_date = :last_sync_date,
+                    last_updated_at = NOW(),
+                    next_run = :next_run
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+
+            session.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'last_sync_date': last_sync_date,
+                'next_run': next_run
+            })
+            session.commit()
+
+            logger.info(f"✅ ETL job {job_id} completed successfully with next_run: {next_run}")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to complete ETL job {job_id}: {e}")
+        raise
+
+
 class TransformWorker(BaseWorker):
     """
     Transform worker that processes raw extraction data into final database tables (tier-based queue architecture).
 
     Handles different data types:
-    - jira_custom_fields: Creates/updates projects, WITs, custom fields, and relationships
+    - jira_custom_fields: Creates/updates projects, WITs, custom fields, and relationships (from createmeta API)
     - jira_special_fields: Creates/updates special fields not in createmeta (e.g., development field)
+    - jira_project_search: Creates/updates projects and WITs from project/search API (regular job execution)
+    - jira_project_statuses: Creates/updates statuses and project relationships
+    - jira_issues_changelogs: Processes work items and changelogs
+    - jira_issue: Processes individual work items (optimized)
+    - jira_dev_status: Processes development status data
 
     Tier-Based Queue Mode:
     - Consumes from tier-based queue (e.g., transform_queue_premium)
@@ -79,7 +140,12 @@ class TransformWorker(BaseWorker):
                 return False
             
             logger.info(f"Processing {message_type} message for raw_data_id={raw_data_id}")
-            
+
+            # Update job status to TRANSFORMING (if job_id provided)
+            job_id = message.get('job_id')
+            if job_id:
+                self._update_job_status(job_id, "TRANSFORMING", f"Transforming {message_type}")
+
             # Route to appropriate processor based on type
             if message_type == 'jira_custom_fields':
                 return self._process_jira_custom_fields(
@@ -89,17 +155,14 @@ class TransformWorker(BaseWorker):
                 return self._process_jira_special_fields(
                     raw_data_id, tenant_id, integration_id
                 )
-            elif message_type == 'jira_projects_and_issue_types':
-                return self._process_jira_projects_and_issue_types(
-                    raw_data_id, tenant_id, integration_id
-                )
+
             elif message_type == 'jira_project_search':
                 return self._process_jira_project_search(
-                    raw_data_id, tenant_id, integration_id
+                    raw_data_id, tenant_id, integration_id, job_id
                 )
             elif message_type == 'jira_project_statuses':
                 return self._process_jira_statuses_and_project_relationships(
-                    raw_data_id, tenant_id, integration_id
+                    raw_data_id, tenant_id, integration_id, job_id
                 )
             elif message_type == 'jira_issues_changelogs':
                 # Legacy batch processing (kept for backward compatibility)
@@ -109,360 +172,41 @@ class TransformWorker(BaseWorker):
             elif message_type == 'jira_issue':
                 # New individual issue processing
                 return self._process_jira_single_issue(
-                    raw_data_id, tenant_id, integration_id
+                    raw_data_id, tenant_id, integration_id, job_id, message
                 )
             elif message_type == 'jira_dev_status':
                 return self._process_jira_dev_status(
-                    raw_data_id, tenant_id, integration_id
+                    raw_data_id, tenant_id, integration_id, job_id, message
                 )
             else:
                 logger.warning(f"Unknown message type: {message_type}")
                 return False
-                
+
+            # Handle Jira job completion - only complete on last_item=true (from dev_status processing)
+            provider_name = message.get('provider_name')
+            if provider_name == 'Jira' and message.get('last_item'):
+                logger.info(f"🏁 Processing last item - completing ETL job")
+
+                # Complete the ETL job
+                etl_job_id = message.get('etl_job_id')
+                last_sync_date = message.get('last_sync_date')
+
+                if etl_job_id and last_sync_date:
+                    complete_etl_job(etl_job_id, last_sync_date, tenant_id)
+                    logger.info(f"✅ ETL job {etl_job_id} completed successfully")
+                else:
+                    logger.warning(f"Missing etl_job_id or last_sync_date for completion: job_id={etl_job_id}, sync_date={last_sync_date}")
+
+            return True
+
         except Exception as e:
             logger.error(f"Error processing transform message: {e}")
             return False
 
-    def _process_jira_projects_and_issue_types(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
-        """
-        Process Jira projects and issue types from raw_extraction_data.
-
-        Flow:
-        1. Load raw data from raw_extraction_data table
-        2. Transform projects data and bulk insert/update projects table
-        3. Transform issue types data and bulk insert/update wits table
-        4. Create project-issue type relationships in project_wits table
-        5. Update processing status
-        """
-        try:
-            logger.info(f"Processing jira_projects_and_issue_types for raw_data_id={raw_data_id}")
-
-            with self.get_db_session() as db:
-                # Load raw data
-                raw_data_query = text("""
-                    SELECT raw_data
-                    FROM raw_extraction_data
-                    WHERE id = :raw_data_id AND tenant_id = :tenant_id
-                """)
-                result = db.execute(raw_data_query, {
-                    'raw_data_id': raw_data_id,
-                    'tenant_id': tenant_id
-                }).fetchone()
-
-                if not result:
-                    logger.error(f"Raw data {raw_data_id} not found")
-                    return False
-
-                raw_data_json = result[0]
-                # raw_data is already a dict from JSONB column
-                payload = raw_data_json if isinstance(raw_data_json, dict) else json.loads(raw_data_json)
-                # Jira API returns 'values' array, not 'projects'
-                projects_data = payload.get("values", payload.get("projects", []))
-
-                if not projects_data:
-                    logger.warning(f"No projects data found in raw_data_id={raw_data_id}")
-                    return True
-
-                logger.info(f"Processing {len(projects_data)} projects")
-
-                # Process projects and issue types
-                try:
-                    logger.info("Starting _process_projects_data...")
-                    projects_processed = self._process_projects_data(
-                        db, projects_data, integration_id, tenant_id
-                    )
-                    logger.info(f"Completed _process_projects_data: {projects_processed} projects processed")
-                except Exception as e:
-                    logger.error(f"Error in _process_projects_data: {e}")
-                    import traceback
-                    logger.error(f"Full traceback: {traceback.format_exc()}")
-                    raise
-
-                try:
-                    logger.info("Starting _process_issue_types_data...")
-                    issue_types_processed = self._process_issue_types_data(
-                        db, projects_data, integration_id, tenant_id
-                    )
-                    logger.info(f"Completed _process_issue_types_data: {issue_types_processed} issue types processed")
-                except Exception as e:
-                    print(f"ERROR in _process_issue_types_data: {e}")
-                    import traceback
-                    print(f"Full traceback: {traceback.format_exc()}")
-                    logger.error(f"Error in _process_issue_types_data: {e}")
-                    logger.error(f"Full traceback: {traceback.format_exc()}")
-                    raise
-
-                # Create project-wit relationships using the working approach
-                try:
-                    logger.info("Creating project-wit relationships from createmeta data...")
-
-                    # Extract relationships from createmeta structure
-                    project_wit_relationships = []
-                    for project in projects_data:
-                        project_external_id = project.get('id')
-                        # createmeta uses 'issuetypes' (lowercase)
-                        issue_types = project.get('issuetypes', [])
-
-                        for issue_type in issue_types:
-                            wit_external_id = issue_type.get('id')
-                            if project_external_id and wit_external_id:
-                                project_wit_relationships.append((project_external_id, wit_external_id))
-
-                    logger.info(f"Extracted {len(project_wit_relationships)} relationships from createmeta data")
-
-                    if project_wit_relationships:
-                        relationships_created = self._create_project_wit_relationships_for_search(
-                            db, project_wit_relationships, integration_id, tenant_id
-                        )
-                        logger.info(f"Created {relationships_created} project-wit relationships")
-                    else:
-                        relationships_created = 0
-                        logger.warning("No project-wit relationships found in createmeta data")
-
-                except Exception as e:
-                    print(f"ERROR in project-wit relationships creation: {e}")
-                    import traceback
-                    print(f"Full traceback: {traceback.format_exc()}")
-                    logger.error(f"Error in project-wit relationships creation: {e}")
-                    logger.error(f"Full traceback: {traceback.format_exc()}")
-                    # Don't raise - let the job continue
-                    relationships_created = 0
-
-                # Update processing status
-                update_query = text("""
-                    UPDATE raw_extraction_data
-                    SET status = 'completed',
-                        last_updated_at = NOW(),
-                        error_details = NULL
-                    WHERE id = :raw_data_id
-                """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
-                db.commit()
-
-                logger.info(f"Successfully processed projects and issue types: "
-                          f"{projects_processed} projects, {issue_types_processed} issue types, "
-                          f"{relationships_created} relationships")
-
-                return True
-
-        except Exception as e:
-            logger.error(f"Error processing jira_projects_and_issue_types: {e}")
-
-            # Update error status
-            try:
-                with self.get_db_session() as db:
-                    error_query = text("""
-                        UPDATE raw_extraction_data
-                        SET status = 'failed',
-                            error_details = :error_details
-                        WHERE id = :raw_data_id
-                    """)
-                    db.execute(error_query, {
-                        'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)})
-                    })
-                    db.commit()
-            except Exception as update_error:
-                logger.error(f"Failed to update error status: {update_error}")
-
-            return False
-
-    def _process_projects_data(self, db, projects_data: List[Dict], integration_id: int, tenant_id: int) -> int:
-        """Process and bulk insert/update projects."""
-        try:
-            projects_to_insert = []
-            projects_to_update = []
-
-            # Get existing projects
-            existing_query = text("""
-                SELECT external_id, id, name, key, project_type
-                FROM projects
-                WHERE integration_id = :integration_id AND tenant_id = :tenant_id
-            """)
-            existing_results = db.execute(existing_query, {
-                'integration_id': integration_id,
-                'tenant_id': tenant_id
-            }).fetchall()
-
-            existing_projects = {row[0]: row for row in existing_results}
-
-            for project in projects_data:
-                external_id = project.get('id')
-                key = project.get('key')
-                name = project.get('name', '')
-                project_type = project.get('projectTypeKey', 'software')
-
-                if external_id in existing_projects:
-                    # Update existing project
-                    existing = existing_projects[external_id]
-                    # existing: (external_id, id, name, key, project_type)
-                    if (existing[2] != name or existing[3] != key or existing[4] != project_type):
-                        projects_to_update.append({
-                            'id': existing[1],
-                            'name': name,
-                            'key': key,
-                            'project_type': project_type
-                        })
-                else:
-                    # Insert new project
-                    projects_to_insert.append({
-                        'external_id': external_id,
-                        'key': key,
-                        'name': name,
-                        'project_type': project_type,
-                        'integration_id': integration_id,
-                        'tenant_id': tenant_id
-                    })
-
-            # Bulk insert new projects
-            if projects_to_insert:
-                insert_query = text("""
-                    INSERT INTO projects (
-                        external_id, key, name, project_type,
-                        integration_id, tenant_id, active, created_at, last_updated_at
-                    ) VALUES (
-                        :external_id, :key, :name, :project_type,
-                        :integration_id, :tenant_id, TRUE, NOW(), NOW()
-                    )
-                """)
-                db.execute(insert_query, projects_to_insert)
-                logger.info(f"Inserted {len(projects_to_insert)} new projects")
-
-            # Bulk update existing projects
-            if projects_to_update:
-                update_query = text("""
-                    UPDATE projects
-                    SET name = :name, key = :key, project_type = :project_type,
-                        last_updated_at = NOW()
-                    WHERE id = :id
-                """)
-                db.execute(update_query, projects_to_update)
-                logger.info(f"Updated {len(projects_to_update)} existing projects")
-
-            return len(projects_to_insert) + len(projects_to_update)
-
-        except Exception as e:
-            logger.error(f"Error processing projects data: {e}")
-            raise
-
-    def _process_issue_types_data(self, db, projects_data: List[Dict], integration_id: int, tenant_id: int) -> int:
-        """Process and bulk insert/update issue types (wits) with mapping links."""
-        try:
-            issue_types_to_insert = []
-            issue_types_to_update = []
-
-            # Get existing issue types
-            existing_query = text("""
-                SELECT external_id, id, original_name, description, hierarchy_level, wits_mapping_id
-                FROM wits
-                WHERE integration_id = :integration_id AND tenant_id = :tenant_id
-            """)
-            existing_results = db.execute(existing_query, {
-                'integration_id': integration_id,
-                'tenant_id': tenant_id
-            }).fetchall()
-
-            existing_wits = {row[0]: row for row in existing_results}
-
-            # Get existing wits mappings for linking
-            mappings_query = text("""
-                SELECT id, wit_from, wit_to
-                FROM wits_mappings
-                WHERE integration_id = :integration_id AND tenant_id = :tenant_id AND active = TRUE
-            """)
-            mappings_results = db.execute(mappings_query, {
-                'integration_id': integration_id,
-                'tenant_id': tenant_id
-            }).fetchall()
-
-            # Create mapping lookup: original_name -> mapping_id
-            wits_mapping_lookup = {row[1]: row[0] for row in mappings_results}
-            logger.info(f"Found {len(wits_mapping_lookup)} wits mappings: {list(wits_mapping_lookup.keys())}")
-
-            # Extract unique issue types from all projects
-            # Handle both createmeta API (issuetypes) and project search API (issueTypes)
-            unique_issue_types = {}
-            for project in projects_data:
-                # Try both camelCase (project search API) and lowercase (createmeta API)
-                issue_types = project.get('issueTypes', project.get('issuetypes', []))
-                for issue_type in issue_types:
-                    external_id = issue_type.get('id')
-                    if external_id and external_id not in unique_issue_types:
-                        unique_issue_types[external_id] = issue_type
-
-            for external_id, issue_type in unique_issue_types.items():
-                original_name = issue_type.get('name', '')
-                description = issue_type.get('description', '')
-                hierarchy_level = issue_type.get('hierarchyLevel', 0)
-
-                # Find matching wits mapping
-                wits_mapping_id = wits_mapping_lookup.get(original_name)
-                if wits_mapping_id:
-                    logger.debug(f"Found mapping for '{original_name}' -> mapping_id {wits_mapping_id}")
-                else:
-                    logger.debug(f"No mapping found for issue type '{original_name}' - will use default processing")
-
-                if external_id in existing_wits:
-                    # Update existing issue type
-                    existing = existing_wits[external_id]
-                    # existing: (external_id, id, original_name, description, hierarchy_level, wits_mapping_id)
-                    if (existing[2] != original_name or existing[3] != description or
-                        existing[4] != hierarchy_level or existing[5] != wits_mapping_id):
-                        issue_types_to_update.append({
-                            'id': existing[1],
-                            'external_id': external_id,  # Include external_id for queueing
-                            'original_name': original_name,
-                            'description': description,
-                            'hierarchy_level': hierarchy_level,
-                            'wits_mapping_id': wits_mapping_id
-                        })
-                else:
-                    # Insert new issue type
-                    issue_types_to_insert.append({
-                        'external_id': external_id,
-                        'original_name': original_name,
-                        'description': description,
-                        'hierarchy_level': hierarchy_level,
-                        'wits_mapping_id': wits_mapping_id,
-                        'integration_id': integration_id,
-                        'tenant_id': tenant_id
-                    })
-
-            # Bulk insert new issue types
-            if issue_types_to_insert:
-                insert_query = text("""
-                    INSERT INTO wits (
-                        external_id, original_name, description, hierarchy_level, wits_mapping_id,
-                        integration_id, tenant_id, active, created_at, last_updated_at
-                    ) VALUES (
-                        :external_id, :original_name, :description, :hierarchy_level, :wits_mapping_id,
-                        :integration_id, :tenant_id, TRUE, NOW(), NOW()
-                    )
-                """)
-                db.execute(insert_query, issue_types_to_insert)
-                logger.info(f"Inserted {len(issue_types_to_insert)} new issue types with mapping links")
-
-            # Bulk update existing issue types
-            if issue_types_to_update:
-                update_query = text("""
-                    UPDATE wits
-                    SET original_name = :original_name, description = :description,
-                        hierarchy_level = :hierarchy_level, wits_mapping_id = :wits_mapping_id,
-                        last_updated_at = NOW()
-                    WHERE id = :id
-                """)
-                db.execute(update_query, issue_types_to_update)
-                logger.info(f"Updated {len(issue_types_to_update)} existing issue types with mapping links")
-
-            return len(issue_types_to_insert) + len(issue_types_to_update)
-
-        except Exception as e:
-            logger.error(f"Error processing issue types data: {e}")
-            raise
 
 
-    
-    def _process_jira_project_search(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+
+    def _process_jira_project_search(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None) -> bool:
         """
         Process Jira projects and issue types from project/search API endpoint.
 
@@ -545,15 +289,17 @@ class TransformWorker(BaseWorker):
                 # Commit all changes BEFORE queueing for vectorization
                 session.commit()
 
-                # 6. Queue entities for vectorization AFTER commit
+                # 6. Queue entities for embedding AFTER commit
                 if result['projects_to_insert']:
-                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_insert'])
+                    logger.debug(f"Queuing {len(result['projects_to_insert'])} projects_to_insert: {[p.get('external_id') for p in result['projects_to_insert']]}")
+                    self._queue_entities_for_embedding(tenant_id, 'projects', result['projects_to_insert'], job_id)
                 if result['projects_to_update']:
-                    self._queue_entities_for_vectorization(tenant_id, 'projects', result['projects_to_update'])
+                    logger.debug(f"Queuing {len(result['projects_to_update'])} projects_to_update: {[p.get('external_id') for p in result['projects_to_update']]}")
+                    self._queue_entities_for_embedding(tenant_id, 'projects', result['projects_to_update'], job_id)
                 if result['wits_to_insert']:
-                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_insert'])
+                    self._queue_entities_for_embedding(tenant_id, 'wits', result['wits_to_insert'], job_id)
                 if result['wits_to_update']:
-                    self._queue_entities_for_vectorization(tenant_id, 'wits', result['wits_to_update'])
+                    self._queue_entities_for_embedding(tenant_id, 'wits', result['wits_to_update'], job_id)
 
                 logger.info(f"Successfully processed Jira project search data for raw_data_id={raw_data_id}")
                 return True
@@ -579,7 +325,7 @@ class TransformWorker(BaseWorker):
         Key features:
         - Handles 'values' array with 'issueTypes' (camelCase)
         - DEDUPLICATES WITs across all projects (same WIT can appear in multiple projects)
-        - Queues projects and WITs for vectorization
+        - Queues projects and WITs for embedding
         """
         result = {
             'projects_to_insert': [],
@@ -631,6 +377,7 @@ class TransformWorker(BaseWorker):
                     existing_project.project_type != project_type):
                     result['projects_to_update'].append({
                         'id': existing_project.id,
+                        'external_id': project_external_id,  # Needed for embedding queue
                         'key': project_key,  # Needed for queueing
                         'name': project_name,
                         'project_type': project_type,
@@ -969,8 +716,8 @@ class TransformWorker(BaseWorker):
                 session.commit()
 
                 # NOTE: /createmeta is for custom fields discovery only
-                # Projects and WITs are NOT queued for vectorization here
-                # Only /project/search should queue for vectorization
+                # Projects and WITs are NOT queued for embedding here
+                # Only /project/search should queue for embedding
 
                 logger.info(f"Successfully processed custom fields for raw_data_id={raw_data_id}")
                 return True
@@ -1613,7 +1360,7 @@ class TransformWorker(BaseWorker):
             logger.error(f"Error in bulk operations: {e}")
             raise
 
-    def _process_jira_statuses_and_project_relationships(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+    def _process_jira_statuses_and_project_relationships(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None) -> bool:
         """
         Process statuses and project relationships from raw data.
 
@@ -1696,11 +1443,11 @@ class TransformWorker(BaseWorker):
                 # Commit all changes BEFORE queueing for vectorization
                 db.commit()
 
-                # Queue statuses for vectorization AFTER commit
+                # Queue statuses for embedding AFTER commit
                 if statuses_result['statuses_to_insert']:
-                    self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_result['statuses_to_insert'])
+                    self._queue_entities_for_embedding(tenant_id, 'statuses', statuses_result['statuses_to_insert'], job_id)
                 if statuses_result['statuses_to_update']:
-                    self._queue_entities_for_vectorization(tenant_id, 'statuses', statuses_result['statuses_to_update'])
+                    self._queue_entities_for_embedding(tenant_id, 'statuses', statuses_result['statuses_to_update'], job_id)
 
                 statuses_processed = statuses_result['count']
                 logger.info(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
@@ -1771,6 +1518,7 @@ class TransformWorker(BaseWorker):
                         existing[4] != description or existing[5] != status_mapping_id):
                         statuses_to_update.append({
                             'id': existing[1],
+                            'external_id': external_id,  # Add external_id for vectorization
                             'original_name': original_name,
                             'category': category,
                             'description': description,
@@ -1942,14 +1690,19 @@ class TransformWorker(BaseWorker):
             logger.error(f"Error processing project-status relationships data: {e}")
             raise
 
-    def _queue_entities_for_vectorization(
+    def _queue_entities_for_embedding(
         self,
         tenant_id: int,
         table_name: str,
-        entities: List[Dict[str, Any]]
+        entities: List[Dict[str, Any]],
+        job_id: int = None,
+        last_item: bool = False,
+        etl_job_id: int = None,
+        provider_name: str = None,
+        last_sync_date: str = None
     ):
         """
-        Queue entities for vectorization by publishing messages to vectorization queue.
+        Queue entities for embedding by publishing messages to embedding queue.
 
         Args:
             tenant_id: Tenant ID
@@ -1961,17 +1714,22 @@ class TransformWorker(BaseWorker):
             return
 
         try:
-            logger.info(f"Attempting to queue {len(entities)} {table_name} entities for vectorization")
+            logger.info(f"Attempting to queue {len(entities)} {table_name} entities for embedding")
             queue_manager = QueueManager()
             queued_count = 0
+
+            # Update job status to QUEUED_EMBEDDING if this is the final step
+            if job_id and queued_count == 0:  # Only on first entity to avoid multiple updates
+                self._update_job_status(job_id, "QUEUED_EMBEDDING", f"Transform completed, queuing {table_name} for embedding")
 
             for entity in entities:
                 # Get external ID based on table type
                 external_id = None
 
                 if table_name == 'projects':
-                    external_id = entity.get('key')
-                    logger.debug(f"Project entity keys: {list(entity.keys())}, key value: {external_id}")
+                    external_id = entity.get('external_id')
+                    logger.debug(f"Project entity keys: {list(entity.keys())}, external_id value: {external_id}")
+                    logger.debug(f"Full project entity: {entity}")
                 elif table_name == 'wits':
                     external_id = entity.get('external_id')
                 elif table_name == 'statuses':
@@ -1995,23 +1753,27 @@ class TransformWorker(BaseWorker):
                     logger.warning(f"No external_id found for {table_name} entity: {entity}")
                     continue
 
-                # Publish vectorization message
-                success = queue_manager.publish_vectorization_job(
+                # Publish embedding message with ETL job tracking
+                success = queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,
                     table_name=table_name,
                     external_id=str(external_id),
-                    operation='insert'
+                    operation='insert',
+                    etl_job_id=etl_job_id or job_id,
+                    provider_name=provider_name,
+                    last_sync_date=last_sync_date,
+                    last_item=last_item and (queued_count == len(entities) - 1)  # Only set last_item on the final entity
                 )
 
                 if success:
                     queued_count += 1
 
             if queued_count > 0:
-                logger.info(f"Queued {queued_count} {table_name} entities for vectorization")
+                logger.info(f"Queued {queued_count} {table_name} entities for embedding")
 
         except Exception as e:
-            logger.error(f"Error queuing entities for vectorization: {e}")
-            # Don't raise - vectorization is async and shouldn't block transform
+            logger.error(f"Error queuing entities for embedding: {e}")
+            # Don't raise - embedding is async and shouldn't block transform
 
     def _process_jira_issues_changelogs(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
         """
@@ -2096,7 +1858,7 @@ class TransformWorker(BaseWorker):
 
             return False
 
-    def _process_jira_single_issue(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+    def _process_jira_single_issue(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process a single Jira issue from raw_extraction_data.
 
@@ -2143,13 +1905,29 @@ class TransformWorker(BaseWorker):
                 )
 
                 # Check if issue has development field - queue for dev_status extraction
-                development_field = issue.get('fields', {}).get('customfield_10000')
+                # Find development field from custom_field_mappings (not hardcoded)
+                development_field_id = None
+                for field_id, column_name in custom_field_mappings.items():
+                    if column_name == 'development':
+                        development_field_id = field_id
+                        break
+
+                development_field = None
+                if development_field_id:
+                    development_field = issue.get('fields', {}).get(development_field_id)
+
                 if development_field:
                     logger.debug(f"Issue {issue.get('key')} has development field, queueing for dev_status extraction")
 
-                    # Queue extraction request (non-blocking)
+                    # Queue extraction request (non-blocking) with ETL job tracking
                     from app.etl.queue.queue_manager import QueueManager
                     queue_manager = QueueManager()
+
+                    # Forward ETL job tracking information from the original message
+                    etl_job_id = message.get('etl_job_id') if message else None
+                    provider_name = message.get('provider_name') if message else None
+                    last_sync_date = message.get('last_sync_date') if message else None
+                    last_issue_changelog_item = message.get('last_issue_changelog_item', False) if message else False
 
                     success = queue_manager.publish_extraction_job(
                         tenant_id=tenant_id,
@@ -2158,11 +1936,15 @@ class TransformWorker(BaseWorker):
                         extraction_data={
                             'issue_id': issue.get('id'),
                             'issue_key': issue.get('key')
-                        }
+                        },
+                        etl_job_id=etl_job_id,
+                        provider_name=provider_name,
+                        last_sync_date=last_sync_date,
+                        last_issue_changelog_item=last_issue_changelog_item
                     )
 
                     if success:
-                        logger.debug(f"✅ Queued dev_status extraction for issue {issue.get('key')}")
+                        logger.debug(f"✅ Queued dev_status extraction for issue {issue.get('key')} with ETL tracking")
                     else:
                         logger.warning(f"⚠️ Failed to queue dev_status extraction for issue {issue.get('key')}")
 
@@ -2546,6 +2328,7 @@ class TransformWorker(BaseWorker):
                     # Update existing issue
                     update_dict = {
                         'id': existing_issues_map[external_id]['id'],
+                        'key': existing_issues_map[external_id]['key'],  # Add key for vectorization
                         'summary': summary,
                         'description': description,
                         'project_id': project_id,
@@ -2604,16 +2387,16 @@ class TransformWorker(BaseWorker):
             BulkOperations.bulk_insert(db, 'work_items', issues_to_insert)
             logger.info(f"Inserted {len(issues_to_insert)} new issues")
 
-            # Queue for vectorization
-            self._queue_entities_for_vectorization(tenant_id, 'work_items', issues_to_insert)
+            # Queue for embedding
+            self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_insert, job_id)
 
         # Bulk update existing issues
         if issues_to_update:
             BulkOperations.bulk_update(db, 'work_items', issues_to_update)
             logger.info(f"Updated {len(issues_to_update)} existing issues")
 
-            # Queue for vectorization
-            self._queue_entities_for_vectorization(tenant_id, 'work_items', issues_to_update)
+            # Queue for embedding
+            self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_update, job_id)
 
         return len(issues_to_insert) + len(issues_to_update)
 
@@ -2760,8 +2543,8 @@ class TransformWorker(BaseWorker):
             BulkOperations.bulk_insert(db, 'changelogs', changelogs_to_insert)
             logger.info(f"Inserted {len(changelogs_to_insert)} new changelogs")
 
-            # Queue for vectorization
-            self._queue_entities_for_vectorization(tenant_id, 'changelogs', changelogs_to_insert)
+            # Queue for embedding
+            self._queue_entities_for_embedding(tenant_id, 'changelogs', changelogs_to_insert, job_id)
 
         # Calculate and update enhanced workflow metrics from in-memory changelog data
         if changelogs_to_insert:
@@ -2982,7 +2765,7 @@ class TransformWorker(BaseWorker):
 
         return metrics
 
-    def _process_jira_dev_status(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+    def _process_jira_dev_status(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process Jira dev_status data from raw_extraction_data.
 
@@ -3038,6 +2821,20 @@ class TransformWorker(BaseWorker):
                 db.commit()
 
                 logger.info(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
+
+                # ✅ Handle last_item flag for ETL job completion
+                if message and message.get('last_item'):
+                    logger.info(f"🏁 Processing last dev_status item - triggering ETL job completion")
+
+                    # Queue for embedding with last_item=true to trigger job completion
+                    self._queue_entities_for_embedding(
+                        tenant_id, 'work_items_prs_links', [], job_id,
+                        last_item=True,
+                        etl_job_id=message.get('etl_job_id'),
+                        provider_name=message.get('provider_name'),
+                        last_sync_date=message.get('last_sync_date')
+                    )
+
                 return True
 
         except Exception as e:
@@ -3145,9 +2942,9 @@ class TransformWorker(BaseWorker):
             # Fetch the inserted records with their generated IDs for vectorization
             inserted_links = self._fetch_inserted_pr_links(db, pr_links_to_insert, integration_id, tenant_id)
 
-            # Queue for vectorization (using internal ID)
+            # Queue for embedding (using internal ID)
             if inserted_links:
-                self._queue_entities_for_vectorization(tenant_id, 'work_items_prs_links', inserted_links)
+                self._queue_entities_for_embedding(tenant_id, 'work_items_prs_links', inserted_links, job_id)
 
         return len(pr_links_to_insert)
 
@@ -3288,5 +3085,32 @@ class TransformWorker(BaseWorker):
         except Exception as e:
             logger.warning(f"Error parsing datetime '{date_str}': {e}")
             return None
+
+    def _update_job_status(self, job_id: int, status: str, message: str = None):
+        """Update ETL job status."""
+        try:
+            from app.core.database import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            with database.get_write_session_context() as session:
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = :status, last_updated_at = NOW()
+                    WHERE id = :job_id
+                """)
+
+                session.execute(update_query, {
+                    'status': status,
+                    'job_id': job_id
+                })
+                session.commit()
+
+                logger.info(f"Updated job {job_id} status to {status}")
+                if message:
+                    logger.info(f"Job {job_id} message: {message}")
+
+        except Exception as e:
+            logger.error(f"Error updating job status: {e}")
 
 

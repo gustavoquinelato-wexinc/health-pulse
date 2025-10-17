@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.core.database import get_db_session
+from app.core.database import get_db_session, get_read_session
 from app.core.logging_config import get_logger
 from app.etl.jira_client import JiraAPIClient
 from app.api.websocket_routes import get_websocket_manager
@@ -18,8 +18,7 @@ from app.models.unified_models import Integration
 
 logger = get_logger(__name__)
 
-# Project keys for WEX Health Pulse
-PROJECT_KEYS = ['BDP', 'BEN', 'BEX', 'BST', 'CDB', 'CDH', 'EPE', 'FG', 'HBA', 'HDO', 'HDS', 'WCI', 'WX', 'BENBR']
+
 
 
 class JiraExtractionProgressTracker:
@@ -513,18 +512,62 @@ async def _extract_projects_and_issue_types(
     integration_id: int,
     tenant_id: int,
     progress_tracker: JiraExtractionProgressTracker,
-    step_index: int = 0  # Internal index (0-based for 4-step tracker)
+    step_index: int = 0,  # Internal index (0-based for 4-step tracker)
+    job_id: int = None  # ETL job ID for tracking
 ) -> Dict[str, Any]:
     """Extract projects and issue types (Phase 2.1 / Step 1)."""
 
+    # Set last_run_started_at for this ETL job
+    from datetime import datetime
+    job_start_time = datetime.now()
+
+    if job_id:
+        from app.core.database import get_database
+        from sqlalchemy import text
+        database = get_database()
+        with database.get_write_session_context() as db:
+            update_query = text("""
+                UPDATE etl_jobs
+                SET last_run_started_at = :job_start_time,
+                    last_updated_at = :job_start_time
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'job_start_time': job_start_time
+            })
+            logger.info(f"✅ Set last_run_started_at to {job_start_time} for job {job_id}")
+
+    # Get integration settings to determine which projects to extract
+    from sqlalchemy import text
+    with get_read_session() as db:
+        result = db.execute(text("""
+            SELECT id, settings
+            FROM integrations
+            WHERE id = :integration_id AND tenant_id = :tenant_id
+        """), {"integration_id": integration_id, "tenant_id": tenant_id}).fetchone()
+
+        if not result:
+            raise ValueError(f"Integration {integration_id} not found for tenant {tenant_id}")
+
+        integration_settings = result[1] or {}
+        project_keys = integration_settings.get('projects', [])
+
+        if not project_keys:
+            raise ValueError("No projects configured in integration settings. Please configure projects in the integration settings.")
+
+        logger.info(f"Step 1: Using {len(project_keys)} configured projects: {project_keys}")
+
     # Step progress: Extract projects data (0.0 -> 0.3)
     await progress_tracker.update_step_progress(
-        step_index, 0.0, f"Step 1: Fetching projects and issue types from {len(PROJECT_KEYS)} WEX projects"
+        step_index, 0.0, f"Step 1: Fetching {len(project_keys)} configured projects and issue types"
     )
 
-    # Extract projects with issue types using /project/search endpoint (not /createmeta)
+    # Extract configured projects with issue types using /project/search endpoint
+    # Filter by the projects configured in integration settings
     projects_list = jira_client.get_projects(
-        project_keys=PROJECT_KEYS,
+        project_keys=project_keys,
         expand="issueTypes"
     )
 
@@ -583,10 +626,44 @@ async def _extract_projects_and_issue_types(
         step_index, f"Step 1 complete: {len(projects_list)} projects, {unique_issue_types_count} issue types"
     )
 
+    # Publish to transform queue with first_item=true and job_start_time
+    if job_id:
+        from app.etl.queue.queue_manager import get_queue_manager
+        queue_manager = get_queue_manager()
+
+        # Get integration for provider name
+        from app.core.database import get_database
+        from app.models.unified_models import Integration
+        database = get_database()
+        with database.get_read_session_context() as db:
+            integration = db.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.tenant_id == tenant_id
+            ).first()
+            provider_name = integration.provider if integration else 'Jira'
+
+        success = queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            raw_data_id=raw_data_id,
+            data_type='jira_project_search',  # ✅ Match the entity_type used in store_raw_extraction_data
+            etl_job_id=job_id,
+            provider_name=provider_name,
+            last_sync_date=job_start_time.isoformat(),
+            first_item=True  # ✅ This is the first item in the ETL flow
+        )
+
+        if success:
+            logger.info(f"✅ Published projects and issue types to transform queue with first_item=true")
+        else:
+            logger.error(f"❌ Failed to publish projects and issue types to transform queue")
+
     return {
+        "success": True,
         "projects_count": len(projects_list),
         "issue_types_count": unique_issue_types_count,
-        "raw_data_id": raw_data_id
+        "raw_data_id": raw_data_id,
+        "job_start_time": job_start_time.isoformat() if job_id else None
     }
 
 
@@ -599,6 +676,8 @@ async def _extract_statuses_and_relationships(
 ) -> Dict[str, Any]:
     """Extract statuses and project relationships (Phase 2.2 / Step 2)."""
 
+    logger.info(f"🔍 [DEBUG] Starting _extract_statuses_and_relationships for tenant {tenant_id}, integration {integration_id}")
+
     # Step progress: Get projects from database (0.0 -> 0.2)
     await progress_tracker.update_step_progress(
         step_index, 0.0, "Step 2: Fetching projects from database for status extraction"
@@ -607,6 +686,7 @@ async def _extract_statuses_and_relationships(
     # Get projects from database (like old ETL)
     # Use READ replica for fast query
     from app.core.database import get_database
+    from sqlalchemy import text
     database = get_database()
 
     with database.get_read_session_context() as db:
@@ -621,10 +701,11 @@ async def _extract_statuses_and_relationships(
         }).fetchall()
 
         if not projects_result:
+            logger.error(f"🔍 [DEBUG] No projects found in database for tenant {tenant_id}, integration {integration_id}")
             raise ValueError("No projects found in database. Please run projects extraction first.")
 
         project_keys = [row[1] for row in projects_result]  # Extract project keys
-        logger.info(f"Found {len(project_keys)} projects for status extraction: {project_keys}")
+        logger.info(f"🔍 [DEBUG] Found {len(project_keys)} projects for status extraction: {project_keys}")
 
     # Step progress: Extract project-specific statuses (0.0 -> 1.0)
     await progress_tracker.update_step_progress(
@@ -644,7 +725,9 @@ async def _extract_statuses_and_relationships(
             )
 
             # Call /rest/api/3/project/{project_key}/statuses for each project
+            logger.info(f"🔍 [DEBUG] Calling get_project_statuses for project {project_key}")
             project_statuses_response = jira_client.get_project_statuses(project_key)
+            logger.info(f"🔍 [DEBUG] get_project_statuses returned: {len(project_statuses_response) if project_statuses_response else 0} issue types for project {project_key}")
 
             if project_statuses_response:
                 # Store raw data for this project individually
@@ -675,12 +758,21 @@ async def _extract_statuses_and_relationships(
                 tier = queue_manager._get_tenant_tier(tenant_id)
                 transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
 
+                logger.info(f"🔍 [DEBUG] About to call transform worker for project {project_key}, raw_data_id={raw_data_id}")
                 transform_worker = TransformWorker(queue_name=transform_queue)
-                processed = transform_worker._process_jira_statuses_and_project_relationships(
-                    raw_data_id=raw_data_id,
-                    tenant_id=tenant_id,
-                    integration_id=integration_id
-                )
+
+                try:
+                    processed = transform_worker._process_jira_statuses_and_project_relationships(
+                        raw_data_id=raw_data_id,
+                        tenant_id=tenant_id,
+                        integration_id=integration_id
+                    )
+                    logger.info(f"🔍 [DEBUG] Transform worker returned: {processed} for project {project_key}")
+                except Exception as transform_error:
+                    logger.error(f"❌ [DEBUG] Transform worker failed for project {project_key}: {transform_error}")
+                    import traceback
+                    logger.error(f"Transform worker traceback: {traceback.format_exc()}")
+                    processed = False
 
                 if processed:
                     # Count statuses and relationships for this project
@@ -700,11 +792,14 @@ async def _extract_statuses_and_relationships(
                     logger.warning(f"Failed to process transformation for project {project_key}")
 
         except Exception as e:
-            logger.warning(f"Failed to process statuses for project {project_key}: {e}")
+            logger.error(f"❌ [DEBUG] Exception in project loop for {project_key}: {e}")
+            import traceback
+            logger.error(f"Project loop traceback: {traceback.format_exc()}")
             continue
 
     # Step 2 complete (0.8 -> 1.0)
     # Get unique statuses count from database for accurate reporting
+    logger.info(f"🔍 [DEBUG] Getting unique statuses count from database for tenant {tenant_id}, integration {integration_id}")
     from app.core.database import get_database
     from app.models.unified_models import Status
     database = get_database()
@@ -714,12 +809,16 @@ async def _extract_statuses_and_relationships(
             Status.integration_id == integration_id,
             Status.active == True
         ).count()
+        logger.info(f"🔍 [DEBUG] Found {unique_statuses_count} unique statuses in database")
 
     await progress_tracker.complete_step(
         step_index, f"Step 2 complete: {unique_statuses_count} statuses, {total_relationships_processed} project relationships across {len(project_keys)} projects"
     )
 
+    logger.info(f"🔍 [DEBUG] _extract_statuses_and_relationships completed successfully - returning success=True")
+
     return {
+        "success": True,
         "statuses_count": unique_statuses_count,
         "project_relationships_count": total_relationships_processed,
         "projects_processed": len(project_keys)
@@ -769,9 +868,26 @@ async def _extract_issues_with_changelogs_for_complete_job(
         last_sync_date = result[0]
         integration_settings = result[1] or {}
 
-        # Get project keys from integration settings
-        project_keys = integration_settings.get('projects', PROJECT_KEYS)
-        logger.info(f"Step 3: Using {len(project_keys)} projects from integration settings: {project_keys}")
+        # Get project keys from integration settings or database
+        project_keys = integration_settings.get('projects')
+
+        if not project_keys:
+            # Fallback: get project keys from database
+            logger.info("No projects in integration settings, fetching from database...")
+            from sqlalchemy import text
+            with get_read_session() as db:
+                projects_result = db.execute(text("""
+                    SELECT DISTINCT external_id, key
+                    FROM jira_projects
+                    WHERE tenant_id = :tenant_id AND integration_id = :integration_id
+                """), {"tenant_id": tenant_id, "integration_id": integration_id}).fetchall()
+
+                if not projects_result:
+                    raise ValueError("No projects found in database or integration settings. Please run projects extraction first.")
+
+                project_keys = [row[1] for row in projects_result]  # Extract project keys
+
+        logger.info(f"Step 3: Using {len(project_keys)} projects: {project_keys}")
 
     # Build JQL query with bounded date range and project filter
     project_filter = f"project in ({','.join(project_keys)})"
@@ -945,6 +1061,7 @@ async def _extract_issues_with_changelogs_for_complete_job(
         )
 
     return {
+        'success': True,
         'issues_count': total_issues_processed,
         'batches_count': batches_stored,
         'changelogs_count': 0  # Will be counted during transform processing
@@ -1037,7 +1154,7 @@ async def _extract_dev_status_for_complete_job(
         await progress_tracker.update_step_progress(
             3, 1.0, "Step 4: Complete - No issues with code changes"
         )
-        return {'pr_links_count': 0}
+        return {'success': True, 'pr_links_count': 0}
 
     # Fetch dev status for each issue - BATCH PROCESSING
     # Store and queue every 50 issues to avoid memory buildup
@@ -1295,7 +1412,7 @@ async def _extract_issues_with_changelogs(
         - issues_count: Number of issues extracted
         - issues_with_code_changes: List of issue keys with code_changed=true
     """
-    from app.etl.raw_data import store_raw_extraction_data
+
     from app.etl.queue.queue_manager import get_queue_manager
 
     # Build JQL query for incremental extraction
@@ -1321,17 +1438,17 @@ async def _extract_issues_with_changelogs(
         'customfield_10128',  # Team
     ]
 
-    # Fetch issues with pagination
+    # Fetch issues with pagination using next_page_token
     all_issues = []
     issues_with_code_changes = []
-    start_at = 0
+    next_page_token = None
     max_results = 100
     total_issues = None
 
     while True:
         result = jira_client.search_issues(
             jql=jql,
-            start_at=start_at,
+            next_page_token=next_page_token,
             max_results=max_results,
             fields=fields,
             expand=['changelog']
@@ -1343,57 +1460,75 @@ async def _extract_issues_with_changelogs(
 
         all_issues.extend(issues)
 
-        # Track issues with code changes (code_changed field)
+        # Track issues with code changes (development field)
+        # Note: This is just for tracking - actual dev_status queueing happens in transform worker
+        # using proper custom_field_mappings
         for issue in issues:
             fields_data = issue.get('fields', {})
             # Check if issue has development information (indicates code changes)
-            # This is a simplified check - actual implementation may vary
-            if fields_data.get('customfield_10000'):  # Development field
+            # Using environment variable for development field ID (fallback to common default)
+            import os
+            development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+            if fields_data.get(development_field_id):
                 issues_with_code_changes.append(issue.get('key'))
 
         if total_issues is None:
             total_issues = result.get('total', 0)
             logger.info(f"Total issues to fetch: {total_issues}")
 
-        start_at += len(issues)
-        logger.info(f"Fetched {start_at}/{total_issues} issues")
+        current_count = len(all_issues)
+        logger.info(f"Fetched {current_count}/{total_issues} issues")
 
         # Update progress
         if total_issues > 0:
-            progress = start_at / total_issues
+            progress = current_count / total_issues
             await progress_tracker.update_step_progress(
-                1, progress, f"Fetching issues: {start_at}/{total_issues}"
+                1, progress, f"Fetching issues: {current_count}/{total_issues}"
             )
 
-        # Check if we've fetched all issues
-        if start_at >= total_issues:
+        # Check if we have more pages using the new token-based pagination
+        next_page_token = result.get('nextPageToken')
+        is_last = result.get('isLast', True)
+
+        if is_last or not next_page_token:
             break
 
     logger.info(f"Fetched {len(all_issues)} issues total")
 
     # Store raw data
-    raw_data_id = store_raw_extraction_data(
-        tenant_id=tenant_id,
+    raw_data_id = await store_raw_extraction_data(
         integration_id=integration_id,
-        data_type='jira_issues_changelogs',
-        raw_data={'issues': all_issues},
-        source_info={'jql': jql, 'total_count': len(all_issues)}
+        tenant_id=tenant_id,
+        entity_type='jira_issues_changelogs',
+        raw_data={'issues': all_issues}
     )
 
     logger.info(f"Stored raw issues data with ID: {raw_data_id}")
 
-    # Publish to transform queue
+    # Publish to transform queue with completion flag for Jira
     queue_manager = get_queue_manager()
+
+    # Get integration to determine provider name
+    with get_read_session() as session:
+        integration = session.query(Integration).filter(Integration.id == integration_id).first()
+        provider_name = integration.name if integration else "Unknown"
+
     queue_manager.publish_transform_job(
         tenant_id=tenant_id,
         integration_id=integration_id,
         raw_data_id=raw_data_id,
-        data_type='jira_issues_changelogs'
+        data_type='jira_issues_changelogs',
+        etl_job_id=job_id,
+        provider_name=provider_name,
+        last_sync_date=last_sync_date,
+        first_item=False,  # ✅ first_item is set by projects extraction
+        last_issue_changelog_item=True  # ✅ This marks the end of initial Jira extraction
     )
 
     logger.info(f"Published issues to transform queue")
 
     return {
+        'success': True,
         'issues_count': len(all_issues),
         'issues_with_code_changes': issues_with_code_changes
     }
@@ -1413,12 +1548,12 @@ async def _extract_dev_status(
         Dict containing:
         - dev_status_count: Number of dev_status records extracted
     """
-    from app.etl.raw_data import store_raw_extraction_data
+
     from app.etl.queue.queue_manager import get_queue_manager
 
     if not issue_keys:
         logger.info("No issues with code changes to process")
-        return {'dev_status_count': 0}
+        return {'success': True, 'dev_status_count': 0}
 
     logger.info(f"Extracting dev_status for {len(issue_keys)} issues")
 
@@ -1474,12 +1609,11 @@ async def _extract_dev_status(
 
     if dev_status_data:
         # Store raw data
-        raw_data_id = store_raw_extraction_data(
-            tenant_id=tenant_id,
+        raw_data_id = await store_raw_extraction_data(
             integration_id=integration_id,
-            data_type='jira_dev_status',
-            raw_data={'dev_status': dev_status_data},
-            source_info={'total_count': len(dev_status_data)}
+            tenant_id=tenant_id,
+            entity_type='jira_dev_status',
+            raw_data={'dev_status': dev_status_data}
         )
 
         logger.info(f"Stored raw dev_status data with ID: {raw_data_id}")
@@ -1495,7 +1629,7 @@ async def _extract_dev_status(
 
         logger.info(f"Published dev_status to transform queue")
 
-    return {'dev_status_count': len(dev_status_data)}
+    return {'success': True, 'dev_status_count': len(dev_status_data)}
 
 
 # FastAPI Router

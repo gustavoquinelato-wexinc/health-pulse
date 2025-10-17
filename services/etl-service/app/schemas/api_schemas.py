@@ -11,11 +11,10 @@ from enum import Enum
 
 class JobStatus(str, Enum):
     """Possible job statuses."""
-    READY = "ready"
-    RUNNING = "running"
-    SUCCESS = "success"
-    ERROR = "error"
-    CANCELLED = "cancelled"
+    READY = "READY"
+    RUNNING = "RUNNING"
+    FINISHED = "FINISHED"
+    FAILED = "FAILED"
 
 
 class HealthResponse(BaseModel):

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 11 - Voice Command Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f35 100%);
+            overflow: hidden;
+        }
+        
+        .voice-visualizer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .voice-interface {
+            width: 100%;
+            max-width: 700px;
+            text-align: center;
+        }
+        
+        .voice-orb-container {
+            width: 350px;
+            height: 350px;
+            margin: 0 auto 4rem;
+            position: relative;
+        }
+        
+        .voice-orb {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #2862EB, #763DED);
+            box-shadow: 0 0 100px rgba(40, 98, 235, 0.8),
+                        0 0 200px rgba(118, 61, 237, 0.4),
+                        inset 0 0 100px rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .voice-orb::before {
+            content: '';
+            position: absolute;
+            inset: -50%;
+            background: conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: rotate-shine 4s linear infinite;
+        }
+        
+        @keyframes rotate-shine {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .voice-orb.listening {
+            animation: pulse-listening 1.5s ease-in-out infinite;
+            box-shadow: 0 0 150px rgba(40, 98, 235, 1),
+                        0 0 300px rgba(118, 61, 237, 0.6);
+        }
+        
+        @keyframes pulse-listening {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .voice-waves {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .wave-bar {
+            width: 6px;
+            height: 40px;
+            background: white;
+            border-radius: 3px;
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        
+        .voice-orb.listening .wave-bar {
+            opacity: 1;
+            animation: wave-pulse 1s ease-in-out infinite;
+        }
+        
+        .wave-bar:nth-child(1) { animation-delay: 0s; }
+        .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+        .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+        .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+        .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+        .wave-bar:nth-child(6) { animation-delay: 0.3s; }
+        .wave-bar:nth-child(7) { animation-delay: 0.2s; }
+        .wave-bar:nth-child(8) { animation-delay: 0.1s; }
+        
+        @keyframes wave-pulse {
+            0%, 100% { height: 40px; }
+            50% { height: 100px; }
+        }
+        
+        .voice-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            stroke: white;
+            stroke-width: 2;
+            fill: none;
+            filter: drop-shadow(0 4px 20px rgba(255, 255, 255, 0.5));
+            transition: all 0.3s ease;
+        }
+        
+        .voice-orb.listening .voice-icon {
+            opacity: 0;
+        }
+        
+        .voice-status {
+            margin-bottom: 3rem;
+        }
+        
+        .voice-status h1 {
+            color: white;
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff, #2862EB, #763DED);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .voice-command {
+            color: #0EA5E9;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            min-height: 2rem;
+        }
+        
+        .voice-hint {
+            color: #64748b;
+            font-size: 1rem;
+            line-height: 1.8;
+        }
+        
+        .manual-toggle {
+            margin-top: 3rem;
+            padding: 1rem 2rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            color: #94a3b8;
+            font-size: 0.9375rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+        
+        .manual-toggle:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: #2862EB;
+            color: white;
+        }
+        
+        .manual-form {
+            display: none;
+            margin-top: 3rem;
+            padding: 3rem;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(40, 98, 235, 0.3);
+            border-radius: 24px;
+            text-align: left;
+        }
+        
+        .manual-form.active {
+            display: block;
+            animation: slideDown 0.4s ease;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #cbd5e1;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            background: rgba(10, 14, 26, 0.8);
+            border: 2px solid rgba(40, 98, 235, 0.3);
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #2862EB;
+            box-shadow: 0 0 20px rgba(40, 98, 235, 0.4);
+        }
+        
+        .form-group input::placeholder {
+            color: #334155;
+        }
+        
+        .btn-submit {
+            width: 100%;
+            padding: 1.25rem;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .btn-submit:hover {
+            box-shadow: 0 0 40px rgba(40, 98, 235, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .voice-commands-list {
+            margin-top: 3rem;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .voice-commands-list h3 {
+            color: white;
+            font-size: 1.25rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        
+        .command-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+        
+        .command-item {
+            padding: 1rem;
+            background: rgba(40, 98, 235, 0.1);
+            border-radius: 12px;
+            border: 1px solid rgba(40, 98, 235, 0.2);
+        }
+        
+        .command-item strong {
+            color: #0EA5E9;
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.875rem;
+        }
+        
+        .command-item span {
+            color: #94a3b8;
+            font-size: 0.8125rem;
+        }
+        
+        @media (max-width: 768px) {
+            .voice-orb-container {
+                width: 250px;
+                height: 250px;
+            }
+            .command-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas class="voice-visualizer" id="visualizer"></canvas>
+    
+    <div class="container">
+        <div class="voice-interface">
+            <div class="voice-orb-container">
+                <div class="voice-orb" id="voiceOrb">
+                    <div class="voice-waves">
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                    </div>
+                    <svg class="voice-icon" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                </div>
+            </div>
+            
+            <div class="voice-status">
+                <h1>Voice Authentication</h1>
+                <div class="voice-command" id="voiceCommand">Click the orb to start</div>
+                <div class="voice-hint">Say "Login as [your email]" or "Sign in"</div>
+            </div>
+            
+            <button class="manual-toggle" id="manualToggle">
+                Switch to Manual Input
+            </button>
+            
+            <div class="manual-form" id="manualForm">
+                <form>
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" placeholder="your.email@company.com" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter your password" required>
+                    </div>
+                    
+                    <button type="submit" class="btn-submit">Sign In</button>
+                </form>
+            </div>
+            
+            <div class="voice-commands-list">
+                <h3>Voice Commands</h3>
+                <div class="command-grid">
+                    <div class="command-item">
+                        <strong>"Login as [email]"</strong>
+                        <span>Start authentication</span>
+                    </div>
+                    <div class="command-item">
+                        <strong>"Sign in"</strong>
+                        <span>Quick login</span>
+                    </div>
+                    <div class="command-item">
+                        <strong>"Password [your password]"</strong>
+                        <span>Enter password</span>
+                    </div>
+                    <div class="command-item">
+                        <strong>"Cancel"</strong>
+                        <span>Stop listening</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const voiceOrb = document.getElementById('voiceOrb');
+        const voiceCommand = document.getElementById('voiceCommand');
+        const manualToggle = document.getElementById('manualToggle');
+        const manualForm = document.getElementById('manualForm');
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        let isListening = false;
+        
+        // Voice orb interaction
+        voiceOrb.addEventListener('click', () => {
+            isListening = !isListening;
+            voiceOrb.classList.toggle('listening', isListening);
+            
+            if (isListening) {
+                voiceCommand.textContent = 'Listening...';
+                simulateVoiceRecognition();
+            } else {
+                voiceCommand.textContent = 'Click the orb to start';
+            }
+        });
+        
+        // Manual toggle
+        manualToggle.addEventListener('click', () => {
+            manualForm.classList.toggle('active');
+            manualToggle.textContent = manualForm.classList.contains('active') 
+                ? 'Switch to Voice Input' 
+                : 'Switch to Manual Input';
+        });
+        
+        // Simulate voice recognition
+        function simulateVoiceRecognition() {
+            const commands = [
+                'Say your command...',
+                'Processing voice...',
+                'Authenticating...',
+                'Voice recognized!'
+            ];
+            
+            let index = 0;
+            const interval = setInterval(() => {
+                if (!isListening || index >= commands.length) {
+                    clearInterval(interval);
+                    return;
+                }
+                voiceCommand.textContent = commands[index];
+                index++;
+            }, 1500);
+        }
+        
+        // Visualizer
+        const particles = [];
+        for (let i = 0; i < 100; i++) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 2,
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: (Math.random() - 0.5) * 0.5,
+                alpha: Math.random()
+            });
+        }
+        
+        function animate() {
+            ctx.fillStyle = 'rgba(10, 14, 26, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                
+                if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(40, 98, 235, ${p.alpha})`;
+                ctx.fill();
+            });
+            
+            requestAnimationFrame(animate);
+        }
+        
+        animate();
+        
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
+

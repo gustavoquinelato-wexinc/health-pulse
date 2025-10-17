@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 19 - Music Rhythm Auth</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+        
+        .music-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, #1a1035 0%, #000 100%);
+        }
+        
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .music-interface {
+            width: 100%;
+            max-width: 1000px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 3rem;
+            align-items: center;
+        }
+        
+        .rhythm-visualizer {
+            text-align: center;
+        }
+        
+        .visualizer-header {
+            margin-bottom: 3rem;
+        }
+        
+        .visualizer-header h1 {
+            color: white;
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #EC4899, #8B5CF6, #3B82F6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .visualizer-header p {
+            color: #94a3b8;
+            font-size: 1.125rem;
+        }
+        
+        .equalizer {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 8px;
+            height: 300px;
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(236, 72, 153, 0.3);
+            border-radius: 24px;
+        }
+        
+        .eq-bar {
+            width: 20px;
+            background: linear-gradient(to top, #EC4899, #8B5CF6, #3B82F6);
+            border-radius: 10px 10px 0 0;
+            transition: height 0.1s ease;
+            box-shadow: 0 0 20px rgba(236, 72, 153, 0.6);
+        }
+        
+        .eq-bar.active {
+            animation: eq-bounce 0.6s ease-in-out infinite;
+        }
+        
+        @keyframes eq-bounce {
+            0%, 100% { height: 40px; }
+            50% { height: 200px; }
+        }
+        
+        .rhythm-pads {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+        
+        .rhythm-pad {
+            aspect-ratio: 1;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(20px);
+            border: 3px solid rgba(236, 72, 153, 0.3);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        
+        .rhythm-pad:hover {
+            background: rgba(236, 72, 153, 0.1);
+            border-color: #EC4899;
+            box-shadow: 0 10px 40px rgba(236, 72, 153, 0.4);
+            transform: scale(1.05);
+        }
+        
+        .rhythm-pad:active {
+            transform: scale(0.95);
+            box-shadow: 0 0 60px rgba(236, 72, 153, 0.8);
+        }
+        
+        .rhythm-pad.hit {
+            background: linear-gradient(135deg, rgba(236, 72, 153, 0.4), rgba(139, 92, 246, 0.4));
+            border-color: #EC4899;
+            animation: pad-hit 0.3s ease;
+        }
+        
+        @keyframes pad-hit {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); box-shadow: 0 0 80px rgba(236, 72, 153, 1); }
+            100% { transform: scale(1); }
+        }
+        
+        .music-login {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(40px);
+            border: 2px solid rgba(236, 72, 153, 0.4);
+            border-radius: 32px;
+            padding: 3rem;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .music-icon {
+            width: 90px;
+            height: 90px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, #EC4899, #8B5CF6);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 60px rgba(236, 72, 153, 0.6);
+            font-size: 3rem;
+            animation: music-pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes music-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); box-shadow: 0 20px 80px rgba(236, 72, 153, 0.8); }
+        }
+        
+        .login-header h2 {
+            color: white;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .login-header p {
+            color: #64748b;
+            font-size: 0.9375rem;
+        }
+        
+        .rhythm-status {
+            padding: 1rem;
+            background: rgba(139, 92, 246, 0.1);
+            border: 2px solid rgba(139, 92, 246, 0.3);
+            border-radius: 12px;
+            color: #8B5CF6;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-field {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-field label {
+            display: block;
+            color: #cbd5e1;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        .form-field input {
+            width: 100%;
+            padding: 1.25rem 1.5rem;
+            background: rgba(10, 14, 26, 0.8);
+            border: 2px solid rgba(236, 72, 153, 0.3);
+            border-radius: 16px;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .form-field input:focus {
+            outline: none;
+            border-color: #EC4899;
+            box-shadow: 0 0 30px rgba(236, 72, 153, 0.4);
+        }
+        
+        .form-field input::placeholder {
+            color: #334155;
+        }
+        
+        .btn-music {
+            width: 100%;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #EC4899, #8B5CF6);
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-size: 1.0625rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .btn-music:hover {
+            box-shadow: 0 0 60px rgba(236, 72, 153, 0.8);
+            transform: translateY(-3px);
+        }
+        
+        .music-footer {
+            text-align: center;
+            margin-top: 1.5rem;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+        
+        .music-footer a {
+            color: #EC4899;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        @media (max-width: 1024px) {
+            .music-interface {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="music-bg"></div>
+    
+    <div class="container">
+        <div class="music-interface">
+            <div class="rhythm-visualizer">
+                <div class="visualizer-header">
+                    <h1>Rhythm Auth</h1>
+                    <p>Tap the beat to unlock access</p>
+                </div>
+                
+                <div class="equalizer" id="equalizer">
+                    <div class="eq-bar" style="height: 40px;"></div>
+                    <div class="eq-bar" style="height: 80px;"></div>
+                    <div class="eq-bar" style="height: 120px;"></div>
+                    <div class="eq-bar" style="height: 60px;"></div>
+                    <div class="eq-bar" style="height: 140px;"></div>
+                    <div class="eq-bar" style="height: 100px;"></div>
+                    <div class="eq-bar" style="height: 160px;"></div>
+                    <div class="eq-bar" style="height: 90px;"></div>
+                    <div class="eq-bar" style="height: 110px;"></div>
+                    <div class="eq-bar" style="height: 70px;"></div>
+                    <div class="eq-bar" style="height: 130px;"></div>
+                    <div class="eq-bar" style="height: 50px;"></div>
+                </div>
+                
+                <div class="rhythm-pads">
+                    <div class="rhythm-pad" data-sound="kick">🥁</div>
+                    <div class="rhythm-pad" data-sound="snare">🎵</div>
+                    <div class="rhythm-pad" data-sound="hihat">🎶</div>
+                    <div class="rhythm-pad" data-sound="clap">👏</div>
+                    <div class="rhythm-pad" data-sound="bass">🎸</div>
+                    <div class="rhythm-pad" data-sound="synth">🎹</div>
+                    <div class="rhythm-pad" data-sound="bell">🔔</div>
+                    <div class="rhythm-pad" data-sound="fx">✨</div>
+                </div>
+            </div>
+            
+            <div class="music-login">
+                <div class="login-header">
+                    <div class="music-icon">🎧</div>
+                    <h2>Music Login</h2>
+                    <p>Feel the rhythm, access the data</p>
+                </div>
+                
+                <div class="rhythm-status">
+                    🎵 Tap any pad to start the beat
+                </div>
+                
+                <form>
+                    <div class="form-field">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" placeholder="your.email@company.com" required>
+                    </div>
+                    
+                    <div class="form-field">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter your password" required>
+                    </div>
+                    
+                    <button type="submit" class="btn-music">
+                        Drop the Beat
+                    </button>
+                    
+                    <div class="music-footer">
+                        <a href="#">Skip rhythm and login normally</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const rhythmPads = document.querySelectorAll('.rhythm-pad');
+        const eqBars = document.querySelectorAll('.eq-bar');
+        
+        rhythmPads.forEach(pad => {
+            pad.addEventListener('click', () => {
+                pad.classList.add('hit');
+                setTimeout(() => pad.classList.remove('hit'), 300);
+                
+                // Animate equalizer
+                eqBars.forEach(bar => {
+                    bar.classList.add('active');
+                    const randomHeight = Math.random() * 200 + 40;
+                    bar.style.height = randomHeight + 'px';
+                });
+                
+                setTimeout(() => {
+                    eqBars.forEach(bar => bar.classList.remove('active'));
+                }, 600);
+            });
+        });
+        
+        // Random equalizer animation
+        setInterval(() => {
+            eqBars.forEach(bar => {
+                const randomHeight = Math.random() * 100 + 40;
+                bar.style.height = randomHeight + 'px';
+            });
+        }, 200);
+    </script>
+</body>
+</html>
+

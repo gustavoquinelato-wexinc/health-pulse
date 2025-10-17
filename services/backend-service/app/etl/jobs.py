@@ -3,7 +3,7 @@ ETL Job Management APIs
 Handles job status, control operations (pause/resume/force pending), and job details.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 from typing import Optional, List, Dict, Any
@@ -217,8 +217,8 @@ def calculate_next_run(
     tz_name = os.getenv('SCHEDULER_TIMEZONE', 'America/New_York')
     tz = pytz.timezone(tz_name)
 
-    # If running, no next run
-    if status == 'RUNNING':
+    # If running (any active status), no next run
+    if status in ['RUNNING']:
         return None
 
     # If never run (first time), schedule from now + interval
@@ -369,15 +369,6 @@ async def get_job_details(
         raise HTTPException(status_code=500, detail=f"Failed to fetch job details: {str(e)}")
 
 
-
-
-
-
-
-
-
-
-
 @router.post("/jobs/{job_id}/toggle-active", response_model=JobActionResponse)
 async def toggle_job_active(
     job_id: int,
@@ -447,7 +438,7 @@ async def toggle_job_active(
         raise HTTPException(status_code=500, detail=f"Failed to toggle job active status: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/run-now", response_model=JobActionResponse)
+@router.post("/jobs/{job_id}/run-now", response_model=JobActionResponse, status_code=202)
 async def run_job_now(
     job_id: int,
     background_tasks: BackgroundTasks,
@@ -514,6 +505,7 @@ async def run_job_now(
         from app.core.utils import DateTimeHelper
         now = DateTimeHelper.now_default()
 
+        # Use atomic update with WHERE clause to prevent race conditions
         update_query = text("""
             UPDATE etl_jobs
             SET status = 'RUNNING',
@@ -521,12 +513,12 @@ async def run_job_now(
                 last_updated_at = :now
             WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
         """)
+
         rows_updated = db.execute(update_query, {
             'job_id': job_id,
             'tenant_id': tenant_id,
             'now': now
         }).rowcount
-        db.commit()
 
         # If no rows were updated, another process already set it to RUNNING
         if rows_updated == 0:
@@ -535,24 +527,38 @@ async def run_job_now(
 
         logger.info(f"✅ JOB STARTED: Job '{job_name}' (ID: {job_id}) status changed: {current_status} -> RUNNING")
 
-        # Trigger actual job execution based on job type
+        # Queue job for extraction instead of executing directly
         if job_name.lower() == 'jira':
-            # Import here to avoid circular imports
-            from app.etl.jira_extraction import execute_complete_jira_extraction
+            logger.info(f"🚀 Queuing Jira extraction job for background processing (integration {integration_id})")
 
-            logger.info(f"🚀 Triggering complete Jira extraction with 4 steps for integration {integration_id}")
+            # Queue the job for extraction
+            success = await _queue_jira_extraction_job(tenant_id, integration_id, job_id)
 
-            # Execute in background using FastAPI BackgroundTasks (same as automatic scheduler)
-            background_tasks.add_task(
-                execute_complete_jira_extraction, integration_id, tenant_id, job_id
-            )
+            if success:
+                # Return HTTP 202 Accepted for non-blocking response
 
-            return JobActionResponse(
-                success=True,
-                message=f"Job {job_name} started successfully - executing complete Jira extraction (4 steps)",
-                job_id=job_id,
-                new_status="RUNNING"
-            )
+                return JobActionResponse(
+                    success=True,
+                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                    job_id=job_id,
+                    new_status="QUEUED"
+                )
+            else:
+                # Update job status to failed
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'FAILED',
+                        error_message = 'Failed to queue extraction job',
+                        last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                db.commit()
+
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to queue extraction job"
+                )
         else:
             # For other jobs, set back to FINISHED with message
             finish_query = text("""
@@ -693,4 +699,56 @@ async def update_job_settings(
         db.rollback()
         logger.error(f"Error updating job {job_id} settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update job settings: {str(e)}")
+
+
+async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id: int) -> bool:
+    """
+    Queue Jira extraction job for background processing.
+
+    Args:
+        tenant_id: Tenant ID
+        integration_id: Integration ID for the Jira extraction
+        job_id: Job ID to update status
+
+    Returns:
+        bool: True if queued successfully
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+        from sqlalchemy import text
+        from app.core.database import get_database
+
+        # Note: Job status is already set to 'RUNNING' by run_job_now function
+        # No need to update it again here to avoid database locks
+
+        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+
+        # Queue the first extraction step: projects and issue types
+        queue_manager = QueueManager()
+
+        message = {
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'extraction_type': 'jira_projects_and_issue_types'
+        }
+
+        # Get tenant tier and route to tier-based extraction queue
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+        success = queue_manager._publish_message(tier_queue, message)
+
+        if success:
+            logger.info(f"✅ Jira extraction job queued successfully to {tier_queue}")
+            return True
+        else:
+            logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error queuing Jira extraction: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return False
 

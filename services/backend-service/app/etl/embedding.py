@@ -1,6 +1,6 @@
 """
-Vectorization Queue Management API
-Handles queueing records for vectorization
+Embedding Queue Management API
+Handles queueing records for embedding
 """
 
 from typing import Optional
@@ -31,14 +31,14 @@ class QueueTableResponse(BaseModel):
     message: str
 
 
-@router.post("/vectorization/queue-table", response_model=QueueTableResponse)
-async def queue_table_for_vectorization(
+@router.post("/embedding/queue-table", response_model=QueueTableResponse)
+async def queue_table_for_embedding(
     request: QueueTableRequest,
     user: User = Depends(require_authentication)
 ):
     """
-    Queue all active records from a mapping table for vectorization.
-    Sends messages directly to vectorization_queue_tenant_{id}.
+    Queue all active records from a mapping table for embedding.
+    Sends messages directly to embedding_queue_tenant_{id}.
 
     Supported tables:
     - wits_hierarchies
@@ -62,7 +62,7 @@ async def queue_table_for_vectorization(
                 detail=f"Invalid table name. Must be one of: {', '.join(valid_tables)}"
             )
 
-        # Map table names to models
+        # Map table names to models for counting records
         table_model_map = {
             'wits_hierarchies': WitHierarchy,
             'wits_mappings': WitMapping,
@@ -71,55 +71,53 @@ async def queue_table_for_vectorization(
         }
 
         model = table_model_map[table_name]
-        
-        # Get all active records
+
+        # Get count of active records
         database = get_database()
         with database.get_read_session_context() as session:
-            records = session.query(model).filter(
+            record_count = session.query(model).filter(
                 model.tenant_id == tenant_id,
                 model.active == True
-            ).all()
-            
-            if not records:
+            ).count()
+
+            if record_count == 0:
                 return QueueTableResponse(
                     success=True,
                     queued_count=0,
-                    table_name=table_name,
-                    message=f"No active records found in {table_name}"
+                    table_name=request.table_name,
+                    message=f"No active records found in {request.table_name}"
                 )
 
-            # Use QueueManager to publish messages
+            # Use QueueManager to publish bulk mapping table message
             queue_manager = QueueManager()
 
-            # Send messages for each record
-            queued_count = 0
-            for record in records:
-                # Use the built-in publish_vectorization_job method
-                success = queue_manager.publish_vectorization_job(
-                    tenant_id=tenant_id,
-                    table_name=table_name,
-                    external_id=str(record.id),  # Use internal ID for mapping tables
-                    operation="insert"
-                )
-
-                if success:
-                    queued_count += 1
-            
-            logger.info(f"Queued {queued_count} records from {table_name} for tenant {tenant_id}")
-            
-            return QueueTableResponse(
-                success=True,
-                queued_count=queued_count,
-                table_name=table_name,
-                message=f"Successfully queued {queued_count} records for vectorization"
+            # Use the new bulk mapping table embedding approach
+            # Always use the database table name (statuses_mappings) for consistency
+            success = queue_manager.publish_mapping_table_embedding(
+                tenant_id=tenant_id,
+                table_name=table_name  # Use normalized database table name
             )
+
+            if success:
+                logger.info(f"Successfully queued {table_name} table for bulk embedding ({record_count} records)")
+                return QueueTableResponse(
+                    success=True,
+                    queued_count=record_count,
+                    table_name=request.table_name,  # Return the original table name from frontend
+                    message=f"Successfully queued {request.table_name} table for bulk embedding ({record_count} records)"
+                )
+            else:
+                logger.error(f"Failed to queue {table_name} table for bulk embedding")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to queue {request.table_name} table for embedding"
+                )
             
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error queueing table for vectorization: {e}")
+        logger.error(f"Error queueing table for embedding: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to queue table for vectorization: {str(e)}"
+            detail=f"Failed to queue table for embedding: {str(e)}"
         )
-
