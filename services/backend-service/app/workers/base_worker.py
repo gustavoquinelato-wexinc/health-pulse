@@ -65,23 +65,29 @@ class BaseWorker(ABC):
         Start consuming messages from the queue.
         Runs indefinitely until stopped.
         """
-        logger.info(f"Starting {self.__class__.__name__} consumer for queue: {self.queue_name}")
+        logger.info(f"🚀 [WORKER-DEBUG] Starting {self.__class__.__name__} consumer for queue: {self.queue_name}")
         self.running = True
 
         try:
             # Use polling approach for graceful shutdown
             import time
+            poll_count = 0
             while self.running:
                 try:
+                    poll_count += 1
+                    if poll_count % 100 == 0:  # Log every 100 polls (about 10 seconds)
+                        logger.info(f"🔄 [WORKER-DEBUG] {self.__class__.__name__} still polling queue {self.queue_name} (poll #{poll_count})")
+
                     # Try to get a message with timeout
                     message = self.queue_manager.get_single_message(self.queue_name, timeout=1.0)
                     if message:
+                        logger.info(f"📨 [WORKER-DEBUG] {self.__class__.__name__} received message from {self.queue_name}: {message}")
                         self._handle_message(message)
                     else:
                         # No message available, sleep briefly
                         time.sleep(0.1)
                 except Exception as e:
-                    logger.error(f"Error processing message in {self.__class__.__name__}: {e}")
+                    logger.error(f"❌ [WORKER-DEBUG] Error processing message in {self.__class__.__name__}: {e}")
                     time.sleep(1.0)  # Wait before retrying
 
         except KeyboardInterrupt:

@@ -369,15 +369,6 @@ async def get_job_details(
         raise HTTPException(status_code=500, detail=f"Failed to fetch job details: {str(e)}")
 
 
-
-
-
-
-
-
-
-
-
 @router.post("/jobs/{job_id}/toggle-active", response_model=JobActionResponse)
 async def toggle_job_active(
     job_id: int,
@@ -514,19 +505,20 @@ async def run_job_now(
         from app.core.utils import DateTimeHelper
         now = DateTimeHelper.now_default()
 
+        # Use atomic update with WHERE clause to prevent race conditions
         update_query = text("""
             UPDATE etl_jobs
             SET status = 'RUNNING',
-                last_updated_at = :now,
-                next_run = NULL
+                last_run_started_at = :now,
+                last_updated_at = :now
             WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
         """)
+
         rows_updated = db.execute(update_query, {
             'job_id': job_id,
             'tenant_id': tenant_id,
             'now': now
         }).rowcount
-        db.commit()
 
         # If no rows were updated, another process already set it to RUNNING
         if rows_updated == 0:
@@ -726,26 +718,8 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         from sqlalchemy import text
         from app.core.database import get_database
 
-        # Update job status to QUEUED
-        database = get_database()
-        with database.get_write_session_context() as session:
-            from app.core.utils import DateTimeHelper
-            now = DateTimeHelper.now_default()
-
-            update_query = text("""
-                UPDATE etl_jobs
-                SET status = 'RUNNING',
-                    last_updated_at = :now,
-                    error_message = NULL
-                WHERE id = :job_id AND tenant_id = :tenant_id
-            """)
-
-            session.execute(update_query, {
-                'job_id': job_id,
-                'tenant_id': tenant_id,
-                'now': now
-            })
-            session.commit()
+        # Note: Job status is already set to 'RUNNING' by run_job_now function
+        # No need to update it again here to avoid database locks
 
         logger.info(f"✅ Job {job_id} status updated to QUEUED")
 

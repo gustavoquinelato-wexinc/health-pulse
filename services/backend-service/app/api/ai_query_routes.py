@@ -71,22 +71,26 @@ async def process_natural_language_query(
             query_processor = AIQueryProcessor(db_session)
             await query_processor.initialize(user.tenant_id)
 
-            # Process query
-            result = await query_processor.process_query(
-                query=request.query,
-                tenant_id=user.tenant_id,
-                context=request.context
-            )
+            try:
+                # Process query
+                result = await query_processor.process_query(
+                    query=request.query,
+                    tenant_id=user.tenant_id,
+                    context=request.context
+                )
 
-            return AIQueryResponse(
-                success=result.success,
-                answer=result.answer,
-                sources=result.sources,
-                processing_time=result.processing_time,
-                query_type=result.query_type,
-                confidence=result.confidence,
-                metadata=result.metadata
-            )
+                return AIQueryResponse(
+                    success=result.success,
+                    answer=result.answer,
+                    sources=result.sources,
+                    processing_time=result.processing_time,
+                    query_type=result.query_type,
+                    confidence=result.confidence,
+                    metadata=result.metadata
+                )
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await query_processor.cleanup()
 
     except HTTPException:
         raise
@@ -124,21 +128,25 @@ async def semantic_search(
             query_processor = AIQueryProcessor(db_session)
             await query_processor.initialize(user.tenant_id)
 
-            # Perform semantic search
-            result = await query_processor.semantic_search(
-                query=request.query,
-                tenant_id=user.tenant_id,
-                collections=request.collections,
-                limit=request.limit or 10
-            )
+            try:
+                # Perform semantic search
+                result = await query_processor.semantic_search(
+                    query=request.query,
+                    tenant_id=user.tenant_id,
+                    collections=request.collections,
+                    limit=request.limit or 10
+                )
 
-            return AISearchResponse(
-                success=result["success"],
-                results=result["results"],
-                total_found=result.get("total_found", 0),
-                collections_searched=result.get("collections_searched", []),
-                error=result.get("error")
-            )
+                return AISearchResponse(
+                    success=result["success"],
+                    results=result["results"],
+                    total_found=result.get("total_found", 0),
+                    collections_searched=result.get("collections_searched", []),
+                    error=result.get("error")
+                )
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await query_processor.cleanup()
 
     except HTTPException:
         raise
@@ -163,22 +171,26 @@ async def get_ai_capabilities(
             query_processor = AIQueryProcessor(db_session)
             await query_processor.initialize(user.tenant_id)
 
-            # Get capabilities
-            result = await query_processor.get_capabilities(user.tenant_id)
+            try:
+                # Get capabilities
+                result = await query_processor.get_capabilities(user.tenant_id)
 
-            if not result["success"]:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=result.get("error", "Failed to get capabilities")
+                if not result["success"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=result.get("error", "Failed to get capabilities")
+                    )
+
+                return AICapabilitiesResponse(
+                    success=result["success"],
+                    capabilities=result["capabilities"],
+                    collections=result["collections"],
+                    query_types=result["query_types"],
+                    tenant_id=result["tenant_id"]
                 )
-
-            return AICapabilitiesResponse(
-                success=result["success"],
-                capabilities=result["capabilities"],
-                collections=result["collections"],
-                query_types=result["query_types"],
-                tenant_id=result["tenant_id"]
-            )
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await query_processor.cleanup()
 
     except HTTPException:
         raise
@@ -203,20 +215,24 @@ async def ai_health_check(
             query_processor = AIQueryProcessor(db_session)
             await query_processor.initialize(user.tenant_id)
 
-            # Test basic functionality
-            test_result = await query_processor.semantic_search(
-                query="test",
-                tenant_id=user.tenant_id,
-                limit=1
-            )
+            try:
+                # Test basic functionality
+                test_result = await query_processor.semantic_search(
+                    query="test",
+                    tenant_id=user.tenant_id,
+                    limit=1
+                )
 
-            return {
-                "status": "healthy" if test_result["success"] else "degraded",
-                "ai_providers": "available",
-                "vector_database": "connected" if test_result["success"] else "error",
-                "tenant_id": user.tenant_id,
-                "timestamp": datetime.utcnow().isoformat()
-            }
+                return {
+                    "status": "healthy" if test_result["success"] else "degraded",
+                    "ai_providers": "available",
+                    "vector_database": "connected" if test_result["success"] else "error",
+                    "tenant_id": user.tenant_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await query_processor.cleanup()
 
     except Exception as e:
         logger.error(f"AI health check failed: {e}")

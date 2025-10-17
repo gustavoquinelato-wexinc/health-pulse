@@ -18,8 +18,7 @@ from app.models.unified_models import Integration
 
 logger = get_logger(__name__)
 
-# Project keys for WEX Health Pulse
-PROJECT_KEYS = ['BDP', 'BEN', 'BEX', 'BST', 'CDB', 'CDH', 'EPE', 'FG', 'HBA', 'HDO', 'HDS', 'WCI', 'WX', 'BENBR']
+
 
 
 class JiraExtractionProgressTracker:
@@ -540,14 +539,35 @@ async def _extract_projects_and_issue_types(
             })
             logger.info(f"✅ Set last_run_started_at to {job_start_time} for job {job_id}")
 
+    # Get integration settings to determine which projects to extract
+    from sqlalchemy import text
+    with get_read_session() as db:
+        result = db.execute(text("""
+            SELECT id, settings
+            FROM integrations
+            WHERE id = :integration_id AND tenant_id = :tenant_id
+        """), {"integration_id": integration_id, "tenant_id": tenant_id}).fetchone()
+
+        if not result:
+            raise ValueError(f"Integration {integration_id} not found for tenant {tenant_id}")
+
+        integration_settings = result[1] or {}
+        project_keys = integration_settings.get('projects', [])
+
+        if not project_keys:
+            raise ValueError("No projects configured in integration settings. Please configure projects in the integration settings.")
+
+        logger.info(f"Step 1: Using {len(project_keys)} configured projects: {project_keys}")
+
     # Step progress: Extract projects data (0.0 -> 0.3)
     await progress_tracker.update_step_progress(
-        step_index, 0.0, f"Step 1: Fetching projects and issue types from {len(PROJECT_KEYS)} WEX projects"
+        step_index, 0.0, f"Step 1: Fetching {len(project_keys)} configured projects and issue types"
     )
 
-    # Extract projects with issue types using /project/search endpoint (not /createmeta)
+    # Extract configured projects with issue types using /project/search endpoint
+    # Filter by the projects configured in integration settings
     projects_list = jira_client.get_projects(
-        project_keys=PROJECT_KEYS,
+        project_keys=project_keys,
         expand="issueTypes"
     )
 
@@ -656,6 +676,8 @@ async def _extract_statuses_and_relationships(
 ) -> Dict[str, Any]:
     """Extract statuses and project relationships (Phase 2.2 / Step 2)."""
 
+    logger.info(f"🔍 [DEBUG] Starting _extract_statuses_and_relationships for tenant {tenant_id}, integration {integration_id}")
+
     # Step progress: Get projects from database (0.0 -> 0.2)
     await progress_tracker.update_step_progress(
         step_index, 0.0, "Step 2: Fetching projects from database for status extraction"
@@ -664,6 +686,7 @@ async def _extract_statuses_and_relationships(
     # Get projects from database (like old ETL)
     # Use READ replica for fast query
     from app.core.database import get_database
+    from sqlalchemy import text
     database = get_database()
 
     with database.get_read_session_context() as db:
@@ -678,10 +701,11 @@ async def _extract_statuses_and_relationships(
         }).fetchall()
 
         if not projects_result:
+            logger.error(f"🔍 [DEBUG] No projects found in database for tenant {tenant_id}, integration {integration_id}")
             raise ValueError("No projects found in database. Please run projects extraction first.")
 
         project_keys = [row[1] for row in projects_result]  # Extract project keys
-        logger.info(f"Found {len(project_keys)} projects for status extraction: {project_keys}")
+        logger.info(f"🔍 [DEBUG] Found {len(project_keys)} projects for status extraction: {project_keys}")
 
     # Step progress: Extract project-specific statuses (0.0 -> 1.0)
     await progress_tracker.update_step_progress(
@@ -701,7 +725,9 @@ async def _extract_statuses_and_relationships(
             )
 
             # Call /rest/api/3/project/{project_key}/statuses for each project
+            logger.info(f"🔍 [DEBUG] Calling get_project_statuses for project {project_key}")
             project_statuses_response = jira_client.get_project_statuses(project_key)
+            logger.info(f"🔍 [DEBUG] get_project_statuses returned: {len(project_statuses_response) if project_statuses_response else 0} issue types for project {project_key}")
 
             if project_statuses_response:
                 # Store raw data for this project individually
@@ -732,12 +758,21 @@ async def _extract_statuses_and_relationships(
                 tier = queue_manager._get_tenant_tier(tenant_id)
                 transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
 
+                logger.info(f"🔍 [DEBUG] About to call transform worker for project {project_key}, raw_data_id={raw_data_id}")
                 transform_worker = TransformWorker(queue_name=transform_queue)
-                processed = transform_worker._process_jira_statuses_and_project_relationships(
-                    raw_data_id=raw_data_id,
-                    tenant_id=tenant_id,
-                    integration_id=integration_id
-                )
+
+                try:
+                    processed = transform_worker._process_jira_statuses_and_project_relationships(
+                        raw_data_id=raw_data_id,
+                        tenant_id=tenant_id,
+                        integration_id=integration_id
+                    )
+                    logger.info(f"🔍 [DEBUG] Transform worker returned: {processed} for project {project_key}")
+                except Exception as transform_error:
+                    logger.error(f"❌ [DEBUG] Transform worker failed for project {project_key}: {transform_error}")
+                    import traceback
+                    logger.error(f"Transform worker traceback: {traceback.format_exc()}")
+                    processed = False
 
                 if processed:
                     # Count statuses and relationships for this project
@@ -757,11 +792,14 @@ async def _extract_statuses_and_relationships(
                     logger.warning(f"Failed to process transformation for project {project_key}")
 
         except Exception as e:
-            logger.warning(f"Failed to process statuses for project {project_key}: {e}")
+            logger.error(f"❌ [DEBUG] Exception in project loop for {project_key}: {e}")
+            import traceback
+            logger.error(f"Project loop traceback: {traceback.format_exc()}")
             continue
 
     # Step 2 complete (0.8 -> 1.0)
     # Get unique statuses count from database for accurate reporting
+    logger.info(f"🔍 [DEBUG] Getting unique statuses count from database for tenant {tenant_id}, integration {integration_id}")
     from app.core.database import get_database
     from app.models.unified_models import Status
     database = get_database()
@@ -771,10 +809,13 @@ async def _extract_statuses_and_relationships(
             Status.integration_id == integration_id,
             Status.active == True
         ).count()
+        logger.info(f"🔍 [DEBUG] Found {unique_statuses_count} unique statuses in database")
 
     await progress_tracker.complete_step(
         step_index, f"Step 2 complete: {unique_statuses_count} statuses, {total_relationships_processed} project relationships across {len(project_keys)} projects"
     )
+
+    logger.info(f"🔍 [DEBUG] _extract_statuses_and_relationships completed successfully - returning success=True")
 
     return {
         "success": True,
@@ -827,9 +868,26 @@ async def _extract_issues_with_changelogs_for_complete_job(
         last_sync_date = result[0]
         integration_settings = result[1] or {}
 
-        # Get project keys from integration settings
-        project_keys = integration_settings.get('projects', PROJECT_KEYS)
-        logger.info(f"Step 3: Using {len(project_keys)} projects from integration settings: {project_keys}")
+        # Get project keys from integration settings or database
+        project_keys = integration_settings.get('projects')
+
+        if not project_keys:
+            # Fallback: get project keys from database
+            logger.info("No projects in integration settings, fetching from database...")
+            from sqlalchemy import text
+            with get_read_session() as db:
+                projects_result = db.execute(text("""
+                    SELECT DISTINCT external_id, key
+                    FROM jira_projects
+                    WHERE tenant_id = :tenant_id AND integration_id = :integration_id
+                """), {"tenant_id": tenant_id, "integration_id": integration_id}).fetchall()
+
+                if not projects_result:
+                    raise ValueError("No projects found in database or integration settings. Please run projects extraction first.")
+
+                project_keys = [row[1] for row in projects_result]  # Extract project keys
+
+        logger.info(f"Step 3: Using {len(project_keys)} projects: {project_keys}")
 
     # Build JQL query with bounded date range and project filter
     project_filter = f"project in ({','.join(project_keys)})"

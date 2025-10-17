@@ -476,3 +476,12 @@ Return only the SQL query, no explanation."""
                 "success": False,
                 "error": str(e)
             }
+
+    async def cleanup(self):
+        """Cleanup AI providers to prevent event loop errors"""
+        try:
+            if hasattr(self, 'hybrid_provider_manager') and self.hybrid_provider_manager:
+                await self.hybrid_provider_manager.cleanup()
+                logger.debug("AIQueryProcessor cleaned up hybrid provider manager")
+        except Exception as e:
+            logger.warning(f"Error during AIQueryProcessor cleanup: {e}")

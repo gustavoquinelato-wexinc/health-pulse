@@ -201,7 +201,9 @@ async def lifespan(_: FastAPI):
     worker_manager = None
 
     try:
+        logger.info("🔍 [DEBUG] Starting lifespan startup sequence...")
         # Initialize database connection
+        logger.info("🔍 [DEBUG] Initializing database...")
         database_initialized = await initialize_database()
         if database_initialized:
             logger.info("Database connection established successfully")
@@ -222,16 +224,23 @@ async def lifespan(_: FastAPI):
             logger.warning("Qdrant collections not initialized - embedding may have race conditions")
 
         # Start ETL workers
+        logger.info("🔍 [DEBUG] About to start ETL workers...")
         try:
+            logger.info("🔍 [DEBUG] Importing worker_manager...")
             from app.workers.worker_manager import get_worker_manager
+            logger.info("🔍 [DEBUG] Getting worker manager instance...")
             worker_manager = get_worker_manager()
+            logger.info("🔍 [DEBUG] Calling start_all_workers()...")
             success = worker_manager.start_all_workers()
+            logger.info(f"🔍 [DEBUG] start_all_workers() returned: {success}")
             if success:
                 logger.info("✅ ETL workers started successfully")
             else:
                 logger.warning("⚠️ Failed to start ETL workers - ETL functionality will be limited")
         except Exception as e:
             logger.error(f"❌ Error starting ETL workers: {e}")
+            import traceback
+            logger.error(f"Worker startup traceback: {traceback.format_exc()}")
             logger.warning("ETL workers not started - ETL functionality will be limited")
 
         # Clear all user sessions on startup for security
@@ -308,6 +317,15 @@ async def lifespan(_: FastAPI):
                 print("[INFO] Waited for pending requests to complete")
             except Exception:
                 pass
+
+            # Close HTTP client connections
+            try:
+                print("[INFO] Closing HTTP client connections...")
+                from app.core.http_client import cleanup_async_client
+                await cleanup_async_client()
+                print("[INFO] HTTP client connections closed")
+            except Exception as e:
+                print(f"[WARNING] Error closing HTTP client connections: {e}")
 
             # Close database connections
             try:

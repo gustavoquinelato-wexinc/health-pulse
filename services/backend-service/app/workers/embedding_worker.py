@@ -271,6 +271,14 @@ class EmbeddingWorker(BaseWorker):
             logger.error(f"❌ EMBEDDING WORKER: Error processing message {message}: {e}")
             logger.error(f"❌ EMBEDDING WORKER: Full traceback: {traceback.format_exc()}")
             return False
+        finally:
+            # Cleanup AI providers to prevent event loop errors
+            try:
+                if hasattr(self, 'hybrid_provider') and self.hybrid_provider:
+                    await self.hybrid_provider.cleanup()
+                    logger.debug("🧹 EMBEDDING WORKER: Cleaned up AI providers after message processing")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ EMBEDDING WORKER: Error during cleanup: {cleanup_error}")
 
     async def _process_mapping_table(self, tenant_id: int, table_name: str) -> bool:
         """
@@ -372,6 +380,14 @@ class EmbeddingWorker(BaseWorker):
         except Exception as e:
             logger.error(f"❌ EMBEDDING WORKER: Error processing mapping table {table_name}: {e}")
             return False
+        finally:
+            # Cleanup AI providers to prevent event loop errors
+            try:
+                if hasattr(self, 'hybrid_provider') and self.hybrid_provider:
+                    await self.hybrid_provider.cleanup()
+                    logger.debug(f"🧹 EMBEDDING WORKER: Cleaned up AI providers after processing {table_name}")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ EMBEDDING WORKER: Error during cleanup: {cleanup_error}")
 
     def _create_mapping_entity_data(self, record, table_name: str) -> Dict[str, Any]:
         """

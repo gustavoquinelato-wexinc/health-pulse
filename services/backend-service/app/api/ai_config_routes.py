@@ -266,17 +266,21 @@ async def test_ai_provider(
         try:
             # Initialize hybrid provider manager
             hybrid_manager = HybridProviderManager(db_session)
-            
-            # Test the provider configuration
-            test_result = await hybrid_manager.test_provider_configuration(
-                provider_data, user.tenant_id
-            )
-            
-            return {
-                "success": True,
-                "test_result": test_result
-            }
-            
+
+            try:
+                # Test the provider configuration
+                test_result = await hybrid_manager.test_provider_configuration(
+                    provider_data, user.tenant_id
+                )
+
+                return {
+                    "success": True,
+                    "test_result": test_result
+                }
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await hybrid_manager.cleanup()
+
         finally:
             db_session.close()
         
@@ -487,22 +491,26 @@ async def generate_embeddings(
             # Initialize hybrid provider manager
             hybrid_manager = HybridProviderManager(db_session)
 
-            # Generate embeddings
-            result = await hybrid_manager.generate_embeddings(texts)
+            try:
+                # Generate embeddings
+                result = await hybrid_manager.generate_embeddings(texts)
 
-            if result.success:
-                return {
-                    "success": True,
-                    "embeddings": result.data,
-                    "provider_used": result.provider_used,
-                    "processing_time": result.processing_time,
-                    "cost": result.cost
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": result.error
-                }
+                if result.success:
+                    return {
+                        "success": True,
+                        "embeddings": result.data,
+                        "provider_used": result.provider_used,
+                        "processing_time": result.processing_time,
+                        "cost": result.cost
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.error
+                    }
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await hybrid_manager.cleanup()
 
         finally:
             db_session.close()
@@ -553,79 +561,83 @@ async def store_entity_vector(
             # Initialize hybrid provider manager
             hybrid_manager = HybridProviderManager(db_session)
 
-            # Generate embedding using cost-optimized provider (local for ETL)
-            embedding_result = await hybrid_manager.generate_embeddings([text_content])
+            try:
+                # Generate embedding using cost-optimized provider (local for ETL)
+                embedding_result = await hybrid_manager.generate_embeddings([text_content])
 
-            if not embedding_result.success:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to generate embedding: {embedding_result.error}"
+                if not embedding_result.success:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to generate embedding: {embedding_result.error}"
+                    )
+
+                embedding = embedding_result.data[0]  # Get first embedding
+
+                # Initialize Qdrant client
+                qdrant_client = PulseQdrantClient()
+
+                # Create collection name with tenant isolation
+                collection_name = f"tenant_{tenant_id}_{table_name}"
+
+                # Ensure collection exists
+                await qdrant_client.ensure_collection_exists(collection_name)
+
+                # Create unique point ID (UUID format for Qdrant compatibility)
+                import uuid
+                import hashlib
+                # Create deterministic UUID based on tenant_id, table_name, record_id
+                unique_string = f"{tenant_id}_{table_name}_{record_id}"
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+
+                # Store vector in Qdrant with metadata
+                vector_result = await qdrant_client.upsert_vectors(
+                    collection_name=collection_name,
+                    vectors=[{
+                        "id": point_id,
+                        "vector": embedding,
+                        "payload": {
+                            "tenant_id": tenant_id,
+                            "table_name": table_name,
+                            "record_id": str(record_id),
+                            "text_content": text_content[:1000],  # Truncate for storage
+                            "created_at": datetime.now().isoformat()
+                        }
+                    }]
                 )
 
-            embedding = embedding_result.data[0]  # Get first embedding
+                if not vector_result.success:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to store vector in Qdrant: {vector_result.error}"
+                    )
 
-            # Initialize Qdrant client
-            qdrant_client = PulseQdrantClient()
-
-            # Create collection name with tenant isolation
-            collection_name = f"tenant_{tenant_id}_{table_name}"
-
-            # Ensure collection exists
-            await qdrant_client.ensure_collection_exists(collection_name)
-
-            # Create unique point ID (UUID format for Qdrant compatibility)
-            import uuid
-            import hashlib
-            # Create deterministic UUID based on tenant_id, table_name, record_id
-            unique_string = f"{tenant_id}_{table_name}_{record_id}"
-            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
-
-            # Store vector in Qdrant with metadata
-            vector_result = await qdrant_client.upsert_vectors(
-                collection_name=collection_name,
-                vectors=[{
-                    "id": point_id,
-                    "vector": embedding,
-                    "payload": {
-                        "tenant_id": tenant_id,
-                        "table_name": table_name,
-                        "record_id": str(record_id),
-                        "text_content": text_content[:1000],  # Truncate for storage
-                        "created_at": datetime.now().isoformat()
-                    }
-                }]
-            )
-
-            if not vector_result.success:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to store vector in Qdrant: {vector_result.error}"
+                # Create QdrantVector bridge record in PostgreSQL
+                qdrant_vector = QdrantVector(
+                    tenant_id=tenant_id,
+                    table_name=table_name,
+                    record_id=record_id,
+                    qdrant_collection=collection_name,
+                    qdrant_point_id=point_id,
+                    vector_type="entity_embedding",
+                    embedding_model=embedding_result.provider_used,
+                    embedding_provider=embedding_result.provider_used
                 )
 
-            # Create QdrantVector bridge record in PostgreSQL
-            qdrant_vector = QdrantVector(
-                tenant_id=tenant_id,
-                table_name=table_name,
-                record_id=record_id,
-                qdrant_collection=collection_name,
-                qdrant_point_id=point_id,
-                vector_type="entity_embedding",
-                embedding_model=embedding_result.provider_used,
-                embedding_provider=embedding_result.provider_used
-            )
+                db_session.add(qdrant_vector)
+                db_session.commit()
 
-            db_session.add(qdrant_vector)
-            db_session.commit()
-
-            return {
-                "success": True,
-                "point_id": point_id,
-                "collection_name": collection_name,
-                "provider_used": embedding_result.provider_used,
-                "processing_time": embedding_result.processing_time,
-                "cost": embedding_result.cost,
-                "message": "Vector stored successfully"
-            }
+                return {
+                    "success": True,
+                    "point_id": point_id,
+                    "collection_name": collection_name,
+                    "provider_used": embedding_result.provider_used,
+                    "processing_time": embedding_result.processing_time,
+                    "cost": embedding_result.cost,
+                    "message": "Vector stored successfully"
+                }
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await hybrid_manager.cleanup()
 
         finally:
             db_session.close()
@@ -661,79 +673,83 @@ async def search_similar_entities(
             # Initialize hybrid provider manager
             hybrid_manager = HybridProviderManager(db_session)
 
-            # Generate query embedding
-            embedding_result = await hybrid_manager.generate_embeddings([query_text])
+            try:
+                # Generate query embedding
+                embedding_result = await hybrid_manager.generate_embeddings([query_text])
 
-            if not embedding_result.success:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to generate query embedding: {embedding_result.error}"
-                )
-
-            query_embedding = embedding_result.data[0]
-
-            # Initialize Qdrant client
-            qdrant_client = PulseQdrantClient()
-
-            # Determine collections to search
-            collections_to_search = []
-            if table_name:
-                # Search specific table
-                collections_to_search.append(f"tenant_{tenant_id}_{table_name}")
-            else:
-                # Search all collections for this tenant
-                # Get all QdrantVector records for this tenant
-                qdrant_vectors = db_session.query(QdrantVector).filter(
-                    QdrantVector.tenant_id == tenant_id
-                ).all()
-
-                collections_to_search = list(set([
-                    qv.qdrant_collection for qv in qdrant_vectors
-                ]))
-
-            all_results = []
-
-            # Search each collection
-            for collection_name in collections_to_search:
-                try:
-                    search_result = await qdrant_client.search_vectors(
-                        collection_name=collection_name,
-                        query_vector=query_embedding,
-                        limit=limit,
-                        score_threshold=similarity_threshold
+                if not embedding_result.success:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to generate query embedding: {embedding_result.error}"
                     )
 
-                    if search_result.success and search_result.data:
-                        for result in search_result.data:
-                            all_results.append({
-                                "collection": collection_name,
-                                "point_id": result.get("id"),
-                                "score": result.get("score"),
-                                "payload": result.get("payload", {}),
-                                "table_name": result.get("payload", {}).get("table_name"),
-                                "record_id": result.get("payload", {}).get("record_id")
-                            })
+                query_embedding = embedding_result.data[0]
 
-                except Exception as collection_error:
-                    logger.warning(f"Error searching collection {collection_name}: {collection_error}")
-                    continue
+                # Initialize Qdrant client
+                qdrant_client = PulseQdrantClient()
 
-            # Sort by score (highest first)
-            all_results.sort(key=lambda x: x["score"], reverse=True)
+                # Determine collections to search
+                collections_to_search = []
+                if table_name:
+                    # Search specific table
+                    collections_to_search.append(f"tenant_{tenant_id}_{table_name}")
+                else:
+                    # Search all collections for this tenant
+                    # Get all QdrantVector records for this tenant
+                    qdrant_vectors = db_session.query(QdrantVector).filter(
+                        QdrantVector.tenant_id == tenant_id
+                    ).all()
 
-            # Limit results
-            final_results = all_results[:limit]
+                    collections_to_search = list(set([
+                        qv.qdrant_collection for qv in qdrant_vectors
+                    ]))
 
-            return {
-                "success": True,
-                "query_text": query_text,
-                "results": final_results,
-                "total_found": len(final_results),
-                "collections_searched": collections_to_search,
-                "provider_used": embedding_result.provider_used,
-                "processing_time": embedding_result.processing_time,
-                "cost": embedding_result.cost
-            }
+                all_results = []
+
+                # Search each collection
+                for collection_name in collections_to_search:
+                    try:
+                        search_result = await qdrant_client.search_vectors(
+                            collection_name=collection_name,
+                            query_vector=query_embedding,
+                            limit=limit,
+                            score_threshold=similarity_threshold
+                        )
+
+                        if search_result.success and search_result.data:
+                            for result in search_result.data:
+                                all_results.append({
+                                    "collection": collection_name,
+                                    "point_id": result.get("id"),
+                                    "score": result.get("score"),
+                                    "payload": result.get("payload", {}),
+                                    "table_name": result.get("payload", {}).get("table_name"),
+                                    "record_id": result.get("payload", {}).get("record_id")
+                                })
+
+                    except Exception as collection_error:
+                        logger.warning(f"Error searching collection {collection_name}: {collection_error}")
+                        continue
+
+                # Sort by score (highest first)
+                all_results.sort(key=lambda x: x["score"], reverse=True)
+
+                # Limit results
+                final_results = all_results[:limit]
+
+                return {
+                    "success": True,
+                    "query_text": query_text,
+                    "results": final_results,
+                    "total_found": len(final_results),
+                    "collections_searched": collections_to_search,
+                    "provider_used": embedding_result.provider_used,
+                    "processing_time": embedding_result.processing_time,
+                    "cost": embedding_result.cost
+                }
+            finally:
+                # Cleanup AI providers to prevent event loop errors
+                await hybrid_manager.cleanup()
 
         finally:
             db_session.close()

@@ -71,12 +71,12 @@ class TenantTierResponse(BaseModel):
     """Response model for tenant tier configuration."""
     tenant_id: int
     tier: str
-    worker_allocation: Dict[str, int]  # extraction, transform, vectorization counts
+    worker_allocation: Dict[str, int]  # extraction, transform, embedding counts
 
 
 class WorkerPoolConfigResponse(BaseModel):
     """Response model for worker pool configuration."""
-    tier_configs: Dict[str, Dict[str, int]]  # tier -> {extraction, transform, vectorization}
+    tier_configs: Dict[str, Dict[str, int]]  # tier -> {extraction, transform, embedding}
     current_tenant_tier: str
     current_tenant_allocation: Dict[str, int]
 
@@ -1951,7 +1951,7 @@ async def get_worker_status(
 
         try:
             queue_manager = QueueManager()
-            queue_types = ['extraction', 'transform', 'vectorization']
+            queue_types = ['extraction', 'transform', 'embedding']
 
             # Only get queue stats for current tenant's tier
             queue_stats['tier_queues'][current_tenant_tier] = {}

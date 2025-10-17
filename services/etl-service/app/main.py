@@ -319,6 +319,15 @@ async def lifespan(_: FastAPI):
                 # Silently handle scheduler shutdown errors
                 pass
 
+            # Close HTTP client connections
+            try:
+                from app.core.http_client import cleanup_async_client
+                await cleanup_async_client()
+                print("[INFO] HTTP client connections closed")
+            except (Exception, asyncio.CancelledError):
+                # Silently handle HTTP client cleanup errors
+                pass
+
             # Close database connections
             try:
                 database = get_database()

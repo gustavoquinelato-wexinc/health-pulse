@@ -95,8 +95,6 @@ class ExtractionWorker(BaseWorker):
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
 
-            logger.info(f"🔍 [DEBUG] Received extraction message: {message}")
-
             if not all([extraction_type, tenant_id, integration_id]):
                 logger.error(f"❌ [DEBUG] Missing required fields in extraction message: {message}")
                 return False
@@ -320,6 +318,8 @@ class ExtractionWorker(BaseWorker):
             bool: True if extraction succeeded
         """
         try:
+            logger.info("[DEBOGA] Gus 02")
+            
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
@@ -430,10 +430,22 @@ class ExtractionWorker(BaseWorker):
             progress_tracker = SimpleProgressTracker(tenant_id, job_id, self)
 
             # Execute extraction
+            logger.info(f"🔍 [DEBUG] About to call _extract_statuses_and_relationships via asyncio.run")
             import asyncio
-            result = asyncio.run(_extract_statuses_and_relationships(
-                jira_client, integration_id, tenant_id, progress_tracker, step_index=1
-            ))
+            try:
+                result = asyncio.run(_extract_statuses_and_relationships(
+                    jira_client, integration_id, tenant_id, progress_tracker, step_index=1
+                ))
+                logger.info(f"🔍 [DEBUG] _extract_statuses_and_relationships completed, result: {result}")
+            except Exception as async_error:
+                logger.error(f"❌ [DEBUG] Exception in asyncio.run: {async_error}")
+                import traceback
+                logger.error(f"Asyncio traceback: {traceback.format_exc()}")
+                raise
+
+            logger.debug(f"🔄 [DEBUG] Statuses extraction result: {result}")
+            logger.info(f"🔍 [DEBUG] Checking result.get('success'): {result.get('success')} (type: {type(result.get('success'))})")
+            logger.info(f"🔍 [DEBUG] Full result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
 
             if result.get('success'):
                 logger.info(f"✅ [DEBUG] Statuses and relationships extraction completed for tenant {tenant_id}")
