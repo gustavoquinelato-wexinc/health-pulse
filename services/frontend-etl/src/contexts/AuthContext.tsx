@@ -2,7 +2,7 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import { colorDataService, type ColorData } from '../services/colorDataService'
 import { getColorSchemaMode } from '../utils/colorSchemaService'
-import { etlWebSocketService } from '../services/websocketService'
+import { etlWebSocketService } from '../services/sessionWebSocketService'
 import { sessionWebSocketService } from '../services/sessionWebSocketService'
 
 interface ColorSchema {

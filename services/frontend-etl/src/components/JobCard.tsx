@@ -11,7 +11,7 @@ import {
   Settings
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
-import { etlWebSocketService, type ProgressUpdate, type StatusUpdate, type CompletionUpdate } from '../services/websocketService'
+import { etlWebSocketService, type ProgressUpdate, type StatusUpdate, type CompletionUpdate } from '../services/sessionWebSocketService'
 import { useTheme } from '../contexts/ThemeContext'
 
 interface JobCardProps {

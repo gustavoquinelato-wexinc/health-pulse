@@ -591,24 +591,21 @@ async def _extract_projects_and_issue_types(
         step_index, 0.6, f"Step 1: Processing projects and issue types data (raw_data_id={raw_data_id})"
     )
 
-    # Process transformation directly using project/search data structure
-    from app.workers.transform_worker import TransformWorker
+    # Queue transformation using proper queue architecture
     from app.etl.queue.queue_manager import QueueManager
 
-    # Get the appropriate tier-based queue name for this tenant
     queue_manager = QueueManager()
-    tier = queue_manager._get_tenant_tier(tenant_id)
-    transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
-
-    transform_worker = TransformWorker(queue_name=transform_queue)
-    processed = transform_worker._process_jira_project_search(
-        raw_data_id=raw_data_id,
+    queued = queue_manager.publish_transform_job(
         tenant_id=tenant_id,
-        integration_id=integration_id
+        integration_id=integration_id,
+        raw_data_id=raw_data_id,
+        data_type='jira_project_search',
+        etl_job_id=job_id,
+        provider_name='jira'
     )
 
-    if not processed:
-        raise ValueError("Failed to process projects transformation")
+    if not queued:
+        raise ValueError("Failed to queue projects transformation")
 
     # Count unique issue types (not n-n relationships)
     # Get unique issue types from database for accurate count
@@ -749,32 +746,24 @@ async def _extract_statuses_and_relationships(
                     project_raw_data
                 )
 
-                # Process transformation for this project immediately
-                from app.workers.transform_worker import TransformWorker
+                # Queue transformation using proper queue architecture
                 from app.etl.queue.queue_manager import QueueManager
 
-                # Get the appropriate tier-based queue name for this tenant
                 queue_manager = QueueManager()
-                tier = queue_manager._get_tenant_tier(tenant_id)
-                transform_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+                logger.info(f"🔍 [DEBUG] About to queue transform job for project {project_key}, raw_data_id={raw_data_id}")
 
-                logger.info(f"🔍 [DEBUG] About to call transform worker for project {project_key}, raw_data_id={raw_data_id}")
-                transform_worker = TransformWorker(queue_name=transform_queue)
+                queued = queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    raw_data_id=raw_data_id,
+                    data_type='jira_statuses_and_project_relationships',
+                    etl_job_id=job_id,
+                    provider_name='jira'
+                )
 
-                try:
-                    processed = transform_worker._process_jira_statuses_and_project_relationships(
-                        raw_data_id=raw_data_id,
-                        tenant_id=tenant_id,
-                        integration_id=integration_id
-                    )
-                    logger.info(f"🔍 [DEBUG] Transform worker returned: {processed} for project {project_key}")
-                except Exception as transform_error:
-                    logger.error(f"❌ [DEBUG] Transform worker failed for project {project_key}: {transform_error}")
-                    import traceback
-                    logger.error(f"Transform worker traceback: {traceback.format_exc()}")
-                    processed = False
+                logger.info(f"🔍 [DEBUG] Transform job queued: {queued} for project {project_key}")
 
-                if processed:
+                if queued:
                     # Count statuses and relationships for this project
                     project_statuses_count = 0
                     project_relationships_count = 0
