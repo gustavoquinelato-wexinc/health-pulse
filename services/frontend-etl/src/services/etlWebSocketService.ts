@@ -58,8 +58,6 @@ class ETLWebSocketService {
 
     // Set initialized flag AFTER clearing connections
     this.isInitialized = true
-
-    console.log(`[ETL-WS] Service initialized (version ${this.initializationVersion})`)
   }
 
   /**
@@ -120,9 +118,9 @@ class ETLWebSocketService {
       ws.onclose = (event) => {
         this.connections.delete(jobName)
 
-        // Only attempt to reconnect if not manually disconnected and not in React StrictMode cleanup
+        // Only attempt to reconnect if not manually disconnected (code 1000 = normal closure)
         const attempts = this.reconnectAttempts.get(jobName) || 0
-        if (event.code !== 1000 && event.code !== 1001 && attempts < this.maxReconnectAttempts && this.isInitialized) {
+        if (event.code !== 1000 && attempts < this.maxReconnectAttempts && this.isInitialized) {
           this.reconnectAttempts.set(jobName, attempts + 1)
           setTimeout(() => {
             if (this.isInitialized) {
@@ -191,9 +189,14 @@ class ETLWebSocketService {
   private disconnectJob(jobName: string) {
     const ws = this.connections.get(jobName)
     if (ws) {
-      // Close with code 1001 to indicate going away (prevents reconnection attempts)
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(1001, 'Manual disconnect')
+      try {
+        // Only close if the WebSocket is open
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, 'Manual disconnect')
+        }
+        // For other states (CONNECTING, CLOSING, CLOSED), just remove from connections
+      } catch (error) {
+        // Ignore errors during cleanup (React StrictMode can cause this)
       }
       this.connections.delete(jobName)
     }
@@ -215,7 +218,15 @@ class ETLWebSocketService {
    */
   disconnectAll() {
     for (const [jobName, ws] of this.connections) {
-      ws.close(1000, 'Service shutdown')
+      try {
+        // Only close if the WebSocket is open
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, 'Service shutdown')
+        }
+        // For other states (CONNECTING, CLOSING, CLOSED), just remove from connections
+      } catch (error) {
+        // Ignore errors during cleanup (React StrictMode can cause this)
+      }
     }
     this.connections.clear()
     this.reconnectAttempts.clear()

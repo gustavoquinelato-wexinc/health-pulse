@@ -757,7 +757,7 @@ async def _extract_statuses_and_relationships(
                     integration_id=integration_id,
                     raw_data_id=raw_data_id,
                     data_type='jira_statuses_and_project_relationships',
-                    etl_job_id=job_id,
+                    etl_job_id=progress_tracker.job_id,
                     provider_name='jira'
                 )
 

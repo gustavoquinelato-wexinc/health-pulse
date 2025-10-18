@@ -50,6 +50,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   const lastUpdateRef = useRef<number>(0)
+  // Track WebSocket connection to prevent React StrictMode double connections
+  const wsConnectionRef = useRef<(() => void) | null>(null)
   const THROTTLE_MS = 500 // Only update UI every 500ms max
 
   // Get status icon and color
@@ -219,7 +221,17 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   useEffect(() => {
     // Only establish WebSocket connection for active jobs
     if (!job.active) {
+      // Clean up any existing connection
+      if (wsConnectionRef.current) {
+        wsConnectionRef.current()
+        wsConnectionRef.current = null
+      }
       return
+    }
+
+    // If we already have a connection, don't create another one (React StrictMode protection)
+    if (wsConnectionRef.current) {
+      return wsConnectionRef.current
     }
 
     // Function to attempt WebSocket connection with retry for service initialization
@@ -282,7 +294,16 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       setCurrentStep(null)
     }
 
-    return connectWithRetry()
+    const cleanup = connectWithRetry()
+    wsConnectionRef.current = cleanup
+
+    // Return cleanup function that clears the ref and calls the actual cleanup
+    return () => {
+      if (wsConnectionRef.current) {
+        wsConnectionRef.current()
+        wsConnectionRef.current = null
+      }
+    }
   }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes
