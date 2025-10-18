@@ -33,7 +33,7 @@ interface JobEventHandlers {
 
 interface WebSocketMessage {
   type: string
-  job_name: string
+  job: string
   [key: string]: any
 }
 
@@ -91,7 +91,7 @@ class ETLWebSocketService {
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const backendHost = import.meta.env.VITE_API_BASE_URL?.replace(/^https?:\/\//, '') || 'localhost:3001'
-      const wsUrl = `${protocol}//${backendHost}/ws/etl/job/${encodeURIComponent(jobName)}?token=${encodeURIComponent(this.token)}`
+      const wsUrl = `${protocol}//${backendHost}/ws/progress/${encodeURIComponent(jobName)}?token=${encodeURIComponent(this.token)}`
 
       const ws = new WebSocket(wsUrl)
       this.connections.set(jobName, ws)
@@ -143,7 +143,7 @@ class ETLWebSocketService {
    */
   private handleMessage(message: WebSocketMessage, handlers: JobEventHandlers) {
     switch (message.type) {
-      case 'progress_update':
+      case 'progress':
         handlers.onProgress?.({
           percentage: message.percentage,
           step: message.step,
@@ -151,20 +151,23 @@ class ETLWebSocketService {
         })
         break
 
-      case 'status_update':
+      case 'status':
         handlers.onStatus?.({
           status: message.status,
           timestamp: message.timestamp
         })
         break
 
-      case 'job_completed':
-      case 'job_failed':
+      case 'completion':
         handlers.onCompletion?.({
-          status: message.status,
-          message: message.message || '',
+          status: message.success ? 'COMPLETED' : 'FAILED',
+          message: message.summary ? JSON.stringify(message.summary) : '',
           timestamp: message.timestamp
         })
+        break
+
+      case 'pong':
+        // Ping response - connection is alive
         break
 
       default:
