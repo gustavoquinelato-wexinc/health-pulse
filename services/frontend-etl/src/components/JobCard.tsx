@@ -219,13 +219,20 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   useEffect(() => {
     // Only establish WebSocket connection for active jobs
     if (!job.active) {
-
       return
     }
 
+    // Function to attempt WebSocket connection with retry for service initialization
+    const connectWithRetry = (retryCount = 0): (() => void) => {
+      // Check if service is ready
+      if (!etlWebSocketService.isReady()) {
+        if (retryCount < 10) { // Retry up to 10 times (1 second total)
+          setTimeout(() => connectWithRetry(retryCount + 1), 100)
+        }
+        return () => {} // Return empty cleanup function
+      }
 
-
-    const cleanup = etlWebSocketService.connectToJob(job.job_name, {
+      const cleanup = etlWebSocketService.connectToJob(job.job_name, {
       onProgress: (data: ProgressUpdate) => {
         // Throttle progress updates to prevent UI freezing
         const now = Date.now()
@@ -266,13 +273,16 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       }
     })
 
+      return cleanup
+    }
+
     // Clear progress if job is not running
     if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
       setProgressPercentage(null)
       setCurrentStep(null)
     }
 
-    return cleanup
+    return connectWithRetry()
   }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes

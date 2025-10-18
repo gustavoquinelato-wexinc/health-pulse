@@ -52,11 +52,13 @@ class ETLWebSocketService {
   async initializeService(token: string): Promise<void> {
     this.token = token
     this.initializationVersion++
-    this.isInitialized = true
-    
-    // Clear any existing connections
+
+    // Clear any existing connections first
     this.disconnectAll()
-    
+
+    // Set initialized flag AFTER clearing connections
+    this.isInitialized = true
+
     console.log(`[ETL-WS] Service initialized (version ${this.initializationVersion})`)
   }
 
@@ -65,6 +67,13 @@ class ETLWebSocketService {
    */
   getInitializationVersion(): number {
     return this.initializationVersion
+  }
+
+  /**
+   * Check if the service is ready to accept connections
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.token !== null
   }
 
   /**
@@ -194,7 +203,16 @@ class ETLWebSocketService {
     }
     this.connections.clear()
     this.reconnectAttempts.clear()
+    // Don't set isInitialized = false here, as this is called during reinitialization
+  }
+
+  /**
+   * Shutdown the service completely (used on logout)
+   */
+  shutdown() {
+    this.disconnectAll()
     this.isInitialized = false
+    this.token = null
   }
 
   /**
