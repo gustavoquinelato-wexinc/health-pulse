@@ -14,7 +14,7 @@ import JobDetailsModal from '../components/JobDetailsModal'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { etlWebSocketService } from '../services/websocketService'
+import { etlWebSocketService } from '../services/sessionWebSocketService'
 
 interface Job {
   id: number
