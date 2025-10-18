@@ -317,9 +317,7 @@ class ExtractionWorker(BaseWorker):
         Returns:
             bool: True if extraction succeeded
         """
-        try:
-            logger.info("[DEBOGA] Gus 02")
-            
+        try:        
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
@@ -472,6 +470,7 @@ class ExtractionWorker(BaseWorker):
         """
         Extract Jira issues with changelogs.
         """
+
         try:
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
@@ -514,7 +513,7 @@ class ExtractionWorker(BaseWorker):
             # Execute extraction
             import asyncio
             result = asyncio.run(_extract_issues_with_changelogs(
-                jira_client, integration_id, tenant_id, incremental, progress_tracker
+                jira_client, integration_id, tenant_id, incremental, progress_tracker, job_id
             ))
 
             if result.get('success'):

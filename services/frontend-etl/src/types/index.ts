@@ -99,9 +99,7 @@ export interface WorkItem extends IntegrationBaseEntity {
   custom_field_18?: string;
   custom_field_19?: string;
   custom_field_20?: string;
-  
-  // Phase 2.1: JSON overflow for unlimited custom fields
-  custom_fields_overflow?: Record<string, any>;
+
 }
 
 

@@ -701,9 +701,6 @@ CREATE TABLE work_items (
     -- 20 dedicated custom field columns
     custom_field_01, custom_field_02, ..., custom_field_20,
 
-    -- Overflow for additional custom fields
-    custom_fields_overflow JSONB,
-
     -- Workflow metrics
     work_first_committed_at, work_first_started_at, ...
 )

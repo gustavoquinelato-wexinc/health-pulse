@@ -566,7 +566,6 @@ class WorkItem(Base, IntegrationBaseEntity):
     custom_field_18 = Column(String, quote=False, name="custom_field_18")
     custom_field_19 = Column(String, quote=False, name="custom_field_19")
     custom_field_20 = Column(String, quote=False, name="custom_field_20")
-    custom_fields_overflow = Column(JSON, quote=False, name="custom_fields_overflow")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="work_items")

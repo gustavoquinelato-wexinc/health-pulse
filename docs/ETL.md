@@ -690,8 +690,6 @@ class TransformWorker:
 | `direct_completion` | Completed without intermediate steps |
 
 ```
-            result["custom_fields_overflow"] = json.dumps(overflow_data)
-
         return result
 ```
 
@@ -702,11 +700,6 @@ ALTER TABLE work_items ADD COLUMN IF NOT EXISTS custom_field_01 TEXT;
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS custom_field_02 TEXT;
 -- ... up to custom_field_20
 ALTER TABLE work_items ADD COLUMN IF NOT EXISTS custom_field_20 TEXT;
-ALTER TABLE work_items ADD COLUMN IF NOT EXISTS custom_fields_overflow JSONB;
-
--- Index for JSON queries on overflow
-CREATE INDEX IF NOT EXISTS idx_work_items_custom_overflow_gin
-ON work_items USING GIN (custom_fields_overflow);
 
 -- Project custom fields discovery cache
 CREATE TABLE IF NOT EXISTS projects_custom_fields (

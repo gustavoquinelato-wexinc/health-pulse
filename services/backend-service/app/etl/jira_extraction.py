@@ -1312,7 +1312,7 @@ async def execute_issues_changelogs_dev_status_extraction(
         )
 
         issues_result = await _extract_issues_with_changelogs(
-            jira_client, integration_id, tenant_id, incremental, progress_tracker
+            jira_client, integration_id, tenant_id, incremental, progress_tracker, job_id
         )
 
         await progress_tracker.update_step_progress(
@@ -1402,7 +1402,8 @@ async def _extract_issues_with_changelogs(
     integration_id: int,
     tenant_id: int,
     incremental: bool,
-    progress_tracker: JiraExtractionProgressTracker
+    progress_tracker: JiraExtractionProgressTracker,
+    job_id: int = None
 ) -> Dict[str, Any]:
     """
     Extract issues with changelogs from Jira and store in raw_extraction_data.
@@ -1414,29 +1415,68 @@ async def _extract_issues_with_changelogs(
     """
 
     from app.etl.queue.queue_manager import get_queue_manager
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+    from app.core.database import get_database
+    import json
 
-    # Build JQL query for incremental extraction
-    # For now, use a simple query - can be enhanced with last_sync_at logic later
-    if incremental:
-        # Get last 30 days of updates
-        from datetime import datetime, timedelta, timezone
+    # Get last_sync_date and integration settings from database
+    database = get_database()
+    with database.get_read_session_context() as db:
+        # Get last_sync_date and integration settings in one query
+        query = text("""
+            SELECT ej.last_sync_date, i.settings
+            FROM etl_jobs ej
+            JOIN integrations i ON i.id = ej.integration_id
+            WHERE ej.integration_id = :integration_id AND ej.tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'integration_id': integration_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise ValueError(f"Integration {integration_id} or ETL job not found for tenant {tenant_id}")
+
+        last_sync_date, settings_json = result
+
+    # Parse integration settings
+    settings = settings_json if isinstance(settings_json, dict) else json.loads(settings_json or '{}')
+    projects = settings.get('projects', [])
+
+    logger.info(f"[DEBUG] Last sync date: {last_sync_date}")
+    logger.info(f"[DEBUG] Integration projects: {projects}")
+
+    # Build JQL query with proper date and project filtering
+    jql_parts = []
+
+    # Add project filter if projects are specified
+    if projects:
+        if len(projects) == 1:
+            jql_parts.append(f"project = {projects[0]}")
+        else:
+            project_list = ", ".join(projects)
+            jql_parts.append(f"project in ({project_list})")
+
+    # Add date filter for incremental extraction
+    if incremental and last_sync_date:
+        # Use last_sync_date for incremental extraction
+        jira_date = last_sync_date.strftime('%Y-%m-%d %H:%M')
+        jql_parts.append(f"updated >= '{jira_date}'")
+    elif incremental:
+        # Fallback to 30 days if no last_sync_date
+        from datetime import timedelta
         thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
         jira_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
-        jql = f"updated >= '{jira_date}' ORDER BY updated DESC"
+        jql_parts.append(f"updated >= '{jira_date}'")
+
+    # Combine JQL parts
+    if jql_parts:
+        jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
     else:
-        # Full extraction
         jql = "ORDER BY updated DESC"
 
-    logger.info(f"Using JQL query: {jql}")
+    logger.info(f"[DEBUG] Using JQL query: {jql}")
 
-    # Define fields to fetch (including custom fields)
-    fields = [
-        'summary', 'description', 'status', 'issuetype', 'project',
-        'created', 'updated', 'priority', 'resolution', 'labels',
-        'assignee', 'parent', 'customfield_10016',  # Story points
-        'customfield_10222',  # Acceptance criteria
-        'customfield_10128',  # Team
-    ]
+    # Use *all fields - explicitly request all fields
+    fields = ['*all']  # This will fetch all fields
 
     # Fetch issues with pagination using next_page_token
     all_issues = []
@@ -1450,7 +1490,7 @@ async def _extract_issues_with_changelogs(
             jql=jql,
             next_page_token=next_page_token,
             max_results=max_results,
-            fields=fields,
+            fields=fields,  # None = fetch all fields (*all)
             expand=['changelog']
         )
 
@@ -1474,16 +1514,16 @@ async def _extract_issues_with_changelogs(
 
         if total_issues is None:
             total_issues = result.get('total', 0)
-            logger.info(f"Total issues to fetch: {total_issues}")
+            logger.info(f"[DEBUG] Total issues to fetch: {total_issues}")
 
         current_count = len(all_issues)
-        logger.info(f"Fetched {current_count}/{total_issues} issues")
+        logger.info(f"[DEBUG] Fetched {current_count}/{total_issues} issues")
 
         # Update progress
         if total_issues > 0:
             progress = current_count / total_issues
             await progress_tracker.update_step_progress(
-                1, progress, f"Fetching issues: {current_count}/{total_issues}"
+                1, progress, f"[DEBUG] Fetching issues: {current_count}/{total_issues}"
             )
 
         # Check if we have more pages using the new token-based pagination
@@ -1493,39 +1533,51 @@ async def _extract_issues_with_changelogs(
         if is_last or not next_page_token:
             break
 
-    logger.info(f"Fetched {len(all_issues)} issues total")
-
-    # Store raw data
-    raw_data_id = await store_raw_extraction_data(
-        integration_id=integration_id,
-        tenant_id=tenant_id,
-        entity_type='jira_issues_changelogs',
-        raw_data={'issues': all_issues}
-    )
-
-    logger.info(f"Stored raw issues data with ID: {raw_data_id}")
-
-    # Publish to transform queue with completion flag for Jira
-    queue_manager = get_queue_manager()
+    logger.info(f"[DEBUG] Fetched {len(all_issues)} issues total")
 
     # Get integration to determine provider name
     with get_read_session() as session:
         integration = session.query(Integration).filter(Integration.id == integration_id).first()
-        provider_name = integration.name if integration else "Unknown"
+        provider_name = integration.provider if integration else "Unknown"
 
-    queue_manager.publish_transform_job(
-        tenant_id=tenant_id,
-        integration_id=integration_id,
-        raw_data_id=raw_data_id,
-        data_type='jira_issues_changelogs',
-        etl_job_id=job_id,
-        provider_name=provider_name,
-        last_sync_date=last_sync_date,
-        first_item=False,  # ✅ first_item is set by projects extraction
-        last_issue_changelog_item=True  # ✅ This marks the end of initial Jira extraction
-    )
+    # Convert last_sync_date to string for JSON serialization
+    last_sync_date_str = last_sync_date.isoformat() if last_sync_date else None
 
-    logger.info(f"Published issues to transform queue")
+    # Store each issue individually and queue to transform
+    queue_manager = get_queue_manager()
+    stored_count = 0
+    published_count = 0
+
+    for i, issue in enumerate(all_issues):
+        # Store individual issue as raw data
+        raw_data_id = await store_raw_extraction_data(
+            integration_id=integration_id,
+            tenant_id=tenant_id,
+            entity_type='jira_single_issue_changelog',
+            raw_data={'issue': issue}
+        )
+        stored_count += 1
+
+        # Determine if this is the last issue
+        is_last_item = (i == len(all_issues) - 1)
+
+        # Publish individual issue to transform queue
+        success = queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            raw_data_id=raw_data_id,
+            data_type='jira_single_issue_changelog',
+            etl_job_id=job_id,
+            provider_name=provider_name,
+            last_sync_date=last_sync_date_str,
+            first_item=False,
+            last_issue_changelog_item=is_last_item
+        )
+
+        if success:
+            published_count += 1
+
+    logger.info(f"[DEBUG] Stored {stored_count} individual issues and published {published_count} to transform queue")
 
     return {
         'success': True,

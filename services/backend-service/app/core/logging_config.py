@@ -153,10 +153,12 @@ def setup_logging(force_reconfigure=False):
         # Always show WARNING+ messages
         if record.levelno >= logging.WARNING:
             return True
-        # Allow ETL job start/finish messages
+        # Allow ETL job start/finish messages and worker debug messages
         if any(keyword in message for keyword in [
             "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
-            "Job scheduler started successfully", "Backend Service started successfully"
+            "Job scheduler started successfully", "Backend Service started successfully",
+            "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
+            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish", "DEBOGA"
         ]):
             return True
         return False
@@ -174,9 +176,9 @@ def setup_logging(force_reconfigure=False):
         backupCount=5,
         encoding='utf-8'
     )
-    # Only log WARNING+ to file to reduce log file growth
-    # This keeps the file focused on errors and important events
-    file_handler.setLevel(logging.WARNING)
+    # Log INFO+ to file for debugging ETL jobs
+    # This allows ETL job logs to be captured in the file
+    file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
 
     # Add filter to allow important ETL job messages to file
@@ -185,11 +187,14 @@ def setup_logging(force_reconfigure=False):
         # Always show WARNING+ messages
         if record.levelno >= logging.WARNING:
             return True
-        # Allow critical ETL job lifecycle messages
-        if any(keyword in message for keyword in [
+        # Allow INFO level ETL job messages and worker debug messages
+        if record.levelno >= logging.INFO and any(keyword in message for keyword in [
             "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
+            "✅ JOB STARTED:", "📊 JOB STATUS CHECK:", "🔵 MANUAL TRIGGER:", "🟢 AUTO TRIGGER:",
             "Job scheduler started successfully", "Backend Service started successfully",
-            "MANUAL TRIGGER:", "AUTO TRIGGER:"
+            "MANUAL TRIGGER:", "AUTO TRIGGER:",
+            "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
+            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish"
         ]):
             return True
         return False
