@@ -85,6 +85,13 @@ class ETLWebSocketService {
       return () => {}
     }
 
+    // Check if already connected to prevent duplicate connections (React StrictMode)
+    const existingWs = this.connections.get(jobName)
+    if (existingWs && existingWs.readyState === WebSocket.OPEN) {
+      // Already connected, return cleanup function for existing connection
+      return () => this.disconnectJob(jobName)
+    }
+
     // Close existing connection if any
     this.disconnectJob(jobName)
 
@@ -97,7 +104,7 @@ class ETLWebSocketService {
       this.connections.set(jobName, ws)
 
       ws.onopen = () => {
-        console.log(`[ETL-WS] Connected to ${jobName}`)
+        // Connection successful - reset reconnect attempts
         this.reconnectAttempts.set(jobName, 0)
       }
 
@@ -112,10 +119,10 @@ class ETLWebSocketService {
 
       ws.onclose = (event) => {
         this.connections.delete(jobName)
-        
-        // Attempt to reconnect if not manually disconnected
+
+        // Only attempt to reconnect if not manually disconnected and not in React StrictMode cleanup
         const attempts = this.reconnectAttempts.get(jobName) || 0
-        if (event.code !== 1000 && attempts < this.maxReconnectAttempts && this.isInitialized) {
+        if (event.code !== 1000 && event.code !== 1001 && attempts < this.maxReconnectAttempts && this.isInitialized) {
           this.reconnectAttempts.set(jobName, attempts + 1)
           setTimeout(() => {
             if (this.isInitialized) {
@@ -126,7 +133,10 @@ class ETLWebSocketService {
       }
 
       ws.onerror = (error) => {
-        console.error(`[ETL-WS] WebSocket error for ${jobName}:`, error)
+        // Only log errors that aren't from React StrictMode cleanup
+        if (ws.readyState !== WebSocket.CLOSED) {
+          console.error(`[ETL-WS] WebSocket error for ${jobName}:`, error)
+        }
       }
 
       // Return cleanup function
@@ -181,7 +191,10 @@ class ETLWebSocketService {
   private disconnectJob(jobName: string) {
     const ws = this.connections.get(jobName)
     if (ws) {
-      ws.close(1000, 'Manual disconnect')
+      // Close with code 1001 to indicate going away (prevents reconnection attempts)
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1001, 'Manual disconnect')
+      }
       this.connections.delete(jobName)
     }
   }
