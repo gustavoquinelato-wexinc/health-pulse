@@ -101,9 +101,6 @@ Week 8: Phase 3 - GitHub Enhancement
 
 ### **Database Design**
 ```sql
--- Add to work_items table
-ALTER TABLE work_items ADD COLUMN custom_fields_overflow JSONB;
-
 -- Project custom fields discovery
 CREATE TABLE projects_custom_fields (...);
 

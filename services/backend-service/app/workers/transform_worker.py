@@ -167,7 +167,12 @@ class TransformWorker(BaseWorker):
             elif message_type == 'jira_issues_changelogs':
                 # Legacy batch processing (kept for backward compatibility)
                 return self._process_jira_issues_changelogs(
-                    raw_data_id, tenant_id, integration_id
+                    raw_data_id, tenant_id, integration_id, job_id
+                )
+            elif message_type == 'jira_single_issue_changelog':
+                # Individual issue processing with changelog
+                return self._process_jira_single_issue_changelog(
+                    raw_data_id, tenant_id, integration_id, job_id, message
                 )
             elif message_type == 'jira_issue':
                 # New individual issue processing
@@ -300,6 +305,11 @@ class TransformWorker(BaseWorker):
                     self._queue_entities_for_embedding(tenant_id, 'wits', result['wits_to_insert'], job_id)
                 if result['wits_to_update']:
                     self._queue_entities_for_embedding(tenant_id, 'wits', result['wits_to_update'], job_id)
+
+                # ✅ Queue next extraction step: statuses and relationships (after projects are in database)
+                if job_id:
+                    logger.info(f"🔄 Projects processing complete, queuing next step: jira_statuses_and_relationships")
+                    self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_statuses_and_relationships')
 
                 logger.info(f"Successfully processed Jira project search data for raw_data_id={raw_data_id}")
                 return True
@@ -1737,7 +1747,7 @@ class TransformWorker(BaseWorker):
                 elif table_name == 'custom_fields':
                     external_id = entity.get('external_id')
                 elif table_name == 'work_items':
-                    external_id = entity.get('key')
+                    external_id = entity.get('external_id')
                 elif table_name == 'changelogs':
                     external_id = entity.get('external_id')
                 elif table_name in ['prs', 'prs_commits', 'prs_reviews', 'prs_comments', 'repositories']:
@@ -1775,7 +1785,7 @@ class TransformWorker(BaseWorker):
             logger.error(f"Error queuing entities for embedding: {e}")
             # Don't raise - embedding is async and shouldn't block transform
 
-    def _process_jira_issues_changelogs(self, raw_data_id: int, tenant_id: int, integration_id: int) -> bool:
+    def _process_jira_issues_changelogs(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None) -> bool:
         """
         Process Jira issues and changelogs from raw_extraction_data.
 
@@ -1811,12 +1821,12 @@ class TransformWorker(BaseWorker):
 
                 # Process issues
                 issues_processed = self._process_issues_data(
-                    db, issues_data, integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings
+                    db, issues_data, integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id
                 )
 
                 # Process changelogs
                 changelogs_processed = self._process_changelogs_data(
-                    db, issues_data, integration_id, tenant_id, statuses_map
+                    db, issues_data, integration_id, tenant_id, statuses_map, job_id
                 )
 
                 # Update raw data status to completed
@@ -1896,12 +1906,12 @@ class TransformWorker(BaseWorker):
 
                 # Process single issue (wrap in array for compatibility with existing method)
                 issues_processed = self._process_issues_data(
-                    db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings
+                    db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id
                 )
 
                 # Process changelogs for this issue
                 changelogs_processed = self._process_changelogs_data(
-                    db, [issue], integration_id, tenant_id, statuses_map
+                    db, [issue], integration_id, tenant_id, statuses_map, job_id
                 )
 
                 # Check if issue has development field - queue for dev_status extraction
@@ -1964,6 +1974,134 @@ class TransformWorker(BaseWorker):
 
         except Exception as e:
             logger.error(f"Error processing single jira_issue (raw_data_id={raw_data_id}): {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+
+            # Mark raw data as failed
+            try:
+                with self.get_db_session() as db:
+                    error_query = text("""
+                        UPDATE raw_extraction_data
+                        SET status = 'failed',
+                            error_details = CAST(:error_details AS jsonb),
+                            last_updated_at = NOW()
+                        WHERE id = :raw_data_id
+                    """)
+                    db.execute(error_query, {
+                        'raw_data_id': raw_data_id,
+                        'error_details': json.dumps({'error': str(e)[:500]})
+                    })
+                    db.commit()
+            except Exception as update_error:
+                logger.error(f"Failed to update raw_data status to failed: {update_error}")
+
+            return False
+
+    def _process_jira_single_issue_changelog(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+        """
+        Process a single Jira issue with changelog from raw_extraction_data.
+
+        This processes individual issues extracted from the paginated response.
+        Each issue contains full field data and changelog data.
+
+        Flow:
+        1. Load single issue raw data from raw_extraction_data table
+        2. Transform issue data and insert/update work_items table
+        3. Transform changelog data and insert changelogs table
+        4. Check if issue has development field - queue for dev_status extraction
+        5. Queue work_item and changelogs for vectorization
+        """
+        try:
+            logger.debug(f"Processing single jira_single_issue_changelog for raw_data_id={raw_data_id}")
+
+            with self.get_db_session() as db:
+                # Load raw data (single issue)
+                raw_data = self._get_raw_data(db, raw_data_id)
+                if not raw_data:
+                    logger.error(f"Raw data {raw_data_id} not found")
+                    return False
+
+                # Raw data contains a single issue object under 'issue' key
+                issue = raw_data.get('issue')
+                if not issue:
+                    logger.error(f"No 'issue' key found in raw_data_id={raw_data_id}")
+                    return False
+
+                # Validate issue has required fields
+                if not issue.get('key'):
+                    logger.error(f"Issue missing 'key' field in raw_data_id={raw_data_id}")
+                    return False
+
+                # Get reference data for mapping
+                projects_map, wits_map, statuses_map = self._get_reference_data_maps(db, integration_id, tenant_id)
+
+                # Get custom field mappings from integration
+                custom_field_mappings = self._get_custom_field_mappings(db, integration_id, tenant_id)
+
+                # Process single issue (wrap in array for compatibility with existing method)
+                issues_processed = self._process_issues_data(
+                    db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id
+                )
+
+                # Process changelogs for this issue
+                changelogs_processed = self._process_changelogs_data(
+                    db, [issue], integration_id, tenant_id, statuses_map, job_id
+                )
+
+                # Check if issue has development field - queue for dev_status extraction
+                fields = issue.get('fields', {})
+                import os
+                development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+                development_field = fields.get(development_field_id)  # Jira development field from .env
+
+                if development_field:
+                    logger.debug(f"Issue {issue.get('key')} has development field, queueing for dev_status extraction")
+
+                    # Queue extraction request (non-blocking) with ETL job tracking
+                    from app.etl.queue.queue_manager import QueueManager
+                    queue_manager = QueueManager()
+
+                    # Forward ETL job tracking information from the original message
+                    etl_job_id = message.get('etl_job_id') if message else None
+                    provider_name = message.get('provider_name') if message else None
+                    last_sync_date = message.get('last_sync_date') if message else None
+                    last_issue_changelog_item = message.get('last_issue_changelog_item', False) if message else False
+
+                    success = queue_manager.publish_extraction_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        extraction_type='jira_dev_status_fetch',
+                        extraction_data={
+                            'issue_id': issue.get('id'),
+                            'issue_key': issue.get('key')
+                        },
+                        etl_job_id=etl_job_id,
+                        provider_name=provider_name,
+                        last_sync_date=last_sync_date,
+                        last_issue_changelog_item=last_issue_changelog_item
+                    )
+
+                    if success:
+                        logger.debug(f"✅ Queued dev_status extraction for issue {issue.get('key')} with ETL tracking")
+                    else:
+                        logger.warning(f"⚠️ Failed to queue dev_status extraction for issue {issue.get('key')}")
+
+                # Update raw data status to completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = NOW(),
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.commit()
+
+                logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error processing single jira_single_issue_changelog (raw_data_id={raw_data_id}): {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
 
@@ -2142,18 +2280,16 @@ class TransformWorker(BaseWorker):
                                   }
 
         Returns:
-            Dict with all field column names and values, plus overflow
+            Dict with all field column names and values
             e.g., {
                 'team': 'R&I',
                 'development': True,
                 'story_points': 5.0,
                 'custom_field_01': 'Epic Name',
-                'custom_field_02': 'Some value',
-                'custom_fields_overflow': {'customfield_99999': 'some value'}
+                'custom_field_02': 'Some value'
             }
         """
         result = {}
-        overflow = {}
 
         if not custom_field_mappings:
             # No mappings configured - don't extract any custom fields
@@ -2233,23 +2369,13 @@ class TransformWorker(BaseWorker):
                         # Simple field (string, number, etc.)
                         result[column_name] = str(value) if not isinstance(value, str) else value
 
-        # Check for unmapped custom fields (for overflow)
-        for field_key, field_value in fields.items():
-            if field_key.startswith('customfield_') and field_key not in custom_field_mappings:
-                # This is a custom field that's not mapped - add to overflow
-                if field_value is not None:
-                    overflow[field_key] = field_value
 
-        # Add overflow if any
-        if overflow:
-            result['custom_fields_overflow'] = overflow
-            logger.debug(f"Found {len(overflow)} unmapped custom fields in overflow")
 
         return result
 
     def _process_issues_data(
         self, db, issues_data: List[Dict], integration_id: int, tenant_id: int,
-        projects_map: Dict, wits_map: Dict, statuses_map: Dict, custom_field_mappings: Dict[str, str]
+        projects_map: Dict, wits_map: Dict, statuses_map: Dict, custom_field_mappings: Dict[str, str], job_id: int = None
     ) -> int:
         """
         Process and insert/update issues in work_items table.
@@ -2402,7 +2528,7 @@ class TransformWorker(BaseWorker):
 
     def _process_changelogs_data(
         self, db, issues_data: List[Dict], integration_id: int, tenant_id: int,
-        statuses_map: Dict
+        statuses_map: Dict, job_id: int = None
     ) -> int:
         """Process and insert changelogs from issues data."""
         from datetime import datetime, timezone
@@ -2805,7 +2931,7 @@ class TransformWorker(BaseWorker):
 
                 # Process dev_status
                 pr_links_processed = self._process_dev_status_data(
-                    db, dev_status_data, integration_id, tenant_id
+                    db, dev_status_data, integration_id, tenant_id, job_id
                 )
 
                 # Update raw data status to completed
@@ -2850,7 +2976,7 @@ class TransformWorker(BaseWorker):
                         UPDATE raw_extraction_data
                         SET status = 'failed',
                             last_updated_at = NOW(),
-                            error_details = :error_details::jsonb
+                            error_details = CAST(:error_details AS jsonb)
                         WHERE id = :raw_data_id
                     """)
                     import json
@@ -2865,7 +2991,7 @@ class TransformWorker(BaseWorker):
             return False
 
     def _process_dev_status_data(
-        self, db, dev_status_data: List[Dict], integration_id: int, tenant_id: int
+        self, db, dev_status_data: List[Dict], integration_id: int, tenant_id: int, job_id: int = None
     ) -> int:
         """Process dev_status data and insert/update work_items_prs_links table."""
         from datetime import datetime, timezone
